@@ -9,7 +9,7 @@ const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
     const n = applyPendingCommands(store, (c, e) =>
-      console.error(`[worker] command ${c.id} failed, will retry next tick:`, e),
+      console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
   },

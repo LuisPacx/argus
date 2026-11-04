@@ -199,13 +199,64 @@ describe("command error semantics", () => {
         throw new Error("SQLITE_BUSY");
       }),
     ).toThrow("SQLITE_BUSY");
-    expect(ds.getCommand(c.id)).toMatchObject({ status: "pending", error: "" });
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "pending", error: "SQLITE_BUSY", attempts: 1 });
     expect(ds.getProposal(id)!.status).toBe("new");
     expect(ds.historyFor(id)).toHaveLength(1);
     ds.resolveCommand(c.id, () => {
       throw new DomainError("nope");
     });
     expect(ds.getCommand(c.id)).toMatchObject({ status: "rejected", error: "nope" });
+  });
+
+  it("a permanent non-domain error fails the command after 5 attempts; the next command is processed", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const ds = Datastore.open(path);
+    const id = ds.createProposal(input).id;
+    const c = ds.enqueueCommand(id, "shortlist");
+    const raw = new DatabaseSync(path);
+    raw.exec(`CREATE TRIGGER boom BEFORE INSERT ON status_history WHEN NEW.to_status = 'shortlisted'
+      BEGIN SELECT RAISE(ABORT, 'always broken'); END`);
+    for (let i = 1; i <= 4; i++) {
+      applyPendingCommands(ds, () => {});
+      expect(ds.getCommand(c.id)).toMatchObject({ status: "pending", attempts: i, error: "always broken" });
+    }
+    applyPendingCommands(ds, () => {});
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "failed", attempts: 5, error: "always broken" });
+    expect(ds.getCommand(c.id)!.appliedAt).not.toBeNull();
+    expect(ds.pendingCommands()).toEqual([]);
+    raw.exec("DROP TRIGGER boom");
+    raw.close();
+    expect(applyPendingCommands(ds)).toBe(0);
+    expect(ds.getCommand(c.id)!.status).toBe("failed");
+    const next = ds.enqueueCommand(id, "shortlist");
+    expect(applyPendingCommands(ds)).toBe(1);
+    expect(ds.getCommand(next.id)).toMatchObject({ status: "applied", attempts: 0 });
+    expect(ds.getProposal(id)!.status).toBe("shortlisted");
+  });
+
+  it("a transient error that clears on attempt 2 is applied", () => {
+    const ds = Datastore.open(":memory:");
+    const id = ds.createProposal(input).id;
+    const c = ds.enqueueCommand(id, "shortlist");
+    let calls = 0;
+    const flaky = () => {
+      if (++calls === 1) throw new Error("blip");
+      ds.transition(id, "shortlisted", "operator");
+    };
+    expect(() => ds.resolveCommand(c.id, flaky)).toThrow("blip");
+    ds.resolveCommand(c.id, flaky);
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "applied", attempts: 1 });
+    expect(ds.getProposal(id)!.status).toBe("shortlisted");
+  });
+
+  it("rejects a blank-reason dismiss even when already dismissed", () => {
+    const ds = Datastore.open(":memory:");
+    const id = ds.createProposal(input).id;
+    ds.enqueueCommand(id, "dismiss", "meh");
+    const blank = ds.enqueueCommand(id, "dismiss", "  ");
+    applyPendingCommands(ds);
+    expect(ds.getCommand(blank.id)).toMatchObject({ status: "rejected", error: "Dismissal requires a reason" });
+    expect(ds.historyFor(id)).toHaveLength(2);
   });
 
   it("one failing command does not stop the batch, and is retried next tick", () => {

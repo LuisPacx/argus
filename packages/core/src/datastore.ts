@@ -39,6 +39,9 @@ export interface NewProposal {
   evidenceLinks: string[];
 }
 
+/** Non-domain failures tolerated per command before it is marked `failed`. */
+export const MAX_COMMAND_ATTEMPTS = 5;
+
 export const DEFAULT_DB_PATH = ".data/argus.db";
 
 /** Adds a column only when missing, so migrations can run repeatedly (helios pattern). */
@@ -84,6 +87,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "description", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "evidence_links", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "proposals", "agent_cost_usd", "REAL NOT NULL DEFAULT 0");
+  ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
 }
 
 export function slugify(text: string): string {
@@ -301,10 +305,12 @@ export class Datastore {
 
   /**
    * WORKER ONLY. Runs `apply` for a pending command and marks it applied, or rejected when `apply`
-   * throws a DomainError. Any other error rolls the command's writes back, leaves it pending and is
-   * rethrown, so the next tick retries it.
+   * throws a DomainError. Any other error rolls the command's writes back, records the attempt and
+   * the error (`error`), and is rethrown. After MAX_COMMAND_ATTEMPTS such failures the command is
+   * marked `failed` and never retried.
    */
   resolveCommand(id: number, apply: () => void): void {
+    let failure: { error: unknown } | undefined;
     this.inTransaction(() => {
       const c = this.getCommand(id);
       if (!c || c.status !== "pending") return;
@@ -315,13 +321,26 @@ export class Datastore {
       } catch (e) {
         this.db.exec("ROLLBACK TO cmd");
         this.db.exec("RELEASE cmd");
-        if (!(e instanceof DomainError)) throw e;
-        this.db.prepare("UPDATE commands SET status = 'rejected', error = ?, applied_at = ? WHERE id = ?").run(e.message, now, id);
+        if (e instanceof DomainError) {
+          this.db.prepare("UPDATE commands SET status = 'rejected', error = ?, applied_at = ? WHERE id = ?").run(e.message, now, id);
+          return;
+        }
+        const attempts = c.attempts + 1;
+        const message = e instanceof Error ? e.message : String(e);
+        if (attempts >= MAX_COMMAND_ATTEMPTS) {
+          this.db
+            .prepare("UPDATE commands SET status = 'failed', attempts = ?, error = ?, applied_at = ? WHERE id = ?")
+            .run(attempts, message, now, id);
+        } else {
+          this.db.prepare("UPDATE commands SET attempts = ?, error = ? WHERE id = ?").run(attempts, message, id);
+        }
+        failure = { error: e };
         return;
       }
       this.db.exec("RELEASE cmd");
       this.db.prepare("UPDATE commands SET status = 'applied', applied_at = ? WHERE id = ?").run(now, id);
     });
+    if (failure) throw failure.error;
   }
 }
 
@@ -332,6 +351,7 @@ interface CommandRow {
   reason: string;
   status: Command["status"];
   error: string;
+  attempts: number;
   created_at: string;
   applied_at: string | null;
 }
@@ -344,6 +364,7 @@ function toCommand(r: CommandRow): Command {
     reason: r.reason,
     status: r.status,
     error: r.error,
+    attempts: r.attempts,
     createdAt: r.created_at,
     appliedAt: r.applied_at,
   };

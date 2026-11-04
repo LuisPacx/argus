@@ -102,7 +102,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
 }
 
 export type CommandType = "shortlist" | "dismiss" | "approve";
-export type CommandStatus = "pending" | "applied" | "rejected";
+export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
   id: number;
@@ -110,7 +110,10 @@ export interface Command {
   type: CommandType;
   reason: string;
   status: CommandStatus;
+  /** Rejection reason, or the last non-domain error while retrying or once `failed`. */
   error: string;
+  /** Non-domain failures so far. */
+  attempts: number;
   createdAt: string;
   appliedAt: string | null;
 }
@@ -141,18 +144,18 @@ export function applyCommand(store: Datastore, command: Command): void {
   if (!target) throw new DomainError(`Unknown command type ${String(command.type)}`);
   const proposal = store.getProposal(command.proposalId);
   if (!proposal) throw new ProposalNotFoundError(command.proposalId);
-  if (proposal.status === target) return;
   const reason = command.reason.trim() || undefined;
+  if (command.type === "dismiss" && !reason) throw new MissingReasonError();
+  if (proposal.status === target) return;
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
   else if (command.type === "dismiss") {
-    if (!reason) throw new MissingReasonError();
     store.transition(command.proposalId, "dismissed", "operator", reason);
   } else store.transition(command.proposalId, target, "operator", reason);
 }
 
 /**
  * Applies every pending command in order and returns how many were resolved (applied or rejected).
- * A command that fails with a non-domain error stays pending (retried next tick) and is reported to
+ * A command that fails with a non-domain error stays pending (retried next tick, up to 5 attempts, then `failed`) and is reported to
  * `onError`; it never stops the rest of the batch.
  */
 export function applyPendingCommands(store: Datastore, onError?: (command: Command, error: unknown) => void): number {

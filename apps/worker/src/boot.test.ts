@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -11,7 +11,8 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   const pkg = JSON.parse(readFileSync(join(workerDir, "package.json"), "utf8")) as { scripts: { start: string } };
   const [cmd, ...args] = pkg.scripts.start.split(" ");
   expect(cmd).toBe("node");
-  const db = join(mkdtempSync(join(tmpdir(), "argus-worker-")), "argus.db");
+  const dir = mkdtempSync(join(tmpdir(), "argus-worker-"));
+  const db = join(dir, "argus.db");
   const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db } });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
@@ -26,6 +27,10 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   } finally {
     child.kill("SIGTERM");
   }
-  expect(await exited).toBe(0);
-  expect(out).toContain("[worker] stopped");
+  try {
+    expect(await exited).toBe(0);
+    expect(out).toContain("[worker] stopped");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }, 30_000);
