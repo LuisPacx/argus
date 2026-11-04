@@ -24,10 +24,31 @@ export interface Proposal {
   ticker: string;
   description: string;
   evidenceLinks: string[];
+  /** Sum of `total_cost_usd` over the Proposal's brain runs. */
   agentCostUsd: number;
+  specPath: string | null;
+  specHash: string | null;
+  /** Last Spec drafting failure; empty when none. The Proposal stays `shortlisted` while it is set. */
+  specError: string;
+  /** When set, a rate-limited draft may be retried after this ISO time. */
+  specRetryAfter: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface BrainRunRecord {
+  id: number;
+  proposalId: number;
+  task: string;
+  backend: string;
+  model: string;
+  sessionId: string | null;
+  totalCostUsd: number;
+  exitStatus: string;
+  createdAt: string;
+}
+
+export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt">;
 
 export interface NewProposal {
   narrativeSummary: string;
@@ -87,6 +108,21 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "description", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "evidence_links", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "proposals", "agent_cost_usd", "REAL NOT NULL DEFAULT 0");
+  db.exec(`CREATE TABLE IF NOT EXISTS brain_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    task TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    model TEXT NOT NULL,
+    session_id TEXT,
+    total_cost_usd REAL NOT NULL DEFAULT 0,
+    exit_status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  ensureColumn(db, "proposals", "spec_path", "TEXT");
+  ensureColumn(db, "proposals", "spec_hash", "TEXT");
+  ensureColumn(db, "proposals", "spec_error", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "spec_retry_after", "TEXT");
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
 }
 
@@ -108,10 +144,16 @@ interface Row {
   ticker: string;
   description: string;
   evidence_links: string;
-  agent_cost_usd: number;
+  cost_usd: number;
+  spec_path: string | null;
+  spec_hash: string | null;
+  spec_error: string;
+  spec_retry_after: string | null;
   created_at: string;
   updated_at: string;
 }
+
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -125,7 +167,11 @@ function toProposal(r: Row): Proposal {
     ticker: r.ticker,
     description: r.description,
     evidenceLinks: JSON.parse(r.evidence_links) as string[],
-    agentCostUsd: r.agent_cost_usd,
+    agentCostUsd: r.cost_usd,
+    specPath: r.spec_path,
+    specHash: r.spec_hash,
+    specError: r.spec_error,
+    specRetryAfter: r.spec_retry_after,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -208,12 +254,12 @@ export class Datastore {
   }
 
   getProposal(id: number): Proposal | undefined {
-    const row = this.db.prepare("SELECT * FROM proposals WHERE id = ?").get(id) as unknown as Row | undefined;
+    const row = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(id) as unknown as Row | undefined;
     return row && toProposal(row);
   }
 
   listProposals(): Proposal[] {
-    const rows = this.db.prepare("SELECT * FROM proposals ORDER BY id DESC").all() as unknown as Row[];
+    const rows = this.db.prepare(`${PROPOSAL_SELECT} ORDER BY p.id DESC`).all() as unknown as Row[];
     return rows.map(toProposal);
   }
 
@@ -300,6 +346,73 @@ export class Datastore {
           "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .run(proposalId, current.status, to, actor, reason?.trim() || t.reason, now);
+    });
+  }
+
+  /** WORKER ONLY. Stores one brain run (success or not) against a Proposal. */
+  recordBrainRun(run: NewBrainRun): void {
+    this.db
+      .prepare(
+        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        run.proposalId,
+        run.task,
+        run.backend,
+        run.model,
+        run.sessionId,
+        run.totalCostUsd,
+        run.exitStatus,
+        new Date().toISOString(),
+      );
+  }
+
+  brainRunsFor(proposalId: number): BrainRunRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM brain_runs WHERE proposal_id = ? ORDER BY id")
+      .all(proposalId) as unknown as {
+      id: number;
+      proposal_id: number;
+      task: string;
+      backend: string;
+      model: string;
+      session_id: string | null;
+      total_cost_usd: number;
+      exit_status: string;
+      created_at: string;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      proposalId: r.proposal_id,
+      task: r.task,
+      backend: r.backend,
+      model: r.model,
+      sessionId: r.session_id,
+      totalCostUsd: r.total_cost_usd,
+      exitStatus: r.exit_status,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /** WORKER ONLY. Records the run, stores the Spec path and hash, and moves `shortlisted` -> `spec-drafted`, atomically. */
+  completeSpec(proposalId: number, spec: { path: string; hash: string }, run: NewBrainRun): void {
+    this.inTransaction(() => {
+      this.recordBrainRun(run);
+      this.db
+        .prepare("UPDATE proposals SET spec_path = ?, spec_hash = ?, spec_error = '', spec_retry_after = NULL WHERE id = ?")
+        .run(spec.path, spec.hash, proposalId);
+      this.transition(proposalId, "spec-drafted", "system");
+    });
+  }
+
+  /** WORKER ONLY. Records a failed draft (and its run, if any); the Proposal stays `shortlisted` with the error visible. */
+  failSpec(proposalId: number, error: string, run?: NewBrainRun, retryAfter?: string): void {
+    this.inTransaction(() => {
+      if (run) this.recordBrainRun(run);
+      this.db
+        .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = ? WHERE id = ?")
+        .run(error, retryAfter ?? null, proposalId);
     });
   }
 

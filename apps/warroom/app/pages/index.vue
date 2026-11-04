@@ -99,6 +99,7 @@ async function submit() {
             <a :href="link" target="_blank" rel="noopener">{{ link }}</a>
           </li>
         </ul>
+        <p v-if="p.specError" class="mt-2 text-sm text-red-500">{{ p.specError }}</p>
         <p v-if="rejection(p)" class="mt-2 text-sm text-red-500">
           Command {{ rejection(p)!.status }}: {{ rejection(p)!.error }}
         </p>
