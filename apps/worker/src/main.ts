@@ -1,6 +1,6 @@
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs } from "@argus/core";
+import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs, killLiveBrainChildren } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
 
 const TICK_MS = 5_000;
@@ -10,7 +10,12 @@ const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
 const store = Datastore.open(dbPath);
 const dataDir = process.env.ARGUS_DATA_DIR || dirname(resolve(dbPath));
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const brain = new ClaudeCodeBrain({ cwd: repoRoot, dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
+// Children run from a temp dir holding only the task's skill, never the repo root (.env, .data/argus.db).
+const brain = new ClaudeCodeBrain({ skillsDir: join(repoRoot, ".claude", "skills"), dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
+
+// This is the only worker, so any brain run still open at boot belongs to a process that died: surface it, never retry.
+const interrupted = store.interruptStaleBrainRuns();
+if (interrupted > 0) console.error(`[worker] ${interrupted} brain run(s) were interrupted by a previous stop; flagged on their cards`);
 
 const tick = reentrant(
   async () => {
@@ -23,22 +28,37 @@ const tick = reentrant(
   },
   () => console.log("[worker] tick skipped: previous tick still running"),
 );
-const runTick = () => tick().catch((e) => console.error("[worker] tick failed", e));
+const running = new Set<Promise<unknown>>();
+const runTick = () => {
+  const p: Promise<unknown> = tick()
+    .catch((e) => console.error("[worker] tick failed", e))
+    .finally(() => running.delete(p));
+  running.add(p);
+  return p;
+};
+
+let timer: ReturnType<typeof setInterval> | undefined;
+let stopping = false;
+const stop = async () => {
+  if (stopping) return;
+  stopping = true;
+  clearInterval(timer);
+  // Kill live claude children first (no orphan keeps spending), let the tick record what they cost, then exit.
+  await killLiveBrainChildren();
+  await Promise.all(running);
+  store.close();
+  console.log("[worker] stopped");
+  process.exit(0);
+};
+process.on("SIGINT", () => void stop());
+process.on("SIGTERM", () => void stop());
 
 if (once) {
   console.log("[worker] one-shot tick");
   await runTick();
-  store.close();
+  if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
   void runTick();
-  const timer = setInterval(() => void runTick(), TICK_MS);
-  const stop = () => {
-    clearInterval(timer);
-    store.close();
-    console.log("[worker] stopped");
-    process.exit(0);
-  };
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  timer = setInterval(() => void runTick(), TICK_MS);
 }

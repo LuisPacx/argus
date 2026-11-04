@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BrainError, ClaudeCodeBrain, resolveRouting, scrubEnv } from "./brain.ts";
+import { BrainError, ClaudeCodeBrain, DEFAULT_ROUTING, killLiveBrainChildren, resolveRouting, scrubEnv } from "./brain.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 
 function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeCodeBrain>[0]> = {}) {
@@ -17,13 +17,17 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
       CLAUDE_CODE_OAUTH_TOKEN: "tok",
       FAKE_CLAUDE_MODE: mode,
       FAKE_CLAUDE_LOG: log,
+      FAKE_CLAUDE_STARTED: join(dirname(log), "started"),
     },
-    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG"],
+    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG", "FAKE_CLAUDE_STARTED"],
     ...extra,
   });
   const calls = () =>
-    readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
-  return { brain, calls, log };
+    readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string>; cwd: string; skills: string[]; pid: number });
+  return { brain, calls, log, started: join(dirname(log), "started") };
 }
 
 describe("ClaudeCodeBrain", () => {
@@ -73,6 +77,116 @@ describe("ClaudeCodeBrain", () => {
   it("classifies failure and rate limiting", async () => {
     expect(await setup("failure").brain.run("spec", { prompt: "p" }).catch((e) => e)).toMatchObject({ kind: "failed", totalCostUsd: 0.004 });
     expect(await setup("ratelimit", { outputFormat: "stream-json" }).brain.run("spec", { prompt: "p" }).catch((e) => e)).toMatchObject({ kind: "rate-limited" });
+  });
+
+  describe("rate-limit detection uses claude's real signals", () => {
+    const kindOf = async (mode: string, outputFormat: "json" | "stream-json" = "json") =>
+      ((await setup(mode, { outputFormat }).brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError).kind;
+
+    it("structured api_error_status 429 on the result", async () => {
+      expect(await kindOf("ratelimit-structured")).toBe("rate-limited");
+    });
+    it("a rejected rate_limit_event in the stream (an allowed_warning one does not count)", async () => {
+      expect(await kindOf("ratelimit-event", "stream-json")).toBe("rate-limited");
+      expect(await kindOf("failure", "stream-json")).toBe("failed");
+    });
+    it("the anchored usage-limit message, on a result or on stderr when there is no result", async () => {
+      expect(await kindOf("ratelimit")).toBe("rate-limited");
+      expect(await kindOf("noresult-ratelimit")).toBe("rate-limited");
+    });
+    it("prose that merely mentions 429 or rate limits is a plain failure", async () => {
+      expect(await kindOf("failure-429text")).toBe("failed");
+      expect(await kindOf("noresult")).toBe("failed");
+    });
+  });
+
+  it("exiting without a result message fails the run", async () => {
+    const err = (await setup("noresult").brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError;
+    expect(err).toBeInstanceOf(BrainError);
+    expect(err.message).toContain("without a result");
+    expect(err.totalCostUsd).toBe(0);
+  });
+
+  it("every default route sets a wall-clock cap and a tool list; spec gets no tools", () => {
+    for (const route of Object.values(DEFAULT_ROUTING)) {
+      expect(route.timeoutMs).toBeGreaterThan(0);
+      expect(Array.isArray(route.tools)).toBe(true);
+    }
+    expect(DEFAULT_ROUTING.spec.tools).toEqual([]);
+  });
+
+  it("passes the tool restriction: --tools \"\" for none, --tools plus --allowedTools otherwise", async () => {
+    const { brain, calls } = setup("success");
+    await brain.run("spec", { prompt: "p" });
+    await brain.run("propose", { prompt: "p" });
+    const [spec, propose] = calls().map((c) => c.argv);
+    expect(spec![spec!.indexOf("--tools") + 1]).toBe("");
+    expect(spec).not.toContain("--allowedTools");
+    expect(propose![propose!.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+    expect(propose![propose!.indexOf("--allowedTools") + 1]).toBe("WebSearch,WebFetch");
+  });
+
+  describe("wall-clock timeout", () => {
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const fast = (timeoutMs = 300) => resolveRouting({ spec: { timeoutMs } });
+
+    it("kills a hung child and fails the run as timed-out", async () => {
+      const { brain, calls } = setup("hang", { routing: fast(), killGraceMs: 200 });
+      const t0 = Date.now();
+      const err = (await brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError;
+      expect(err).toBeInstanceOf(BrainError);
+      expect(err.kind).toBe("timed-out");
+      expect(Date.now() - t0).toBeLessThan(5_000);
+      expect(alive(calls()[0]!.pid)).toBe(false);
+    });
+
+    it("escalates to SIGKILL when the child ignores SIGTERM", async () => {
+      const { brain, calls } = setup("hang-stubborn", { routing: fast(), killGraceMs: 200 });
+      const err = (await brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError;
+      expect(err.kind).toBe("timed-out");
+      expect(alive(calls()[0]!.pid)).toBe(false);
+    });
+
+    it("killLiveBrainChildren stops a running child (worker shutdown)", async () => {
+      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(60_000), killGraceMs: 200 });
+      const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+      const deadline = Date.now() + 5_000;
+      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 100)); // the fake installs its SIGTERM handler before writing the marker
+      const pid = calls()[0]!.pid;
+      expect(await killLiveBrainChildren(200)).toBe(1);
+      expect(alive(pid)).toBe(false);
+      expect(await running).toBeInstanceOf(BrainError);
+    });
+  });
+
+  describe("isolated working directory", () => {
+    it("runs from a temp dir holding only the task's skill, never the repo root, and cleans it up", async () => {
+      const repoRoot = join(import.meta.dirname, "../../..");
+      const { brain, calls } = setup("success", { skillsDir: join(repoRoot, ".claude", "skills") });
+      await brain.run("spec", { prompt: "p" });
+      const call = calls()[0]!;
+      expect(call.cwd).not.toBe(repoRoot);
+      expect(call.cwd.startsWith(repoRoot)).toBe(false);
+      expect(call.skills).toEqual(["spec"]);
+      expect(existsSync(call.cwd)).toBe(false);
+    });
+
+    it("an explicit cwd wins over skillsDir", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "argus-cwd-"));
+      mkdirSync(join(dir, "sub"));
+      writeFileSync(join(dir, "sub", ".keep"), "");
+      const { brain, calls } = setup("success", { cwd: join(dir, "sub"), skillsDir: "/nonexistent" });
+      await brain.run("spec", { prompt: "p" });
+      expect(calls()[0]!.cwd).toContain("sub");
+    });
   });
 
   it("--dry-run logs the command and spawns nothing", async () => {

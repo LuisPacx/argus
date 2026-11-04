@@ -5,7 +5,7 @@
 
 **Blocked by:** 03
 
-**Status:** done
+**Status:** in-progress
 
 - [x] Brain interface per §5 with ClaudeCodeBrain; routing (task -> backend, model) is config, not code branching
 - [x] Child environment is scrubbed: `ANTHROPIC_API_KEY` removed and only the needed variables passed; a test asserts it
@@ -17,3 +17,7 @@
 - [x] A fake `claude` executable emitting the json and stream-json result shapes (success, failure, budget exceeded, rate limited) is a shared test fixture
 - [x] Card shows summed agent cost
 - [x] `pnpm check` passes
+
+## Review fixes (in progress)
+
+Reviewer findings fixed: spend recorded before any write/transition with an in-flight `brain_runs` row; required `timeoutMs` and `tools` on every `TaskRoute`; isolated skill-only cwd and untrusted-data line in the `spec` skill; structured rate-limit detection with a 3-attempt cap. Done again only after verify, review and a real `claude -p` smoke.

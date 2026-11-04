@@ -32,6 +32,13 @@ export interface Proposal {
   specError: string;
   /** When set, a rate-limited draft may be retried after this ISO time. */
   specRetryAfter: string | null;
+  /** Rate-limited Spec drafts so far; retries stop at MAX_SPEC_RATE_LIMIT_ATTEMPTS. */
+  specAttempts: number;
+  /**
+   * When the oldest open (`in-flight`) brain run started, else null. A Proposal with one is not re-drafted; if the
+   * worker is not running it is stale, and the next worker boot marks it `interrupted` and sets `specError`.
+   */
+  brainRunInFlightSince: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,6 +57,10 @@ export interface BrainRunRecord {
 
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt">;
 
+/** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
+export const BRAIN_RUN_IN_FLIGHT = "in-flight";
+export const BRAIN_RUN_INTERRUPTED = "interrupted";
+
 export interface NewProposal {
   narrativeSummary: string;
   techOneLiner: string;
@@ -62,6 +73,9 @@ export interface NewProposal {
 
 /** Non-domain failures tolerated per command before it is marked `failed`. */
 export const MAX_COMMAND_ATTEMPTS = 5;
+
+/** Rate-limited Spec drafts tolerated per Proposal before it stops retrying and shows the failure. */
+export const MAX_SPEC_RATE_LIMIT_ATTEMPTS = 3;
 
 export const DEFAULT_DB_PATH = ".data/argus.db";
 
@@ -123,6 +137,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "spec_hash", "TEXT");
   ensureColumn(db, "proposals", "spec_error", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "spec_retry_after", "TEXT");
+  ensureColumn(db, "proposals", "spec_attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
 }
 
@@ -149,11 +164,13 @@ interface Row {
   spec_hash: string | null;
   spec_error: string;
   spec_retry_after: string | null;
+  spec_attempts: number;
+  in_flight_since: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -172,6 +189,8 @@ function toProposal(r: Row): Proposal {
     specHash: r.spec_hash,
     specError: r.spec_error,
     specRetryAfter: r.spec_retry_after,
+    specAttempts: r.spec_attempts,
+    brainRunInFlightSince: r.in_flight_since,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -395,24 +414,100 @@ export class Datastore {
     }));
   }
 
-  /** WORKER ONLY. Records the run, stores the Spec path and hash, and moves `shortlisted` -> `spec-drafted`, atomically. */
-  completeSpec(proposalId: number, spec: { path: string; hash: string }, run: NewBrainRun): void {
-    this.inTransaction(() => {
-      this.recordBrainRun(run);
-      this.db
-        .prepare("UPDATE proposals SET spec_path = ?, spec_hash = ?, spec_error = '', spec_retry_after = NULL WHERE id = ?")
-        .run(spec.path, spec.hash, proposalId);
-      this.transition(proposalId, "spec-drafted", "system");
+  /**
+   * WORKER ONLY. Opens a brain run before the child is spawned, so a crash leaves a row behind instead of
+   * unrecorded spend. Returns its id; close it with finishBrainRun (or discardBrainRun for a dry run).
+   */
+  startBrainRun(run: Pick<NewBrainRun, "proposalId" | "task" | "backend" | "model">): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
+         VALUES (?, ?, ?, ?, NULL, 0, ?, ?)`,
+      )
+      .run(run.proposalId, run.task, run.backend, run.model, BRAIN_RUN_IN_FLIGHT, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  /** WORKER ONLY. Records what a run cost and how it ended, as soon as the child is done. */
+  finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }): void {
+    this.db
+      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ? WHERE id = ?")
+      .run(done.sessionId, done.totalCostUsd, done.exitStatus, id);
+  }
+
+  /** WORKER ONLY. Removes a run that never spawned anything (`--dry-run`). */
+  discardBrainRun(id: number): void {
+    this.db.prepare("DELETE FROM brain_runs WHERE id = ? AND exit_status = ?").run(id, BRAIN_RUN_IN_FLIGHT);
+  }
+
+  /** The Proposal's open (`in-flight`) run for a task, if any. */
+  openBrainRun(proposalId: number, task: string): BrainRunRecord | undefined {
+    return this.brainRunsFor(proposalId).find((r) => r.task === task && r.exitStatus === BRAIN_RUN_IN_FLIGHT);
+  }
+
+  /**
+   * WORKER ONLY, call once at worker boot (there is one worker, so any open run is stale). Marks each open run
+   * `interrupted` (its spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose
+   * Spec draft it was. Nothing is retried: the failure shows on the card. Returns how many runs were marked.
+   */
+  interruptStaleBrainRuns(): number {
+    return this.inTransaction(() => {
+      const rows = this.db
+        .prepare("SELECT id, proposal_id, task FROM brain_runs WHERE exit_status = ?")
+        .all(BRAIN_RUN_IN_FLIGHT) as unknown as { id: number; proposal_id: number; task: string }[];
+      for (const r of rows) {
+        this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
+        if (r.task === "spec") {
+          this.db
+            .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = NULL WHERE id = ? AND status = 'shortlisted'")
+            .run(
+              "Spec draft interrupted: the worker stopped during the brain run, so its spend is unknown. Not retried automatically.",
+              r.proposal_id,
+            );
+        }
+      }
+      return rows.length;
     });
   }
 
-  /** WORKER ONLY. Records a failed draft (and its run, if any); the Proposal stays `shortlisted` with the error visible. */
-  failSpec(proposalId: number, error: string, run?: NewBrainRun, retryAfter?: string): void {
+  /**
+   * WORKER ONLY. Stores the Spec path and hash and moves `shortlisted` -> `spec-drafted`, atomically. The brain run is
+   * recorded separately (finishBrainRun), before this. Throws IllegalTransitionError if the Proposal moved on.
+   */
+  completeSpec(proposalId: number, spec: { path: string; hash: string }): void {
     this.inTransaction(() => {
-      if (run) this.recordBrainRun(run);
+      this.transition(proposalId, "spec-drafted", "system");
       this.db
-        .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = ? WHERE id = ?")
-        .run(error, retryAfter ?? null, proposalId);
+        .prepare(
+          "UPDATE proposals SET spec_path = ?, spec_hash = ?, spec_error = '', spec_retry_after = NULL, spec_attempts = 0 WHERE id = ?",
+        )
+        .run(spec.path, spec.hash, proposalId);
+    });
+  }
+
+  /**
+   * WORKER ONLY. Records a failed draft; the Proposal stays `shortlisted` with the error visible. A rate-limited
+   * failure counts an attempt and schedules a retry `backoffMs` out until MAX_SPEC_RATE_LIMIT_ATTEMPTS, then gives up.
+   */
+  failSpec(proposalId: number, error: string, opts: { rateLimited?: boolean; backoffMs?: number } = {}): void {
+    this.inTransaction(() => {
+      const current = this.getProposal(proposalId);
+      if (!current) throw new ProposalNotFoundError(proposalId);
+      let message = error;
+      let retryAfter: string | null = null;
+      let attempts = current.specAttempts;
+      if (opts.rateLimited) {
+        attempts += 1;
+        if (attempts < MAX_SPEC_RATE_LIMIT_ATTEMPTS) {
+          retryAfter = new Date(Date.now() + (opts.backoffMs ?? 0)).toISOString();
+          message = `${error} (attempt ${attempts}/${MAX_SPEC_RATE_LIMIT_ATTEMPTS}, will retry)`;
+        } else {
+          message = `${error} (gave up after ${attempts} rate-limited attempts)`;
+        }
+      }
+      this.db
+        .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = ?, spec_attempts = ? WHERE id = ?")
+        .run(message, retryAfter, attempts, proposalId);
     });
   }
 
