@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Datastore, migrate } from "./datastore.ts";
+import { InvalidEvidenceLinkError } from "./evidence-links.ts";
 
 const input = {
   narrativeSummary: "Cats everywhere",
@@ -16,6 +17,14 @@ const input = {
 };
 
 describe("Datastore", () => {
+  it("rejects unsafe evidence links and dedupes valid ones", () => {
+    const ds = Datastore.open(":memory:");
+    expect(() => ds.createProposal({ ...input, evidenceLinks: ["javascript:alert(1)"] })).toThrow(InvalidEvidenceLinkError);
+    expect(ds.createProposal({ ...input, evidenceLinks: ["https://a.com", "https://a.com"] }).evidenceLinks).toEqual([
+      "https://a.com",
+    ]);
+  });
+
   it("creates a Proposal with status new and reads it back", () => {
     const ds = Datastore.open(":memory:");
     const p = ds.createProposal(input);

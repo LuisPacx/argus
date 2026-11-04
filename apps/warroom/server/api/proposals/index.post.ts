@@ -1,4 +1,4 @@
-import type { NewProposal } from "@argus/core";
+import { InvalidEvidenceLinkError, normalizeEvidenceLinks, type NewProposal } from "@argus/core";
 
 const textFields = ["narrativeSummary", "techOneLiner", "whyNow", "name", "ticker", "description"] as const;
 
@@ -12,10 +12,13 @@ export default defineEventHandler(async (event) => {
     }
     fields[key] = value.trim();
   }
-  const links = body?.evidenceLinks;
-  const evidenceLinks = Array.isArray(links)
-    ? links.filter((l): l is string => typeof l === "string").map((l) => l.trim()).filter(Boolean)
-    : [];
+  let evidenceLinks: string[];
+  try {
+    evidenceLinks = normalizeEvidenceLinks(Array.isArray(body?.evidenceLinks) ? body.evidenceLinks : []);
+  } catch (e) {
+    if (e instanceof InvalidEvidenceLinkError) throw createError({ statusCode: 400, statusMessage: e.message });
+    throw e;
+  }
   const input: NewProposal = { ...fields, evidenceLinks };
   return useStore().createProposal(input);
 });

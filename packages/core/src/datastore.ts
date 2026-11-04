@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { normalizeEvidenceLinks } from "./evidence-links.ts";
 
 export type ProposalStatus =
   | "new"
@@ -129,6 +130,7 @@ export class Datastore {
 
   /** Inserts a Proposal with status `new`. Not a status transition. */
   createProposal(input: NewProposal): Proposal {
+    const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const base = slugify(input.name) || "proposal";
     let slug = base;
     for (let n = 2; this.db.prepare("SELECT 1 FROM proposals WHERE slug = ?").get(slug); n++) {
@@ -149,7 +151,7 @@ export class Datastore {
         input.name,
         input.ticker,
         input.description,
-        JSON.stringify(input.evidenceLinks),
+        JSON.stringify(evidenceLinks),
         now,
         now,
       );
