@@ -1,1 +1,8 @@
 .scratch/cos.md
+node_modules/
+.data/
+.env
+.nuxt/
+.output/
+.cache/
+*.tsbuildinfo

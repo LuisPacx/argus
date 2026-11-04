@@ -1,0 +1,20 @@
+{
+  "name": "argus",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.2.2",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "worker": "pnpm --filter @argus/worker start",
+    "warroom": "pnpm --filter @argus/warroom dev"
+  },
+  "devDependencies": {
+    "oxlint": "latest",
+    "typescript": "7.0.2",
+    "vitest": "latest"
+  }
+}

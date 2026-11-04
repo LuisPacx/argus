@@ -1,0 +1,8 @@
+{
+  "name": "@argus/core",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit --checkers 1" },
+  "devDependencies": { "@types/node": "^22.0.0" }
+}
