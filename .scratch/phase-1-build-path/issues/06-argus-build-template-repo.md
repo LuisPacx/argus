@@ -5,12 +5,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** built locally; awaiting Operator confirmation to create and push the GitHub repo
 
-- [ ] From a fresh clone: install, lint, typecheck and tests pass, and `wrangler deploy --dry-run` succeeds (TypeScript conventions as in argus)
-- [ ] Every page renders the disclosure footer stating the project was created by argus and the creator may sell; a script fails if the footer is missing, and the Build Runner can call that script
-- [ ] The `/implement-spec` skill (in the template's `.claude/skills/`) reads the Spec from a documented path, builds within the template, runs the checks and commits; it never deploys and never touches wallets, chains or keys
-- [ ] The skill emits a documented machine-readable needs-human marker when the Spec needs an on-chain program or anything not buildable as a Workers web app (consumed in ticket 09)
-- [ ] CI runs lint, typecheck and tests on push
-- [ ] No secrets in the repo; the README documents the env needed to deploy
+- [x] From a fresh clone: install, lint, typecheck and tests pass, and `wrangler deploy --dry-run` succeeds (TypeScript conventions as in argus)
+- [x] Every page renders the disclosure footer stating the project was created by argus and the creator may sell; a script fails if the footer is missing, and the Build Runner can call that script
+- [x] The `/implement-spec` skill (in the template's `.claude/skills/`) reads the Spec from a documented path, builds within the template, runs the checks and commits; it never deploys and never touches wallets, chains or keys
+- [x] The skill emits a documented machine-readable needs-human marker when the Spec needs an on-chain program or anything not buildable as a Workers web app (consumed in ticket 09)
+- [x] CI runs lint, typecheck and tests on push
+- [x] No secrets in the repo; the README documents the env needed to deploy
 - [ ] Pushed to a private GitHub repo under the personal owner, only after the Operator confirms
