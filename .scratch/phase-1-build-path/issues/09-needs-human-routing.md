@@ -11,4 +11,5 @@
 - [ ] `needs-human` does not trigger the retry
 - [ ] Both §3 entry points work: from `building` via the marker, and from `approved` via a check before spawning; the chosen pre-spawn check is recorded under Comments
 - [ ] Tested with the fake `claude` emitting the marker
+- [ ] The marker is read only from the last line of the final stream-json `result` event's `result` text (format documented in the template README), never from other events, because the marker text also appears in tool results; a test where the marker appears only inside a tool-result event does not route to `needs-human`
 - [ ] `pnpm check` passes

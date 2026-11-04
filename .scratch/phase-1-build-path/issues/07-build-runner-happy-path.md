@@ -14,4 +14,5 @@
 - [ ] `wrangler deploy` runs; `built` is set only after the preview URL responds and the footer check passes
 - [ ] Dry-run covers clone, repo creation, the claude spawn and deploy (commands logged, nothing spawned); tested
 - [ ] Transitions approved -> building -> built go through the lifecycle module
+- [ ] The Build Runner verifies the disclosure footer itself, never trusting the Build's own check: argus holds the canonical disclosure sentence, the runner crawls the deployed preview (same-origin links from `/`, plus a 404 path) and refuses `built` if any HTML page lacks that exact sentence; tested with a fake preview missing it
 - [ ] `pnpm check` passes
