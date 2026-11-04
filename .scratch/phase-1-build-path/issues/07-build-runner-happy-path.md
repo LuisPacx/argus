@@ -15,4 +15,6 @@
 - [ ] Dry-run covers clone, repo creation, the claude spawn and deploy (commands logged, nothing spawned); tested
 - [ ] Transitions approved -> building -> built go through the lifecycle module
 - [ ] The Build Runner verifies the disclosure footer itself, never trusting the Build's own check: argus holds the canonical disclosure sentence, the runner crawls the deployed preview (same-origin links from `/`, plus a 404 path) and refuses `built` if any HTML page lacks that exact sentence; tested with a fake preview missing it
+- [ ] A Build counts as successful only when the last line of the final stream-json `result` text carries no marker (template README contract), HEAD has advanced past the Spec commit, and the working tree is clean; anything else is a failure handled by ticket 08
+- [ ] The runner never runs scripts from the Build repo to verify it: it uses argus's own footer check, and fails the Build if `scripts/`, `.claude/`, `.github/` or the `scripts` field of `package.json` differ from the template commit
 - [ ] `pnpm check` passes

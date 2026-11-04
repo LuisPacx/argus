@@ -13,4 +13,6 @@
 - [ ] After the retry fails: `build-failed`, session_id stored, resume command shown on the card
 - [ ] Re-queue from `build-failed` back into the Build queue is added to the lifecycle table and tested; dismiss still works
 - [ ] The §3 gap note in `docs/architecture.md` is replaced by the decision
+- [ ] A last line `ARGUS_BUILD_FAILED::{...}` (template README contract) counts as a failure and enters the single retry, with its summary included in the retry prompt
+- [ ] Before the retry the runner discards uncommitted work in the Build repo (reset to its last commit), so the retry starts from a clean tree
 - [ ] `pnpm check` passes
