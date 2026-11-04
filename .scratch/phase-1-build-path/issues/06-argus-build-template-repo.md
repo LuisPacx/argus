@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** built locally; awaiting Operator confirmation to create and push the GitHub repo
+**Status:** done
 
 - [x] From a fresh clone: install, lint, typecheck and tests pass, and `wrangler deploy --dry-run` succeeds (TypeScript conventions as in argus)
 - [x] Every page renders the disclosure footer stating the project was created by argus and the creator may sell; a script fails if the footer is missing, and the Build Runner can call that script
@@ -13,4 +13,7 @@
 - [x] The skill emits a documented machine-readable needs-human marker when the Spec needs an on-chain program or anything not buildable as a Workers web app (consumed in ticket 09)
 - [x] CI runs lint, typecheck and tests on push
 - [x] No secrets in the repo; the README documents the env needed to deploy
-- [ ] Pushed to a private GitHub repo under the personal owner, only after the Operator confirms
+- [x] Pushed to a private GitHub repo under the personal owner, only after the Operator confirms
+
+## Comments
+- 2026-11-04: Pushed to https://github.com/LuisPacx/argus-build-template (private) at 3872a40 after review hardening (8626c35, 795d672, 3872a40). CI green. Headless deny test verified: edits to scripts/ and .github/ blocked, src/ allowed.
