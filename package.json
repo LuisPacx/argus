@@ -13,8 +13,8 @@
     "warroom": "pnpm --filter @argus/warroom dev"
   },
   "devDependencies": {
-    "oxlint": "latest",
+    "oxlint": "1.91.0",
     "typescript": "7.0.2",
-    "vitest": "latest"
+    "vitest": "5.1.0"
   }
 }

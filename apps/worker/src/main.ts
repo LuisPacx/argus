@@ -10,5 +10,5 @@ const tick = reentrant(
 );
 
 console.log(`[worker] starting, tick every ${TICK_MS}ms`);
-void tick();
+void tick().catch((e) => console.error("[worker] tick failed", e));
 setInterval(() => void tick().catch((e) => console.error("[worker] tick failed", e)), TICK_MS);
