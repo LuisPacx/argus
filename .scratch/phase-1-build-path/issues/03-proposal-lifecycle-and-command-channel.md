@@ -5,12 +5,12 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Lifecycle module has a transition table covering every transition in §3; tests assert each legal transition and reject illegal ones (e.g. new -> approved, anything out of closed)
-- [ ] Every status change is recorded with time, actor (operator, system or build) and reason
-- [ ] The War Room writes command rows only; the worker is the sole writer of status (enforced by structure or test)
-- [ ] Commands are applied idempotently; an illegal command is marked rejected and its error shows in the War Room
-- [ ] Shortlist and dismiss-with-reason work from the card; dismiss is reachable from every state except closed
-- [ ] `approve(proposalId)` is exported as the single approval path and tested
-- [ ] `pnpm check` passes
+- [x] Lifecycle module has a transition table covering every transition in §3; tests assert each legal transition and reject illegal ones (e.g. new -> approved, anything out of closed)
+- [x] Every status change is recorded with time, actor (operator, system or build) and reason
+- [x] The War Room writes command rows only; the worker is the sole writer of status (enforced by structure or test)
+- [x] Commands are applied idempotently; an illegal command is marked rejected and its error shows in the War Room
+- [x] Shortlist and dismiss-with-reason work from the card; dismiss is reachable from every state except closed
+- [x] `approve(proposalId)` is exported as the single approval path and tested
+- [x] `pnpm check` passes

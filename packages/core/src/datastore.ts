@@ -2,19 +2,14 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
-
-export type ProposalStatus =
-  | "new"
-  | "shortlisted"
-  | "spec-drafted"
-  | "approved"
-  | "building"
-  | "built"
-  | "build-failed"
-  | "needs-human"
-  | "launched"
-  | "closed"
-  | "dismissed";
+import {
+  assertTransition,
+  type Actor,
+  type Command,
+  type CommandType,
+  type HistoryEntry,
+  type ProposalStatus,
+} from "./lifecycle.ts";
 
 export interface Proposal {
   id: number;
@@ -59,6 +54,25 @@ export function migrate(db: DatabaseSync): void {
     status TEXT NOT NULL DEFAULT 'new',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS status_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    at TEXT NOT NULL
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    applied_at TEXT
   )`);
   ensureColumn(db, "proposals", "narrative_summary", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "tech_one_liner", "TEXT NOT NULL DEFAULT ''");
@@ -155,7 +169,13 @@ export class Datastore {
         now,
         now,
       );
-    return this.getProposal(Number(res.lastInsertRowid))!;
+    const id = Number(res.lastInsertRowid);
+    this.db
+      .prepare(
+        "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', 'Proposal created', ?)",
+      )
+      .run(id, now);
+    return this.getProposal(id)!;
   }
 
   getProposal(id: number): Proposal | undefined {
@@ -167,4 +187,134 @@ export class Datastore {
     const rows = this.db.prepare("SELECT * FROM proposals ORDER BY id DESC").all() as unknown as Row[];
     return rows.map(toProposal);
   }
+
+  /** War Room entry point: records a command row. Never touches status. */
+  enqueueCommand(proposalId: number, type: CommandType, reason = ""): Command {
+    const res = this.db
+      .prepare("INSERT INTO commands (proposal_id, type, reason, created_at) VALUES (?, ?, ?, ?)")
+      .run(proposalId, type, reason, new Date().toISOString());
+    return this.getCommand(Number(res.lastInsertRowid))!;
+  }
+
+  getCommand(id: number): Command | undefined {
+    const row = this.db.prepare("SELECT * FROM commands WHERE id = ?").get(id) as unknown as CommandRow | undefined;
+    return row && toCommand(row);
+  }
+
+  /** Most recent commands first. */
+  listCommands(limit = 200): Command[] {
+    const rows = this.db.prepare("SELECT * FROM commands ORDER BY id DESC LIMIT ?").all(limit) as unknown as CommandRow[];
+    return rows.map(toCommand);
+  }
+
+  pendingCommands(): Command[] {
+    const rows = this.db
+      .prepare("SELECT * FROM commands WHERE status = 'pending' ORDER BY id")
+      .all() as unknown as CommandRow[];
+    return rows.map(toCommand);
+  }
+
+  historyFor(proposalId: number): HistoryEntry[] {
+    const rows = this.db
+      .prepare("SELECT * FROM status_history WHERE proposal_id = ? ORDER BY id")
+      .all(proposalId) as unknown as {
+      id: number;
+      proposal_id: number;
+      from_status: ProposalStatus | null;
+      to_status: ProposalStatus;
+      actor: Actor;
+      reason: string;
+      at: string;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      proposalId: r.proposal_id,
+      from: r.from_status,
+      to: r.to_status,
+      actor: r.actor,
+      reason: r.reason,
+      at: r.at,
+    }));
+  }
+
+  private txDepth = 0;
+
+  private inTransaction<T>(fn: () => T): T {
+    if (this.txDepth > 0) return fn();
+    this.txDepth++;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const out = fn();
+      this.db.exec("COMMIT");
+      return out;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    } finally {
+      this.txDepth--;
+    }
+  }
+
+  /**
+   * WORKER ONLY (enforced by lifecycle.test.ts): the sole place status changes.
+   * Validates against the transition table and records time, actor and reason.
+   */
+  transition(proposalId: number, to: ProposalStatus, actor: Actor, reason?: string): void {
+    this.inTransaction(() => {
+      const current = this.getProposal(proposalId);
+      if (!current) throw new Error(`Proposal ${proposalId} not found`);
+      const t = assertTransition(current.status, to, actor);
+      const now = new Date().toISOString();
+      this.db.prepare("UPDATE proposals SET status = ?, updated_at = ? WHERE id = ?").run(to, now, proposalId);
+      this.db
+        .prepare(
+          "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run(proposalId, current.status, to, actor, reason?.trim() || t.reason, now);
+    });
+  }
+
+  /** WORKER ONLY. Runs `apply` for a pending command and marks it applied, or rejected with the error. */
+  resolveCommand(id: number, apply: () => void): void {
+    this.inTransaction(() => {
+      const c = this.getCommand(id);
+      if (!c || c.status !== "pending") return;
+      const now = new Date().toISOString();
+      try {
+        this.db.exec("SAVEPOINT cmd");
+        apply();
+        this.db.exec("RELEASE cmd");
+        this.db.prepare("UPDATE commands SET status = 'applied', applied_at = ? WHERE id = ?").run(now, id);
+      } catch (e) {
+        this.db.exec("ROLLBACK TO cmd");
+        this.db.exec("RELEASE cmd");
+        const error = e instanceof Error ? e.message : String(e);
+        this.db.prepare("UPDATE commands SET status = 'rejected', error = ?, applied_at = ? WHERE id = ?").run(error, now, id);
+      }
+    });
+  }
+}
+
+interface CommandRow {
+  id: number;
+  proposal_id: number;
+  type: CommandType;
+  reason: string;
+  status: Command["status"];
+  error: string;
+  created_at: string;
+  applied_at: string | null;
+}
+
+function toCommand(r: CommandRow): Command {
+  return {
+    id: r.id,
+    proposalId: r.proposal_id,
+    type: r.type,
+    reason: r.reason,
+    status: r.status,
+    error: r.error,
+    createdAt: r.created_at,
+    appliedAt: r.applied_at,
+  };
 }
