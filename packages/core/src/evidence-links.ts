@@ -7,7 +7,7 @@ export class InvalidEvidenceLinkError extends Error {
 
 /**
  * Trims each link, drops blank entries, requires an absolute http(s) URL and
- * removes duplicates (first occurrence wins, order kept).
+ * stores the parsed URL (href) and removes duplicates (first occurrence wins, order kept).
  * Throws InvalidEvidenceLinkError on anything else.
  */
 export function normalizeEvidenceLinks(links: readonly unknown[]): string[] {
@@ -24,9 +24,10 @@ export function normalizeEvidenceLinks(links: readonly unknown[]): string[] {
       throw new InvalidEvidenceLinkError();
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new InvalidEvidenceLinkError();
+    if (url.username || url.password) throw new InvalidEvidenceLinkError();
     if (seen.has(url.href)) continue;
     seen.add(url.href);
-    out.push(link);
+    out.push(url.href);
   }
   return out;
 }

@@ -21,7 +21,7 @@ describe("Datastore", () => {
     const ds = Datastore.open(":memory:");
     expect(() => ds.createProposal({ ...input, evidenceLinks: ["javascript:alert(1)"] })).toThrow(InvalidEvidenceLinkError);
     expect(ds.createProposal({ ...input, evidenceLinks: ["https://a.com", "https://a.com"] }).evidenceLinks).toEqual([
-      "https://a.com",
+      "https://a.com/",
     ]);
   });
 

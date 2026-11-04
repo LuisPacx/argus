@@ -3,13 +3,18 @@ import { InvalidEvidenceLinkError, normalizeEvidenceLinks } from "./evidence-lin
 
 describe("normalizeEvidenceLinks", () => {
   it("accepts http and https, trims and skips blanks", () => {
-    expect(normalizeEvidenceLinks([" http://a.com/x ", "", "https://b.com"])).toEqual(["http://a.com/x", "https://b.com"]);
+    expect(normalizeEvidenceLinks([" http://a.com/x ", "", "https://b.com"])).toEqual(["http://a.com/x", "https://b.com/"]);
+  });
+
+  it("stores the parsed URL", () => {
+    expect(normalizeEvidenceLinks(["http:example.com"])).toEqual(["http://example.com/"]);
+    expect(normalizeEvidenceLinks(["http://a.com/x\ny\tz"])).toEqual(["http://a.com/xyz"]);
   });
 
   it("removes duplicates and keeps order", () => {
     expect(normalizeEvidenceLinks(["https://b.com", "https://a.com", "https://b.com", "https://a.com"])).toEqual([
-      "https://b.com",
-      "https://a.com",
+      "https://b.com/",
+      "https://a.com/",
     ]);
   });
 
@@ -24,6 +29,8 @@ describe("normalizeEvidenceLinks", () => {
     "ftp://example.com",
     "not a url",
     "https://",
+    "http://u:p@a.com",
+    "http://u@a.com",
   ])("rejects %s", (link) => {
     expect(() => normalizeEvidenceLinks(["https://ok.com", link])).toThrow(InvalidEvidenceLinkError);
   });
