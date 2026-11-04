@@ -1,13 +1,17 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Datastore } from "./datastore.ts";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { Datastore, type WarRoomStore } from "./datastore.ts";
 import {
   IllegalTransitionError,
   TRANSITIONS,
   approve,
   applyPendingCommands,
   findTransition,
+  DomainError,
   type ProposalStatus,
 } from "./lifecycle.ts";
 
@@ -52,6 +56,7 @@ describe("transition table", () => {
     expect(pairs.sort()).toEqual(
       [
         "new>shortlisted:operator", "shortlisted>spec-drafted:system", "spec-drafted>approved:operator",
+        "spec-drafted>approved:system",
         "approved>building:build", "approved>needs-human:build", "building>built:build",
         "building>build-failed:build", "building>needs-human:build", "built>launched:operator",
         "launched>closed:operator", "new>closed:system", "shortlisted>closed:system",
@@ -108,6 +113,14 @@ describe("approve", () => {
     const fresh = proposalAt(ds, "new");
     expect(() => approve(ds, fresh)).toThrow(IllegalTransitionError);
   });
+
+  it("can be called by the system (phase 3 score threshold)", () => {
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "spec-drafted");
+    approve(ds, id, "system");
+    expect(ds.getProposal(id)!.status).toBe("approved");
+    expect(ds.historyFor(id).at(-1)).toMatchObject({ actor: "system", reason: "Score threshold" });
+  });
 });
 
 describe("command channel", () => {
@@ -159,7 +172,88 @@ describe("command channel", () => {
   });
 });
 
+describe("command error semantics", () => {
+  it("applies a command whose target status is already current as a no-op", () => {
+    const ds = Datastore.open(":memory:");
+    const id = ds.createProposal(input).id;
+    const first = ds.enqueueCommand(id, "shortlist");
+    const second = ds.enqueueCommand(id, "shortlist");
+    applyPendingCommands(ds);
+    expect(ds.getCommand(first.id)!.status).toBe("applied");
+    expect(ds.getCommand(second.id)).toMatchObject({ status: "applied", error: "" });
+    expect(ds.historyFor(id)).toHaveLength(2);
+    const d = ds.enqueueCommand(id, "dismiss", "meh");
+    const d2 = ds.enqueueCommand(id, "dismiss", "meh");
+    applyPendingCommands(ds);
+    expect([ds.getCommand(d.id)!.status, ds.getCommand(d2.id)!.status]).toEqual(["applied", "applied"]);
+    expect(ds.historyFor(id)).toHaveLength(3);
+  });
+
+  it("rejects only DomainErrors; a transient error leaves the command pending and rolls back", () => {
+    const ds = Datastore.open(":memory:");
+    const id = ds.createProposal(input).id;
+    const c = ds.enqueueCommand(id, "shortlist");
+    expect(() =>
+      ds.resolveCommand(c.id, () => {
+        ds.transition(id, "shortlisted", "operator");
+        throw new Error("SQLITE_BUSY");
+      }),
+    ).toThrow("SQLITE_BUSY");
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "pending", error: "" });
+    expect(ds.getProposal(id)!.status).toBe("new");
+    expect(ds.historyFor(id)).toHaveLength(1);
+    ds.resolveCommand(c.id, () => {
+      throw new DomainError("nope");
+    });
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "rejected", error: "nope" });
+  });
+
+  it("one failing command does not stop the batch, and is retried next tick", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const ds = Datastore.open(path);
+    const a = ds.createProposal(input).id;
+    const b = ds.createProposal({ ...input, name: "Dog" }).id;
+    const ca = ds.enqueueCommand(a, "shortlist");
+    const cb = ds.enqueueCommand(b, "dismiss", "boring");
+    // Inject a transient failure: any write of status `shortlisted` raises a SQLite error.
+    const raw = new DatabaseSync(path);
+    raw.exec(`CREATE TRIGGER boom BEFORE INSERT ON status_history WHEN NEW.to_status = 'shortlisted'
+      BEGIN SELECT RAISE(ABORT, 'disk hiccup'); END`);
+    const errors: number[] = [];
+    expect(applyPendingCommands(ds, (c) => errors.push(c.id))).toBe(1);
+    expect(errors).toEqual([ca.id]);
+    expect(ds.getCommand(ca.id)!.status).toBe("pending");
+    expect(ds.getProposal(a)!.status).toBe("new");
+    expect(ds.getCommand(cb.id)!.status).toBe("applied");
+    expect(ds.getProposal(b)!.status).toBe("dismissed");
+    raw.exec("DROP TRIGGER boom");
+    raw.close();
+    expect(applyPendingCommands(ds)).toBe(1);
+    expect(ds.getCommand(ca.id)!.status).toBe("applied");
+    expect(ds.getProposal(a)!.status).toBe("shortlisted");
+  });
+
+  it("createProposal is atomic: a failing history insert leaves no Proposal", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const ds = Datastore.open(path);
+    const raw = new DatabaseSync(path);
+    raw.exec("CREATE TRIGGER boom BEFORE INSERT ON status_history BEGIN SELECT RAISE(ABORT, 'nope'); END");
+    expect(() => ds.createProposal(input)).toThrow("nope");
+    expect(ds.listProposals()).toEqual([]);
+    raw.close();
+  });
+});
+
 describe("single writer", () => {
+  it("the War Room store type has no status-writing methods", () => {
+    const ds = Datastore.open(":memory:");
+    const wr: WarRoomStore = ds;
+    // @ts-expect-error transition is worker-only
+    expect(wr.transition).toBeDefined();
+    // @ts-expect-error resolveCommand is worker-only
+    expect(wr.resolveCommand).toBeDefined();
+  });
+
   it("the War Room never calls status-writing functions", () => {
     const root = join(import.meta.dirname, "../../../apps/warroom");
     const files: string[] = [];
@@ -173,7 +267,8 @@ describe("single writer", () => {
     };
     walk(root);
     expect(files.length).toBeGreaterThan(0);
-    const forbidden = /\b(transition|resolveCommand|applyCommand|applyPendingCommands|approve)\s*\(|UPDATE\s+proposals/;
+    const forbidden =
+      /\b(transition|resolveCommand|applyCommand|applyPendingCommands|approve)\s*\(|UPDATE\s+(proposals|commands)\b|INSERT\s+INTO\s+status_history/i;
     for (const f of files) expect(readFileSync(f, "utf8"), f).not.toMatch(forbidden);
   });
 });

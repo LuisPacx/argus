@@ -24,14 +24,20 @@ const dismissing = ref<number | null>(null);
 const dismissReason = ref("");
 const actionError = ref("");
 const pendingIds = computed(() => new Set(commands.value.filter((c) => c.status === "pending").map((c) => c.proposalId)));
-// Newest command per Proposal, shown only when the worker rejected it.
-const rejection = (id: number) => {
-  const latest = commands.value.find((c) => c.proposalId === id);
-  return latest?.status === "rejected" ? latest : undefined;
+// Proposals with a command being posted, so a fast second click cannot enqueue a duplicate.
+const sending = ref(new Set<number>());
+const busy = (id: number) => pendingIds.value.has(id) || sending.value.has(id);
+// Newest command per Proposal, shown only when the worker rejected it and the Proposal has not
+// changed status since (a stale rejection clears itself).
+const rejection = (p: { id: number; updatedAt: string }) => {
+  const latest = commands.value.find((c) => c.proposalId === p.id);
+  return latest?.status === "rejected" && (latest.appliedAt ?? "") > p.updatedAt ? latest : undefined;
 };
 
 async function send(id: number, type: "shortlist" | "dismiss", reason = "") {
+  if (busy(id)) return;
   actionError.value = "";
+  sending.value.add(id);
   try {
     await $fetch(`/api/proposals/${id}/commands`, { method: "POST", body: { type, reason } });
     dismissing.value = null;
@@ -39,6 +45,8 @@ async function send(id: number, type: "shortlist" | "dismiss", reason = "") {
     await refreshCommands();
   } catch (e) {
     actionError.value = (e as { statusMessage?: string }).statusMessage ?? "Could not send command";
+  } finally {
+    sending.value.delete(id);
   }
 }
 
@@ -89,18 +97,18 @@ async function submit() {
             <a :href="link" target="_blank" rel="noopener">{{ link }}</a>
           </li>
         </ul>
-        <p v-if="rejection(p.id)" class="mt-2 text-sm text-red-500">
-          Command rejected: {{ rejection(p.id)!.error }}
+        <p v-if="rejection(p)" class="mt-2 text-sm text-red-500">
+          Command rejected: {{ rejection(p)!.error }}
         </p>
         <p v-if="pendingIds.has(p.id)" class="mt-2 text-sm text-muted">Command pending...</p>
         <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="mt-2 flex flex-wrap items-center gap-2">
-          <UButton v-if="p.status === 'new'" size="sm" @click="send(p.id, 'shortlist')">Shortlist</UButton>
-          <UButton v-if="dismissing !== p.id" size="sm" color="neutral" variant="outline" @click="dismissing = p.id">
+          <UButton v-if="p.status === 'new'" size="sm" :disabled="busy(p.id)" @click="send(p.id, 'shortlist')">Shortlist</UButton>
+          <UButton v-if="dismissing !== p.id" size="sm" color="neutral" variant="outline" :disabled="busy(p.id)" @click="dismissing = p.id">
             Dismiss
           </UButton>
           <template v-else>
             <UInput v-model="dismissReason" size="sm" placeholder="Reason" />
-            <UButton size="sm" color="error" :disabled="!dismissReason.trim()" @click="send(p.id, 'dismiss', dismissReason)">
+            <UButton size="sm" color="error" :disabled="!dismissReason.trim() || busy(p.id)" @click="send(p.id, 'dismiss', dismissReason)">
               Confirm dismiss
             </UButton>
             <UButton size="sm" variant="ghost" @click="dismissing = null">Cancel</UButton>

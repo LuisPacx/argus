@@ -62,6 +62,7 @@ stateDiagram-v2
   new --> shortlisted : Operator shortlists
   shortlisted --> spec_drafted : system, after Operator shortlists
   spec_drafted --> approved : Operator approves
+  spec_drafted --> approved : system, score threshold (phase 3)
   approved --> building : Build step starts
   approved --> needs_human : Build step, Spec needs on-chain program
   building --> built : Build step, deploy ok
@@ -91,7 +92,8 @@ stateDiagram-v2
 | shortlisted -> closed (stale) | system | 7 d without action. |
 | new -> shortlisted | Operator | Starts Spec drafting. |
 | shortlisted -> spec-drafted | system | After the Operator shortlists, the brain `spec` task writes `spec.md`; Operator edits freely. |
-| spec-drafted -> approved | Operator (via `approve()`) | One function; phase 3 may call it from a score threshold. |
+| spec-drafted -> approved | Operator (via `approve()`) | One function. |
+| spec-drafted -> approved | system (via `approve(store, id, "system")`) | Phase 3 score threshold, recorded with reason "Score threshold". Same function, different actor. |
 | approved -> building | Build step | Dequeued FIFO by approval time, one Build at a time. |
 | approved/building -> needs-human | Build step | Spec requires an on-chain program or anything not buildable unattended as a Cloudflare Workers web app (ADR 0003). |
 | building -> built | Build step | After `wrangler deploy` succeeds and the preview URL responds. |

@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import {
+  DomainError,
+  ProposalNotFoundError,
   assertTransition,
   type Actor,
   type Command,
@@ -125,8 +127,28 @@ function toProposal(r: Row): Proposal {
   };
 }
 
+/**
+ * What the War Room may use: reads, `enqueueCommand` and `createProposal`. No `transition` or
+ * `resolveCommand`: only the worker writes status (CODING_STANDARDS.md rule 1).
+ */
+export type WarRoomStore = Pick<
+  Datastore,
+  | "getProposal"
+  | "listProposals"
+  | "getCommand"
+  | "listCommands"
+  | "pendingCommands"
+  | "historyFor"
+  | "enqueueCommand"
+  | "createProposal"
+>;
+
 export class Datastore {
-  private constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  private constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   /** Opens (creating if needed) the database in WAL mode and applies migrations. */
   static open(path: string = DEFAULT_DB_PATH): Datastore {
@@ -142,39 +164,42 @@ export class Datastore {
     this.db.close();
   }
 
-  /** Inserts a Proposal with status `new`. Not a status transition. */
+  /** Inserts a Proposal with status `new` and its first history row, atomically. Not a status transition. */
   createProposal(input: NewProposal): Proposal {
     const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const base = slugify(input.name) || "proposal";
-    let slug = base;
-    for (let n = 2; this.db.prepare("SELECT 1 FROM proposals WHERE slug = ?").get(slug); n++) {
-      slug = `${base}-${n}`;
-    }
-    const now = new Date().toISOString();
-    const res = this.db
-      .prepare(
-        `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
-           description, evidence_links, created_at, updated_at)
-         VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        slug,
-        input.narrativeSummary,
-        input.techOneLiner,
-        input.whyNow,
-        input.name,
-        input.ticker,
-        input.description,
-        JSON.stringify(evidenceLinks),
-        now,
-        now,
-      );
-    const id = Number(res.lastInsertRowid);
-    this.db
-      .prepare(
-        "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', 'Proposal created', ?)",
-      )
-      .run(id, now);
+    const id = this.inTransaction(() => {
+      let slug = base;
+      for (let n = 2; this.db.prepare("SELECT 1 FROM proposals WHERE slug = ?").get(slug); n++) {
+        slug = `${base}-${n}`;
+      }
+      const now = new Date().toISOString();
+      const res = this.db
+        .prepare(
+          `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
+             description, evidence_links, created_at, updated_at)
+           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          slug,
+          input.narrativeSummary,
+          input.techOneLiner,
+          input.whyNow,
+          input.name,
+          input.ticker,
+          input.description,
+          JSON.stringify(evidenceLinks),
+          now,
+          now,
+        );
+      const newId = Number(res.lastInsertRowid);
+      this.db
+        .prepare(
+          "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', 'Proposal created', ?)",
+        )
+        .run(newId, now);
+      return newId;
+    });
     return this.getProposal(id)!;
   }
 
@@ -262,7 +287,7 @@ export class Datastore {
   transition(proposalId: number, to: ProposalStatus, actor: Actor, reason?: string): void {
     this.inTransaction(() => {
       const current = this.getProposal(proposalId);
-      if (!current) throw new Error(`Proposal ${proposalId} not found`);
+      if (!current) throw new ProposalNotFoundError(proposalId);
       const t = assertTransition(current.status, to, actor);
       const now = new Date().toISOString();
       this.db.prepare("UPDATE proposals SET status = ?, updated_at = ? WHERE id = ?").run(to, now, proposalId);
@@ -274,23 +299,28 @@ export class Datastore {
     });
   }
 
-  /** WORKER ONLY. Runs `apply` for a pending command and marks it applied, or rejected with the error. */
+  /**
+   * WORKER ONLY. Runs `apply` for a pending command and marks it applied, or rejected when `apply`
+   * throws a DomainError. Any other error rolls the command's writes back, leaves it pending and is
+   * rethrown, so the next tick retries it.
+   */
   resolveCommand(id: number, apply: () => void): void {
     this.inTransaction(() => {
       const c = this.getCommand(id);
       if (!c || c.status !== "pending") return;
       const now = new Date().toISOString();
+      this.db.exec("SAVEPOINT cmd");
       try {
-        this.db.exec("SAVEPOINT cmd");
         apply();
-        this.db.exec("RELEASE cmd");
-        this.db.prepare("UPDATE commands SET status = 'applied', applied_at = ? WHERE id = ?").run(now, id);
       } catch (e) {
         this.db.exec("ROLLBACK TO cmd");
         this.db.exec("RELEASE cmd");
-        const error = e instanceof Error ? e.message : String(e);
-        this.db.prepare("UPDATE commands SET status = 'rejected', error = ?, applied_at = ? WHERE id = ?").run(error, now, id);
+        if (!(e instanceof DomainError)) throw e;
+        this.db.prepare("UPDATE commands SET status = 'rejected', error = ?, applied_at = ? WHERE id = ?").run(e.message, now, id);
+        return;
       }
+      this.db.exec("RELEASE cmd");
+      this.db.prepare("UPDATE commands SET status = 'applied', applied_at = ? WHERE id = ?").run(now, id);
     });
   }
 }
