@@ -6,7 +6,7 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt prepare && tsc --noEmit --checkers 1 -p .nuxt/tsconfig.json"
+    "typecheck": "nuxt prepare && ../../node_modules/.bin/tsc --noEmit --checkers 1 -p .nuxt/tsconfig.json && vue-tsc --noEmit -p .nuxt/tsconfig.json"
   },
   "dependencies": {
     "@argus/core": "workspace:*",
@@ -14,5 +14,9 @@
     "nuxt": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "vue": "3.5.44"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vue-tsc": "3.3.14"
   }
 }
