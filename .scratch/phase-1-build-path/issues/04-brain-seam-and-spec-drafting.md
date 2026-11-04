@@ -5,15 +5,15 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Brain interface per §5 with ClaudeCodeBrain; routing (task -> backend, model) is config, not code branching
-- [ ] Child environment is scrubbed: `ANTHROPIC_API_KEY` removed and only the needed variables passed; a test asserts it
-- [ ] Every run passes `--max-budget-usd` from config; hitting the cap fails the run and the cap is never raised
-- [ ] `--dry-run` logs the command and spawns nothing; tested
-- [ ] A brain-runs table stores task, backend, model, session_id, total_cost_usd, Proposal id and exit status
-- [ ] The `spec` skill in argus's `.claude/skills/` drafts a Spec for an unattended Cloudflare Workers web-app MVP (ADR 0003)
-- [ ] On shortlist the worker writes `spec.md` under the Proposal's `.data/proposals/<id>/` directory, stores its path and hash, and sets `spec-drafted`; a failed draft leaves the Proposal `shortlisted` with the error visible
-- [ ] A fake `claude` executable emitting the json and stream-json result shapes (success, failure, budget exceeded, rate limited) is a shared test fixture
-- [ ] Card shows summed agent cost
-- [ ] `pnpm check` passes
+- [x] Brain interface per §5 with ClaudeCodeBrain; routing (task -> backend, model) is config, not code branching
+- [x] Child environment is scrubbed: `ANTHROPIC_API_KEY` removed and only the needed variables passed; a test asserts it
+- [x] Every run passes `--max-budget-usd` from config; hitting the cap fails the run and the cap is never raised
+- [x] `--dry-run` logs the command and spawns nothing; tested
+- [x] A brain-runs table stores task, backend, model, session_id, total_cost_usd, Proposal id and exit status
+- [x] The `spec` skill in argus's `.claude/skills/` drafts a Spec for an unattended Cloudflare Workers web-app MVP (ADR 0003)
+- [x] On shortlist the worker writes `spec.md` under the Proposal's `.data/proposals/<id>/` directory, stores its path and hash, and sets `spec-drafted`; a failed draft leaves the Proposal `shortlisted` with the error visible
+- [x] A fake `claude` executable emitting the json and stream-json result shapes (success, failure, budget exceeded, rate limited) is a shared test fixture
+- [x] Card shows summed agent cost
+- [x] `pnpm check` passes
