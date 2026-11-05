@@ -148,18 +148,23 @@ describe("the bundle's output directory holds only what is expected", () => {
 });
 
 describe("checkMetafile: every input is a plain path to a regular file inside the export", () => {
-  const dir = mkdtempSync(join(tmpdir(), "argus-meta-"));
-  const exportDir = join(dir, "export");
-  const outdir = join(dir, "dist");
-  mkdirSync(join(exportDir, "src"), { recursive: true });
-  mkdirSync(join(exportDir, "node_modules/dep"), { recursive: true });
-  mkdirSync(outdir);
-  writeFileSync(join(exportDir, "src/index.ts"), "");
-  writeFileSync(join(exportDir, "src/a.js"), "");
-  writeFileSync(join(exportDir, "node_modules/dep/index.js"), "");
-  writeFileSync(join(outdir, "index.js"), "");
-  writeFileSync(join(dir, "outside.json"), "{}");
-  symlinkSync(join(dir, "outside.json"), join(exportDir, "src/link.json"));
+  let dir = "";
+  let exportDir = "";
+  let outdir = "";
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "argus-meta-"));
+    exportDir = join(dir, "export");
+    outdir = join(dir, "dist");
+    mkdirSync(join(exportDir, "src"), { recursive: true });
+    mkdirSync(join(exportDir, "node_modules/dep"), { recursive: true });
+    mkdirSync(outdir);
+    writeFileSync(join(exportDir, "src/index.ts"), "");
+    writeFileSync(join(exportDir, "src/a.js"), "");
+    writeFileSync(join(exportDir, "node_modules/dep/index.js"), "");
+    writeFileSync(join(outdir, "index.js"), "");
+    writeFileSync(join(dir, "outside.json"), "{}");
+    symlinkSync(join(dir, "outside.json"), join(exportDir, "src/link.json"));
+  });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const meta = (...inputs: string[]) => ({
     inputs: Object.fromEntries(inputs.map((f) => [f, { bytes: 1, imports: [] }])),
@@ -180,12 +185,13 @@ describe("checkMetafile: every input is a plain path to a regular file inside th
     ["a backslash", "export\\src\\a.js"],
     ["a URL scheme", "https://example.com/export/src/a.js"],
     ["a file: URL", "file:export/src/a.js"],
-    ["an absolute path, even one inside the export", join(exportDir, "src/a.js")],
+    ["an absolute path, even one inside the export", "<abs>"],
     ["a file that does not exist", "export/src/missing.js"],
     ["a directory", "export/src"],
     ["a symlink out of the export", "export/src/link.json"],
     ["a path that climbs out", "outside.json"],
-  ])("rejects %s", (_what, input) => {
+  ])("rejects %s", (_what, raw) => {
+    const input = raw === "<abs>" ? join(exportDir, "src/a.js") : raw;
     expect(check("export/src/index.ts", input)).toEqual({ outside: [input] });
   });
 });

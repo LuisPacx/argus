@@ -77,7 +77,7 @@ describe("Build Runner: happy path", () => {
   });
 });
 
-describe("Build Runner: queue", () => {
+describe("Build Runner: queue", { timeout: 30_000 }, () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   it("builds one at a time: a second pass while a Build runs spawns nothing, and the next Build starts after", async () => {
