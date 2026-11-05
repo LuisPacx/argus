@@ -52,12 +52,13 @@ export function leakedIn(dir: string): Found[] {
 }
 
 const COMPILE_CACHE = "node-compile-cache"; // Node's own cache for the run's child processes; swept with the run, not a leak
+const TOOL_CACHES = [COMPILE_CACHE, "update-check"]; // update-check: wrangler's version-check cache, written by the real-wrangler tests
 
 /** Removes the run's private temp dir; throws, naming what was left in it, when the run did not clean up after itself. */
 export function sweepTempRoot(root: string): void {
   let left: string[] = [];
   try {
-    left = readdirSync(root).filter((n) => n !== COMPILE_CACHE);
+    left = readdirSync(root).filter((n) => !TOOL_CACHES.includes(n));
   } catch {
     // never created
   }
