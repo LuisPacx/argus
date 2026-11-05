@@ -446,15 +446,18 @@ export class Datastore {
   }
 
   /**
-   * WORKER ONLY, call once at worker boot (there is one worker, so any open run is stale). Marks each open run
-   * `interrupted` (its spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose
-   * Spec draft it was. Nothing is retried: the failure shows on the card. Returns how many runs were marked.
+   * WORKER ONLY, call once at worker boot. Marks each open run that is older than `olderThanMs` as `interrupted` (its
+   * spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
+   * Nothing is retried: the failure shows on the card. Pass the longest run timeout plus a grace period: a younger row
+   * may belong to a live worker (a foreground `--once` run beside the daemon) and must be left alone. Returns how many
+   * runs were marked.
    */
-  interruptStaleBrainRuns(): number {
+  interruptStaleBrainRuns(olderThanMs: number, now = new Date()): number {
+    const cutoff = new Date(now.getTime() - olderThanMs).toISOString();
     return this.inTransaction(() => {
       const rows = this.db
-        .prepare("SELECT id, proposal_id, task FROM brain_runs WHERE exit_status = ?")
-        .all(BRAIN_RUN_IN_FLIGHT) as unknown as { id: number; proposal_id: number; task: string }[];
+        .prepare("SELECT id, proposal_id, task FROM brain_runs WHERE exit_status = ? AND created_at < ?")
+        .all(BRAIN_RUN_IN_FLIGHT, cutoff) as unknown as { id: number; proposal_id: number; task: string }[];
       for (const r of rows) {
         this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
         if (r.task === "spec") {

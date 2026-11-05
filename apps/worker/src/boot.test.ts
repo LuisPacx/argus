@@ -67,8 +67,51 @@ it("SIGTERM kills a live claude child before the worker exits", async () => {
     expect(await exited).toBe(0);
     expect(() => process.kill(claudePid, 0)).toThrow();
     const after = Datastore.open(db);
-    expect(after.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "failed" }]);
+    expect(after.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "interrupted" }]);
+    expect(after.getProposal(p.id)).toMatchObject({ status: "shortlisted", specError: "" });
     expect(after.getProposal(p.id)!.brainRunInFlightSince).toBeNull();
+    after.close();
+  } finally {
+    child.kill("SIGKILL");
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);
+
+/** SIGTERM during the first draft: the loop must not spawn a second claude, and the worker exits promptly. */
+it("SIGTERM during one Spec draft leaves the next shortlisted Proposal undrafted and exits promptly", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "argus-worker-loop-"));
+  const db = join(dir, "argus.db");
+  const started = join(dir, "started");
+  const log = join(dir, "calls.jsonl");
+  const bin = join(dir, "claude");
+  writeFileSync(bin, `#!/bin/sh\nFAKE_CLAUDE_MODE=hang FAKE_CLAUDE_STARTED=${started} FAKE_CLAUDE_LOG=${log} exec ${process.execPath} ${FAKE_CLAUDE} "$@"\n`);
+  chmodSync(bin, 0o755);
+  const store = Datastore.open(db);
+  const ids = ["Alpha Coin", "Beta Coin"].map((name) => {
+    const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name, ticker: name.slice(0, 4).toUpperCase(), description: "d", evidenceLinks: [] });
+    store.transition(p.id, "shortlisted", "operator");
+    return p.id;
+  });
+  store.close();
+  const [, ...args] = pkgStart();
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin } });
+  const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+  try {
+    const deadline = Date.now() + 15_000;
+    while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(existsSync(started)).toBe(true);
+    await new Promise((r) => setTimeout(r, 200));
+    const t0 = Date.now();
+    child.kill("SIGTERM");
+    expect(await exited).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(4_000);
+    await new Promise((r) => setTimeout(r, 300)); // a stray second spawn would show by now
+    expect(readFileSync(log, "utf8").trim().split("\n")).toHaveLength(1);
+    const after = Datastore.open(db);
+    const runs = ids.map((id) => after.brainRunsFor(id));
+    expect(runs.map((r) => r.length).sort()).toEqual([0, 1]);
+    expect(runs.flat()).toMatchObject([{ exitStatus: "interrupted" }]);
+    for (const id of ids) expect(after.getProposal(id)).toMatchObject({ status: "shortlisted", specError: "", brainRunInFlightSince: null });
     after.close();
   } finally {
     child.kill("SIGKILL");

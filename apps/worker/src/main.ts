@@ -4,6 +4,7 @@ import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs, ki
 import { reentrant } from "./reentrant.ts";
 
 const TICK_MS = 5_000;
+const STALE_RUN_GRACE_MS = 5 * 60_000;
 const once = process.argv.includes("--once");
 const dryRun = process.argv.includes("--dry-run") || process.env.ARGUS_DRY_RUN === "1";
 const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
@@ -13,10 +14,12 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 // Children run from a temp dir holding only the task's skill, never the repo root (.env, .data/argus.db).
 const brain = new ClaudeCodeBrain({ skillsDir: join(repoRoot, ".claude", "skills"), dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
 
-// This is the only worker, so any brain run still open at boot belongs to a process that died: surface it, never retry.
-const interrupted = store.interruptStaleBrainRuns();
+// A brain run still open at boot, and older than any run can live, belongs to a process that died: surface it, never retry.
+// A run younger than the longest timeout may be live in another process (a foreground --once beside the daemon): leave it.
+const interrupted = store.interruptStaleBrainRuns(brain.maxRunMs() + STALE_RUN_GRACE_MS);
 if (interrupted > 0) console.error(`[worker] ${interrupted} brain run(s) were interrupted by a previous stop; flagged on their cards`);
 
+const shutdown = new AbortController();
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
@@ -24,7 +27,7 @@ const tick = reentrant(
       console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
-    await draftPendingSpecs(store, brain, dataDir);
+    await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
   },
   () => console.log("[worker] tick skipped: previous tick still running"),
 );
@@ -43,7 +46,9 @@ const stop = async () => {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
-  // Kill live claude children first (no orphan keeps spending), let the tick record what they cost, then exit.
+  // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
+  // record the interrupted run, then exit.
+  shutdown.abort();
   await killLiveBrainChildren();
   await Promise.all(running);
   store.close();

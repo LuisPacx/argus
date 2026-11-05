@@ -5,18 +5,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting, type Brain } from "./brain.ts";
 import { Datastore, MAX_SPEC_RATE_LIMIT_ATTEMPTS } from "./datastore.ts";
-import { draftPendingSpecs, draftSpec } from "./spec-drafting.ts";
+import { draftPendingSpecs, draftSpec, specProblem } from "./spec-drafting.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 
-function setup(mode: string, routing = resolveRouting()) {
+function setup(mode: string, routing = resolveRouting(), result?: string) {
   const store = Datastore.open(":memory:");
   const dir = mkdtempSync(join(tmpdir(), "argus-spec-"));
   const brain = new ClaudeCodeBrain({
     routing,
     killGraceMs: 200,
     command: FAKE_CLAUDE,
-    env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: mode },
-    passEnv: ["FAKE_CLAUDE_MODE"],
+    env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: mode, FAKE_CLAUDE_RESULT: result },
+    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_RESULT"],
   });
   const p = store.createProposal({
     narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat Coin", ticker: "CAT", description: "d", evidenceLinks: [],
@@ -34,6 +34,37 @@ function wrap(inner: Brain, around: (go: () => Promise<unknown>) => Promise<unkn
     run: ((...args: Parameters<Brain["run"]>) => around(() => inner.run(...args))) as Brain["run"],
   };
 }
+
+const SPEC = "# Cat Coin\n\nA cat page.\n\n## Goal\n\nSee cats.\n\n## Scope\n\n- Cats.\n\n## Acceptance criteria\n\n- [ ] Cats show.\n";
+
+function addShortlisted(store: Datastore, name: string): number {
+  const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name, ticker: name.slice(0, 3).toUpperCase(), description: "d", evidenceLinks: [] });
+  store.transition(p.id, "shortlisted", "operator");
+  return p.id;
+}
+
+describe("Spec validity (the spec skill's output contract)", () => {
+  it("accepts a full Spec and the Needs human form", () => {
+    expect(specProblem(SPEC)).toBeNull();
+    expect(specProblem("## Needs human\n\nThe Tech needs an on-chain program, which is out of scope.\n")).toBeNull();
+  });
+
+  it("rejects a refusal or other prose that is not a Spec", () => {
+    expect(specProblem("I don't have a tool to read files, so I can't write this Spec.")).toContain("does not start with");
+    expect(specProblem("Sure! Here is the Spec:\n\n" + SPEC)).toContain("does not start with");
+    expect(specProblem("```markdown\n" + SPEC + "```")).toContain("does not start with");
+  });
+
+  it("rejects a Spec missing a required section, and names it", () => {
+    expect(specProblem("# X\n\n## Goal\n\ng\n\n## Scope\n\ns\n")).toBe("missing required section(s): ## Acceptance criteria");
+    expect(specProblem("# X\n\nGoal and Scope and Acceptance criteria in prose.")).toContain("## Goal, ## Scope, ## Acceptance criteria");
+  });
+
+  it("rejects an empty Needs human, or one with other sections", () => {
+    expect(specProblem("## Needs human")).toContain("no explanation");
+    expect(specProblem("## Needs human\n\nwhy\n\n## Goal\n\nmore")).toContain("only section");
+  });
+});
 
 describe("Spec drafting", () => {
   it("writes spec.md, stores path and hash, records the run, sets spec-drafted", async () => {
@@ -111,6 +142,74 @@ describe("Spec drafting", () => {
     expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "failed", totalCostUsd: 0 }]);
   });
 
+  it("a refusal returned as a successful run fails the draft: spec_error, no spec.md, spend kept, not re-drafted", async () => {
+    const { store, dir, brain, id } = setup("success", resolveRouting(), "I don't have a tool to read that, sorry.");
+    expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
+    const p = store.getProposal(id)!;
+    expect(p).toMatchObject({ status: "shortlisted", specPath: null, specRetryAfter: null });
+    expect(p.specError).toContain("Spec draft invalid");
+    expect(p.specError).toContain("does not start with");
+    expect(p.specError).toContain("I don't have a tool");
+    expect(existsSync(join(dir, "proposals", String(id), "spec.md"))).toBe(false);
+    expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "invalid-output", totalCostUsd: 0.0123 }]);
+    expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
+    expect(store.brainRunsFor(id)).toHaveLength(1);
+  });
+
+  it("a Needs human Spec is saved like any other valid Spec", async () => {
+    const { store, dir, brain, id } = setup("success", resolveRouting(), "## Needs human\n\nNeeds a wallet that signs.\n");
+    expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(1);
+    expect(store.getProposal(id)!.status).toBe("spec-drafted");
+  });
+
+  describe("shutdown", () => {
+    it("an aborted signal stops the loop before any draft: nothing is spawned or recorded", async () => {
+      const { store, dir, brain, id } = setup("success");
+      const second = addShortlisted(store, "Dog Coin");
+      expect(await draftPendingSpecs(store, brain, dir, quiet, AbortSignal.abort())).toBe(0);
+      expect(await draftSpec(store, brain, store.getProposal(id)!, dir, AbortSignal.abort())).toBe(false);
+      expect(store.brainRunsFor(id)).toHaveLength(0);
+      expect(store.brainRunsFor(second)).toHaveLength(0);
+    });
+
+    it("stopping during the first draft leaves the second undrafted, and the first is interrupted and drafted next boot", async () => {
+      const { store, dir, brain, id } = setup("hang", resolveRouting({ spec: { timeoutMs: 60_000 } }));
+      const second = addShortlisted(store, "Dog Coin");
+      const ac = new AbortController();
+      let runs = 0;
+      const hung = wrap(brain, (go) => {
+        runs++;
+        setTimeout(() => ac.abort(), 150);
+        return go();
+      });
+      expect(await draftPendingSpecs(store, hung, dir, quiet, ac.signal)).toBe(0);
+      expect(runs).toBe(1);
+      const both = [id, second];
+      expect(both.map((i) => store.brainRunsFor(i).length).sort()).toEqual([0, 1]);
+      for (const i of both) {
+        expect(store.getProposal(i)).toMatchObject({ status: "shortlisted", specError: "", specRetryAfter: null, brainRunInFlightSince: null });
+        for (const r of store.brainRunsFor(i)) expect(r).toMatchObject({ exitStatus: "interrupted", totalCostUsd: 0 });
+      }
+
+      // Next boot: both are still draftable.
+      const next = new ClaudeCodeBrain({ command: FAKE_CLAUDE, env: { PATH: process.env.PATH }, killGraceMs: 200 });
+      expect(await draftPendingSpecs(store, next, dir, quiet)).toBe(2);
+      expect(store.getProposal(id)!.status).toBe("spec-drafted");
+    });
+
+    it("records the spend a killed run reports", async () => {
+      const { store, dir, brain, id } = setup("hang-report", resolveRouting({ spec: { timeoutMs: 60_000 } }));
+      const ac = new AbortController();
+      const hung = wrap(brain, (go) => {
+        setTimeout(() => ac.abort(), 150);
+        return go();
+      });
+      await draftSpec(store, hung, store.getProposal(id)!, dir, ac.signal);
+      expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" }]);
+      expect(store.getProposal(id)).toMatchObject({ status: "shortlisted", specError: "", agentCostUsd: 0.004 });
+    });
+  });
+
   describe("spend is never lost or doubled", () => {
     it("records the run before any file write: a write failure keeps the cost and is not re-drafted", async () => {
       const { store, brain, id } = setup("success");
@@ -177,7 +276,7 @@ describe("Spec drafting", () => {
       expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
       expect(store.brainRunsFor(id)).toHaveLength(1);
 
-      expect(store.interruptStaleBrainRuns()).toBe(1);
+      expect(store.interruptStaleBrainRuns(0)).toBe(1);
       const p = store.getProposal(id)!;
       expect(p.brainRunInFlightSince).toBeNull();
       expect(p.status).toBe("shortlisted");
@@ -185,7 +284,18 @@ describe("Spec drafting", () => {
       expect(store.brainRunsFor(id)[0]!.exitStatus).toBe("interrupted");
       expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
       expect(store.brainRunsFor(id)).toHaveLength(1);
-      expect(store.interruptStaleBrainRuns()).toBe(0);
+      expect(store.interruptStaleBrainRuns(0)).toBe(0);
+    });
+
+    it("interruptStaleBrainRuns leaves a young in-flight row alone (it may be a live foreground worker's)", () => {
+      const { store, id } = setup("success");
+      store.startBrainRun({ proposalId: id, task: "spec", backend: "claude-code", model: "sonnet" });
+      const maxAge = 10 * 60_000;
+      expect(store.interruptStaleBrainRuns(maxAge)).toBe(0);
+      expect(store.getProposal(id)).toMatchObject({ specError: "" });
+      expect(store.getProposal(id)!.brainRunInFlightSince).not.toBeNull();
+      expect(store.interruptStaleBrainRuns(maxAge, new Date(Date.now() + maxAge + 1_000))).toBe(1);
+      expect(store.brainRunsFor(id)[0]!.exitStatus).toBe("interrupted");
     });
 
     it("--dry-run leaves no brain run behind", async () => {

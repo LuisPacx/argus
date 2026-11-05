@@ -26,6 +26,8 @@ export interface BrainRun<T> {
 export interface BrainRunOptions {
   maxBudgetUsd?: number;
   resume?: string;
+  /** Aborting kills a live child and fails the run as `interrupted`; an already-aborted signal spawns nothing. */
+  signal?: AbortSignal;
 }
 
 export interface Brain {
@@ -77,7 +79,8 @@ export function resolveRouting(overrides: Partial<Record<BrainTask, Partial<Task
   return out;
 }
 
-export type BrainFailureKind = "failed" | "budget-exceeded" | "rate-limited" | "timed-out";
+/** `interrupted`: the worker was shutting down. The run did not fail on its merits, so the work may be tried again. */
+export type BrainFailureKind = "failed" | "budget-exceeded" | "rate-limited" | "timed-out" | "interrupted";
 
 /** A run that did not succeed. Carries what was spent so the caller can still record it. */
 export class BrainError extends Error {
@@ -204,9 +207,13 @@ function killChild(child: ChildProcess, graceMs: number): void {
   child.once("close", () => clearTimeout(t));
 }
 
+/** Children killed by shutdown, so their runs are reported as `interrupted` rather than failed. */
+const shutdownKilled = new WeakSet<ChildProcess>();
+
 /** Kills every live brain child (SIGTERM, then SIGKILL after `graceMs`) and resolves once they have all exited. */
 export async function killLiveBrainChildren(graceMs = 5_000): Promise<number> {
   const children = [...liveChildren];
+  for (const c of children) shutdownKilled.add(c);
   await Promise.all(
     children.map(
       (c) =>
@@ -234,6 +241,11 @@ export class ClaudeCodeBrain implements Brain {
     return { backend, model };
   }
 
+  /** The longest wall-clock cap of any route: a brain run older than this (plus grace) cannot still be alive. */
+  maxRunMs(): number {
+    return Math.max(...Object.values(this.routing).map((r) => r.timeoutMs));
+  }
+
   /** The argv for `claude`; exposed so dry runs and tests see exactly what would be spawned. */
   buildArgs(task: BrainTask, input: BrainInput, opts: BrainRunOptions = {}): string[] {
     const route = this.routing[task];
@@ -249,6 +261,10 @@ export class ClaudeCodeBrain implements Brain {
       "--max-budget-usd",
       String(budget),
     ];
+    // Keep the operator's own Claude Code setup out of the child: HOME is passed (it holds the login), so without these
+    // ~/.claude settings, hooks, MCP servers (user and claude.ai connectors) and plugins would load into an unattended run.
+    // `--strict-mcp-config` with no `--mcp-config` means no MCP servers; `--setting-sources project` reads only the cwd's own settings.
+    args.push("--strict-mcp-config", "--setting-sources", "project");
     // Tool restriction: `--tools` fixes the set that exists (empty string = none), `--allowedTools` lets them run unprompted.
     args.push("--tools", route.tools.join(","));
     if (route.tools.length > 0) args.push("--allowedTools", route.tools.join(","));
@@ -270,25 +286,32 @@ export class ClaudeCodeBrain implements Brain {
       (this.opts.log ?? console.log)(`[brain] dry-run: ${command} ${shown.join(" ")}`);
       return { output: "" as T, totalCostUsd: 0, dryRun: true, ...info };
     }
+    if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
     const env = scrubEnv(this.opts.env ?? process.env, this.opts.passEnv);
-    const isolated = this.opts.cwd === undefined && this.opts.skillsDir !== undefined ? prepareSkillCwd(this.opts.skillsDir, task) : undefined;
+    let isolated: string | undefined;
     let out: ExecResult;
     try {
+      if (this.opts.cwd === undefined && this.opts.skillsDir !== undefined) isolated = prepareSkillCwd(this.opts.skillsDir, task);
       out = await exec(command, args, {
         cwd: this.opts.cwd ?? isolated,
         env,
         timeoutMs: route.timeoutMs,
         killGraceMs: this.opts.killGraceMs ?? 5_000,
+        signal: opts.signal,
       });
     } finally {
       if (isolated) rmSync(isolated, { recursive: true, force: true });
     }
-    const { stdout, stderr, code, signal, timedOut } = out;
+    const { stdout, stderr, code, signal, timedOut, interrupted } = out;
     const messages = parseMessages(stdout);
     const msg = messages.filter((m) => m.type === "result").at(-1);
     const base = { sessionId: msg?.session_id, totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
     if (timedOut) {
       throw new BrainError("timed-out", `Run exceeded its ${route.timeoutMs} ms wall-clock cap and was killed`, base);
+    }
+    const succeeded = msg?.subtype === "success" && !msg.is_error && code === 0;
+    if (interrupted && !succeeded) {
+      throw new BrainError("interrupted", "Run was killed because the worker is stopping", base);
     }
     if (!msg) {
       const detail = (stderr || stdout).trim().slice(0, 500);
@@ -310,10 +333,15 @@ export class ClaudeCodeBrain implements Brain {
 /** A fresh working directory holding only `<skillsDir>/<task>`, laid out as `.claude/skills/<task>` so `/<task>` resolves. */
 function prepareSkillCwd(skillsDir: string, task: BrainTask): string {
   const dir = mkdtempSync(join(tmpdir(), "argus-brain-"));
-  const dest = join(dir, ".claude", "skills", task);
-  mkdirSync(dest, { recursive: true });
-  cpSync(join(skillsDir, task), dest, { recursive: true });
-  return dir;
+  try {
+    const dest = join(dir, ".claude", "skills", task);
+    mkdirSync(dest, { recursive: true });
+    cpSync(join(skillsDir, task), dest, { recursive: true });
+    return dir;
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
 }
 
 interface ExecResult {
@@ -322,12 +350,14 @@ interface ExecResult {
   code: number | null;
   signal: NodeJS.Signals | null;
   timedOut: boolean;
+  /** Killed by shutdown (aborted signal or killLiveBrainChildren). */
+  interrupted: boolean;
 }
 
 function exec(
   command: string,
   args: string[],
-  o: { cwd?: string; env: Record<string, string>; timeoutMs: number; killGraceMs: number },
+  o: { cwd?: string; env: Record<string, string>; timeoutMs: number; killGraceMs: number; signal?: AbortSignal },
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -335,12 +365,19 @@ function exec(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let aborted = false;
+    const onAbort = () => {
+      aborted = true;
+      killChild(child, o.killGraceMs);
+    };
+    o.signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => {
       timedOut = true;
       killChild(child, o.killGraceMs);
     }, o.timeoutMs);
     const done = () => {
       clearTimeout(timer);
+      o.signal?.removeEventListener("abort", onAbort);
       liveChildren.delete(child);
     };
     child.stdout.on("data", (d) => (stdout += d));
@@ -351,7 +388,7 @@ function exec(
     });
     child.on("close", (code, signal) => {
       done();
-      resolve({ stdout, stderr, code, signal, timedOut });
+      resolve({ stdout, stderr, code, signal, timedOut, interrupted: aborted || shutdownKilled.has(child) });
     });
   });
 }

@@ -21,3 +21,5 @@
 ## Review fixes (in progress)
 
 Reviewer findings fixed: spend recorded before any write/transition with an in-flight `brain_runs` row; required `timeoutMs` and `tools` on every `TaskRoute`; isolated skill-only cwd and untrusted-data line in the `spec` skill; structured rate-limit detection with a 3-attempt cap. Done again only after verify, review and a real `claude -p` smoke.
+
+Second fix round: shutdown aborts the drafting loop (no spawn after stop) and a shutdown-killed run is `interrupted`, so the Proposal is drafted again on the next boot; Spec output is validated against the `spec` skill's output contract (H1 + `## Goal`, `## Scope`, `## Acceptance criteria`, or a lone `## Needs human`) and an invalid one fails with `spec_error`, nothing saved; every route runs with `--strict-mcp-config --setting-sources project` (real haiku run: no MCP servers, no user skills or plugins in the init event); stale-run recovery only touches rows older than the longest timeout plus grace; skill temp dir cleaned if preparing it throws; fake `claude` matches real event shapes. Still in-progress pending re-review.

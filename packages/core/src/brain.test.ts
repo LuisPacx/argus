@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ describe("ClaudeCodeBrain", () => {
     it(`returns output, session and cost on success (${format})`, async () => {
       const { brain } = setup("success", { outputFormat: format });
       const run = await brain.run<string>("spec", { prompt: "p" });
-      expect(run).toMatchObject({ output: "# Spec\n\nA fake Spec.\n", sessionId: "fake-session-1", totalCostUsd: 0.0123, backend: "claude-code", model: "sonnet" });
+      expect(run).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "fake-session-1", totalCostUsd: 0.0123, backend: "claude-code", model: "sonnet" });
     });
   }
 
@@ -86,7 +86,7 @@ describe("ClaudeCodeBrain", () => {
     it("structured api_error_status 429 on the result", async () => {
       expect(await kindOf("ratelimit-structured")).toBe("rate-limited");
     });
-    it("a rejected rate_limit_event in the stream (an allowed_warning one does not count)", async () => {
+    it("a rejected rate_limit_event in the stream (an allowed one does not count)", async () => {
       expect(await kindOf("ratelimit-event", "stream-json")).toBe("rate-limited");
       expect(await kindOf("failure", "stream-json")).toBe("failed");
     });
@@ -163,8 +163,62 @@ describe("ClaudeCodeBrain", () => {
       const pid = calls()[0]!.pid;
       expect(await killLiveBrainChildren(200)).toBe(1);
       expect(alive(pid)).toBe(false);
-      expect(await running).toBeInstanceOf(BrainError);
+      expect(await running).toMatchObject({ kind: "interrupted" });
     });
+
+    it("aborting the signal kills the child and fails the run as interrupted, not failed", async () => {
+      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(60_000), killGraceMs: 200 });
+      const ac = new AbortController();
+      const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal }).catch((e) => e);
+      const deadline = Date.now() + 5_000;
+      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 100));
+      ac.abort();
+      expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0 });
+      expect(alive(calls()[0]!.pid)).toBe(false);
+    });
+
+    it("an already-aborted signal spawns nothing", async () => {
+      const { brain, log } = setup("success");
+      const err = await brain.run("spec", { prompt: "p" }, { signal: AbortSignal.abort() }).catch((e) => e);
+      expect(err).toMatchObject({ kind: "interrupted" });
+      expect(existsSync(log)).toBe(false);
+    });
+
+    it("keeps the spend a killed child reports", async () => {
+      const { brain, started } = setup("hang-report", { routing: fast(60_000), killGraceMs: 200 });
+      const ac = new AbortController();
+      const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal }).catch((e) => e);
+      const deadline = Date.now() + 5_000;
+      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 100));
+      ac.abort();
+      expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" });
+    });
+  });
+
+  it("keeps user-level Claude config out of every route: strict MCP and project-only settings", async () => {
+    const { brain, calls } = setup("success");
+    for (const task of ["judge", "propose", "spec", "build"] as const) await brain.run(task, { prompt: "p" });
+    for (const { argv } of calls()) {
+      expect(argv).toContain("--strict-mcp-config");
+      expect(argv).not.toContain("--mcp-config");
+      expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("project");
+    }
+  });
+
+  it("does not leak the temp dir when preparing the skill directory throws", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "argus-tmpdir-"));
+    const { brain } = setup("success", { skillsDir: join(tmp, "no-such-skills") });
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = tmp;
+    try {
+      await expect(brain.run("spec", { prompt: "p" })).rejects.toThrow();
+      expect(readdirSync(tmp).filter((n) => n.startsWith("argus-brain-"))).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
   });
 
   describe("isolated working directory", () => {
