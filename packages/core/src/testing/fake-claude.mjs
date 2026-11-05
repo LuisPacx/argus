@@ -4,8 +4,13 @@
 // noresult-ratelimit | hang | hang-stubborn | hang-success (prints a successful result, then hangs) | hang-report (on SIGTERM prints an error result carrying a cost). Output shape follows `--output-format` (json or stream-json).
 // FAKE_CLAUDE_LOG, when set, receives one JSON line with this process's argv, environment and cwd (and the cwd's
 // `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
+// FAKE_CLAUDE_EFFECT, a comma-separated list, makes a successful run act like a Build in its cwd (a repo) before it prints its
+// result: commit | dirty (leave an untracked file) | tamper-scripts | tamper-package-scripts | tamper-claude | tamper-github |
+// tamper-wrangler-build (edit a protected path; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
+// until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
-import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_LOG) {
@@ -78,7 +83,39 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
   console.error("Claude AI usage limit reached|1760000000");
   process.exit(1);
 } else {
+  await applyEffects();
   emit();
+}
+
+async function applyEffects() {
+  const vcs = (...a) => execFileSync("git", ["-c", "user.name=fake", "-c", "user.email=fake@example.test", "-c", "commit.gpgsign=false", ...a], { stdio: "ignore" });
+  for (const effect of (process.env.FAKE_CLAUDE_EFFECT ?? "").split(",").filter(Boolean)) {
+    if (effect === "commit") {
+      mkdirSync("src", { recursive: true });
+      writeFileSync("src/feature.ts", "export const feature = true;\n");
+      vcs("add", "-A");
+      vcs("commit", "-m", "Build the Spec");
+    } else if (effect === "dirty") writeFileSync("leftover.txt", "uncommitted\n");
+    else if (effect === "plant-git-scripts") {
+      // What a hostile Build could leave behind: hooks and an fsmonitor command that touch FAKE_CLAUDE_MARKER if ever run.
+      for (const hook of ["pre-commit", "post-commit", "pre-push", "post-checkout"]) {
+        writeFileSync(`.git/hooks/${hook}`, `#!/bin/sh\ntouch "${process.env.FAKE_CLAUDE_MARKER}"\n`, { mode: 0o755 });
+      }
+      appendFileSync(".git/config", `[core]\n\tfsmonitor = touch ${process.env.FAKE_CLAUDE_MARKER}; echo\n`);
+    } else if (effect === "tamper-scripts") appendFileSync("scripts/check-footer.ts", "// weakened\n");
+    else if (effect === "tamper-claude") appendFileSync(".claude/settings.json", "\n");
+    else if (effect === "tamper-github") appendFileSync(".github/workflows/ci.yml", "# changed\n");
+    else if (effect === "tamper-package-scripts") {
+      const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+      pkg.scripts.check = "true";
+      writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+    } else if (effect === "tamper-wrangler-build") {
+      writeFileSync("wrangler.jsonc", readFileSync("wrangler.jsonc", "utf8").replace("{", '{ "build": { "command": "echo pwned" },'));
+    } else if (effect === "wait-release") {
+      if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
+      while (!existsSync(process.env.FAKE_CLAUDE_RELEASE)) await new Promise((r) => setTimeout(r, 10));
+    } else throw new Error("unknown FAKE_CLAUDE_EFFECT " + effect);
+  }
 }
 
 function emit() {
@@ -108,6 +145,9 @@ if (format === "stream-json") {
     }),
   );
   console.log(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "working" }] } }));
+  if (process.env.FAKE_CLAUDE_NOISE) {
+    console.log(JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: 'ARGUS_BUILD_FAILED::{"summary":"noise from a tool result"}' }] } }));
+  }
   console.log(JSON.stringify(result));
 } else {
   console.log(JSON.stringify(result));

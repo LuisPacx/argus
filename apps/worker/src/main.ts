@@ -1,6 +1,16 @@
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs, killLiveBrainChildren, revisePendingSpecs } from "@argus/core";
+import {
+  ClaudeCodeBrain,
+  Datastore,
+  applyPendingCommands,
+  draftPendingSpecs,
+  killLiveBrainChildren,
+  revisePendingSpecs,
+  runPendingBuilds,
+  type BuildRunnerOptions,
+} from "@argus/core";
 import { reentrant } from "./reentrant.ts";
 
 const TICK_MS = 5_000;
@@ -12,6 +22,20 @@ const dataDir = process.env.ARGUS_DATA_DIR || dirname(resolve(dbPath));
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 // Children run from a temp dir holding only the task's skill, never the repo root (.env, .data/argus.db).
 const brain = new ClaudeCodeBrain({ skillsDir: join(repoRoot, ".claude", "skills"), dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
+
+// The Build Runner: Build repos live under ~/code (ARGUS_BUILD_ROOT), cloned from the template repo. The *_BIN overrides
+// point the runner at other executables (tests use fakes); nothing else about a Build is configurable from the environment.
+const buildRoot = process.env.ARGUS_BUILD_ROOT || join(homedir(), "code");
+const buildOptions: BuildRunnerOptions = {
+  buildRoot,
+  templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
+  dataDir,
+  gitBin: process.env.ARGUS_GIT_BIN || undefined,
+  ghBin: process.env.ARGUS_GH_BIN || undefined,
+  wranglerBin: process.env.ARGUS_WRANGLER_BIN || undefined,
+  dryRun,
+  log: console.log,
+};
 
 // An open brain run older than its task's timeout plus grace belongs to a process that died: surface it, never retry.
 // A younger one may be live (this process, or a foreground --once beside the daemon): leave it. Runs at boot and every tick.
@@ -35,14 +59,25 @@ const tick = reentrant(
   },
   () => console.log("[worker] tick skipped: previous tick still running"),
 );
+// Builds run on their own guarded loop: a Build takes hours, and commands, Spec drafts and revises must not wait for it.
+// `runPendingBuilds` itself takes one Build at a time, so a long Build never overlaps another.
+const buildTick = reentrant(
+  async () => {
+    const n = await runPendingBuilds(store, brain, buildOptions, shutdown.signal);
+    if (n > 0) console.log(`[worker] finished ${n} build(s)`);
+  },
+  () => {}, // a Build is still running: the next tick tries again (no log line: a Build takes hours)
+);
 const running = new Set<Promise<unknown>>();
-const runTick = () => {
-  const p: Promise<unknown> = tick()
-    .catch((e) => console.error("[worker] tick failed", e))
+const track = (run: () => Promise<unknown>, what: string) => {
+  const p: Promise<unknown> = run()
+    .catch((e) => console.error(`[worker] ${what} failed`, e))
     .finally(() => running.delete(p));
   running.add(p);
   return p;
 };
+const runTick = () => track(tick, "tick");
+const runBuildTick = () => track(buildTick, "build pass");
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
@@ -65,9 +100,14 @@ process.on("SIGTERM", () => void stop());
 if (once) {
   console.log("[worker] one-shot tick");
   await runTick();
+  await runBuildTick();
   if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
   void runTick();
-  timer = setInterval(() => void runTick(), TICK_MS);
+  void runBuildTick();
+  timer = setInterval(() => {
+    void runTick();
+    void runBuildTick();
+  }, TICK_MS);
 }

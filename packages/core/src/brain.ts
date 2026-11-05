@@ -10,6 +10,11 @@ export type BrainBackend = "claude-code" | "api";
 export interface BrainInput {
   /** The skill's input, appended after `/<task>` in the prompt. */
   prompt: string;
+  /**
+   * Run this skill instead of `/<task>` (the build route runs the Build repo's own `/implement-spec`). The prompt is then
+   * `/<slash> <prompt>` on one line.
+   */
+  slash?: string;
 }
 
 export interface BrainRun<T> {
@@ -33,6 +38,10 @@ export interface BrainRunOptions {
    * elsewhere (a deleted temp dir) cannot be resumed, so the run fails without spawning.
    */
   workDir?: string;
+  /** Working directory for this run (a Build's clone); beats the constructor's `cwd` and `skillsDir`. `workDir` still wins. */
+  cwd?: string;
+  /** Called with each chunk of the child's stdout as it arrives (the Build log), before the run finishes. */
+  onOutput?: (chunk: string) => void;
   /** Aborting kills a live child and fails the run as `interrupted`; an already-aborted signal spawns nothing. */
   signal?: AbortSignal;
 }
@@ -56,6 +65,12 @@ export interface TaskRoute {
    * Empty means none: `--tools ""`. Required, so a new task cannot forget to decide.
    */
   tools: readonly string[];
+  /** `--allowedTools` when it is narrower than `tools` (e.g. `Bash(git commit *)` where `tools` has `Bash`). Defaults to `tools`. */
+  allowedTools?: readonly string[];
+  /** Passed as `--permission-mode`. */
+  permissionMode?: "acceptEdits";
+  /** `stream-json` (with `--verbose`) makes the output a live event stream. Defaults to the brain's `outputFormat`, else `json`. */
+  outputFormat?: "json" | "stream-json";
 }
 
 export type Routing = Record<BrainTask, TaskRoute>;
@@ -63,9 +78,41 @@ export type Routing = Record<BrainTask, TaskRoute>;
 const MINUTE = 60_000;
 
 /**
+ * What the build child may run without a prompt. Unattended, anything not listed is denied. The shell is scoped to what
+ * `/implement-spec` needs: git add/commit/status/diff/log/show, pnpm install/add/check/test/typecheck/lint, mkdir/mv/ls.
+ * No bare `Bash`, no push, no deploy, no network tools. The Build repo's own `.claude/settings.json` adds deny rules on
+ * top (deny beats allow), and argus re-verifies the result itself.
+ */
+export const BUILD_ALLOWED_TOOLS: readonly string[] = [
+  "Read",
+  "Edit",
+  "Write",
+  "Glob",
+  "Grep",
+  "Bash(git add *)",
+  "Bash(git commit *)",
+  "Bash(git status*)",
+  "Bash(git diff*)",
+  "Bash(git log*)",
+  "Bash(git show *)",
+  "Bash(pnpm install*)",
+  "Bash(pnpm add *)",
+  "Bash(pnpm check*)",
+  "Bash(pnpm test*)",
+  "Bash(pnpm typecheck*)",
+  "Bash(pnpm lint*)",
+  "Bash(pnpm exec vitest*)",
+  "Bash(pnpm exec tsc*)",
+  "Bash(pnpm exec oxlint*)",
+  "Bash(ls*)",
+  "Bash(mkdir *)",
+  "Bash(mv *)",
+];
+
+/**
  * Wall-clock caps: judge 5 min, propose 15 min, spec 10 min (a Spec is one short document, no tools), build 4 h
- * (architecture §6). Tools: judge and propose read the web, spec gets none (its input is untrusted Proposal text), build
- * gets the file and shell tools; ticket 07 scopes build's list further (e.g. `Bash(git *)`).
+ * (architecture §4). Tools: judge and propose read the web, spec gets none (its input is untrusted Proposal text), build
+ * gets the file and shell tools, with the shell scoped by BUILD_ALLOWED_TOOLS.
  */
 export const DEFAULT_ROUTING: Routing = {
   judge: { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.25, timeoutMs: 5 * MINUTE, tools: ["WebFetch"] },
@@ -76,7 +123,11 @@ export const DEFAULT_ROUTING: Routing = {
     model: "sonnet",
     maxBudgetUsd: 25,
     timeoutMs: 240 * MINUTE,
+    // `tools` is the set that exists; `allowedTools` is what may run without a prompt.
     tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+    allowedTools: BUILD_ALLOWED_TOOLS,
+    permissionMode: "acceptEdits",
+    outputFormat: "stream-json",
   },
 };
 
@@ -271,11 +322,12 @@ export class ClaudeCodeBrain implements Brain {
     const route = this.routing[task];
     // The configured cap is a ceiling: a caller may lower it but never raise it.
     const budget = Math.min(route.maxBudgetUsd, opts.maxBudgetUsd ?? route.maxBudgetUsd);
+    const outputFormat = route.outputFormat ?? this.opts.outputFormat ?? "json";
     const args = [
       "-p",
-      `/${task}\n\n${input.prompt}`,
+      input.slash !== undefined ? `/${input.slash} ${input.prompt}` : `/${task}\n\n${input.prompt}`,
       "--output-format",
-      this.opts.outputFormat ?? "json",
+      outputFormat,
       "--model",
       route.model,
       "--max-budget-usd",
@@ -287,8 +339,10 @@ export class ClaudeCodeBrain implements Brain {
     args.push("--strict-mcp-config", "--setting-sources", "project");
     // Tool restriction: `--tools` fixes the set that exists (empty string = none), `--allowedTools` lets them run unprompted.
     args.push("--tools", route.tools.join(","));
-    if (route.tools.length > 0) args.push("--allowedTools", route.tools.join(","));
-    if (this.opts.outputFormat === "stream-json") args.push("--verbose");
+    const allowed = route.allowedTools ?? route.tools;
+    if (allowed.length > 0) args.push("--allowedTools", allowed.join(","));
+    if (route.permissionMode) args.push("--permission-mode", route.permissionMode);
+    if (outputFormat === "stream-json") args.push("--verbose");
     if (opts.resume) args.push("--resume", opts.resume);
     return args;
   }
@@ -318,7 +372,7 @@ export class ClaudeCodeBrain implements Brain {
     let isolated: string | undefined;
     let out: ExecResult;
     try {
-      let cwd = this.opts.cwd;
+      let cwd = opts.cwd ?? this.opts.cwd;
       if (opts.workDir !== undefined) cwd = prepareSkillDir(opts.workDir, this.opts.skillsDir, task);
       else if (cwd === undefined && this.opts.skillsDir !== undefined) cwd = isolated = prepareSkillCwd(this.opts.skillsDir, task);
       out = await exec(command, args, {
@@ -327,6 +381,7 @@ export class ClaudeCodeBrain implements Brain {
         timeoutMs: route.timeoutMs,
         killGraceMs: this.opts.killGraceMs ?? 5_000,
         signal: opts.signal,
+        onOutput: opts.onOutput,
       });
     } finally {
       if (isolated) rmSync(isolated, { recursive: true, force: true });
@@ -400,7 +455,14 @@ interface ExecResult {
 function exec(
   command: string,
   args: string[],
-  o: { cwd?: string; env: Record<string, string>; timeoutMs: number; killGraceMs: number; signal?: AbortSignal },
+  o: {
+    cwd?: string;
+    env: Record<string, string>;
+    timeoutMs: number;
+    killGraceMs: number;
+    signal?: AbortSignal;
+    onOutput?: (chunk: string) => void;
+  },
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -423,7 +485,11 @@ function exec(
       o.signal?.removeEventListener("abort", onAbort);
       liveChildren.delete(child);
     };
-    child.stdout.on("data", (d) => (stdout += d));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      stdout += d;
+      o.onOutput?.(d);
+    });
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (e) => {
       done();

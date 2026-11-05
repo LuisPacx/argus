@@ -33,6 +33,28 @@ onMounted(() => {
   timer = setInterval(() => void Promise.all([refresh(), refreshCommands()]), 3000);
 });
 onBeforeUnmount(() => clearInterval(timer));
+
+// Build log: tail build.log by byte offset while the Build runs, keep the last chunk of it on screen.
+const LOG_STATUSES = ["building", "built", "build-failed", "needs-human"];
+const logText = ref("");
+let logOffset = 0;
+async function tailLog() {
+  if (!LOG_STATUSES.includes(p.value?.status ?? "")) return;
+  try {
+    const r = await $fetch<{ content: string; offset: number }>(`/api/proposals/${id}/build-log`, { query: { offset: logOffset } });
+    if (r.offset < logOffset) logText.value = "";
+    logOffset = r.offset;
+    logText.value = (logText.value + r.content).slice(-200_000);
+  } catch {
+    // the next poll retries
+  }
+}
+let logTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  void tailLog();
+  logTimer = setInterval(() => void tailLog(), 2000);
+});
+onBeforeUnmount(() => clearInterval(logTimer));
 // A revision landed: load the new Spec unless the Operator has unsaved edits in the box.
 const edited = ref(false);
 watch(
@@ -133,6 +155,13 @@ async function send(type: "revise" | "approve" | "retry-spec", reason = "") {
       <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
     </section>
     <p v-if="p.approvedAt" class="mt-4 text-sm">Approved {{ p.approvedAt }}</p>
+    <p v-if="p.previewUrl" class="mt-4 text-sm">
+      Preview: <a :href="p.previewUrl" target="_blank" rel="noopener">{{ p.previewUrl }}</a>
+    </p>
+    <section v-if="logText" class="mt-4">
+      <h3 class="font-semibold">Build log</h3>
+      <pre class="max-h-96 overflow-auto text-xs whitespace-pre-wrap">{{ logText }}</pre>
+    </section>
   </UCard>
   <p v-else>Proposal not found.</p>
 </template>

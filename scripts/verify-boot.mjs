@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // One command that proves the worker boots and shuts down cleanly. Verifiers run `pnpm verify:boot`.
-// Step 1: `--once` dry run exits 0 and logs the brain's argv with the isolation flags.
+// Step 1: `--once` dry run exits 0, logs the brain's argv with the isolation flags, and logs the Build Runner's clone,
+// repo-create, claude spawn and deploy commands for an approved Proposal (running none of them).
 // Step 2: long-running dry run ticks, gets SIGTERM, and exits 0 within 10s.
 // Step 3: no process from step 2's process group survives.
 import { spawn } from 'node:child_process';
@@ -18,6 +19,7 @@ const GROUP_GRACE_MS = 2_000;
 const RUN_ONCE_TIMEOUT_MS = 60_000;
 const POLL_MS = 50;
 const REQUIRED_FLAGS = ['--strict-mcp-config', '--setting-sources project', '--tools'];
+const REQUIRED_BUILD_LINES = ['dry-run: git clone', 'repo create boot-build --private', 'dry-run: claude (cwd', '--permission-mode acceptEdits', 'dry-run: wrangler deploy --name boot-build'];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const results = [];
@@ -28,7 +30,7 @@ function report(step, ok, detail) {
 }
 
 function workerEnv(dir) {
-  return { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_DRY_RUN: '1' };
+  return { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_DRY_RUN: '1', ARGUS_BUILD_ROOT: path.join(dir, 'code') };
 }
 
 // Seeds one shortlisted Proposal through the core Datastore API, the same path the War Room takes.
@@ -44,6 +46,19 @@ function seed(db) {
     evidenceLinks: [],
   });
   store.transition(p.id, 'shortlisted', 'operator');
+  // A second Proposal, approved, for the Build Runner's dry run.
+  const b = store.createProposal({
+    narrativeSummary: 'n',
+    techOneLiner: 't',
+    whyNow: 'w',
+    name: 'Boot Build',
+    ticker: 'BUILD',
+    description: 'd',
+    evidenceLinks: [],
+  });
+  store.transition(b.id, 'shortlisted', 'operator');
+  store.completeSpec(b.id, { path: path.join(path.dirname(db), 'spec.md'), hash: 'h' });
+  store.transition(b.id, 'approved', 'operator');
   store.close();
 }
 
@@ -73,14 +88,17 @@ async function stepOnce(dir) {
 
   const line = stdout.split('\n').find((l) => l.includes('[brain] dry-run:')) ?? '';
   const missing = REQUIRED_FLAGS.filter((flag) => !line.includes(flag));
+  const missingBuild = REQUIRED_BUILD_LINES.filter((part) => !stdout.includes(part));
   if (code !== 0) {
     report('step 1 once dry-run', false, `exit ${code}; stderr tail: ${stderr.trim().split('\n').slice(-3).join(' | ')}`);
   } else if (!line) {
     report('step 1 once dry-run', false, 'exit 0 but no "[brain] dry-run:" line on stdout');
   } else if (missing.length > 0) {
     report('step 1 once dry-run', false, `dry-run line lacks ${missing.join(', ')}`);
+  } else if (missingBuild.length > 0) {
+    report('step 1 once dry-run', false, `Build Runner dry-run output lacks: ${missingBuild.join(' | ')}`);
   } else {
-    report('step 1 once dry-run', true, `exit 0; dry-run line has ${REQUIRED_FLAGS.join(', ')}`);
+    report('step 1 once dry-run', true, `exit 0; dry-run line has ${REQUIRED_FLAGS.join(', ')}; Build dry-run logs clone, repo create, claude, deploy`);
   }
 }
 

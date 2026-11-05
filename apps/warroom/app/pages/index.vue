@@ -103,6 +103,7 @@ async function submit() {
           Brain run in flight since {{ p.brainRunInFlightSince }}. If the worker is not running, it was interrupted and its spend is unknown; restart the worker to flag it.
         </p>
         <p v-if="p.specError" class="mt-2 text-sm text-red-500">{{ p.specError }}</p>
+        <p v-if="p.previewUrl" class="mt-2 text-sm">Preview: <a :href="p.previewUrl" target="_blank" rel="noopener">{{ p.previewUrl }}</a></p>
         <p v-if="rejection(p)" class="mt-2 text-sm text-red-500">
           Command {{ rejection(p)!.status }}: {{ rejection(p)!.error }}
         </p>

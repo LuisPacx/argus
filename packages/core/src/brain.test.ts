@@ -240,6 +240,45 @@ describe("ClaudeCodeBrain", () => {
     });
   });
 
+  describe("build route", () => {
+    it("runs in the given repo with acceptEdits, a scoped allowedTools (no bare Bash), stream-json and the caps", async () => {
+      const { brain, calls } = setup("success");
+      const repo = mkdtempSync(join(tmpdir(), "argus-build-repo-"));
+      await brain.run("build", { prompt: "7", slash: "implement-spec" }, { cwd: repo });
+      const { argv, cwd } = calls()[0]!;
+      expect(cwd).toBe(repo);
+      expect(argv.slice(0, 2)).toEqual(["-p", "/implement-spec 7"]);
+      expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+      expect(argv[argv.indexOf("--output-format") + 1]).toBe("stream-json");
+      expect(argv).toContain("--verbose");
+      expect(argv[argv.indexOf("--max-budget-usd") + 1]).toBe("25");
+      expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("project");
+      expect(argv).toContain("--strict-mcp-config");
+      const allowed = argv[argv.indexOf("--allowedTools") + 1]!.split(",");
+      expect(allowed).not.toContain("Bash");
+      expect(allowed).toEqual(expect.arrayContaining(["Edit", "Write", "Bash(git commit *)", "Bash(pnpm check*)"]));
+      expect(allowed.some((t) => /wrangler|deploy|push|curl|rm /.test(t))).toBe(false);
+      expect(DEFAULT_ROUTING.build.timeoutMs).toBe(240 * 60_000);
+    });
+
+    it("hands each stdout chunk to onOutput while the child runs", async () => {
+      const { brain } = setup("success");
+      const chunks: string[] = [];
+      await brain.run("build", { prompt: "7" }, { onOutput: (c) => chunks.push(c) });
+      const lines = chunks.join("").trim().split("\n").map((l) => JSON.parse(l) as { type: string });
+      expect(lines.map((l) => l.type)).toEqual(["system", "rate_limit_event", "assistant", "result"]);
+    });
+
+    it("other routes keep json output and the plain /<task> prompt", async () => {
+      const { brain, calls } = setup("success");
+      await brain.run("spec", { prompt: "p" });
+      const { argv } = calls()[0]!;
+      expect(argv[1]).toBe("/spec\n\np");
+      expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
+      expect(argv).not.toContain("--permission-mode");
+    });
+  });
+
   it("keeps user-level Claude config out of every route: strict MCP and project-only settings", async () => {
     const { brain, calls } = setup("success");
     for (const task of ["judge", "propose", "spec", "build"] as const) await brain.run(task, { prompt: "p" });

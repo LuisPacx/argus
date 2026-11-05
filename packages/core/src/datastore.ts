@@ -44,6 +44,8 @@ export interface Proposal {
   specRevision: string | null;
   /** When the Operator approved (the FIFO key for the Build queue); null until then. */
   approvedAt: string | null;
+  /** The workers.dev preview, set when the Build reaches `built`; null before. */
+  previewUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -146,6 +148,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "spec_revision", "TEXT");
   ensureColumn(db, "proposals", "approved_at", "TEXT");
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "proposals", "preview_url", "TEXT");
 }
 
 export function slugify(text: string): string {
@@ -175,6 +178,7 @@ interface Row {
   in_flight_since: string | null;
   spec_revision: string | null;
   approved_at: string | null;
+  preview_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +206,7 @@ function toProposal(r: Row): Proposal {
     brainRunInFlightSince: r.in_flight_since,
     specRevision: r.spec_revision,
     approvedAt: r.approved_at,
+    previewUrl: r.preview_url,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -486,6 +491,18 @@ export class Datastore {
         if (new Date(r.created_at).getTime() >= now.getTime() - staleAfterMs(r.task)) continue;
         n++;
         this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
+        if (r.task === "build") {
+          // The worker died mid-Build: its spend is unknown. Free the Build slot; the failure shows in the status history.
+          const p = this.getProposal(r.proposal_id);
+          if (p?.status === "building") {
+            this.transition(
+              r.proposal_id,
+              "build-failed",
+              "build",
+              "Build interrupted: the worker stopped during the Build, so its spend is unknown. Not retried automatically.",
+            );
+          }
+        }
         if (r.task === "spec-revise") {
           this.db
             .prepare("UPDATE proposals SET spec_error = ?, spec_revision = NULL WHERE id = ? AND status = 'spec-drafted'")
@@ -519,6 +536,17 @@ export class Datastore {
           "UPDATE proposals SET spec_path = ?, spec_hash = ?, spec_error = '', spec_retry_after = NULL, spec_attempts = 0 WHERE id = ?",
         )
         .run(spec.path, spec.hash, proposalId);
+    });
+  }
+
+  /**
+   * WORKER ONLY. Stores the verified preview URL and moves `building` -> `built`, atomically. The Build's brain run is
+   * recorded separately (finishBrainRun), earlier. Throws IllegalTransitionError if the Proposal moved on (dismissed).
+   */
+  completeBuild(proposalId: number, build: { previewUrl: string }): void {
+    this.inTransaction(() => {
+      this.transition(proposalId, "built", "build");
+      this.db.prepare("UPDATE proposals SET preview_url = ? WHERE id = ?").run(build.previewUrl, proposalId);
     });
   }
 
