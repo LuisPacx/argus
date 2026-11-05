@@ -3,6 +3,9 @@
 //   FAKE_PODMAN_IMAGES   comma-separated tags that `image exists` accepts
 //   FAKE_PODMAN_NETWORK  JSON of the network `network exists|inspect` sees (absent: no network)
 import { appendFileSync } from "node:fs";
+import { registerFake } from "./run-registry.mjs";
+
+registerFake();
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_PODMAN_LOG) appendFileSync(process.env.FAKE_PODMAN_LOG, JSON.stringify(argv) + "\n");

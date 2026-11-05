@@ -6,9 +6,17 @@
 // deploy wait until that file exists. FAKE_WRANGLER_HANG=1 never finishes (after starting a grandchild in the same process
 // group whose pid goes to FAKE_WRANGLER_GRANDCHILD). FAKE_WRANGLER_STRAGGLER, a file, receives the pid of a SIGTERM-ignoring process
 // in the same group that is left running after a normal exit. The log also records the .env* files in the cwd and the contents
-// of every --env-file, as wrangler would load them.
+// of every --env-file, as wrangler would load them, and for the config's `main` the text of that file and a listing of the
+// directory two levels up (the project root, as the bundler would see it).
+// With --dry-run it bundles and deploys nothing: it writes <--outdir>/index.js and, for --metafile, an esbuild-style metafile
+// whose inputs (paths relative to the cwd) are the entry point plus FAKE_WRANGLER_META_INPUTS (a JSON array of extra paths,
+// as esbuild lists files the entry imported from elsewhere).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { registerFake, registerPid } from "./run-registry.mjs";
+
+registerFake();
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_WRANGLER_LOG) {
@@ -29,18 +37,49 @@ if (process.env.FAKE_WRANGLER_LOG) {
       return null;
     }
   });
-  appendFileSync(process.env.FAKE_WRANGLER_LOG, JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText, cwdEnvFiles, envFiles, envFileTexts }) + "\n");
+  let main = null;
+  let mainText = null;
+  let rootListing = null;
+  try {
+    main = JSON.parse(configText).main;
+    mainText = readFileSync(main, "utf8");
+    rootListing = readdirSync(dirname(dirname(main))).sort();
+  } catch {
+    // no config, or no readable main
+  }
+  appendFileSync(
+    process.env.FAKE_WRANGLER_LOG,
+    JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText, cwdEnvFiles, envFiles, envFileTexts, main, mainText, rootListing }) + "\n",
+  );
+}
+if (argv.includes("--dry-run")) {
+  const flag = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+  const outdir = flag("--outdir");
+  const metafile = flag("--metafile");
+  const main = JSON.parse(readFileSync(flag("--config"), "utf8")).main;
+  const rel = (path) => relative(process.cwd(), path);
+  if (outdir) {
+    mkdirSync(outdir, { recursive: true });
+    writeFileSync(join(outdir, "index.js"), "// bundled by the fake\nexport default {};\n");
+  }
+  if (metafile) {
+    const inputs = Object.fromEntries([rel(main), ...JSON.parse(process.env.FAKE_WRANGLER_META_INPUTS ?? "[]")].map((f) => [f, { bytes: 1, imports: [] }]));
+    const outputs = outdir ? { [rel(join(outdir, "index.js"))]: { bytes: 1, inputs: {}, imports: [], exports: [], entryPoint: rel(main) } } : {};
+    writeFileSync(resolve(metafile), JSON.stringify({ inputs, outputs }));
+  }
+  console.log("--dry-run: exiting now.");
+  process.exit(0);
 }
 if (process.env.FAKE_WRANGLER_HANG) {
   if (process.env.FAKE_WRANGLER_GRANDCHILD) {
-    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
     writeFileSync(process.env.FAKE_WRANGLER_GRANDCHILD, String(gc.pid));
   }
   if (process.env.FAKE_WRANGLER_STARTED) writeFileSync(process.env.FAKE_WRANGLER_STARTED, String(process.pid));
   setInterval(() => {}, 1000);
 } else {
   if (process.env.FAKE_WRANGLER_STRAGGLER) {
-    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
     gc.unref();
     writeFileSync(process.env.FAKE_WRANGLER_STRAGGLER, String(gc.pid));
   }

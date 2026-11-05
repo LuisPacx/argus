@@ -8,12 +8,16 @@
 // result: commit | dirty (leave an untracked file) | tamper-scripts | tamper-package-scripts | tamper-claude | tamper-github |
 // tamper-wrangler-build | tamper-wrangler-config | plant-env (ignored .env, .env.local, .dev.vars) | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
 // until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
+// More effects: symlink-file (commit-ready symlink src/link.txt -> /etc/hostname) | gitlink (commit a submodule entry vendor/sub;
+// follow `commit`) | index-from-env (src/index.ts := FAKE_CLAUDE_INDEX_TS) | ignored-files (untracked, ignored node_modules/ and .env).
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
 // FAKE_CLAUDE_GRANDCHILD, when set, is a file that receives the pid of a grandchild (same process group, output detached,
 // ignores SIGTERM) started by the hang modes before they signal readiness.
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { registerFake, registerPid } from "./run-registry.mjs";
 
+registerFake();
 const argv = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_LOG) {
   const skills = existsSync(".claude/skills") ? readdirSync(".claude/skills") : [];
@@ -34,7 +38,7 @@ const format = argv[argv.indexOf("--output-format") + 1] ?? "text";
 const straggler = (process.env.FAKE_CLAUDE_MODE ?? "").endsWith("-straggler");
 const mode = (process.env.FAKE_CLAUDE_MODE ?? "success").replace(/-straggler$/, "");
 if (straggler && process.env.FAKE_CLAUDE_GRANDCHILD) {
-  const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+  const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
   writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
 }
 // Field names and values follow real `claude -p` output (checked against a recorded haiku run): `api_error_status` is
@@ -79,7 +83,7 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
   }
   const hang = () => {
     if (process.env.FAKE_CLAUDE_GRANDCHILD) {
-      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
       writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
     }
     if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
@@ -141,6 +145,18 @@ async function applyEffects() {
     } else if (effect === "symlink-main") {
       rmSync("src/index.ts");
       symlinkSync("/etc/hostname", "src/index.ts");
+    } else if (effect === "symlink-file") {
+      symlinkSync("/etc/hostname", "src/link.txt");
+    } else if (effect === "gitlink") {
+      // A submodule entry in the commit (mode 160000); the commit it names need not exist.
+      vcs("update-index", "--add", "--cacheinfo", "160000,1111111111111111111111111111111111111111,vendor/sub");
+      vcs("commit", "-m", "Add a submodule");
+    } else if (effect === "index-from-env") {
+      writeFileSync("src/index.ts", process.env.FAKE_CLAUDE_INDEX_TS);
+    } else if (effect === "ignored-files") {
+      mkdirSync("node_modules/dep", { recursive: true });
+      writeFileSync("node_modules/dep/index.js", "export default 1;\n");
+      writeFileSync(".env", "SECRET=1\n");
     } else if (effect === "plant-git-config") {
       // Commit a .gitattributes that routes every file through a filter, then define that filter (and a credential helper, an ssh
       // command, a pushurl and an insteadOf for the origin) in .git/config. Each command would touch FAKE_CLAUDE_MARKER or

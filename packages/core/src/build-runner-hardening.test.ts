@@ -12,7 +12,7 @@ async function build(h: Harness, name = "Cat Coin") {
   const outcome = await runNextBuild(h.store, h.brain, h.options);
   const after = h.store.getProposal(p.id)!;
   const reason = h.store.historyFor(p.id).at(-1)!.reason;
-  return { p, outcome, after, reason, deploys: h.calls(h.wranglerLog) };
+  return { p, outcome, after, reason, deploys: h.deployCalls() };
 }
 
 const marker = (label: string) => {
@@ -50,11 +50,10 @@ describe("deploy uses a wrangler config that argus wrote", () => {
     const config = deploy!.argv[deploy!.argv.indexOf("--config") + 1] as string;
     expect(isAbsolute(config)).toBe(true);
     expect(config.startsWith(realpathSync(h.repoDir("cat-coin")) + sep)).toBe(false);
-    expect(JSON.parse(deploy!.configText as string)).toEqual({
-      name: "cat-coin",
-      main: join(realpathSync(h.repoDir("cat-coin")), "src/index.ts"),
-      compatibility_date: "2026-11-01",
-    });
+    // The deployed Worker is the bundle argus made in its own scratch directory, not anything in the agent's repo.
+    const deployed = JSON.parse(deploy!.configText as string) as { name: string; main: string; compatibility_date: string };
+    expect(deployed).toEqual({ name: "cat-coin", main: `${dirname(config)}/dist/index.js`, compatibility_date: "2026-11-01" });
+    expect(deployed.main.startsWith(realpathSync(h.repoDir("cat-coin")) + sep)).toBe(false);
     expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
     expect(existsSync(pwned)).toBe(false);
     // The config is scratch: it is gone once the Build is.
@@ -232,6 +231,38 @@ describe("the build run stays open until the Build is over", () => {
     expect(beat()).toBe(last);
   });
 
+  it("a beat that fails (a busy database) is logged and never thrown out of the timer, so it cannot crash the worker; the Build carries on", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const started = join(dir, "started");
+    const release = join(dir, "release");
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STARTED: started, FAKE_WRANGLER_RELEASE: release } });
+    // The timer's callback is taken out and called by hand, so the test neither waits on a clock nor depends on host load.
+    h.options.heartbeatMs = 12_345;
+    const real = globalThis.setInterval;
+    let beat: (() => void) | undefined;
+    const spy = vi.spyOn(globalThis, "setInterval").mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 12_345) beat = fn;
+      return real(fn, ms, ...rest);
+    }) as typeof setInterval);
+    const touch = vi.spyOn(h.store, "touchBrainRun").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    try {
+      const p = h.seedApproved("Cat Coin");
+      const running = runNextBuild(h.store, h.brain, h.options);
+      await untilExists(started);
+      expect(beat).toBeDefined();
+      expect(() => beat!()).not.toThrow();
+      expect(touch).toHaveBeenCalledTimes(1);
+      expect(h.logs.join("\n")).toContain("database is locked");
+      writeFileSync(release, "");
+      expect(await running).toEqual({ proposalId: p.id, result: "built" });
+    } finally {
+      spy.mockRestore();
+      touch.mockRestore();
+    }
+  });
+
   it("the sweep leaves a building Proposal with a young open run alone", () => {
     const h = makeHarness();
     const p = h.seedApproved("Cat Coin");
@@ -263,7 +294,7 @@ describe("a Worker name already taken in the Cloudflare account is never overwri
     writeFileSync(h.release, "");
     expect(await running).toEqual({ proposalId: p.id, result: "build-failed" });
     expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("already exists");
-    expect(h.calls(h.wranglerLog)).toEqual([]);
+    expect(h.deployCalls()).toEqual([]);
     // The claude run's spend is still on the card.
     expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0123);
   });

@@ -5,6 +5,9 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { registerFake } from "./run-registry.mjs";
+
+registerFake();
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_GH_LOG) appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ argv, cwd: process.cwd(), env: process.env }) + "\n");

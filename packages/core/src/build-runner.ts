@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
@@ -187,6 +187,43 @@ export function readHeadCommit(repo: string): string {
   throw new StepError(`could not resolve ${ref} in the Build repo`);
 }
 
+/**
+ * What in a commit's tree (`git ls-tree -r -z` output) must keep it from being bundled: a symlink (mode 120000) or a
+ * submodule (160000), which a bundler would follow to files outside the commit, and a path that climbs out of the export
+ * or sits inside a `.git` directory. One description per offending entry, in tree order.
+ */
+export function findUnsafeEntries(lsTree: string): string[] {
+  const out: string[] = [];
+  for (const line of lsTree.split("\0")) {
+    const m = /^(\d+) \w+ [0-9a-f]+\t([^]*)$/.exec(line);
+    if (!m) continue;
+    const [, mode, path] = m as unknown as [string, string, string];
+    const segments = path.split("/");
+    if (mode === "120000") out.push(`a symlink: ${path}`);
+    else if (mode === "160000") out.push(`a submodule: ${path}`);
+    else if (segments.includes("..")) out.push(`a path that climbs out: ${JSON.stringify(path)}`);
+    else if (segments.includes(".git")) out.push(`a path inside a .git directory: ${JSON.stringify(path)}`);
+  }
+  return out;
+}
+
+/**
+ * Checks the esbuild metafile wrangler wrote for a bundle run in `cwd`: its input paths are relative to the cwd, and every one
+ * must lie inside `exportDir` (its own node_modules included). Otherwise returns those that do not, as the metafile names them.
+ * On success returns the bundle's entry output, which must lie inside `outdir` and be a file.
+ */
+export function checkMetafile(meta: unknown, cwd: string, exportDir: string, outdir: string): { outside: string[] } | { output: string } {
+  const { inputs, outputs } = (meta ?? {}) as { inputs?: Record<string, unknown>; outputs?: Record<string, { entryPoint?: unknown }> };
+  if (!inputs || typeof inputs !== "object" || !outputs || typeof outputs !== "object") throw new Error("it has no inputs or outputs");
+  const outside = Object.keys(inputs).filter((f) => !resolve(cwd, f).startsWith(exportDir + sep));
+  if (outside.length > 0) return { outside };
+  const entries = Object.entries(outputs).filter(([, v]) => typeof v?.entryPoint === "string");
+  if (entries.length !== 1) throw new Error(`it lists ${entries.length} entry outputs, not one`);
+  const output = resolve(cwd, entries[0]![0]);
+  if (!output.startsWith(outdir + sep) || !statSync(output).isFile()) throw new Error("the bundle's output is not a file in its output directory");
+  return { output };
+}
+
 /** The next Proposal to build: oldest approval first (ties by id); none while a Build is running. */
 export function nextBuildable(store: Datastore): Proposal | undefined {
   const all = store.listProposals();
@@ -239,7 +276,9 @@ function dryRun(brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal): Bui
   say(o.gitBin ?? "git", ["push", "<origin>", "<commit>:refs/heads/<branch>"]);
   const args = brain.buildArgs("build", { prompt: String(p.id), slash: "implement-spec" });
   log(`[build ${p.id}] dry-run: claude (cwd ${repo}) ${args.map((a) => (/[\s"']/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
-  say(o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler.jsonc", "--env-file", "<argus-seal>/empty.env"]);
+  const wrangler = o.wranglerBin ?? "wrangler";
+  say(wrangler, ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler.jsonc", "--env-file", "<argus-seal>/empty.env", "--dry-run", "--outdir", "<argus-seal>/dist", "--metafile", "<argus-seal>/meta.json"]);
+  say(wrangler, ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler-deploy.jsonc", "--env-file", "<argus-seal>/empty.env", "--no-bundle"]);
   return { proposalId: p.id, result: "dry-run" };
 }
 
@@ -333,7 +372,19 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
 
   // Beats for as long as this Build runs, whatever phase it is in: the stale sweep fails a Build whose worker went quiet for the
   // route's cap plus a grace, which a long deploy, crawl or push after a full-length claude run would otherwise look like.
-  const heartbeat = setInterval(() => store.touchBrainRun(runId), o.heartbeatMs ?? 60_000);
+  // A beat that fails (a busy database) is logged and dropped: an error thrown out of a timer would crash the worker, and the
+  // next beat, a minute on, is soon enough.
+  const heartbeat = setInterval(() => {
+    try {
+      store.touchBrainRun(runId);
+    } catch (e) {
+      try {
+        logSink(`[build ${id}] heartbeat failed: ${e instanceof Error ? e.message : String(e)}`);
+      } catch {
+        // nothing left to report to
+      }
+    }
+  }, o.heartbeatMs ?? 60_000);
   heartbeat.unref();
 
   // Scratch space for after the agent has run: a git directory of argus's own, and the wrangler config.
@@ -432,24 +483,54 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
       return fail("package.json could not be read or parsed");
     }
 
-    // Deploy with the global wrangler (never the repo's node_modules), under the slug, with a config argus wrote. The entry
-    // point must be a real file inside the repo: a symlink would let the Worker bundle any file the Operator can read.
-    let main: string;
+    // Only what is committed is ever bundled, and the Worker is deployed with the global wrangler (never the repo's node_modules)
+    // under the slug, with a config argus wrote. The tree must hold no symlink and no submodule (either would let the bundle pull
+    // in any file the Operator can read), and the bundle is built from a fresh export of the commit inside the seal, never from
+    // the agent's working tree. esbuild would still follow a `../` or absolute import out of the export, so bundling is a step of
+    // its own (--dry-run: no credentials, nothing uploaded), every input its metafile lists must lie inside the export, and only
+    // then is the output of that step deployed (--no-bundle) with the credentials.
+    const unsafe = findUnsafeEntries(await sealed("git ls-tree", "ls-tree", "-r", "-z", "--full-tree", head));
+    if (unsafe.length > 0) return fail(`the commit holds ${unsafe.slice(0, 5).join("; ")}; refusing to bundle it`);
+    const sealDir = realpathSync(seal);
+    const exportDir = join(sealDir, "export");
+    const tarball = join(sealDir, "export.tar");
+    mkdirSync(exportDir);
+    await sealed("git archive", "archive", "--format=tar", "-o", tarball, head);
+    await step("tar", "tar", ["-xf", tarball, "-C", exportDir, "--no-same-owner"], pick([]), sealDir);
     try {
-      main = realpathSync(join(repo, WORKER_ENTRY));
-      if (!main.startsWith(realpathSync(repo) + sep) || !statSync(main).isFile()) throw new Error("outside the repo");
+      if (!lstatSync(join(exportDir, WORKER_ENTRY)).isFile()) throw new Error("not a file");
     } catch {
-      return fail(`${WORKER_ENTRY} is missing or is not a file inside the repo; refusing to deploy`);
+      return fail(`${WORKER_ENTRY} is missing or is not a file in the commit; refusing to deploy`);
     }
-    const configPath = join(seal, "wrangler.jsonc");
-    writeFileSync(configPath, wranglerConfigFor(p.slug, main));
-    await requireFreeWorkerName();
     // wrangler loads .env, .env.local and .dev.vars from its working directory, and the agent can leave those in the repo (the
     // template ignores them, so the clean-tree check passes): a CLOUDFLARE_API_BASE_URL there would send the Operator's token to
     // the agent. So it runs in argus's scratch directory, and --env-file names an empty file of argus's own as a second guard.
-    const envFile = join(seal, "empty.env");
+    const envFile = join(sealDir, "empty.env");
     writeFileSync(envFile, "");
-    const deployed = await step("wrangler deploy", o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile], wranglerEnv, seal);
+    const wrangler = o.wranglerBin ?? "wrangler";
+    const bundleConfig = join(sealDir, "wrangler.jsonc");
+    const outdir = join(sealDir, "dist");
+    const metafile = join(sealDir, "meta.json");
+    writeFileSync(bundleConfig, wranglerConfigFor(p.slug, join(exportDir, WORKER_ENTRY)));
+    await step(
+      "wrangler bundle",
+      wrangler,
+      ["deploy", "--name", p.slug, "--config", bundleConfig, "--env-file", envFile, "--dry-run", "--outdir", outdir, "--metafile", metafile],
+      { ...pick([]), CI: "1", WRANGLER_SEND_METRICS: "false" },
+      sealDir,
+    );
+    let bundled: string;
+    try {
+      const checked = checkMetafile(JSON.parse(readFileSync(metafile, "utf8")), sealDir, exportDir, outdir);
+      if ("outside" in checked) return fail(`the bundle read files outside the commit: ${checked.outside.slice(0, 5).join(", ")}; refusing to deploy`);
+      bundled = checked.output;
+    } catch (e) {
+      return fail(`the bundle's metafile could not be checked: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const configPath = join(sealDir, "wrangler-deploy.jsonc");
+    writeFileSync(configPath, wranglerConfigFor(p.slug, bundled));
+    await requireFreeWorkerName();
+    const deployed = await step("wrangler deploy", wrangler, ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile, "--no-bundle"], wranglerEnv, sealDir);
     const url = WORKERS_DEV_URL_RE.exec(deployed)?.[0];
     if (!url) return fail("wrangler deploy printed no workers.dev URL");
     note(`Deployed to ${url}; checking the preview`);

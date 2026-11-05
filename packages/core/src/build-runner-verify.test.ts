@@ -11,7 +11,7 @@ async function build(h: Harness, name = "Cat Coin") {
   const outcome = await runNextBuild(h.store, h.brain, h.options);
   const after = h.store.getProposal(p.id)!;
   const reason = h.store.historyFor(p.id).at(-1)!.reason;
-  return { p, outcome, after, reason, deploys: h.calls(h.wranglerLog), runs: h.store.brainRunsFor(p.id) };
+  return { p, outcome, after, reason, deploys: h.deployCalls(), runs: h.store.brainRunsFor(p.id) };
 }
 
 describe("Build Runner: a Build succeeds only on argus's own checks", () => {
@@ -203,7 +203,7 @@ describe("Build Runner: spend is recorded on every path", () => {
     expect(await running).toEqual({ proposalId: p.id, result: "build-failed" });
     expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "interrupted" }]);
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "build-failed", brainRunInFlightSince: null });
-    expect(h.calls(h.wranglerLog)).toEqual([]);
+    expect(h.deployCalls()).toEqual([]);
   });
 
   it("a setup failure (gh repo create) spawns no claude, records no spend and fails the Build", async () => {
@@ -237,7 +237,7 @@ describe("Build Runner: spend is recorded on every path", () => {
     expect(await running).toEqual({ proposalId: p.id, result: "abandoned" });
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "dismissed", previewUrl: null });
     expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }]);
-    expect(h.calls(h.wranglerLog)).toEqual([]);
+    expect(h.deployCalls()).toEqual([]);
   });
 
   it("a Build run left open by a dead worker is swept: the run is interrupted and the Proposal build-failed", async () => {

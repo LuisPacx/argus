@@ -78,6 +78,8 @@ export interface Harness {
   /** Creates a Proposal and takes it through shortlist, Spec and approval. */
   seedApproved(name: string): Proposal;
   calls(file: string): Array<Record<string, any>>;
+  /** The fake wrangler's real deploys: its calls that were not `--dry-run` bundling. */
+  deployCalls(): Array<Record<string, any>>;
   repoDir(slug: string): string;
 }
 
@@ -181,6 +183,9 @@ export function makeHarness(
       } catch {
         return [];
       }
+    },
+    deployCalls() {
+      return this.calls(wranglerLog).filter((c) => !c.argv.includes("--dry-run"));
     },
     repoDir: (slug) => join(buildRoot, slug),
   };

@@ -38,7 +38,7 @@ describe("Build Runner: happy path", () => {
     expect(vcs(join(h.remotes, "cat-coin.git"), "rev-parse", "main")).toBe(vcs(repo, "rev-parse", "HEAD"));
 
     // wrangler deploys under the slug, with the Cloudflare credentials and nothing the build run saw.
-    const [deploy] = h.calls(h.wranglerLog);
+    const [deploy] = h.deployCalls();
     expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
     expect(deploy!.argv[3]).toBe("--config");
     // Not the agent's repo: wrangler loads .env files from its cwd (see build-runner-hardening.test.ts).
@@ -158,7 +158,7 @@ describe("Build Runner: dry-run", () => {
     expect(existsSync(h.repoDir("cat-coin"))).toBe(false);
     expect(h.calls(h.claudeLog)).toEqual([]);
     expect(h.calls(h.ghLog)).toEqual([]);
-    expect(h.calls(h.wranglerLog)).toEqual([]);
+    expect(h.deployCalls()).toEqual([]);
     expect(h.store.brainRunsFor(p.id)).toEqual([]);
     expect(h.store.getProposal(p.id)!.status).toBe("approved");
     expect(existsSync(buildLogPathFor(h.dataDir, p.id))).toBe(false);
