@@ -1,0 +1,22 @@
+# Build image for the Build container and the egress proxy sidecar (containment design section 6).
+# Built only by `pnpm image:build`; the worker never builds or pulls. Versions are pinned exactly; bump them
+# here and in packages/core/src/build-image.ts together (the script cross-checks them).
+FROM docker.io/library/node:22-bookworm-slim@sha256:aaa4b5baf1ecff3b283486bb1f90405cdda225a3e6f79660d2c559fa510a7292
+
+# git for the agent's commits; ca-certificates for TLS. No curl, wget, ssh, gh or wrangler.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g --no-audit --no-fund pnpm@11.2.2 @anthropic-ai/claude-code@2.1.318 \
+ && npm cache clean --force
+
+# The proxy sidecar runs from the same image: node /opt/argus/egress-proxy.mjs (the .mjs imports the .ts beside it).
+COPY egress-proxy.mjs egress-proxy.ts /opt/argus/
+
+# --userns=keep-id maps the Operator (uid 1000) to the base image's named `node` user.
+RUN test "$(id -u node)" = 1000
+USER node
+WORKDIR /home/node
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
+    DISABLE_AUTOUPDATER=1
