@@ -17,6 +17,7 @@
     "verify:boot": "node scripts/verify-boot.mjs",
     "verify:parent": "node scripts/verify-parent.mjs",
     "image:build": "node scripts/image-build.mjs",
+    "verify:contain": "node scripts/verify-contain.mjs",
     "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

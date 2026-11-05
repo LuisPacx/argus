@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // One command that proves the worker boots and shuts down cleanly. Verifiers run `pnpm verify:boot`.
 // Step 1: `--once` dry run exits 0, logs the brain's argv with the isolation flags, and logs the Build Runner's clone,
-// repo-create, claude spawn and deploy commands for an approved Proposal (running none of them).
+// repo-create, claude spawn and deploy commands for an approved Proposal (running none of them), and the Build containers'
+// `podman run` lines: every required containment flag present, none of the forbidden ones (--privileged, --network host, a mount of
+// the Operator's home, ...). The policy is packages/core/src/containment-policy.ts, shared with `pnpm verify:contain`.
 // Step 2: long-running dry run ticks, gets SIGTERM, and exits 0 within 10s.
 // Step 3: no process from step 2's process group survives.
 import { spawn } from 'node:child_process';
@@ -10,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Datastore } from '../packages/core/src/index.ts';
+import { checkDryRunOutput } from '../packages/core/src/containment-policy.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKER_MAIN = path.join(ROOT, 'apps', 'worker', 'src', 'main.ts');
@@ -89,6 +92,7 @@ async function stepOnce(dir) {
   const line = stdout.split('\n').find((l) => l.includes('[brain] dry-run:')) ?? '';
   const missing = REQUIRED_FLAGS.filter((flag) => !line.includes(flag));
   const missingBuild = REQUIRED_BUILD_LINES.filter((part) => !stdout.includes(part));
+  const containment = checkDryRunOutput(stdout, { operatorHome: os.homedir() });
   if (code !== 0) {
     report('step 1 once dry-run', false, `exit ${code}; stderr tail: ${stderr.trim().split('\n').slice(-3).join(' | ')}`);
   } else if (!line) {
@@ -97,8 +101,10 @@ async function stepOnce(dir) {
     report('step 1 once dry-run', false, `dry-run line lacks ${missing.join(', ')}`);
   } else if (missingBuild.length > 0) {
     report('step 1 once dry-run', false, `Build Runner dry-run output lacks: ${missingBuild.join(' | ')}`);
+  } else if (containment.length > 0) {
+    report('step 1 once dry-run', false, `containment: ${containment.join(' | ')}`);
   } else {
-    report('step 1 once dry-run', true, `exit 0; dry-run line has ${REQUIRED_FLAGS.join(', ')}; Build dry-run logs clone, repo create, claude, deploy`);
+    report('step 1 once dry-run', true, `exit 0; dry-run line has ${REQUIRED_FLAGS.join(', ')}; Build dry-run logs clone, repo create, claude, deploy; podman run lines for egress x2, build, install, bundle meet the containment policy`);
   }
 }
 
