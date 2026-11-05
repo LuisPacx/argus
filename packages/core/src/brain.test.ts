@@ -210,6 +210,24 @@ describe("ClaudeCodeBrain", () => {
       expect(existsSync(log)).toBe(false);
     });
 
+    it("a successful result printed just before the cap fires still succeeds", () =>
+      withFakeTimers(async () => {
+        const { brain, started } = setup("hang-success", { routing: fast(CAP), killGraceMs: 200 });
+        const running = brain.run("spec", { prompt: "p" });
+        await untilExists(started); // the result is already flushed; the child now hangs
+        vi.advanceTimersByTime(CAP);
+        expect(await running).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "fake-session-1", totalCostUsd: 0.0123 });
+      }));
+
+    it("a successful result printed just before shutdown aborts still succeeds", async () => {
+      const { brain, started } = setup("hang-success", { routing: fast(CAP), killGraceMs: 200 });
+      const ac = new AbortController();
+      const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal });
+      await untilExists(started);
+      ac.abort();
+      expect(await running).toMatchObject({ sessionId: "fake-session-1", totalCostUsd: 0.0123 });
+    });
+
     it("keeps the spend a killed child reports", async () => {
       const { brain, started } = setup("hang-report", { routing: fast(CAP), killGraceMs: 200 });
       const ac = new AbortController();

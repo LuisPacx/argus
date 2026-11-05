@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Fake `claude` for offline, zero-spend tests. Behaviour comes from FAKE_CLAUDE_MODE:
 // success | failure | failure-429text | budget | ratelimit | ratelimit-structured | ratelimit-event | noresult |
-// noresult-ratelimit | hang | hang-stubborn | hang-report (on SIGTERM prints an error result carrying a cost). Output shape follows `--output-format` (json or stream-json).
+// noresult-ratelimit | hang | hang-stubborn | hang-success (prints a successful result, then hangs) | hang-report (on SIGTERM prints an error result carrying a cost). Output shape follows `--output-format` (json or stream-json).
 // FAKE_CLAUDE_LOG, when set, receives one JSON line with this process's argv, environment and cwd (and the cwd's
 // `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
@@ -41,7 +41,7 @@ const results = {
   ratelimit: { ...base, subtype: "success", is_error: true, result: "Claude AI usage limit reached", total_cost_usd: 0 },
 };
 
-if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report") {
+if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mode === "hang-success") {
   // Never finishes. hang-stubborn also ignores SIGTERM, so only SIGKILL stops it.
   if (mode === "hang-stubborn") {
     process.on("SIGTERM", () => {
@@ -54,8 +54,13 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report") {
       process.exit(1);
     });
   }
-  if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
-  setInterval(() => {}, 1000);
+  const hang = () => {
+    if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
+    setInterval(() => {}, 1000);
+  };
+  // hang-success prints a successful result, then never exits; the marker appears only once the result is flushed.
+  if (mode === "hang-success") process.stdout.write(JSON.stringify(results.success) + "\n", hang);
+  else hang();
 } else if (mode === "noresult") {
   // Exits without ever printing a result message.
   console.error("fatal: something unrelated to limits, error code 429 in line 429");

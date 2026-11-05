@@ -314,10 +314,12 @@ export class ClaudeCodeBrain implements Brain {
     const messages = parseMessages(stdout);
     const msg = messages.filter((m) => m.type === "result").at(-1);
     const base = { sessionId: msg?.session_id, totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
-    if (timedOut) {
+    // A complete successful result is the run's outcome even if our own kill (cap or shutdown) landed after it was printed.
+    const killedByUs = timedOut || interrupted;
+    const succeeded = msg?.subtype === "success" && !msg.is_error && (code === 0 || killedByUs);
+    if (timedOut && !succeeded) {
       throw new BrainError("timed-out", `Run exceeded its ${route.timeoutMs} ms wall-clock cap and was killed`, base);
     }
-    const succeeded = msg?.subtype === "success" && !msg.is_error && code === 0;
     if (interrupted && !succeeded) {
       throw new BrainError("interrupted", "Run was killed because the worker is stopping", base);
     }
@@ -329,7 +331,7 @@ export class ClaudeCodeBrain implements Brain {
     if (msg.subtype === "error_max_budget_usd") {
       throw new BrainError("budget-exceeded", "Run hit the --max-budget-usd cap", base);
     }
-    if (msg.is_error || msg.subtype !== "success" || code !== 0) {
+    if (!succeeded) {
       const text = String(msg.result ?? msg.subtype ?? `exit ${code}`);
       const kind = (msg.is_error || code !== 0) && isRateLimited(messages, text) ? "rate-limited" : "failed";
       throw new BrainError(kind, text.slice(0, 500), base);
