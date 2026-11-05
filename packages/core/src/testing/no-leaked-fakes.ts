@@ -51,27 +51,31 @@ export function leakedIn(dir: string): Found[] {
   return found;
 }
 
-/** Names left in the run's private temp dir; empty when the run cleaned up after itself. */
-export function leakedTempEntries(root: string): string[] {
+const COMPILE_CACHE = "node-compile-cache"; // Node's own cache for the run's child processes; swept with the run, not a leak
+
+/** Removes the run's private temp dir; throws, naming what was left in it, when the run did not clean up after itself. */
+export function sweepTempRoot(root: string): void {
   let left: string[] = [];
   try {
-    left = readdirSync(root);
+    left = readdirSync(root).filter((n) => n !== COMPILE_CACHE);
   } catch {
     // never created
   }
-  return left;
+  rmSync(root, { recursive: true, force: true });
+  if (left.length > 0) throw new Error(`The test run left ${left.length} temp entr${left.length === 1 ? "y" : "ies"} behind (removed now):\n${left.map((e) => `  ${e}`).join("\n")}`);
 }
 
 function isolateTmpdir(): () => void {
-  const saved = process.env.TMPDIR;
+  const saved = { NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE };
   const root = mkdtempSync(join(tmpdir(), "argus-test-run-"));
   process.env.TMPDIR = root;
+  process.env.NODE_COMPILE_CACHE = join(root, COMPILE_CACHE);
   return () => {
-    if (saved === undefined) delete process.env.TMPDIR;
-    else process.env.TMPDIR = saved;
-    const left = leakedTempEntries(root);
-    rmSync(root, { recursive: true, force: true });
-    if (left.length > 0) throw new Error(`The test run left ${left.length} temp entr${left.length === 1 ? "y" : "ies"} behind (removed now):\n${left.map((e) => `  ${e}`).join("\n")}`);
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    sweepTempRoot(root);
   };
 }
 

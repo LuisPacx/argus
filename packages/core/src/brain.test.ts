@@ -14,6 +14,7 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
     ...(extra.skillsDir === undefined ? { cwd: tempDir("argus-brain-cwd-") } : {}),
     env: {
       PATH: process.env.PATH,
+     
       HOME: "/home/x",
       ANTHROPIC_API_KEY: "sk-secret",
       AWS_SECRET: "nope",

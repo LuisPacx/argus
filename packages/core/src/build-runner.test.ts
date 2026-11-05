@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } fr
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildLogPathFor, runNextBuild, runPendingBuilds } from "./build-runner.ts";
-import { makeHarness, vcs } from "./testing/build-harness.ts";
+import { makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
 import { tempDir } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
 
@@ -175,31 +175,60 @@ describe("Build Runner: dry-run", () => {
 });
 
 describe("Build Runner: temp dirs", () => {
-  /** Runs one Build with the temp dir pointed at a fresh directory and returns what the runner left in it besides the harness. */
-  async function leftBehind(claudeEnv: Record<string, string>) {
+  /**
+   * Runs one Build with the temp dir pointed at a fresh directory and returns what the runner left in it besides the
+   * harness's own root: the seal (and the env and config files inside it) must be gone on every terminal path.
+   */
+  async function leftBehind(opts: Parameters<typeof makeHarness>[0], run: (h: Harness) => Promise<{ result: string } | undefined>) {
     const tmp = tempDir("argus-seal-check-");
     const saved = process.env.TMPDIR;
     process.env.TMPDIR = tmp;
     try {
-      const h = makeHarness({ claudeEnv });
+      const h = makeHarness(opts);
       h.seedApproved("Cat Coin");
-      const outcome = await runNextBuild(h.store, h.brain, h.options);
-      return { outcome, seals: readdirSync(tmp).filter((n) => n.startsWith("argus-seal-")) };
+      const outcome = await run(h);
+      const harnessRoot = h.root.slice(tmp.length + 1).split("/")[0];
+      return { outcome, left: readdirSync(tmp).filter((n) => n !== harnessRoot && n !== "node-compile-cache") };
     } finally {
       if (saved === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = saved;
     }
   }
+  const once = (h: Harness) => runNextBuild(h.store, h.brain, h.options);
 
   it("removes the seal when the Build succeeds", async () => {
-    const { outcome, seals } = await leftBehind({});
+    const { outcome, left } = await leftBehind({}, once);
     expect(outcome?.result).toBe("built");
-    expect(seals).toEqual([]);
+    expect(left).toEqual([]);
   });
 
   it("removes the seal when the Build fails after the seal was made", async () => {
-    const { outcome, seals } = await leftBehind({ FAKE_CLAUDE_EFFECT: "" }); // nothing committed: rejected once the seal exists
+    const { outcome, left } = await leftBehind({ claudeEnv: { FAKE_CLAUDE_EFFECT: "" } }, once); // nothing committed: rejected once the seal exists
     expect(outcome?.result).toBe("build-failed");
-    expect(seals).toEqual([]);
+    expect(left).toEqual([]);
+  });
+
+  it("removes the seal when a command times out", async () => {
+    const started = join(tempDir("argus-hang-"), "started");
+    const { outcome, left } = await leftBehind({ wranglerEnv: { FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started } }, (h) => {
+      h.options.commandTimeoutMs = 1_500;
+      return once(h);
+    });
+    expect(existsSync(started)).toBe(true); // it got as far as the bundle step, after the seal was made
+    expect(outcome?.result).toBe("build-failed");
+    expect(left).toEqual([]);
+  });
+
+  it("removes the seal when the worker shuts down mid-Build", async () => {
+    const started = join(tempDir("argus-hang-"), "started");
+    const ac = new AbortController();
+    const { outcome, left } = await leftBehind({ wranglerEnv: { FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started } }, async (h) => {
+      const running = runNextBuild(h.store, h.brain, h.options, ac.signal);
+      await untilExists(started);
+      ac.abort();
+      return running;
+    });
+    expect(outcome?.result).not.toBe("built");
+    expect(left).toEqual([]);
   });
 });

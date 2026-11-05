@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { leakedIn } from "./no-leaked-fakes.ts";
+import { ClaudeCodeBrain, killLiveBrainChildren } from "../brain.ts";
+import { FAKE_CLAUDE } from "./fake-claude.ts";
+import { leakedIn, sweepTempRoot } from "./no-leaked-fakes.ts";
 import { registryDirFor } from "./run-registry.mjs";
+import { tempDir } from "./temp.ts";
 import { untilExists } from "./wait.ts";
 
 describe("the leak guard only claims fakes started under its own test run", () => {
@@ -17,7 +20,7 @@ describe("the leak guard only claims fakes started under its own test run", () =
     mkdirSync(mine, { recursive: true });
     mkdirSync(other, { recursive: true });
     const child = spawn(join(import.meta.dirname, "fake-wrangler.mjs"), [], {
-      env: { PATH: process.env.PATH, TMPDIR: tmpdir(), FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started },
+      env: { PATH: process.env.PATH, FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started },
       stdio: "ignore",
       detached: true,
     });
@@ -65,5 +68,39 @@ describe("the leak guard only claims fakes started under its own test run", () =
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("a fake claude started through the brain registers with this run, so a leaked one would be caught", async () => {
+    const dir = tempDir("argus-registry-test-");
+    const started = join(dir, "started");
+    const mine = registryDirFor(process.pid);
+    mkdirSync(mine, { recursive: true });
+    // The scrubbed env shape the brain tests use: no TMPDIR or HOME, and the fake still finds the registry.
+    const brain = new ClaudeCodeBrain({
+      command: FAKE_CLAUDE,
+      cwd: dir,
+      env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: "hang-stubborn", FAKE_CLAUDE_STARTED: started },
+      passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_STARTED"],
+      killGraceMs: 200,
+    });
+    const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+    try {
+      await untilExists(started);
+      expect(leakedIn(mine).length).toBeGreaterThan(0);
+    } finally {
+      await killLiveBrainChildren(200);
+      await running;
+      rmSync(mine, { recursive: true, force: true });
+    }
+  });
+
+  it("the run fails when it leaves a temp entry behind, and the entry is removed", () => {
+    const root = tempDir("argus-test-run-");
+    mkdirSync(join(root, "node-compile-cache"));
+    expect(() => sweepTempRoot(root)).not.toThrow(); // the compile cache alone is not a leak
+    const leaky = tempDir("argus-test-run-");
+    mkdirSync(join(leaky, "argus-leftover-abc"));
+    expect(() => sweepTempRoot(leaky)).toThrow(/left 1 temp entry behind[\s\S]*argus-leftover-abc/);
+    expect(existsSync(leaky)).toBe(false);
   });
 });
