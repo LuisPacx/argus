@@ -5,9 +5,9 @@
 
 **Blocked by:** 15
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `pnpm verify:contain` passes on this host with the image built; every HIGH2 and MED4 bullet in the reviewer's list has a corresponding check
-- [ ] Skips cleanly (exit 0, prints SKIP) without podman; never pulls or builds
-- [ ] `pnpm verify:boot` passes and fails if the dry run drops a required flag or adds `--privileged`
-- [ ] `pnpm check` passes
+- [x] `pnpm verify:contain` passes on this host with the image built; every HIGH2 and MED4 bullet in the reviewer's list has a corresponding check
+- [x] Skips cleanly (exit 0, prints SKIP) without podman; never pulls or builds (SKIP path checked by verifier on 363919e)
+- [x] `pnpm verify:boot` passes and fails if the dry run drops a required flag or adds `--privileged`
+- [x] `pnpm check` passes
