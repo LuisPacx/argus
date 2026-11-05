@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Datastore opens the database under `.data/` in WAL mode; migrations are additive and idempotent (running them twice is a no-op, tested)
 - [x] Proposals table holds the hand-entered fields, status, slug and timestamps
