@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tempPath } from "./testing/temp.ts";
 import { describe, expect, it, vi } from "vitest";
-import { buildLogPathFor, classifyFinalMessage, runNextBuild } from "./build-runner.ts";
+import { buildHomeFor, buildLogPathFor, classifyFinalMessage, runNextBuild } from "./build-runner.ts";
 import { PAGE, fakePreview, makeHarness, type Harness } from "./testing/build-harness.ts";
 import { untilExists } from "./testing/wait.ts";
 
@@ -81,7 +81,8 @@ describe("Build Runner: a Build succeeds only on argus's own checks", { timeout:
     expect(r.after.status).toBe("build-failed");
     expect(r.reason).toContain("pnpm check still failing");
     expect(r.deploys).toEqual([]);
-    expect(r.runs).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }]);
+    // The retry reported the same failure: two runs, both finished.
+    expect(r.runs).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }, { exitStatus: "success", totalCostUsd: 0.0123 }]);
   });
 
   it("ARGUS_NEEDS_HUMAN as the last line moves the Proposal to needs-human, no deploy", async () => {
@@ -151,7 +152,7 @@ describe("Build Runner: a Build succeeds only on argus's own checks", { timeout:
       expect(r.after).toMatchObject({ status: "build-failed", previewUrl: null });
       expect(r.reason).toContain("/about");
       expect(r.reason).toContain("still deployed");
-      expect(r.deploys).toHaveLength(1);
+      expect(r.deploys).toHaveLength(2); // the attempt and its retry
     });
 
     it("is not built when the 404 page lacks it", async () => {
@@ -180,8 +181,8 @@ describe("Build Runner: a Build succeeds only on argus's own checks", { timeout:
       const r = await build(h);
       expect(r.after).toMatchObject({ status: "build-failed", previewUrl: null });
       expect(r.reason).toContain("wrangler deploy failed");
-      // The spend of the claude run is still on the card.
-      expect(r.after.agentCostUsd).toBeCloseTo(0.0123);
+      // The spend of both claude runs (the attempt and its retry) is still on the card.
+      expect(r.after.agentCostUsd).toBeCloseTo(0.0246);
     });
   });
 });
@@ -191,8 +192,10 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "failure", FAKE_CLAUDE_EFFECT: "" } });
     const r = await build(h);
     expect(r.after.status).toBe("build-failed");
-    expect(r.runs).toMatchObject([{ task: "build", exitStatus: "failed", totalCostUsd: 0.004, sessionId: "5e55a0a0-0000-4000-8000-000000000001" }]);
-    expect(r.after.agentCostUsd).toBeCloseTo(0.004);
+    // Both attempts (the first and its one retry) are recorded, each with its own spend.
+    const failed = { task: "build", exitStatus: "failed", totalCostUsd: 0.004, sessionId: "5e55a0a0-0000-4000-8000-000000000001" };
+    expect(r.runs).toMatchObject([failed, failed]);
+    expect(r.after.agentCostUsd).toBeCloseTo(0.008);
     expect(r.after.brainRunInFlightSince).toBeNull();
     expect(r.deploys).toEqual([]);
   });
@@ -201,7 +204,7 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "budget", FAKE_CLAUDE_EFFECT: "" } });
     const r = await build(h);
     expect(r.after.status).toBe("build-failed");
-    expect(r.runs).toMatchObject([{ exitStatus: "budget-exceeded", totalCostUsd: 2.01 }]);
+    expect(r.runs).toMatchObject([{ exitStatus: "budget-exceeded", totalCostUsd: 2.01 }, { exitStatus: "budget-exceeded", totalCostUsd: 2.01 }]);
   });
 
   it("the wall-clock cap kills the child, fails the Build and records the run", async () => {
@@ -213,11 +216,15 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
       const p = h.seedApproved("Cat Coin");
       const running = runNextBuild(h.store, h.brain, h.options);
       await untilExists(h.started);
+      // The first attempt is killed and fails; the retry is the second run, timed the same way.
+      rmSync(h.started);
+      vi.advanceTimersByTime(60_000);
+      await untilExists(h.started);
       vi.advanceTimersByTime(60_000);
       await running;
       const runs = h.store.brainRunsFor(p.id);
       expect(h.store.getProposal(p.id)!.status).toBe("build-failed");
-      expect(runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0.004 }]);
+      expect(runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0.004 }, { exitStatus: "timed-out", totalCostUsd: 0.004 }]);
       expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("timed-out");
     } finally {
       vi.useRealTimers();
@@ -269,6 +276,8 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "dismissed", previewUrl: null });
     expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }]);
     expect(h.deployCalls()).toEqual([]);
+    // The lifecycle left the home to the runner, as the container was on it; the runner removes it when the Build ends.
+    expect(existsSync(buildHomeFor(h.dataDir, p.id))).toBe(false);
   });
 
   it("a Build run left open by a dead worker is swept: the run is interrupted and the Proposal build-failed", async () => {

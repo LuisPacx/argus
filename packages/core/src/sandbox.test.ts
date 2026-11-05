@@ -304,7 +304,8 @@ describe("a Build runs its claude in a container", { timeout: 60_000 }, () => {
     expect(r.reason).toContain("egress proxy sidecar could not be started");
     expect(h.calls(h.claudeLog)).toEqual([]);
     expect(h.containers()).toEqual([]);
-    expect(h.store.brainRunsFor(r.p.id)).toMatchObject([{ exitStatus: "failed" }]);
+    // The attempt and its retry both failed to start the sidecar.
+    expect(h.store.brainRunsFor(r.p.id)).toMatchObject([{ exitStatus: "failed" }, { exitStatus: "failed" }]);
   });
 
   it("fails the Build and removes the sidecar when it never reports listening", async () => {

@@ -10,7 +10,9 @@
 // until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker (any other value is used as the tool result's text).
 // More effects: symlink-file (commit-ready symlink src/link.txt -> /etc/hostname) | gitlink (commit a submodule entry vendor/sub;
 // follow `commit`) | index-from-env (src/index.ts := FAKE_CLAUDE_INDEX_TS) | write-files (FAKE_CLAUDE_FILES, a JSON object of
-// path -> text, written before `commit`) | ignored-files (untracked, ignored node_modules/ and .env).
+// path -> text, written before `commit`) | ignored-files (untracked, ignored node_modules/ and .env) | stage-file (staged.txt,
+// added to the index and never committed) | modify-spec (uncommitted edit of the tracked SPEC.md).
+// FAKE_CLAUDE_SEQUENCE: see the comment where it is applied. hang-init prints the init message, then hangs.
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
 // FAKE_CLAUDE_GRANDCHILD, when set, is a file that receives the pid of a grandchild (same process group, output detached,
 // ignores SIGTERM) started by the hang modes before they signal readiness.
@@ -20,9 +22,18 @@ import { registerFake, registerPid } from "./run-registry.mjs";
 
 registerFake();
 const argv = process.argv.slice(2);
+// FAKE_CLAUDE_SEQUENCE, a JSON array of objects, changes the environment per call: call N (counted from the lines already in
+// FAKE_CLAUDE_LOG) applies entry N as overrides, so a test can fail the first attempt of a Build and let the retry succeed.
+if (process.env.FAKE_CLAUDE_SEQUENCE && process.env.FAKE_CLAUDE_LOG) {
+  const calls = existsSync(process.env.FAKE_CLAUDE_LOG) ? readFileSync(process.env.FAKE_CLAUDE_LOG, "utf8").split("\n").filter(Boolean).length : 0;
+  Object.assign(process.env, JSON.parse(process.env.FAKE_CLAUDE_SEQUENCE)[calls] ?? {});
+}
 if (process.env.FAKE_CLAUDE_LOG) {
   const skills = existsSync(".claude/skills") ? readdirSync(".claude/skills") : [];
-  appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ argv, env: process.env, cwd: process.cwd(), skills, pid: process.pid }) + "\n");
+  // FAKE_CLAUDE_LOG_STATUS=1 also records what the working tree looked like when the run started.
+  let status;
+  if (process.env.FAKE_CLAUDE_LOG_STATUS) status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { encoding: "utf8" });
+  appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ argv, env: process.env, cwd: process.cwd(), skills, pid: process.pid, status }) + "\n");
 }
 // Like the real CLI, sessions belong to the working directory: `--resume <id>` only works from the directory the session
 // was started in. A run (not a resume) records its session under ./.fake-sessions; resuming an unknown one fails.
@@ -69,7 +80,7 @@ const results = {
   ratelimit: { ...base, subtype: "success", is_error: true, result: "Claude AI usage limit reached", total_cost_usd: 0 },
 };
 
-if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mode === "hang-success") {
+if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mode === "hang-success" || mode === "hang-init") {
   // Never finishes. hang-stubborn also ignores SIGTERM, so only SIGKILL stops it.
   if (mode === "hang-stubborn") {
     process.on("SIGTERM", () => {
@@ -82,6 +93,8 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
       process.exit(1);
     });
   }
+  // hang-init prints the stream's init message (it carries the session id), then hangs without ever printing a result.
+  if (mode === "hang-init") console.log(JSON.stringify({ type: "system", subtype: "init", cwd: process.cwd(), session_id: base.session_id }));
   const hang = () => {
     if (process.env.FAKE_CLAUDE_GRANDCHILD) {
       const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
@@ -107,13 +120,25 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
 
 async function applyEffects() {
   const vcs = (...a) => execFileSync("git", ["-c", "user.name=fake", "-c", "user.email=fake@example.test", "-c", "commit.gpgsign=false", ...a], { stdio: "ignore" });
+  // A retry runs the same effects over the first attempt's commits: committing what is already committed is a no-op, not a crash.
+  const commit = (message) => {
+    try {
+      vcs("diff", "--cached", "--quiet");
+    } catch {
+      vcs("commit", "-m", message);
+    }
+  };
   for (const effect of (process.env.FAKE_CLAUDE_EFFECT ?? "").split(",").filter(Boolean)) {
     if (effect === "commit") {
       mkdirSync("src", { recursive: true });
       writeFileSync("src/feature.ts", "export const feature = true;\n");
       vcs("add", "-A");
-      vcs("commit", "-m", "Build the Spec");
+      commit("Build the Spec");
     } else if (effect === "dirty") writeFileSync("leftover.txt", "uncommitted\n");
+    else if (effect === "stage-file") {
+      writeFileSync("staged.txt", "staged, never committed\n");
+      vcs("add", "staged.txt");
+    } else if (effect === "modify-spec") appendFileSync("SPEC.md", "\nhalf-done edit\n");
     else if (effect === "plant-git-scripts") {
       // What a hostile Build could leave behind: hooks and an fsmonitor command that touch FAKE_CLAUDE_MARKER if ever run.
       for (const hook of ["pre-commit", "post-commit", "pre-push", "post-checkout"]) {
@@ -151,7 +176,7 @@ async function applyEffects() {
     } else if (effect === "gitlink") {
       // A submodule entry in the commit (mode 160000); the commit it names need not exist.
       vcs("update-index", "--add", "--cacheinfo", "160000,1111111111111111111111111111111111111111,vendor/sub");
-      vcs("commit", "-m", "Add a submodule");
+      commit("Add a submodule");
     } else if (effect === "index-from-env") {
       writeFileSync("src/index.ts", process.env.FAKE_CLAUDE_INDEX_TS);
     } else if (effect === "write-files") {
@@ -167,7 +192,7 @@ async function applyEffects() {
       const marker = process.env.FAKE_CLAUDE_MARKER;
       writeFileSync(".gitattributes", "* filter=pwn\n");
       vcs("add", ".gitattributes");
-      vcs("commit", "-m", "Attributes");
+      commit("Attributes");
       const origin = execFileSync("git", ["config", "remote.origin.url"], { encoding: "utf8" }).trim();
       appendFileSync(
         ".git/config",

@@ -350,6 +350,56 @@ function needsHumanReasonOf(p: Proposal): string | null {
   }
 }
 
+/** What the two attempts of one Build share. */
+interface Attempts {
+  attempt: 1 | 2;
+  /** The open brain run of the attempt that is running (the retry gets a new one, see `restartBuildRun`). */
+  runId: number;
+  /** Set once the clone, the private repo and the Spec commit exist; a failure before that is final, as there is nothing to retry on. */
+  setup?: { originUrl: string; branch: string; templateCommit: string; specCommit: string };
+  /** Set by a failed first attempt that is to be retried: the failure report appended to the retry's prompt. */
+  retryReport?: string;
+}
+
+/** Lines of the Build log, each cut short, that the retry's prompt carries. */
+const REPORT_LOG_LINES = 25;
+const REPORT_LINE_CHARS = 300;
+
+/** The failure report for the retry: the error and the last lines of the Build log (stream-json events and the runner's own notes). */
+function failureReport(logPath: string, reason: string): string {
+  let tail = "";
+  try {
+    tail = readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .slice(-REPORT_LOG_LINES)
+      .map((l) => (l.length > REPORT_LINE_CHARS ? `${l.slice(0, REPORT_LINE_CHARS)}...` : l))
+      .join("\n");
+  } catch {
+    // no log yet: the error alone
+  }
+  return [
+    "This is the one automatic retry: your previous attempt at this Build failed.",
+    "Whatever you had not committed was discarded; the working tree is back at your last commit.",
+    `Error: ${reason}`,
+    "Last lines of the Build log:",
+    tail,
+  ].join("\n");
+}
+
+/**
+ * One Build: its first attempt and, when that fails after setup (a non-zero exit, the budget or wall-clock cap, a failed check,
+ * deploy or preview), exactly one retry on the same repo. The Proposal stays `building` between the two.
+ */
+async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal, runId: number, signal?: AbortSignal): Promise<BuildOutcome> {
+  const state: Attempts = { attempt: 1, runId };
+  const first = await attempt(store, brain, o, p, state, signal);
+  if (state.retryReport === undefined) return first;
+  // The retry does not go back through runNextBuild: the Spec is identical, and the pre-spawn `## Needs human` check already ran for attempt 1.
+  state.attempt = 2;
+  return attempt(store, brain, o, p, state, signal);
+}
+
 /** One worker pass: build until the queue is empty (a dry run reports the next Build once and stops). */
 export async function runPendingBuilds(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOptions, signal?: AbortSignal): Promise<number> {
   let n = 0;
@@ -385,8 +435,9 @@ function dryRun(brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal): Bui
   return { proposalId: p.id, result: "dry-run" };
 }
 
-async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal, runId: number, signal?: AbortSignal): Promise<BuildOutcome> {
+async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal, state: Attempts, signal?: AbortSignal): Promise<BuildOutcome> {
   const id = p.id;
+  const runId = state.runId;
   const logSink = (o.log ?? console.log) as (line: string) => void;
   const logPath = buildLogPathFor(o.dataDir, id);
   const repo = resolve(o.buildRoot, p.slug);
@@ -407,13 +458,22 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
   // What the row closes with is fixed once claude finishes (its session, spend and exit); until then a failure closes it as such.
   let runEnd: { sessionId: string | null; totalCostUsd: number; exitStatus: string } | undefined;
   const closeRun = () => {
-    store.finishBrainRun(runId, runEnd ?? { sessionId: null, totalCostUsd: 0, exitStatus: "failed" });
+    const done = runEnd ?? { sessionId: null, totalCostUsd: 0, exitStatus: "failed" };
+    // A failed first attempt that is to be retried hands over to a new run in the same transaction, so a `building` Proposal never lacks one.
+    if (state.attempt === 1 && state.retryReport !== undefined) state.runId = store.restartBuildRun(runId, done, brain.routeFor("build"));
+    else store.finishBrainRun(runId, done);
   };
-  /** Marks the Proposal failed first, then the run closes (in `finally`): the run is open for as long as the Proposal is `building`. */
+  /**
+   * Marks the Proposal failed first, then the run closes (in `finally`): the run is open for as long as the Proposal is `building`.
+   * A first attempt that failed after setup, and was not stopped by a shutdown, is not final: the report is kept and `build()` retries.
+   */
   const fail = (reason: string, exitStatus = "failed"): BuildOutcome => {
     note(`Build failed: ${reason}`);
     runEnd ??= { sessionId: null, totalCostUsd: 0, exitStatus };
-    if (store.getProposal(id)?.status === "building") store.transition(id, "build-failed", "build", `Build failed: ${reason}`.slice(0, 500));
+    const building = store.getProposal(id)?.status === "building";
+    if (building && state.attempt === 1 && state.setup && exitStatus !== "interrupted" && !signal?.aborted) {
+      state.retryReport = failureReport(logPath, reason);
+    } else if (building) store.transition(id, "build-failed", "build", `Build failed: ${reason}`.slice(0, 500));
     return { proposalId: id, result: "build-failed" };
   };
 
@@ -465,6 +525,36 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
       cwd,
     );
 
+  /**
+   * Before the retry: the Build repo's working tree and index go back to its last commit, and untracked files go. The agent's
+   * `.git/config`, hooks and attributes are never read: like the checks below, this runs git from a git directory of argus's own
+   * that borrows only the repo's objects, with the repo as its work tree. The repo's own index is replaced by the one that
+   * produces, so the agent's git sees a clean tree. Ignored files (node_modules) stay.
+   */
+  const resetRepo = async () => {
+    const head = readHeadCommit(repo);
+    const dotGit = join(repo, ".git");
+    // A symlinked .git could send the index write somewhere else on the host.
+    if (!lstatSync(dotGit).isDirectory()) throw new StepError("the Build repo's .git is not a directory");
+    mkdirSync(dirname(home), { recursive: true });
+    const tmp = mkdtempSync(join(dirname(home), `seal-${o.sandbox.owner}-`));
+    try {
+      const tmpGit = join(tmp, ".git");
+      const inTmp = (label: string, ...args: string[]) => step(label, git, [...SAFE_GIT, ...args], gitEnv, tmp);
+      await inTmp("git init", "init", "--quiet", tmp);
+      writeFileSync(join(tmpGit, "objects", "info", "alternates"), join(dotGit, "objects") + "\n");
+      const onTree = { ...gitEnv, GIT_DIR: tmpGit, GIT_WORK_TREE: repo };
+      await inTmp("git cat-file", "cat-file", "-e", `${head}^{commit}`);
+      await inTmp("git update-ref", "update-ref", "--no-deref", "HEAD", head);
+      await step("git read-tree", git, [...SAFE_GIT, "read-tree", "--reset", "-u", head], onTree, tmp);
+      await step("git clean", git, [...SAFE_GIT, "clean", "-ffdq"], onTree, tmp);
+      rmSync(join(dotGit, "index"), { force: true });
+      copyFileSync(join(tmpGit, "index"), join(dotGit, "index"));
+    } finally {
+      removeTree(tmp);
+    }
+  };
+
   /** Never deploys over a Worker that is already in the account: the name is the slug, and an existing one is someone's. */
   const requireFreeWorkerName = async () => {
     const account = source.CLOUDFLARE_ACCOUNT_ID;
@@ -511,32 +601,44 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
   let seal: string | undefined;
   try {
     if (signal?.aborted) return fail("the worker is stopping", "interrupted");
-    if (!SLUG_RE.test(p.slug) || p.slug.length > 63) return fail(`invalid slug ${JSON.stringify(p.slug)}`);
-    if (existsSync(repo)) return fail(`${repo} already exists; refusing to build over it`);
-    let spec: string;
-    try {
-      spec = readFileSync(p.specPath ?? "", "utf8");
-    } catch {
-      return fail("the Spec file could not be read");
-    }
+    if (!state.setup) {
+      if (!SLUG_RE.test(p.slug) || p.slug.length > 63) return fail(`invalid slug ${JSON.stringify(p.slug)}`);
+      if (existsSync(repo)) return fail(`${repo} already exists; refusing to build over it. Remove it, and the private GitHub repo ${p.slug}, before re-queueing`);
+      let spec: string;
+      try {
+        spec = readFileSync(p.specPath ?? "", "utf8");
+      } catch {
+        return fail("the Spec file could not be read");
+      }
 
-    // Setup: the Worker name checked, the template clone, a private GitHub repo, the Spec and the slug written in and committed.
-    note(`Build starts for ${p.name} (${p.slug})`);
-    await requireFreeWorkerName();
-    mkdirSync(o.buildRoot, { recursive: true });
-    await step("git clone", git, [...SAFE_GIT, "clone", "--origin", "template", o.templateRepo, repo], gitEnv, o.buildRoot);
-    const templateCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
-    const branch = await inRepo("git rev-parse", "rev-parse", "--abbrev-ref", "HEAD");
-    if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch === "HEAD") throw new StepError(`the template checkout is not on a branch (${JSON.stringify(branch)})`);
-    await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo);
-    // From here on the repo's own settings are the agent's to change, so the remote is read once now and used by URL.
-    const originUrl = await inRepo("git remote", "remote", "get-url", "origin");
-    writeFileSync(join(repo, "SPEC.md"), spec.endsWith("\n") ? spec : spec + "\n");
-    writeFileSync(join(repo, "wrangler.jsonc"), wranglerConfigFor(p.slug, WORKER_ENTRY));
-    await inRepo("git add", "add", "SPEC.md", "wrangler.jsonc");
-    await inRepo("git commit", ...COMMIT_IDENTITY, "commit", "--quiet", "-m", `Add Spec for ${p.name}`);
-    const specCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
-    await push(repo, originUrl, specCommit, branch);
+      // Setup: the Worker name checked, the template clone, a private GitHub repo, the Spec and the slug written in and committed.
+      note(`Build starts for ${p.name} (${p.slug})`);
+      await requireFreeWorkerName();
+      mkdirSync(o.buildRoot, { recursive: true });
+      await step("git clone", git, [...SAFE_GIT, "clone", "--origin", "template", o.templateRepo, repo], gitEnv, o.buildRoot);
+      const templateCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
+      const branch = await inRepo("git rev-parse", "rev-parse", "--abbrev-ref", "HEAD");
+      if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch === "HEAD") throw new StepError(`the template checkout is not on a branch (${JSON.stringify(branch)})`);
+      await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo);
+      // From here on the repo's own settings are the agent's to change, so the remote is read once now and used by URL.
+      const originUrl = await inRepo("git remote", "remote", "get-url", "origin");
+      writeFileSync(join(repo, "SPEC.md"), spec.endsWith("\n") ? spec : spec + "\n");
+      writeFileSync(join(repo, "wrangler.jsonc"), wranglerConfigFor(p.slug, WORKER_ENTRY));
+      await inRepo("git add", "add", "SPEC.md", "wrangler.jsonc");
+      await inRepo("git commit", ...COMMIT_IDENTITY, "commit", "--quiet", "-m", `Add Spec for ${p.name}`);
+      const specCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
+      await push(repo, originUrl, specCommit, branch);
+      state.setup = { originUrl, branch, templateCommit, specCommit };
+    } else {
+      // The retry: the same repo, taken back to its last commit first.
+      if (store.getProposal(id)?.status !== "building") {
+        note("The Proposal is no longer building (dismissed meanwhile); nothing more is done");
+        return { proposalId: id, result: "abandoned" };
+      }
+      note("Retrying once, from the last commit; uncommitted work is discarded");
+      await resetRepo();
+    }
+    const { originUrl, branch, templateCommit, specCommit } = state.setup;
 
     // The claude run.
     if (signal?.aborted) return fail("the worker is stopping", "interrupted");
@@ -548,7 +650,7 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     try {
       run = await brain.run<string>(
         "build",
-        { prompt: String(id), slash: "implement-spec" },
+        { prompt: state.retryReport === undefined ? String(id) : `${id}\n\n${state.retryReport}`, slash: "implement-spec" },
         {
           cwd: repo,
           signal,
@@ -729,7 +831,15 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     } catch {
       // nothing left to report to
     } finally {
-      closeRun();
+      try {
+        // Dismissed while the Build ran: the lifecycle left the home to us, as the container was using it.
+        if (store.getProposal(id)?.status === "dismissed") {
+          const homeError = removeTree(home);
+          if (homeError) note(`Warning: could not remove ${home}: ${homeError}`);
+        }
+      } finally {
+        closeRun();
+      }
     }
   }
 }

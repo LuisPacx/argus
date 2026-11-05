@@ -16,11 +16,15 @@ vi.stubGlobal("getRouterParam", (e: Ev, k: string) => e.params[k]);
 vi.stubGlobal("readBody", async (e: Ev) => e.body);
 vi.stubGlobal("createError", (o: { statusCode: number; statusMessage: string }) => Object.assign(new Error(o.statusMessage), o));
 vi.stubGlobal("useStore", () => store);
+vi.stubGlobal("useDataDir", () => "/argus/data");
+vi.stubGlobal("useBuildRoot", () => "/builds/code");
 
 type Handler = (e: Ev) => Promise<unknown>;
 const commands = (await import("../api/proposals/[id]/commands.post.ts")).default as unknown as Handler;
 const specPut = (await import("../api/proposals/[id]/spec.put.ts")).default as unknown as Handler;
 const create = (await import("../api/proposals/index.post.ts")).default as unknown as Handler;
+const one = (await import("../api/proposals/[id].get.ts")).default as unknown as (e: Ev) => Record<string, unknown>;
+const list = (await import("../api/proposals/index.get.ts")).default as unknown as (e: Ev) => Array<{ id: number; resumeCommand: string | null }>;
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const SPEC = "# Cat\n\n## Goal\n\ng\n\n## Scope\n\ns\n\n## Acceptance criteria\n\n- [ ] a\n";
@@ -84,6 +88,42 @@ describe("POST /api/proposals/:id/commands, UI payloads", () => {
     const id = seed("spec-drafted");
     expect(await status(post(id, { type: "revise", reason: "x".repeat(MAX_REVISE_INSTRUCTION_CHARS) }))).toBe(200);
     expect(await status(post(id, { type: "revise", reason: "x".repeat(MAX_REVISE_INSTRUCTION_CHARS + 1) }))).toBe(400);
+  });
+});
+
+const SESSION = "5e55a0a0-0000-4000-8000-000000000001";
+
+/** A Proposal whose Build failed after its retry, as the runner leaves it. */
+function seedBuildFailed(session: string | null = SESSION) {
+  const id = seed("spec-drafted");
+  store.transition(id, "approved", "operator");
+  const run = store.beginBuild(id, { backend: "claude-code", model: "sonnet" });
+  store.finishBrainRun(run, { sessionId: session, totalCostUsd: 1, exitStatus: "failed" });
+  store.transition(id, "build-failed", "build", "Build failed: claude failed: x");
+  return id;
+}
+
+describe("POST /api/proposals/:id/commands, the Re-queue button", () => {
+  it('{ type: "requeue", reason: "" } is accepted and queued', async () => {
+    const id = seedBuildFailed();
+    expect(await post(id, { type: "requeue", reason: "" })).toMatchObject({ type: "requeue", reason: "" });
+    expect(store.pendingCommands().map((c) => c.type)).toEqual(["requeue"]);
+  });
+});
+
+describe("GET /api/proposals and /api/proposals/:id, the resume command on a build-failed card", () => {
+  it("shows the exact claude --resume command, run from the Build repo with the per-Build home as claude's config", async () => {
+    const id = seedBuildFailed();
+    const expected = `cd /builds/code/${store.getProposal(id)!.slug} && CLAUDE_CONFIG_DIR=/argus/data/proposals/${id}/home/.claude claude --resume ${SESSION}`;
+    expect(one({ params: { id: String(id) }, body: undefined })).toMatchObject({ status: "build-failed", buildSessionId: SESSION, resumeCommand: expected });
+    expect(list({ params: {}, body: undefined }).find((p) => p.id === id)!.resumeCommand).toBe(expected);
+  });
+
+  it("has none for a Proposal that is not build-failed, or whose Build left no session", async () => {
+    const failedWithout = seedBuildFailed(null);
+    const spec = seed("spec-drafted");
+    expect(one({ params: { id: String(failedWithout) }, body: undefined })).toMatchObject({ resumeCommand: null });
+    expect(one({ params: { id: String(spec) }, body: undefined })).toMatchObject({ resumeCommand: null });
   });
 });
 

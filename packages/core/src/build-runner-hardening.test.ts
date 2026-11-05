@@ -125,12 +125,18 @@ describe("a command's whole process group is killed on timeout", { timeout: 60_0
     try {
       const p = h.seedApproved("Cat Coin");
       const running = runNextBuild(h.store, h.brain, h.options);
+      // The first attempt's deploy hangs and is killed; the retry's hangs the same way and is killed too.
+      await untilExists(started);
+      const first = Number(readFileSync(grandchild, "utf8"));
+      rmSync(started);
+      vi.advanceTimersByTime(h.options.commandTimeoutMs ?? 10 * 60_000);
       await untilExists(started);
       vi.advanceTimersByTime(h.options.commandTimeoutMs ?? 10 * 60_000);
       await running;
       const after = h.store.getProposal(p.id)!;
       expect(after.status).toBe("build-failed");
       expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("wrangler deploy failed");
+      await untilDead(first);
     } finally {
       vi.useRealTimers();
     }
@@ -294,8 +300,8 @@ describe("a Worker name already taken in the Cloudflare account is never overwri
     expect(await running).toEqual({ proposalId: p.id, result: "build-failed" });
     expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("already exists");
     expect(h.deployCalls()).toEqual([]);
-    // The claude run's spend is still on the card.
-    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0123);
+    // The spend of both claude runs (the attempt and its retry, which found the name taken too) is still on the card.
+    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0246);
   });
 
   it("fails closed when the account cannot be checked", async () => {

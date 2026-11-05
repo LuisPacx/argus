@@ -1,8 +1,9 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { tempDir } from "./testing/temp.ts";
+import { buildHomeFor, nextBuildable } from "./build-runner.ts";
 import { Datastore, type WarRoomStore } from "./datastore.ts";
 import {
   IllegalTransitionError,
@@ -59,6 +60,7 @@ describe("transition table", () => {
         "approved>building:build", "approved>needs-human:build", "building>built:build",
         "building>build-failed:build", "building>needs-human:build", "built>launched:operator",
         "launched>closed:operator", "new>closed:system", "shortlisted>closed:system",
+        "build-failed>approved:operator",
       ].sort(),
     );
   });
@@ -168,6 +170,110 @@ describe("command channel", () => {
     const c = ds.enqueueCommand(42, "shortlist");
     applyPendingCommands(ds);
     expect(ds.getCommand(c.id)).toMatchObject({ status: "rejected", error: "Proposal 42 not found" });
+  });
+});
+
+describe("re-queue from build-failed", () => {
+  it("puts a build-failed Proposal back in the Build queue, behind the ones already waiting", async () => {
+    const ds = Datastore.open(":memory:");
+    const failed = proposalAt(ds, "build-failed");
+    const waiting = proposalAt(ds, "approved");
+    await new Promise((r) => setTimeout(r, 5)); // approval times are the queue order, to the millisecond
+    const c = ds.enqueueCommand(failed, "requeue");
+    expect(applyPendingCommands(ds)).toBe(1);
+    expect(ds.getCommand(c.id)!.status).toBe("applied");
+    expect(ds.getProposal(failed)!.status).toBe("approved");
+    expect(ds.historyFor(failed).at(-1)).toMatchObject({ from: "build-failed", to: "approved", actor: "operator", reason: "Operator re-queued" });
+    expect(nextBuildable(ds)!.id).toBe(waiting);
+  });
+
+  it("is refused from every other status, and a plain approve is refused from build-failed", () => {
+    for (const status of ALL.filter((s) => s !== "build-failed" && s !== "approved")) {
+      const ds = Datastore.open(":memory:");
+      const id = proposalAt(ds, status);
+      const c = ds.enqueueCommand(id, "requeue");
+      applyPendingCommands(ds);
+      expect(ds.getCommand(c.id)!.status, status).toBe("rejected");
+      expect(ds.getProposal(id)!.status).toBe(status);
+    }
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    const c = ds.enqueueCommand(id, "approve");
+    applyPendingCommands(ds);
+    expect(ds.getCommand(c.id)).toMatchObject({ status: "rejected" });
+    expect(ds.getProposal(id)!.status).toBe("build-failed");
+  });
+
+  it("a second re-queue (a double click) is a no-op", () => {
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    ds.enqueueCommand(id, "requeue");
+    ds.enqueueCommand(id, "requeue");
+    applyPendingCommands(ds);
+    expect(ds.listCommands().map((c) => c.status)).toEqual(["applied", "applied"]);
+    expect(ds.historyFor(id).filter((e) => e.to === "approved")).toHaveLength(2); // once on the way to the failure, once re-queued
+  });
+
+  it("dismiss still works from build-failed", () => {
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    ds.enqueueCommand(id, "dismiss", "not worth another try");
+    applyPendingCommands(ds);
+    expect(ds.getProposal(id)!.status).toBe("dismissed");
+  });
+});
+
+describe("dismissal and the per-Build home", () => {
+  /** A per-Build home with a session file in it, as a Build leaves one. */
+  function withHome(dataDir: string, id: number) {
+    const home = buildHomeFor(dataDir, id);
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "session.jsonl"), "{}\n");
+    return home;
+  }
+
+  it("deletes the home of a build-failed Proposal when it is dismissed", () => {
+    const dataDir = tempDir("argus-dismiss-");
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    const home = withHome(dataDir, id);
+    ds.enqueueCommand(id, "dismiss", "no");
+    applyPendingCommands(ds, undefined, { dataDir });
+    expect(ds.getProposal(id)!.status).toBe("dismissed");
+    expect(existsSync(home)).toBe(false);
+  });
+
+  it("keeps the home of a build-failed Proposal that is not dismissed, and re-queueing does not delete it", () => {
+    const dataDir = tempDir("argus-dismiss-");
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    const home = withHome(dataDir, id);
+    ds.enqueueCommand(id, "requeue");
+    applyPendingCommands(ds, undefined, { dataDir });
+    expect(existsSync(home)).toBe(true);
+  });
+
+  it("leaves the home of a Proposal that is building to the runner, which still has the container on it", () => {
+    const dataDir = tempDir("argus-dismiss-");
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "building");
+    const home = withHome(dataDir, id);
+    ds.enqueueCommand(id, "dismiss", "no");
+    applyPendingCommands(ds, undefined, { dataDir });
+    expect(ds.getProposal(id)!.status).toBe("dismissed");
+    expect(existsSync(home)).toBe(true);
+  });
+
+  it("deleting only the dismissed Proposal's home; another Proposal's stays", () => {
+    const dataDir = tempDir("argus-dismiss-");
+    const ds = Datastore.open(":memory:");
+    const a = proposalAt(ds, "build-failed");
+    const b = proposalAt(ds, "build-failed");
+    withHome(dataDir, a);
+    const keep = withHome(dataDir, b);
+    ds.enqueueCommand(a, "dismiss", "no");
+    applyPendingCommands(ds, undefined, { dataDir });
+    expect(existsSync(keep)).toBe(true);
   });
 });
 

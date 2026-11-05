@@ -46,6 +46,8 @@ export interface Proposal {
   approvedAt: string | null;
   /** The workers.dev preview, set when the Build reaches `built`; null before. */
   previewUrl: string | null;
+  /** The Claude session of the Proposal's latest Build run that has one; what `claude --resume` continues after a `build-failed`. */
+  buildSessionId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -182,11 +184,12 @@ interface Row {
   spec_revision: string | null;
   approved_at: string | null;
   preview_url: string | null;
+  build_session_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -210,6 +213,7 @@ function toProposal(r: Row): Proposal {
     specRevision: r.spec_revision,
     approvedAt: r.approved_at,
     previewUrl: r.preview_url,
+    buildSessionId: r.build_session_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -495,6 +499,19 @@ export class Datastore {
     this.db
       .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ? WHERE id = ?")
       .run(done.sessionId, done.totalCostUsd, done.exitStatus, id);
+  }
+
+  /**
+   * WORKER ONLY. Ends the Build's run for a failed attempt and opens the run of its one retry, in one transaction: the Proposal
+   * stays `building` and never has a moment without an open run (the stale sweep would fail it). Returns the new run's id.
+   */
+  restartBuildRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }, route: Pick<NewBrainRun, "backend" | "model">): number {
+    return this.inTransaction(() => {
+      const proposalId = (this.db.prepare("SELECT proposal_id FROM brain_runs WHERE id = ?").get(id) as { proposal_id: number } | undefined)?.proposal_id;
+      if (proposalId === undefined) throw new Error(`brain run ${id} not found`);
+      this.finishBrainRun(id, done);
+      return this.startBrainRun({ proposalId, task: "build", ...route });
+    });
   }
 
   /** WORKER ONLY. Removes a run that never spawned anything (`--dry-run`). */

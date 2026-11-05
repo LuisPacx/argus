@@ -36,7 +36,7 @@ const rejection = (p: { id: number; updatedAt: string }) => {
 
 const retrying = (id: number) => commands.value.find((c) => c.proposalId === id && c.status === "pending" && c.attempts > 0);
 
-async function send(id: number, type: "shortlist" | "dismiss" | "retry-spec", reason = "") {
+async function send(id: number, type: "shortlist" | "dismiss" | "retry-spec" | "requeue", reason = "") {
   if (busy(id)) return;
   actionError.value = "";
   sending.value.add(id);
@@ -104,6 +104,14 @@ async function submit() {
         </p>
         <p v-if="p.specError" class="mt-2 text-sm text-red-500">{{ p.specError }}</p>
         <p v-if="p.previewUrl" class="mt-2 text-sm">Preview: <a :href="p.previewUrl" target="_blank" rel="noopener">{{ p.previewUrl }}</a></p>
+        <div v-if="p.status === 'build-failed'" class="mt-2 text-sm">
+          <p class="text-red-500">The Build failed after its retry.</p>
+          <template v-if="p.resumeCommand">
+            <p>To continue its session, run in tmux on the host:</p>
+            <pre class="overflow-auto whitespace-pre-wrap text-xs">{{ p.resumeCommand }}</pre>
+          </template>
+          <p class="text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }} and the private GitHub repo {{ p.slug }}.</p>
+        </div>
         <p v-if="rejection(p)" class="mt-2 text-sm text-red-500">
           Command {{ rejection(p)!.status }}: {{ rejection(p)!.error }}
         </p>
@@ -122,6 +130,7 @@ async function submit() {
             Retry Spec
           </UButton>
           <UButton v-if="p.status === 'spec-drafted'" size="sm" variant="outline" :to="`/proposals/${p.id}`">Edit Spec</UButton>
+          <UButton v-if="p.status === 'build-failed'" size="sm" :disabled="busy(p.id)" @click="send(p.id, 'requeue')">Re-queue</UButton>
           <UButton v-if="dismissing !== p.id" size="sm" color="neutral" variant="outline" :disabled="busy(p.id)" @click="dismissing = p.id">
             Dismiss
           </UButton>

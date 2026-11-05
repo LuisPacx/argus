@@ -54,7 +54,7 @@ describe("the deploy bundle holds only files of the committed tree", { timeout: 
     expect(r.after.status).toBe("build-failed");
     expect(r.reason).toContain("outside");
     expect(r.reason).toContain("outside.json");
-    expect(r.bundle).toHaveLength(1);
+    expect(r.bundle).toHaveLength(2); // the attempt and its retry
     expect(r.deploys).toEqual([]);
   });
 
@@ -179,7 +179,7 @@ describe("the bundle's output directory holds only what is expected", { timeout:
     expect(r.after.status).toBe("build-failed");
     expect(r.reason).toContain("188e772cbd5dc38f6f8675060f53c929581de722-secret.txt");
     expect(r.reason).toContain("refusing to deploy");
-    expect(r.bundle).toHaveLength(1);
+    expect(r.bundle).toHaveLength(2); // the attempt and its retry
     expect(r.deploys).toEqual([]);
   });
 

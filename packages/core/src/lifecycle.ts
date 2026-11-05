@@ -1,3 +1,4 @@
+import { buildHomeFor, removeTree } from "./build-runner.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 
 export type ProposalStatus =
@@ -45,6 +46,7 @@ export const TRANSITIONS: readonly Transition[] = [
   { from: "approved", to: "needs-human", actor: "build", reason: "Spec needs an on-chain program" },
   { from: "building", to: "built", actor: "build", reason: "Deploy ok" },
   { from: "building", to: "build-failed", actor: "build", reason: "Build failed after retry" },
+  { from: "build-failed", to: "approved", actor: "operator", reason: "Operator re-queued" },
   { from: "building", to: "needs-human", actor: "build", reason: "Spec needs an on-chain program" },
   { from: "built", to: "launched", actor: "operator", reason: "Operator marked launched" },
   { from: "launched", to: "closed", actor: "operator", reason: "Closed after Launch" },
@@ -101,7 +103,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec";
+export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -131,15 +133,23 @@ export interface HistoryEntry {
 const TARGET: Partial<Record<CommandType, ProposalStatus>> = {
   shortlist: "shortlisted",
   approve: "approved",
+  requeue: "approved",
   dismiss: "dismissed",
 };
+
+/** What the worker lets a command touch outside the datastore. */
+export interface ApplyOptions {
+  /** argus's data dir. When set, dismissing a Proposal deletes its per-Build home (retention: kept for `build-failed`, gone on `built` and `dismissed`). */
+  dataDir?: string;
+  log?: (line: string) => void;
+}
 
 /**
  * Applies one pending command via the lifecycle. Used by the worker, the sole writer of status.
  * A command whose target status is already current is a no-op (a double-click is not an error).
  * Throws DomainError subclasses for commands that can never succeed.
  */
-export function applyCommand(store: Datastore, command: Command): void {
+export function applyCommand(store: Datastore, command: Command, opts: ApplyOptions = {}): void {
   const proposal = store.getProposal(command.proposalId);
   if (command.type === "revise" || command.type === "retry-spec") {
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
@@ -156,9 +166,18 @@ export function applyCommand(store: Datastore, command: Command): void {
   if (command.type === "approve" && (proposal.specRevision !== null || proposal.brainRunInFlightSince !== null)) {
     throw new DomainError("A Spec revision is pending or running; approve once it finishes");
   }
+  // Two commands reach `approved`: approve (from spec-drafted) and requeue (from build-failed); neither stands in for the other.
+  if (command.type === "approve" && proposal.status === "build-failed") throw new DomainError("A failed Build is re-queued, not approved");
+  if (command.type === "requeue" && proposal.status !== "build-failed") throw new DomainError(`Re-queue needs a build-failed Proposal (it is ${proposal.status})`);
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
   else if (command.type === "dismiss") {
     store.transition(command.proposalId, "dismissed", "operator", reason);
+    // A Build that is running has its container on the home: the runner deletes it when that Build ends.
+    if (opts.dataDir !== undefined && proposal.status !== "building") {
+      const home = buildHomeFor(opts.dataDir, command.proposalId);
+      const error = removeTree(home);
+      if (error) opts.log?.(`[worker] could not remove ${home}: ${error}`);
+    }
   } else store.transition(command.proposalId, target, "operator", reason);
 }
 
@@ -167,11 +186,11 @@ export function applyCommand(store: Datastore, command: Command): void {
  * A command that fails with a non-domain error stays pending (retried next tick, up to 5 attempts, then `failed`) and is reported to
  * `onError`; it never stops the rest of the batch.
  */
-export function applyPendingCommands(store: Datastore, onError?: (command: Command, error: unknown) => void): number {
+export function applyPendingCommands(store: Datastore, onError?: (command: Command, error: unknown) => void, opts: ApplyOptions = {}): number {
   let n = 0;
   for (const c of store.pendingCommands()) {
     try {
-      store.resolveCommand(c.id, () => applyCommand(store, c));
+      store.resolveCommand(c.id, () => applyCommand(store, c, opts));
       n++;
     } catch (e) {
       onError?.(c, e);

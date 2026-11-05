@@ -35,7 +35,7 @@ Where `containment-design.md` and the code disagree, the code is described above
 4. Reconcile removes only containers of this data dir whose owner is provably dead, and containers carry `argus.role`, `argus.data` and `argus.owner` labels.
 5. Stop is `stop --ignore` then `rm -f --ignore`, not `rm -f` as a rarely needed fallback.
 6. The sidecar has pids, memory and CPU caps; Builds are serial because of its fixed address.
-7. The home is deleted on `built` only (not yet on `dismissed`), and `resumeCommand()` has no caller yet.
+7. The home is deleted on `built` and on `dismissed` (ticket 08: by the lifecycle module when the dismissal is applied, or by the runner when the Proposal was dismissed while `building`), and the War Room card of a `build-failed` Build shows `resumeCommand()`.
 8. `verify:contain` uses a dummy token and has no real-token check; `verify:boot` uses the shared `checkDryRunOutput` policy instead of extended `REQUIRED_BUILD_LINES`.
 9. `scripts/image-build.mjs` reads `PODMAN`, the worker reads `ARGUS_PODMAN_BIN`.
 
@@ -55,5 +55,6 @@ Where `containment-design.md` and the code disagree, the code is described above
 - Residual gaps, accepted: the allowed hosts are themselves a channel (the repo already goes to Anthropic as prompts); the Build token is in the agent's environment, so a stolen token means model usage until rotated, and `--max-budget-usd` bounds a run, not a stolen token; domain fronting through a CDN is not detected because the proxy checks the CONNECT host, not SNI; lifecycle scripts of packages the agent adds to `allowBuilds` still run, inside the container.
 - Builds are serial because the sidecar has one fixed address; running Builds in parallel needs an address per Build.
 - Bumping Claude Code, Node, pnpm, the Containerfile or the proxy changes the tag; the Operator rebuilds.
-- Retention is only half implemented: the runner deletes the per-Build home when the Build is `built`, but nothing deletes it on `dismissed` yet.
+- Retention is complete: the per-Build home is kept while a Proposal is `build-failed` and deleted on `built` and on `dismissed`. A re-queue does not delete it; the fresh Build reuses the directory.
+- A re-queued `build-failed` Proposal gets a fresh Build, which the runner refuses while the old `~/code/<slug>` exists, and `gh repo create` would fail on the old private repo. The Operator removes both first; argus never deletes either. Re-using the leftover repo instead is a possible later change.
 - Not yet checked: a Build with the real token against the real image (the `claude -p` hostnames, and a session with real content resumed on the host).

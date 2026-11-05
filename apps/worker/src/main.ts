@@ -70,8 +70,10 @@ const shutdown = new AbortController();
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
-    const n = applyPendingCommands(store, (c, e) =>
-      console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
+    const n = applyPendingCommands(
+      store,
+      (c, e) => console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
+      { dataDir, log: console.log },
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();

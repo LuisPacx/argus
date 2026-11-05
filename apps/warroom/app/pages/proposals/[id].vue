@@ -81,7 +81,7 @@ async function save() {
   }
 }
 
-async function send(type: "revise" | "approve" | "retry-spec", reason = "") {
+async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reason = "") {
   if (sending.value || working.value) return;
   sending.value = true;
   message.value = "";
@@ -135,6 +135,15 @@ async function send(type: "revise" | "approve" | "retry-spec", reason = "") {
     <section v-if="p.status === 'shortlisted' && p.specError" class="mt-4">
       <p class="text-sm text-red-500">{{ p.specError }}</p>
       <UButton class="mt-2" size="sm" :disabled="working || sending" @click="send('retry-spec')">Retry Spec</UButton>
+    </section>
+    <section v-if="p.status === 'build-failed'" class="mt-4 grid gap-2">
+      <p class="text-sm text-red-500">The Build failed after its retry.</p>
+      <template v-if="p.resumeCommand">
+        <p class="text-sm">To continue its session, run in tmux on the host:</p>
+        <pre class="overflow-auto whitespace-pre-wrap text-xs">{{ p.resumeCommand }}</pre>
+      </template>
+      <p class="text-sm text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }} and the private GitHub repo {{ p.slug }}.</p>
+      <div><UButton size="sm" :disabled="working || sending" @click="send('requeue')">Re-queue</UButton></div>
     </section>
     <section v-if="p.status === 'spec-drafted' && loadedFor" class="mt-4 grid gap-2">
       <h3 class="font-semibold">Spec</h3>

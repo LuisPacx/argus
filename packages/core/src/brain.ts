@@ -415,7 +415,8 @@ export class ClaudeCodeBrain implements Brain {
     const { stdout, stderr, code, signal, timedOut, interrupted } = out;
     const messages = parseMessages(stdout);
     const msg = messages.filter((m) => m.type === "result").at(-1);
-    const base = { sessionId: msg?.session_id, totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
+    // A killed run prints no result (spend unknown, so $0), but a stream's earlier messages carry the session: the work can still be resumed.
+    const base = { sessionId: msg?.session_id ?? messages.find((m) => typeof m.session_id === "string")?.session_id, totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
     // A complete successful result is the run's outcome even if our own kill (cap or shutdown) landed after it was printed.
     const killedByUs = timedOut || interrupted;
     const succeeded = msg?.subtype === "success" && !msg.is_error && (code === 0 || killedByUs);

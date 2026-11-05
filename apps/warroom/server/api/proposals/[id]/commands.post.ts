@@ -1,6 +1,6 @@
 import { MAX_REVISE_INSTRUCTION_CHARS, type CommandType } from "@argus/core";
 
-const types: CommandType[] = ["shortlist", "dismiss", "approve", "revise", "retry-spec"];
+const types: CommandType[] = ["shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue"];
 
 export default defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
