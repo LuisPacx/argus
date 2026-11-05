@@ -7,14 +7,14 @@ Timed-out or shutdown-killed Brain runs record $0 because claude prints no resul
 
 **Blocked by:** 07, 15
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Exactly one automatic retry; its prompt includes the last log lines and the error
-- [ ] The wall clock (config, default 4 h) kills the child and counts as a failure; tested with a short timeout and the fake `claude`
-- [ ] A budget-exceeded result counts as a failure; tested
-- [ ] After the retry fails: `build-failed`, session_id stored, resume command shown on the card
-- [ ] Re-queue from `build-failed` back into the Build queue is added to the lifecycle table and tested; dismiss still works
-- [ ] The §3 gap note in `docs/architecture.md` is replaced by the decision
-- [ ] A last line `ARGUS_BUILD_FAILED::{...}` (template README contract) counts as a failure and enters the single retry, with its summary included in the retry prompt
-- [ ] Before the retry the runner discards uncommitted work in the Build repo (reset to its last commit), so the retry starts from a clean tree
-- [ ] `pnpm check` passes
+- [x] Exactly one automatic retry; its prompt includes the last log lines and the error
+- [x] The wall clock (config, default 4 h) kills the child and counts as a failure; tested with a short timeout and the fake `claude`
+- [x] A budget-exceeded result counts as a failure; tested
+- [x] After the retry fails: `build-failed`, session_id stored, resume command shown on the card
+- [x] Re-queue from `build-failed` back into the Build queue is added to the lifecycle table and tested; dismiss still works
+- [x] The §3 gap note in `docs/architecture.md` is replaced by the decision
+- [x] A last line `ARGUS_BUILD_FAILED::{...}` (template README contract) counts as a failure and enters the single retry, with its summary included in the retry prompt
+- [x] Before the retry the runner discards uncommitted work in the Build repo (reset to its last commit), so the retry starts from a clean tree
+- [x] `pnpm check` passes
