@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BrainError, ClaudeCodeBrain, DEFAULT_ROUTING, killLiveBrainChildren, resolveRouting, scrubEnv } from "./brain.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
+import { untilExists } from "./testing/wait.ts";
 
 function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeCodeBrain>[0]> = {}) {
   const log = join(mkdtempSync(join(tmpdir(), "argus-brain-")), "calls.jsonl");
@@ -18,8 +19,9 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
       FAKE_CLAUDE_MODE: mode,
       FAKE_CLAUDE_LOG: log,
       FAKE_CLAUDE_STARTED: join(dirname(log), "started"),
+      FAKE_CLAUDE_TERMED: join(dirname(log), "termed"),
     },
-    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG", "FAKE_CLAUDE_STARTED"],
+    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG", "FAKE_CLAUDE_STARTED", "FAKE_CLAUDE_TERMED"],
     ...extra,
   });
   const calls = () =>
@@ -27,7 +29,7 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string>; cwd: string; skills: string[]; pid: number });
-  return { brain, calls, log, started: join(dirname(log), "started") };
+  return { brain, calls, log, started: join(dirname(log), "started"), termed: join(dirname(log), "termed") };
 }
 
 describe("ClaudeCodeBrain", () => {
@@ -135,31 +137,56 @@ describe("ClaudeCodeBrain", () => {
         return false;
       }
     };
-    const fast = (timeoutMs = 300) => resolveRouting({ spec: { timeoutMs } });
+    const fast = (timeoutMs: number) => resolveRouting({ spec: { timeoutMs } });
+    const CAP = 60_000;
 
-    it("kills a hung child and fails the run as timed-out", async () => {
-      const { brain, calls } = setup("hang", { routing: fast(), killGraceMs: 200 });
-      const t0 = Date.now();
-      const err = (await brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError;
-      expect(err).toBeInstanceOf(BrainError);
-      expect(err.kind).toBe("timed-out");
-      expect(Date.now() - t0).toBeLessThan(5_000);
-      expect(alive(calls()[0]!.pid)).toBe(false);
-    });
+    /**
+     * The cap and the kill grace are timers in this process, so they are driven by hand: start the run, wait for the child
+     * to say it is up (never a guessed delay: node start-up time varies with machine load), then advance the clock. Nothing
+     * here depends on how long anything really takes.
+     */
+    const withFakeTimers = async (body: () => Promise<void>) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        await body();
+      } finally {
+        vi.useRealTimers();
+      }
+    };
 
-    it("escalates to SIGKILL when the child ignores SIGTERM", async () => {
-      const { brain, calls } = setup("hang-stubborn", { routing: fast(), killGraceMs: 200 });
-      const err = (await brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError;
-      expect(err.kind).toBe("timed-out");
-      expect(alive(calls()[0]!.pid)).toBe(false);
-    });
+    it("kills a hung child and fails the run as timed-out", () =>
+      withFakeTimers(async () => {
+        const { brain, calls, started } = setup("hang", { routing: fast(CAP), killGraceMs: 200 });
+        const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+        await untilExists(started);
+        const pid = calls()[0]!.pid;
+        expect(alive(pid)).toBe(true);
+        vi.advanceTimersByTime(CAP);
+        const err = (await running) as BrainError;
+        expect(err).toBeInstanceOf(BrainError);
+        expect(err.kind).toBe("timed-out");
+        expect(alive(pid)).toBe(false);
+      }));
+
+    it("escalates to SIGKILL when the child ignores SIGTERM", () =>
+      withFakeTimers(async () => {
+        const { brain, calls, started, termed } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 200 });
+        const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+        await untilExists(started);
+        const pid = calls()[0]!.pid;
+        vi.advanceTimersByTime(CAP); // cap reached: SIGTERM
+        await untilExists(termed); // the child got SIGTERM and ignored it
+        expect(alive(pid)).toBe(true);
+        vi.advanceTimersByTime(200); // grace over: SIGKILL
+        const err = (await running) as BrainError;
+        expect(err.kind).toBe("timed-out");
+        expect(alive(pid)).toBe(false);
+      }));
 
     it("killLiveBrainChildren stops a running child (worker shutdown)", async () => {
-      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(60_000), killGraceMs: 200 });
+      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 200 });
       const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
-      const deadline = Date.now() + 5_000;
-      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-      await new Promise((r) => setTimeout(r, 100)); // the fake installs its SIGTERM handler before writing the marker
+      await untilExists(started); // the fake installs its SIGTERM handler before writing the marker
       const pid = calls()[0]!.pid;
       expect(await killLiveBrainChildren(200)).toBe(1);
       expect(alive(pid)).toBe(false);
@@ -167,12 +194,10 @@ describe("ClaudeCodeBrain", () => {
     });
 
     it("aborting the signal kills the child and fails the run as interrupted, not failed", async () => {
-      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(60_000), killGraceMs: 200 });
+      const { brain, calls, started } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 200 });
       const ac = new AbortController();
       const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal }).catch((e) => e);
-      const deadline = Date.now() + 5_000;
-      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-      await new Promise((r) => setTimeout(r, 100));
+      await untilExists(started);
       ac.abort();
       expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0 });
       expect(alive(calls()[0]!.pid)).toBe(false);
@@ -186,12 +211,10 @@ describe("ClaudeCodeBrain", () => {
     });
 
     it("keeps the spend a killed child reports", async () => {
-      const { brain, started } = setup("hang-report", { routing: fast(60_000), killGraceMs: 200 });
+      const { brain, started } = setup("hang-report", { routing: fast(CAP), killGraceMs: 200 });
       const ac = new AbortController();
       const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal }).catch((e) => e);
-      const deadline = Date.now() + 5_000;
-      while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-      await new Promise((r) => setTimeout(r, 100));
+      await untilExists(started);
       ac.abort();
       expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" });
     });

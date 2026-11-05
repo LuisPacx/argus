@@ -7,22 +7,24 @@ import { ClaudeCodeBrain, STALE_RUN_GRACE_MS, resolveRouting, type Brain } from 
 import { Datastore, MAX_SPEC_RATE_LIMIT_ATTEMPTS } from "./datastore.ts";
 import { draftPendingSpecs, draftSpec, draftable, specProblem } from "./spec-drafting.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
+import { untilExists } from "./testing/wait.ts";
 
 function setup(mode: string, routing = resolveRouting(), result?: string) {
   const store = Datastore.open(":memory:");
   const dir = mkdtempSync(join(tmpdir(), "argus-spec-"));
+  const started = join(dir, "started");
   const brain = new ClaudeCodeBrain({
     routing,
     killGraceMs: 200,
     command: FAKE_CLAUDE,
-    env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: mode, FAKE_CLAUDE_RESULT: result },
-    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_RESULT"],
+    env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: mode, FAKE_CLAUDE_RESULT: result, FAKE_CLAUDE_STARTED: started },
+    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_RESULT", "FAKE_CLAUDE_STARTED"],
   });
   const p = store.createProposal({
     narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat Coin", ticker: "CAT", description: "d", evidenceLinks: [],
   });
   store.transition(p.id, "shortlisted", "operator");
-  return { store, dir, brain, id: p.id };
+  return { store, dir, brain, id: p.id, started };
 }
 
 const quiet = () => {};
@@ -173,14 +175,15 @@ describe("Spec drafting", () => {
     });
 
     it("stopping during the first draft leaves the second undrafted, and the first is interrupted and drafted next boot", async () => {
-      const { store, dir, brain, id } = setup("hang", resolveRouting({ spec: { timeoutMs: 60_000 } }));
+      const { store, dir, brain, id, started } = setup("hang", resolveRouting({ spec: { timeoutMs: 60_000 } }));
       const second = addShortlisted(store, "Dog Coin");
       const ac = new AbortController();
       let runs = 0;
       const hung = wrap(brain, (go) => {
         runs++;
-        setTimeout(() => ac.abort(), 150);
-        return go();
+        const running = go();
+        void untilExists(started).then(() => ac.abort()); // stop once the child is really up
+        return running;
       });
       expect(await draftPendingSpecs(store, hung, dir, quiet, ac.signal)).toBe(0);
       expect(runs).toBe(1);
@@ -198,13 +201,12 @@ describe("Spec drafting", () => {
     });
 
     it("records the spend a killed run reports", async () => {
-      const { store, dir, brain, id } = setup("hang-report", resolveRouting({ spec: { timeoutMs: 60_000 } }));
+      const { store, dir, brain, id, started } = setup("hang-report", resolveRouting({ spec: { timeoutMs: 60_000 } }));
       const ac = new AbortController();
-      const hung = wrap(brain, (go) => {
-        setTimeout(() => ac.abort(), 150);
-        return go();
-      });
-      await draftSpec(store, hung, store.getProposal(id)!, dir, ac.signal);
+      const drafting = draftSpec(store, brain, store.getProposal(id)!, dir, ac.signal);
+      await untilExists(started); // the child has installed its SIGTERM handler; aborting earlier would kill it before it can report
+      ac.abort();
+      await drafting;
       expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" }]);
       expect(store.getProposal(id)).toMatchObject({ status: "shortlisted", specError: "", agentCostUsd: 0.004 });
     });

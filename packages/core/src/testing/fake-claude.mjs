@@ -3,7 +3,8 @@
 // success | failure | failure-429text | budget | ratelimit | ratelimit-structured | ratelimit-event | noresult |
 // noresult-ratelimit | hang | hang-stubborn | hang-report (on SIGTERM prints an error result carrying a cost). Output shape follows `--output-format` (json or stream-json).
 // FAKE_CLAUDE_LOG, when set, receives one JSON line with this process's argv, environment and cwd (and the cwd's
-// `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running (hang modes).
+// `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
+// FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
 import { appendFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -42,7 +43,11 @@ const results = {
 
 if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report") {
   // Never finishes. hang-stubborn also ignores SIGTERM, so only SIGKILL stops it.
-  if (mode === "hang-stubborn") process.on("SIGTERM", () => {});
+  if (mode === "hang-stubborn") {
+    process.on("SIGTERM", () => {
+      if (process.env.FAKE_CLAUDE_TERMED) writeFileSync(process.env.FAKE_CLAUDE_TERMED, String(process.pid));
+    });
+  }
   if (mode === "hang-report") {
     process.on("SIGTERM", () => {
       console.log(JSON.stringify({ ...base, subtype: "error_during_execution", is_error: true, result: "Interrupted", total_cost_usd: 0.004 }));
