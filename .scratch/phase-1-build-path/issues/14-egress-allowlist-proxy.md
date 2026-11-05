@@ -5,10 +5,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Allowed CONNECT is tunnelled to a local fake upstream; every case in section 9's proxy list is refused and logged
-- [ ] No wildcard or suffix matching in v1; hostnames compared case-insensitively and without trailing dot tricks
-- [ ] Resolves and checks the address it actually connects to (no check-then-resolve gap)
-- [ ] Idle and header-size limits; no unbounded buffers
-- [ ] `pnpm check` passes
+- [x] Allowed CONNECT is tunnelled to a local fake upstream; every case in section 9's proxy list is refused and logged
+- [x] No wildcard or suffix matching in v1; hostnames compared case-insensitively and without trailing dot tricks
+- [x] Resolves and checks the address it actually connects to (no check-then-resolve gap)
+- [x] Idle and header-size limits; no unbounded buffers
+- [x] `pnpm check` passes
