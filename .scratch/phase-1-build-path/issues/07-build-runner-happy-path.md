@@ -7,7 +7,7 @@ Timed-out or shutdown-killed Brain runs record $0 because claude prints no resul
 
 **Blocked by:** 05, 06
 
-**Status:** in-progress
+**Status:** done
 
 - [x] One Build at a time, FIFO by approval time; a second approval waits (tested with the fake `claude`)
 - [x] Command shape per §4: `acceptEdits`, scoped `--allowedTools` and `--max-budget-usd` from core config, `stream-json --verbose`, cwd is the Build repo, scrubbed environment
