@@ -70,6 +70,15 @@ if (argv.includes("--dry-run")) {
     for (const name of JSON.parse(process.env.FAKE_WRANGLER_OUT_EXTRA ?? "[]")) writeFileSync(join(outdir, name), "extra\n");
   }
   if (metafile) {
+    // As the bundler would have read them, the extra inputs that lie under the export exist (those outside it are never made).
+    const exportDir = resolve(dirname(dirname(main)));
+    for (const f of JSON.parse(process.env.FAKE_WRANGLER_META_INPUTS ?? "[]")) {
+      const abs = resolve(f);
+      if (abs.startsWith(exportDir + "/") && !existsSync(abs)) {
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, "");
+      }
+    }
     const inputs = Object.fromEntries([rel(main), ...JSON.parse(process.env.FAKE_WRANGLER_META_INPUTS ?? "[]")].map((f) => [f, { bytes: 1, imports: [] }]));
     const outputs = outdir ? { [rel(join(outdir, "index.js"))]: { bytes: 1, inputs: {}, imports: [], exports: [], entryPoint: rel(main) } } : {};
     writeFileSync(resolve(metafile), JSON.stringify({ inputs, outputs }));

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
@@ -214,15 +214,34 @@ export function findUnsafeEntries(lsTree: string): string[] {
   return out;
 }
 
+/** A metafile input path argus accepts: no `?` or `#` suffix (esbuild keeps those raw, and a `/../` after one normalises away), NUL, backslash or URL scheme. */
+const PLAIN_INPUT_RE = /^[^?#\0\\]+$/;
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+/** Is `f` (relative to `cwd`) a plain path to a regular file that exists and whose real path is inside `exportDir`/`realExport`? */
+function isPlainFileInside(f: string, cwd: string, exportDir: string, realExport: string): boolean {
+  if (!PLAIN_INPUT_RE.test(f) || URL_SCHEME_RE.test(f) || isAbsolute(f)) return false;
+  const abs = resolve(cwd, f);
+  if (!abs.startsWith(exportDir + sep)) return false;
+  try {
+    const real = realpathSync(abs);
+    return real.startsWith(realExport + sep) && statSync(real).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Checks the esbuild metafile wrangler wrote for a bundle run in `cwd`: its input paths are relative to the cwd, and every one
- * must lie inside `exportDir` (its own node_modules included). Otherwise returns those that do not, as the metafile names them.
+ * must be a plain relative path (no `?`, `#`, NUL, backslash or URL scheme) to a regular file that exists and whose real path
+ * lies inside `exportDir` (its own node_modules included). Otherwise returns those that do not, as the metafile names them.
  * On success returns the bundle's entry output, which must lie inside `outdir` and be a file.
  */
 export function checkMetafile(meta: unknown, cwd: string, exportDir: string, outdir: string): { outside: string[] } | { output: string } {
   const { inputs, outputs } = (meta ?? {}) as { inputs?: Record<string, unknown>; outputs?: Record<string, { entryPoint?: unknown }> };
   if (!inputs || typeof inputs !== "object" || !outputs || typeof outputs !== "object") throw new Error("it has no inputs or outputs");
-  const outside = Object.keys(inputs).filter((f) => !resolve(cwd, f).startsWith(exportDir + sep));
+  const realExport = realpathSync(exportDir);
+  const outside = Object.keys(inputs).filter((f) => !isPlainFileInside(f, cwd, exportDir, realExport));
   if (outside.length > 0) return { outside };
   const entries = Object.entries(outputs).filter(([, v]) => typeof v?.entryPoint === "string");
   if (entries.length !== 1) throw new Error(`it lists ${entries.length} entry outputs, not one`);
@@ -540,7 +559,7 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     let bundled: string;
     try {
       const checked = checkMetafile(JSON.parse(readFileSync(metafile, "utf8")), sealDir, exportDir, outdir);
-      if ("outside" in checked) return fail(`the bundle read files outside the commit: ${checked.outside.slice(0, 5).join(", ")}; refusing to deploy`);
+      if ("outside" in checked) return fail(`the bundle read files outside the commit, or by a path that is not a plain one to a file in it: ${checked.outside.slice(0, 5).map((f) => JSON.stringify(f)).join(", ")}; refusing to deploy`);
       bundled = checked.output;
     } catch (e) {
       return fail(`the bundle's metafile could not be checked: ${e instanceof Error ? e.message : String(e)}`);

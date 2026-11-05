@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { findUnsafeEntries, runNextBuild } from "./build-runner.ts";
+import { checkMetafile, findUnsafeEntries, runNextBuild } from "./build-runner.ts";
 import { makeHarness, type Harness } from "./testing/build-harness.ts";
 
 /** Runs one Build and returns the Proposal after, its last status reason, and what the fake wrangler saw. */
@@ -147,6 +147,49 @@ describe("the bundle's output directory holds only what is expected", () => {
   });
 });
 
+describe("checkMetafile: every input is a plain path to a regular file inside the export", () => {
+  const dir = mkdtempSync(join(tmpdir(), "argus-meta-"));
+  const exportDir = join(dir, "export");
+  const outdir = join(dir, "dist");
+  mkdirSync(join(exportDir, "src"), { recursive: true });
+  mkdirSync(join(exportDir, "node_modules/dep"), { recursive: true });
+  mkdirSync(outdir);
+  writeFileSync(join(exportDir, "src/index.ts"), "");
+  writeFileSync(join(exportDir, "src/a.js"), "");
+  writeFileSync(join(exportDir, "node_modules/dep/index.js"), "");
+  writeFileSync(join(outdir, "index.js"), "");
+  writeFileSync(join(dir, "outside.json"), "{}");
+  symlinkSync(join(dir, "outside.json"), join(exportDir, "src/link.json"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const meta = (...inputs: string[]) => ({
+    inputs: Object.fromEntries(inputs.map((f) => [f, { bytes: 1, imports: [] }])),
+    outputs: { "dist/index.js": { entryPoint: "export/src/index.ts", inputs: {}, imports: [], exports: [], bytes: 1 } },
+  });
+  const check = (...inputs: string[]) => checkMetafile(meta(...inputs), dir, exportDir, outdir);
+
+  it("accepts the entry, a sibling and the export's own node_modules", () => {
+    expect(check("export/src/index.ts", "export/src/a.js", "export/node_modules/dep/index.js")).toEqual({ output: join(outdir, "index.js") });
+  });
+
+  it.each([
+    ["a ? suffix whose ../ climbs back into the export", "outside.json?/../export/src/a.js"],
+    ["a # suffix whose ../ climbs back into the export", "outside.json#/../export/src/a.js"],
+    ["a ? suffix on a file inside the export", "export/src/a.js?x"],
+    ["a # suffix on a file inside the export", "export/src/a.js#x"],
+    ["a NUL", "export/src/a.js\0"],
+    ["a backslash", "export\\src\\a.js"],
+    ["a URL scheme", "https://example.com/export/src/a.js"],
+    ["a file: URL", "file:export/src/a.js"],
+    ["an absolute path, even one inside the export", join(exportDir, "src/a.js")],
+    ["a file that does not exist", "export/src/missing.js"],
+    ["a directory", "export/src"],
+    ["a symlink out of the export", "export/src/link.json"],
+    ["a path that climbs out", "outside.json"],
+  ])("rejects %s", (_what, input) => {
+    expect(check("export/src/index.ts", input)).toEqual({ outside: [input] });
+  });
+});
+
 describe("findUnsafeEntries", () => {
   const entry = (mode: string, path: string) => `${mode} blob 0123456789abcdef0123456789abcdef01234567\t${path}\0`;
 
@@ -217,6 +260,7 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
       try {
         const r = await realBuild(worker(`import data from ${JSON.stringify(outside)};`));
         expect(r.status).toBe("build-failed");
+        expect(r.reason).toContain("wrangler bundle failed");
         expect(r.deployed).toEqual([]);
         expect(existsSync(join(r.h.root, "real-deploys.log"))).toBe(false);
       } finally {
@@ -227,6 +271,20 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
     it(`rejects an import of a committed .${ext} file inside the export too (Workers with module imports are refused), and deploys nothing`, async () => {
       const r = await realBuild(worker(`import data from "./asset.${ext}";`), { [`src/asset.${ext}`]: ext === "wasm" ? "\0asm\u0001\0\0\0" : "INSIDE" });
       expect(r.status).toBe("build-failed");
+      expect(r.reason).toContain("wrangler bundle failed");
+      expect(r.deployed).toEqual([]);
+    });
+  }
+
+  // esbuild accepts a ? or # suffix on an import path and the metafile records it raw, so `wrangler.jsonc?/../export/x`
+  // (cwd-relative) normalises back inside the export while the bundler read the file in the seal, outside it.
+  for (const mark of ["?", "#"]) {
+    it(`rejects a ${mark} suffix whose ../ climbs back into the export, and deploys nothing`, async () => {
+      // From <seal>/export/src, two levels up is the seal, which holds argus's own bundle config.
+      const r = await realBuild(worker(`import data from "../../wrangler.jsonc${mark}/../export/x" with { type: "json" };`));
+      expect(r.status).toBe("build-failed");
+      expect(r.reason).toContain("outside the commit");
+      expect(r.reason).toContain(`wrangler.jsonc${mark}/../export/x`);
       expect(r.deployed).toEqual([]);
     });
   }
