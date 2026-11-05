@@ -5,7 +5,7 @@
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The runner detects the template skill's needs-human marker (ticket 06) in the stream and sets `needs-human` from `building`, with the reason on the card
 - [x] `needs-human` does not trigger the retry
