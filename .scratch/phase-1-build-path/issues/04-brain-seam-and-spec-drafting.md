@@ -5,7 +5,7 @@
 
 **Blocked by:** 03
 
-**Status:** in-progress
+**Status:** done
 
 - [x] Brain interface per §5 with ClaudeCodeBrain; routing (task -> backend, model) is config, not code branching
 - [x] Child environment is scrubbed: `ANTHROPIC_API_KEY` removed and only the needed variables passed; a test asserts it
@@ -18,8 +18,10 @@
 - [x] Card shows summed agent cost
 - [x] `pnpm check` passes
 
-## Review fixes (in progress)
+## Review fixes
 
 Reviewer findings fixed: spend recorded before any write/transition with an in-flight `brain_runs` row; required `timeoutMs` and `tools` on every `TaskRoute`; isolated skill-only cwd and untrusted-data line in the `spec` skill; structured rate-limit detection with a 3-attempt cap. Done again only after verify, review and a real `claude -p` smoke.
 
-Second fix round: shutdown aborts the drafting loop (no spawn after stop) and a shutdown-killed run is `interrupted`, so the Proposal is drafted again on the next boot; Spec output is validated against the `spec` skill's output contract (H1 + `## Goal`, `## Scope`, `## Acceptance criteria`, or a lone `## Needs human`) and an invalid one fails with `spec_error`, nothing saved; every route runs with `--strict-mcp-config --setting-sources project` (real haiku run: no MCP servers, no user skills or plugins in the init event); stale-run recovery only touches rows older than the longest timeout plus grace; skill temp dir cleaned if preparing it throws; fake `claude` matches real event shapes. Still in-progress pending re-review.
+Second fix round: shutdown aborts the drafting loop (no spawn after stop) and a shutdown-killed run is `interrupted`, so the Proposal is drafted again on the next boot; Spec output is validated against the `spec` skill's output contract (H1 + `## Goal`, `## Scope`, `## Acceptance criteria`, or a lone `## Needs human`) and an invalid one fails with `spec_error`, nothing saved; every route runs with `--strict-mcp-config --setting-sources project` (real haiku run: no MCP servers, no user skills or plugins in the init event); stale-run recovery only touches rows older than the longest timeout plus grace; skill temp dir cleaned if preparing it throws; fake `claude` matches real event shapes. Stale-run sweep replaced in 83c4af5: per-task timeout plus 5 min grace, swept every tick.
+
+Verified: 446607d and 83c4af5 pass `pnpm check` (97 tests), dry-run worker boot and SIGTERM exit 0; final review: ship; real `claude -p` haiku smoke confirmed output shapes, `/spec` resolves with `--tools ""`, no user MCP/skills load.
