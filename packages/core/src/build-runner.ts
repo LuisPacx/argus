@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
@@ -73,9 +73,16 @@ const COMPATIBILITY_DATE = "2026-11-01";
  * The wrangler config argus deploys with: written by argus, never read from the Build's copy. It names the Worker after the
  * slug and points at the entry point and sets nothing else, so no route, account, binding, asset directory or build command
  * can come from the agent.
+ *
+ * It also redefines wrangler's module rules for the three types that copy an imported file into the output as a module of its own
+ * (Text: .txt and .html, Data: .bin, CompiledWasm: .wasm). A user rule of a type, not marked `fallthrough`, makes wrangler 4.93
+ * refuse an import that matches the default rule of that type ("matched a module rule ... but was ignored"), so such an import
+ * fails the bundle instead of leaving the file in the output (a `rules: []` would not: the defaults still apply). Nothing
+ * argus deploys is a Worker with module imports of those kinds, so they are refused wherever the file is.
  */
 export function wranglerConfigFor(slug: string, main: string): string {
-  return JSON.stringify({ name: slug, main, compatibility_date: COMPATIBILITY_DATE }, null, 2) + "\n";
+  const rules = ["Text", "Data", "CompiledWasm"].map((type) => ({ type, globs: ["**/*.argus-never"], fallthrough: false }));
+  return JSON.stringify({ name: slug, main, compatibility_date: COMPATIBILITY_DATE, rules }, null, 2) + "\n";
 }
 
 /** A step that failed, with a message fit for the Proposal's status history. */
@@ -222,6 +229,17 @@ export function checkMetafile(meta: unknown, cwd: string, exportDir: string, out
   const output = resolve(cwd, entries[0]![0]);
   if (!output.startsWith(outdir + sep) || !statSync(output).isFile()) throw new Error("the bundle's output is not a file in its output directory");
   return { output };
+}
+
+/**
+ * Checks what the bundle step left in `outdir`: only the entry output, its sourcemap and wrangler's README.md may be there, as
+ * files. Anything else (the modules wrangler's rules copy out of an import, which the metafile does not list) is returned by name.
+ */
+export function unexpectedOutdirEntries(outdir: string, output: string): string[] {
+  const allowed = new Set([basename(output), `${basename(output)}.map`, "README.md"]);
+  return readdirSync(outdir)
+    .filter((name) => !allowed.has(name) || !lstatSync(join(outdir, name)).isFile())
+    .sort();
 }
 
 /** The next Proposal to build: oldest approval first (ties by id); none while a Build is running. */
@@ -527,8 +545,16 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     } catch (e) {
       return fail(`the bundle's metafile could not be checked: ${e instanceof Error ? e.message : String(e)}`);
     }
+    // Deny by default: the outdir holds exactly what was expected, and the deploy uploads from a fresh directory with only the
+    // checked entry file in it (a --no-bundle deploy uploads whatever else sits beside its entry).
+    const extra = unexpectedOutdirEntries(outdir, bundled);
+    if (extra.length > 0) return fail(`the bundle's output directory holds more than the bundle: ${extra.slice(0, 5).join(", ")}; refusing to deploy`);
+    const uploadDir = join(sealDir, "upload");
+    mkdirSync(uploadDir);
+    const uploadMain = join(uploadDir, basename(bundled));
+    copyFileSync(bundled, uploadMain);
     const configPath = join(sealDir, "wrangler-deploy.jsonc");
-    writeFileSync(configPath, wranglerConfigFor(p.slug, bundled));
+    writeFileSync(configPath, wranglerConfigFor(p.slug, uploadMain));
     await requireFreeWorkerName();
     const deployed = await step("wrangler deploy", wrangler, ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile, "--no-bundle"], wranglerEnv, sealDir);
     const url = WORKERS_DEV_URL_RE.exec(deployed)?.[0];

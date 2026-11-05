@@ -109,11 +109,41 @@ describe("the deploy bundle holds only files of the committed tree", () => {
     expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
     expect(deploy!.argv).toContain("--no-bundle");
     expect(deploy!.argv).not.toContain("--dry-run");
-    expect(JSON.parse(deploy!.configText as string).main).toBe(`${bundle!.cwd}/dist/index.js`);
-    expect(deploy!.main).toBe(`${r.flag(bundle!, "--outdir")}/index.js`);
+    // It is uploaded from a fresh directory holding only the checked entry file, never from the outdir as it was left.
+    expect(JSON.parse(deploy!.configText as string).main).toBe(`${bundle!.cwd}/upload/index.js`);
+    expect(deploy!.main).toBe(`${bundle!.cwd}/upload/index.js`);
+    expect(deploy!.mainListing).toEqual(["index.js"]);
     expect(deploy!.mainText).toContain("bundled by the fake");
+    expect(JSON.parse(deploy!.configText as string).rules).toEqual(JSON.parse(bundle!.configText as string).rules);
     expect(deploy!.cf).toEqual({ CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct" });
     expect(deploy!.cwd).toBe(bundle!.cwd);
+  });
+});
+
+describe("the bundle's output directory holds only what is expected", () => {
+  it("rejects a Build when wrangler left a file in the outdir besides the entry, its map and README.md, and deploys nothing", async () => {
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_OUT_EXTRA: JSON.stringify(["188e772cbd5dc38f6f8675060f53c929581de722-secret.txt"]) } });
+    const r = await build(h);
+    expect(r.after.status).toBe("build-failed");
+    expect(r.reason).toContain("188e772cbd5dc38f6f8675060f53c929581de722-secret.txt");
+    expect(r.reason).toContain("refusing to deploy");
+    expect(r.bundle).toHaveLength(1);
+    expect(r.deploys).toEqual([]);
+  });
+
+  it("rejects an extra directory in the outdir too", async () => {
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_OUT_EXTRA: JSON.stringify(["node_modules"]) } });
+    const r = await build(h);
+    expect(r.after.status).toBe("build-failed");
+    expect(r.deploys).toEqual([]);
+  });
+
+  it("gives the bundle step a config that collects no Text, Data or CompiledWasm module", async () => {
+    const h = makeHarness();
+    const r = await build(h);
+    const { rules } = JSON.parse(r.bundle[0]!.configText as string);
+    expect(rules.map((x: any) => x.type).sort()).toEqual(["CompiledWasm", "Data", "Text"]);
+    for (const rule of rules) expect(rule.fallthrough).toBe(false);
   });
 });
 
@@ -144,8 +174,8 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
   afterAll(() => rmSync(secret, { force: true }));
 
   /** A Build whose committed src/index.ts is `source`, run with the real wrangler for the bundle step. */
-  async function realBuild(source: string) {
-    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "index-from-env,commit", FAKE_CLAUDE_INDEX_TS: source } });
+  async function realBuild(source: string, files: Record<string, string> = {}) {
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "index-from-env,write-files,commit", FAKE_CLAUDE_INDEX_TS: source, FAKE_CLAUDE_FILES: JSON.stringify(files) } });
     const deployLog = join(h.root, "real-deploys.log");
     const wrapper = join(h.root, "wrangler-wrapper.sh");
     writeFileSync(wrapper, `#!/bin/sh\nfor a in "$@"; do [ "$a" = "--dry-run" ] && exec wrangler "$@"; done\necho "$@" >> '${deployLog}'\necho 'https://cat-coin.fake-account.workers.dev'\n`);
@@ -176,6 +206,30 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
     expect(r.reason).toContain(basename(secret));
     expect(r.deployed).toEqual([]);
   });
+
+  // wrangler's default module rules copy an imported .txt, .html, .bin or .wasm into --outdir as an external module that the
+  // metafile does not list as an input, and a --no-bundle deploy uploads everything beside the entry. argus's config redefines
+  // those rules so the bundler refuses such an import, wherever the file is.
+  for (const ext of ["txt", "html", "bin", "wasm"]) {
+    it(`rejects an import of a .${ext} file outside the export, and deploys nothing`, async () => {
+      const outside = join(tmpdir(), `argus-secret-${process.pid}.${ext}`);
+      writeFileSync(outside, ext === "wasm" ? "\0asm\u0001\0\0\0" : "SECRET-OUTSIDE");
+      try {
+        const r = await realBuild(worker(`import data from ${JSON.stringify(outside)};`));
+        expect(r.status).toBe("build-failed");
+        expect(r.deployed).toEqual([]);
+        expect(existsSync(join(r.h.root, "real-deploys.log"))).toBe(false);
+      } finally {
+        rmSync(outside, { force: true });
+      }
+    });
+
+    it(`rejects an import of a committed .${ext} file inside the export too (Workers with module imports are refused), and deploys nothing`, async () => {
+      const r = await realBuild(worker(`import data from "./asset.${ext}";`), { [`src/asset.${ext}`]: ext === "wasm" ? "\0asm\u0001\0\0\0" : "INSIDE" });
+      expect(r.status).toBe("build-failed");
+      expect(r.deployed).toEqual([]);
+    });
+  }
 
   it("rejects an absolute import of a file outside the export, and deploys nothing", async () => {
     const r = await realBuild(worker(`import data from ${JSON.stringify(secret)};`));

@@ -51,8 +51,8 @@ describe("deploy uses a wrangler config that argus wrote", () => {
     expect(isAbsolute(config)).toBe(true);
     expect(config.startsWith(realpathSync(h.repoDir("cat-coin")) + sep)).toBe(false);
     // The deployed Worker is the bundle argus made in its own scratch directory, not anything in the agent's repo.
-    const deployed = JSON.parse(deploy!.configText as string) as { name: string; main: string; compatibility_date: string };
-    expect(deployed).toEqual({ name: "cat-coin", main: `${dirname(config)}/dist/index.js`, compatibility_date: "2026-11-01" });
+    const deployed = JSON.parse(deploy!.configText as string) as { name: string; main: string; compatibility_date: string; rules: unknown[] };
+    expect(deployed).toEqual({ name: "cat-coin", main: `${dirname(config)}/upload/index.js`, compatibility_date: "2026-11-01", rules: expect.any(Array) });
     expect(deployed.main.startsWith(realpathSync(h.repoDir("cat-coin")) + sep)).toBe(false);
     expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
     expect(existsSync(pwned)).toBe(false);

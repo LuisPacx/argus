@@ -9,7 +9,8 @@
 // tamper-wrangler-build | tamper-wrangler-config | plant-env (ignored .env, .env.local, .dev.vars) | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
 // until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
 // More effects: symlink-file (commit-ready symlink src/link.txt -> /etc/hostname) | gitlink (commit a submodule entry vendor/sub;
-// follow `commit`) | index-from-env (src/index.ts := FAKE_CLAUDE_INDEX_TS) | ignored-files (untracked, ignored node_modules/ and .env).
+// follow `commit`) | index-from-env (src/index.ts := FAKE_CLAUDE_INDEX_TS) | write-files (FAKE_CLAUDE_FILES, a JSON object of
+// path -> text, written before `commit`) | ignored-files (untracked, ignored node_modules/ and .env).
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
 // FAKE_CLAUDE_GRANDCHILD, when set, is a file that receives the pid of a grandchild (same process group, output detached,
 // ignores SIGTERM) started by the hang modes before they signal readiness.
@@ -153,6 +154,8 @@ async function applyEffects() {
       vcs("commit", "-m", "Add a submodule");
     } else if (effect === "index-from-env") {
       writeFileSync("src/index.ts", process.env.FAKE_CLAUDE_INDEX_TS);
+    } else if (effect === "write-files") {
+      for (const [path, text] of Object.entries(JSON.parse(process.env.FAKE_CLAUDE_FILES))) writeFileSync(path, text);
     } else if (effect === "ignored-files") {
       mkdirSync("node_modules/dep", { recursive: true });
       writeFileSync("node_modules/dep/index.js", "export default 1;\n");

@@ -10,7 +10,9 @@
 // directory two levels up (the project root, as the bundler would see it).
 // With --dry-run it bundles and deploys nothing: it writes <--outdir>/index.js and, for --metafile, an esbuild-style metafile
 // whose inputs (paths relative to the cwd) are the entry point plus FAKE_WRANGLER_META_INPUTS (a JSON array of extra paths,
-// as esbuild lists files the entry imported from elsewhere).
+// as esbuild lists files the entry imported from elsewhere). Like the real one it also writes index.js.map and README.md to
+// the outdir, plus a file for each name in FAKE_WRANGLER_OUT_EXTRA (a JSON array), as wrangler's module rules do for an imported .txt.
+// The log records a listing of the directory holding the config's `main`.
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -40,16 +42,18 @@ if (process.env.FAKE_WRANGLER_LOG) {
   let main = null;
   let mainText = null;
   let rootListing = null;
+  let mainListing = null;
   try {
     main = JSON.parse(configText).main;
     mainText = readFileSync(main, "utf8");
     rootListing = readdirSync(dirname(dirname(main))).sort();
+    mainListing = readdirSync(dirname(main)).sort();
   } catch {
     // no config, or no readable main
   }
   appendFileSync(
     process.env.FAKE_WRANGLER_LOG,
-    JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText, cwdEnvFiles, envFiles, envFileTexts, main, mainText, rootListing }) + "\n",
+    JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText, cwdEnvFiles, envFiles, envFileTexts, main, mainText, rootListing, mainListing }) + "\n",
   );
 }
 if (argv.includes("--dry-run")) {
@@ -61,6 +65,9 @@ if (argv.includes("--dry-run")) {
   if (outdir) {
     mkdirSync(outdir, { recursive: true });
     writeFileSync(join(outdir, "index.js"), "// bundled by the fake\nexport default {};\n");
+    writeFileSync(join(outdir, "index.js.map"), "{}");
+    writeFileSync(join(outdir, "README.md"), "This folder contains the built output assets for the worker.\n");
+    for (const name of JSON.parse(process.env.FAKE_WRANGLER_OUT_EXTRA ?? "[]")) writeFileSync(join(outdir, name), "extra\n");
   }
   if (metafile) {
     const inputs = Object.fromEntries([rel(main), ...JSON.parse(process.env.FAKE_WRANGLER_META_INPUTS ?? "[]")].map((f) => [f, { bytes: 1, imports: [] }]));
