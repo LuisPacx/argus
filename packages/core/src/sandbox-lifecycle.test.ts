@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { BrainRunOptions } from "./brain.ts";
 import { buildHomeFor, removeTree, runNextBuild, sweepStaleSeals } from "./build-runner.ts";
-import { dataIdFor, ownerAlive, ownerToken } from "./sandbox.ts";
+import { dataIdFor, ownerAlive, ownerState, ownerToken, parseProcStat, type ProcStatRead } from "./sandbox.ts";
 import { makeHarness, type Harness } from "./testing/build-harness.ts";
 import { tempDir, tempPath } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
@@ -41,6 +41,52 @@ describe("who owns a container: only a dead owner's containers of this data dir 
     expect(ownerAlive(`${process.pid}.1`)).toBe(false); // this pid, another start time: pid reuse
     expect(ownerAlive(`${deadPid()}.123456789`)).toBe(false);
     for (const junk of ["", "x", "12", "12.", ".12", "1.2.3", "-1.5", "1e3.5"]) expect(ownerAlive(junk), junk).toBe(false);
+  });
+
+  it("an unreadable /proc never means a dead owner; only a vanished process does", () => {
+    const err = (code: string) => Object.assign(new Error(code), { code });
+    const reader = (r: ProcStatRead) => () => r;
+    const unknown = reader("unknown");
+    expect(ownerState("4242.500", reader("gone"))).toBe("dead");
+    expect(ownerState("4242.500", unknown)).toBe("unknown"); // EMFILE, EACCES, EIO...
+    expect(ownerState("4242.500", reader({ state: "S", ticks: 500 }))).toBe("alive");
+    expect(ownerState("4242.500", reader({ state: "S", ticks: 501 }))).toBe("dead"); // reused pid
+    expect(ownerState("4242.500", reader({ state: "Z", ticks: 500 }))).toBe("dead");
+    expect(ownerState("4242.0", reader({ state: "S", ticks: 500 }))).toBe("unknown"); // a start time of 0 proves nothing
+    expect(ownerState("4242.0", reader("gone"))).toBe("unknown");
+    expect(ownerAlive("4242.500", unknown)).toBe(false); // alive means provably alive; callers that reap use ownerState
+    // The real reader: ENOENT/ESRCH is gone, anything else unknown.
+    expect(parseProcStat(() => { throw err("ENOENT"); })).toBe("gone");
+    expect(parseProcStat(() => { throw err("ESRCH"); })).toBe("gone");
+    for (const code of ["EMFILE", "EACCES", "EIO", "ENFILE"]) expect(parseProcStat(() => { throw err(code); }), code).toBe("unknown");
+    expect(parseProcStat(() => "garbage")).toBe("unknown");
+    // Minting never yields a start time of 0: it fails the launch loudly instead.
+    expect(() => ownerToken(4242, unknown)).toThrow(/start time/);
+    expect(() => ownerToken(4242, reader("gone"))).toThrow(/start time/);
+    expect(ownerToken(4242, reader({ state: "S", ticks: 77 }))).toBe("4242.77");
+  });
+
+  it("a live Build's seal and container are left alone when /proc cannot be read", async () => {
+    const dataDir = tempDir("argus-sweep-unknown-");
+    mkdirSync(join(dataDir, "proposals/1/seal-4242.500-abc123/work"), { recursive: true });
+    mkdirSync(join(dataDir, "proposals/1/seal-4343.600-def456/work"), { recursive: true });
+    const reader = (pid: number): ProcStatRead => (pid === 4242 ? "unknown" : "gone");
+    const lines: string[] = [];
+    const removed = sweepStaleSeals(dataDir, (l) => lines.push(l), reader);
+    expect(removed.map((p) => p.slice(dataDir.length + 1))).toEqual(["proposals/1/seal-4343.600-def456"]);
+    expect(readdirSync(join(dataDir, "proposals/1"))).toEqual(["seal-4242.500-abc123"]);
+    expect(lines.filter((l) => l.includes("seal-4242.500-abc123") && l.includes("left alone"))).toHaveLength(1);
+
+    const h = makeHarness();
+    const mine = dataIdFor(h.dataDir);
+    mkdirSync(h.podmanState, { recursive: true });
+    for (const [name, owner] of [["argus-build-1-aaaaaaa1", "4242.500"], ["argus-build-2-bbbbbbb2", "4343.600"]] as const)
+      writeFileSync(join(h.podmanState, `${name}.json`), JSON.stringify({ name, id: `id-${name}`, labels: { "argus.build": name.split("-")[2]!, "argus.data": mine, "argus.owner": owner } }));
+    const clines: string[] = [];
+    const reaped = await h.sandbox.reconcile((l) => clines.push(l), reader);
+    expect(reaped).toEqual(["argus-build-2-bbbbbbb2"]);
+    expect(h.containers()).toEqual(["argus-build-1-aaaaaaa1"]);
+    expect(clines.filter((l) => l.includes("argus-build-1-aaaaaaa1") && l.includes("left alone"))).toHaveLength(1);
   });
 
   it("a live owner's container survives, another data dir's survives, a dead owner's is reaped (and the labels the Build containers carry say so)", async () => {

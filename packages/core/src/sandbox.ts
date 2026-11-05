@@ -149,42 +149,54 @@ export function containerEnv(role: ContainerRole, binDir?: string): Array<[strin
   }
 }
 
-/** Field 3 (state) and field 22 (start time in ticks since boot) of /proc/<pid>/stat, or undefined when the process is gone or there is no /proc. */
-function readProcStat(pid: number): { state: string; ticks: number } | undefined {
+/** What /proc/<pid>/stat said: the process's state and start time, "gone" (ENOENT/ESRCH: no such process), or "unknown" (any other failure). */
+export type ProcStatRead = { state: string; ticks: number } | "gone" | "unknown";
+export type ReadProcStat = (pid: number) => ProcStatRead;
+
+/** Field 3 (state) and field 22 (start time in ticks since boot) of a /proc/<pid>/stat read. Only a vanished file means the process is gone. */
+export function parseProcStat(read: () => string): ProcStatRead {
+  let stat: string;
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // after "pid (comm) ": state is fields[0], starttime fields[19]
-    const ticks = Number(fields[19]);
-    return Number.isFinite(ticks) ? { state: fields[0]!, ticks } : undefined;
-  } catch {
-    return undefined;
+    stat = read();
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ESRCH" ? "gone" : "unknown";
   }
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // after "pid (comm) ": state is fields[0], starttime fields[19]
+  const ticks = Number(fields[19]);
+  return fields[19] && Number.isFinite(ticks) && fields[0] ? { state: fields[0], ticks } : "unknown";
 }
 
-/** Names a worker process: its pid and start time, so a reused pid is not mistaken for it. Labels on its containers and its seal directories carry it. */
-export function ownerToken(pid = process.pid): string {
-  return `${pid}.${readProcStat(pid)?.ticks ?? 0}`;
+const readProcStat: ReadProcStat = (pid) => parseProcStat(() => readFileSync(`/proc/${pid}/stat`, "utf8"));
+
+/** Names a worker process: its pid and start time, so a reused pid is not mistaken for it. Labels on its containers and its seal directories carry it. Throws when the start time cannot be read: a token without one could never be told apart from a reused pid. */
+export function ownerToken(pid = process.pid, read: ReadProcStat = readProcStat): string {
+  const now = read(pid);
+  if (typeof now === "string" || now.ticks === 0) throw new Error(`cannot name this worker: the start time of process ${pid} could not be read from /proc`);
+  return `${pid}.${now.ticks}`;
 }
+
+export type OwnerState = "alive" | "dead" | "unknown";
 
 /**
  * Is the process an owner token names still running? A token is read as data (it comes from a label or a directory name): anything
- * that is not `<pid>.<ticks>` is not an owner, and so never proves anything alive. Where /proc is missing (not Linux) a token
- * with no start time falls back to signalling the pid.
+ * that is not `<pid>.<ticks>`, or has no start time, or whose /proc entry could not be read, is "unknown" and proves nothing.
+ * Only a vanished process, a zombie, or a different start time (a reused pid) is "dead".
  */
-export function ownerAlive(token: string): boolean {
+export function ownerState(token: string, read: ReadProcStat = readProcStat): OwnerState {
   const m = /^([1-9][0-9]{0,9})\.([0-9]{1,15})$/.exec(token);
-  if (!m) return false;
-  const pid = Number(m[1]);
+  if (!m) return "unknown";
   const ticks = Number(m[2]);
-  const now = readProcStat(pid);
-  if (now) return now.state !== "Z" && now.ticks === ticks;
-  if (ticks !== 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
+  if (ticks === 0) return "unknown";
+  const now = read(Number(m[1]));
+  if (now === "unknown") return "unknown";
+  if (now === "gone") return "dead";
+  return now.state !== "Z" && now.ticks === ticks ? "alive" : "dead";
+}
+
+/** Provably running. Anything that reaps must use `ownerState` and leave "unknown" alone. */
+export function ownerAlive(token: string, read: ReadProcStat = readProcStat): boolean {
+  return ownerState(token, read) === "alive";
 }
 
 /** Identifies a data directory in labels: containers of another checkout or data dir carry another id and are never touched. */
@@ -347,7 +359,7 @@ export class PodmanSandbox implements SandboxRunner {
     return undefined;
   }
 
-  async reconcile(log: (line: string) => void = () => {}): Promise<string[]> {
+  async reconcile(log: (line: string) => void = () => {}, readStat?: ReadProcStat): Promise<string[]> {
     const ps = await this.podman(["ps", "-a", "--filter", `label=${BUILD_LABEL}`, "--format", "json"]);
     if (ps.code !== 0) {
       log(`[worker] could not list leftover Build containers: ${ps.stderr.trim().slice(0, 150)}`);
@@ -368,7 +380,10 @@ export class PodmanSandbox implements SandboxRunner {
       const name = Array.isArray(row.Names) ? row.Names[0] : row.Names;
       if (typeof name !== "string" || !NAME_RE.test(name) || !row.Labels || !(BUILD_LABEL in row.Labels)) continue;
       const { "argus.data": data, "argus.owner": owner } = row.Labels;
-      if (data !== this.ownership.dataId || typeof owner !== "string" || !/^[1-9][0-9]{0,9}\.[0-9]{1,15}$/.test(owner) || ownerAlive(owner)) continue;
+      if (data !== this.ownership.dataId || typeof owner !== "string" || !/^[1-9][0-9]{0,9}\.[0-9]{1,15}$/.test(owner) ) continue;
+      const state = ownerState(owner, readStat);
+      if (state === "unknown") log(`[worker] left alone Build container ${name}: could not tell whether its owner ${owner} is running`);
+      if (state !== "dead") continue;
       await this.endContainer(name);
       removed.push(name);
       log(`[worker] removed leftover Build container ${name}`);

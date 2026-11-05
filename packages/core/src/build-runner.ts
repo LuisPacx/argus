@@ -5,7 +5,7 @@ import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
-import { ownerAlive, ownerToken, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
+import { ownerState, ownerToken, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
 export function buildLogPathFor(dataDir: string, proposalId: number): string {
@@ -754,7 +754,7 @@ export function removeTree(path: string): string | undefined {
  * that made them being gone. A seal whose worker is alive (a Build running now, in this process or in a `--once` run beside it) and
  * one whose name says nothing about its owner are left alone. Returns the paths removed.
  */
-export function sweepStaleSeals(dataDir: string, log: (line: string) => void = () => {}): string[] {
+export function sweepStaleSeals(dataDir: string, log: (line: string) => void = () => {}, readStat?: ReadProcStat): string[] {
   const removed: string[] = [];
   const proposals = join(resolve(dataDir), "proposals");
   let ids: string[] = [];
@@ -772,8 +772,11 @@ export function sweepStaleSeals(dataDir: string, log: (line: string) => void = (
     }
     for (const name of names) {
       const m = /^seal-([1-9][0-9]{0,9}\.[0-9]{1,15})-[A-Za-z0-9]{6}$/.exec(name);
-      if (!m || ownerAlive(m[1]!)) continue;
+      if (!m) continue;
       const path = join(proposals, id, name);
+      const state = ownerState(m[1]!, readStat);
+      if (state === "unknown") log(`[worker] left alone seal ${path}: could not tell whether its owner ${m[1]} is running`);
+      if (state !== "dead") continue;
       const error = removeTree(path);
       if (error) log(`[worker] could not remove stale seal ${path}: ${error}`);
       else {
