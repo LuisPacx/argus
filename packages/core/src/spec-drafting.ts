@@ -64,7 +64,8 @@ export function draftable(store: Datastore, now = new Date()): Proposal[] {
  *
  * Spend is never lost or doubled:
  * - an `in-flight` brain_runs row is inserted before the child is spawned, and a Proposal with one open is never
- *   re-drafted (a crash leaves it behind; the next worker boot marks it `interrupted` and shows it on the card);
+ *   re-drafted (a crash leaves it behind; the next worker tick marks it `interrupted` once it is older than the task's timeout plus
+ *   a grace period, and shows it on the card);
  * - the run's cost, session and exit status are recorded the moment `brain.run` returns, before any file write or
  *   transition, so a later throw cannot lose them;
  * - the Proposal is re-read afterwards: if it is no longer `shortlisted` (dismissed mid-run) the run is recorded and

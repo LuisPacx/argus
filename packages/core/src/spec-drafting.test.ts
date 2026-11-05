@@ -3,9 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ClaudeCodeBrain, resolveRouting, type Brain } from "./brain.ts";
+import { ClaudeCodeBrain, STALE_RUN_GRACE_MS, resolveRouting, type Brain } from "./brain.ts";
 import { Datastore, MAX_SPEC_RATE_LIMIT_ATTEMPTS } from "./datastore.ts";
-import { draftPendingSpecs, draftSpec, specProblem } from "./spec-drafting.ts";
+import { draftPendingSpecs, draftSpec, draftable, specProblem } from "./spec-drafting.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 
 function setup(mode: string, routing = resolveRouting(), result?: string) {
@@ -276,7 +276,7 @@ describe("Spec drafting", () => {
       expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
       expect(store.brainRunsFor(id)).toHaveLength(1);
 
-      expect(store.interruptStaleBrainRuns(0)).toBe(1);
+      expect(store.interruptStaleBrainRuns(() => 0, new Date(Date.now() + 1))).toBe(1);
       const p = store.getProposal(id)!;
       expect(p.brainRunInFlightSince).toBeNull();
       expect(p.status).toBe("shortlisted");
@@ -284,18 +284,46 @@ describe("Spec drafting", () => {
       expect(store.brainRunsFor(id)[0]!.exitStatus).toBe("interrupted");
       expect(await draftPendingSpecs(store, brain, dir, quiet)).toBe(0);
       expect(store.brainRunsFor(id)).toHaveLength(1);
-      expect(store.interruptStaleBrainRuns(0)).toBe(0);
+      expect(store.interruptStaleBrainRuns(() => 0, new Date(Date.now() + 1))).toBe(0);
     });
 
-    it("interruptStaleBrainRuns leaves a young in-flight row alone (it may be a live foreground worker's)", () => {
-      const { store, id } = setup("success");
+    it("a crash-left spec row older than timeout + grace is swept on a later tick with no restart; a younger one is not", async () => {
+      const { store, dir, brain, id } = setup("success");
       store.startBrainRun({ proposalId: id, task: "spec", backend: "claude-code", model: "sonnet" });
-      const maxAge = 10 * 60_000;
-      expect(store.interruptStaleBrainRuns(maxAge)).toBe(0);
+      const staleAfter = brain.staleAfterMs("spec");
+      expect(staleAfter).toBe(10 * 60_000 + STALE_RUN_GRACE_MS);
+      const sweep = (at: number) => store.interruptStaleBrainRuns((t) => brain.staleAfterMs(t), new Date(Date.now() + at));
+      expect(sweep(staleAfter - 60_000)).toBe(0); // younger: left alone
       expect(store.getProposal(id)).toMatchObject({ specError: "" });
       expect(store.getProposal(id)!.brainRunInFlightSince).not.toBeNull();
-      expect(store.interruptStaleBrainRuns(maxAge, new Date(Date.now() + maxAge + 1_000))).toBe(1);
+      expect(sweep(staleAfter + 1_000)).toBe(1);
       expect(store.brainRunsFor(id)[0]!.exitStatus).toBe("interrupted");
+      expect(store.getProposal(id)!.brainRunInFlightSince).toBeNull();
+    });
+
+    it("the sweep makes the Proposal draftable again, marked interrupted", () => {
+      const { store, brain, id } = setup("success");
+      store.startBrainRun({ proposalId: id, task: "spec", backend: "claude-code", model: "sonnet" });
+      expect(draftable(store).map((p) => p.id)).not.toContain(id);
+      store.interruptStaleBrainRuns((t) => brain.staleAfterMs(t), new Date(Date.now() + 16 * 60_000));
+      expect(store.brainRunsFor(id)[0]!.exitStatus).toBe("interrupted");
+      expect(store.getProposal(id)!.brainRunInFlightSince).toBeNull();
+      expect(store.getProposal(id)!.specError).toContain("interrupted");
+    });
+
+    it("a live run is never swept: it is killed at its timeout, before the row goes stale", async () => {
+      const { store, dir, brain, id } = setup("hang", resolveRouting({ spec: { timeoutMs: 300 } }));
+      let swept = -1;
+      const spy = wrap(brain, async (go) => {
+        // Mid-run, and even at the last instant the row can exist (its timeout), the row is not stale.
+        const t0 = Date.now();
+        swept = store.interruptStaleBrainRuns((t) => brain.staleAfterMs(t), new Date(t0 + 300));
+        return go();
+      });
+      await draftSpec(store, spy, store.getProposal(id)!, dir);
+      expect(swept).toBe(0);
+      expect(store.brainRunsFor(id)[0]!.exitStatus).not.toBe("interrupted");
+      expect(store.brainRunsFor(id)[0]!.exitStatus).not.toBe("in-flight");
     });
 
     it("--dry-run leaves no brain run behind", async () => {

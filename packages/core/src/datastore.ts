@@ -446,19 +446,22 @@ export class Datastore {
   }
 
   /**
-   * WORKER ONLY, call once at worker boot. Marks each open run that is older than `olderThanMs` as `interrupted` (its
+   * WORKER ONLY, call at worker boot and on every tick. Marks each open run older than `staleAfterMs(its task)` as `interrupted` (its
    * spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
-   * Nothing is retried: the failure shows on the card. Pass the longest run timeout plus a grace period: a younger row
-   * may belong to a live worker (a foreground `--once` run beside the daemon) and must be left alone. Returns how many
+   * Nothing is retried: the failure shows on the card. `staleAfterMs` is the task's run timeout plus a grace
+   * period: a live run is killed at its timeout, so a younger row may belong to a live worker (this process, or a
+   * foreground `--once` run beside the daemon) and is left alone. Returns how many
    * runs were marked.
    */
-  interruptStaleBrainRuns(olderThanMs: number, now = new Date()): number {
-    const cutoff = new Date(now.getTime() - olderThanMs).toISOString();
+  interruptStaleBrainRuns(staleAfterMs: (task: string) => number, now = new Date()): number {
     return this.inTransaction(() => {
       const rows = this.db
-        .prepare("SELECT id, proposal_id, task FROM brain_runs WHERE exit_status = ? AND created_at < ?")
-        .all(BRAIN_RUN_IN_FLIGHT, cutoff) as unknown as { id: number; proposal_id: number; task: string }[];
+        .prepare("SELECT id, proposal_id, task, created_at FROM brain_runs WHERE exit_status = ?")
+        .all(BRAIN_RUN_IN_FLIGHT) as unknown as { id: number; proposal_id: number; task: string; created_at: string }[];
+      let n = 0;
       for (const r of rows) {
+        if (new Date(r.created_at).getTime() >= now.getTime() - staleAfterMs(r.task)) continue;
+        n++;
         this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
         if (r.task === "spec") {
           this.db
@@ -469,7 +472,7 @@ export class Datastore {
             );
         }
       }
-      return rows.length;
+      return n;
     });
   }
 

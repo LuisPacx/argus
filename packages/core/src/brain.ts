@@ -227,6 +227,9 @@ export async function killLiveBrainChildren(graceMs = 5_000): Promise<number> {
   return children.length;
 }
 
+/** Slack on top of a route's timeout before an open run row counts as left by a dead process (covers the kill grace). */
+export const STALE_RUN_GRACE_MS = 5 * 60_000;
+
 export class ClaudeCodeBrain implements Brain {
   private readonly routing: Routing;
   private readonly opts: ClaudeCodeBrainOptions;
@@ -241,9 +244,14 @@ export class ClaudeCodeBrain implements Brain {
     return { backend, model };
   }
 
-  /** The longest wall-clock cap of any route: a brain run older than this (plus grace) cannot still be alive. */
-  maxRunMs(): number {
-    return Math.max(...Object.values(this.routing).map((r) => r.timeoutMs));
+  /**
+   * How old an in-flight row for `task` may get before it is stale: its route's wall-clock cap plus a grace period.
+   * A live run is killed at its cap, so it never gets this old. An unknown task falls back to the longest cap.
+   */
+  staleAfterMs(task: string): number {
+    const route = (this.routing as Record<string, TaskRoute | undefined>)[task];
+    const cap = route ? route.timeoutMs : Math.max(...Object.values(this.routing).map((r) => r.timeoutMs));
+    return cap + STALE_RUN_GRACE_MS;
   }
 
   /** The argv for `claude`; exposed so dry runs and tests see exactly what would be spawned. */
