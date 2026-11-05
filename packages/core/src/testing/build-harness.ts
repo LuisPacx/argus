@@ -7,7 +7,7 @@ import type { BuildRunnerOptions } from "../build-runner.ts";
 import { Datastore, type Proposal } from "../datastore.ts";
 import { DISCLOSURE_SENTENCE } from "../disclosure.ts";
 import { approve } from "../lifecycle.ts";
-import { PodmanSandbox } from "../sandbox.ts";
+import { PodmanSandbox, type PodmanSandboxOptions } from "../sandbox.ts";
 import { specPathFor } from "../spec-drafting.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
 import { FAKE_GH, FAKE_PODMAN, FAKE_WRANGLER } from "./fake-tools.ts";
@@ -80,6 +80,8 @@ export interface Harness {
   wranglerLog: string;
   /** The Build sandbox (over the fake podman) and what the fake knows. */
   sandbox: PodmanSandbox;
+  /** Another sandbox over the same fake podman (to vary one option); assign it to `options.sandbox` to use it. */
+  makeSandbox(over?: Partial<PodmanSandboxOptions>): PodmanSandbox;
   /** The environment the podman client's own env is picked from; tests add FAKE_PODMAN_* switches here. */
   sandboxEnv: Record<string, string | undefined>;
   podmanLog: string;
@@ -101,7 +103,7 @@ export interface Harness {
 }
 
 export function makeHarness(
-  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; podmanEnv?: Record<string, string>; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
+  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; podmanEnv?: Record<string, string>; killGraceMs?: number; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
 ): Harness {
   const root = tempDir("argus-build-");
   const buildRoot = join(root, "code");
@@ -137,7 +139,7 @@ export function makeHarness(
     log: (l) => logs.push(l),
     env: { ...base, ANTHROPIC_API_KEY: "sk-secret", CLOUDFLARE_API_TOKEN: "cf-secret", ...fakeEnv, ...opts.claudeEnv },
     passEnv: [...Object.keys(fakeEnv), ...Object.keys(opts.claudeEnv ?? {})],
-    killGraceMs: 200,
+    killGraceMs: opts.killGraceMs ?? 200,
   });
   const store = Datastore.open(":memory:");
   // The sandbox: the real PodmanSandbox over the fake podman. Its source env holds secrets too, to show they never reach the podman client.
@@ -160,16 +162,20 @@ export function makeHarness(
     FAKE_PODMAN_NETWORK: JSON.stringify({ internal: true, dns_enabled: false }),
     ...opts.podmanEnv,
   };
-  const sandbox = new PodmanSandbox({
-    image: TEST_IMAGE,
-    podmanBin: FAKE_PODMAN,
-    tokenPath,
-    env: sandboxEnv,
-    // The fake forwards FAKE_* variables into its "container", as a test image's baked-in environment.
-    passEnv: [...new Set([...Object.keys(sandboxEnv).filter((k) => k.startsWith("FAKE_")), "FAKE_PODMAN_WRANGLER", "FAKE_PODMAN_INSTALL_FILES", "FAKE_PODMAN_INSTALL_FAIL", "FAKE_PODMAN_INSTALL_HANG", "FAKE_PODMAN_INSTALL_STARTED", "FAKE_PODMAN_EGRESS_FAIL", "FAKE_PODMAN_EGRESS_SILENT", "FAKE_PODMAN_EGRESS_LOG"])],
-    stopTimeoutSec: 1,
-    egressWaitMs: 3000,
-  });
+  const makeSandbox = (over: Partial<PodmanSandboxOptions> = {}) =>
+    new PodmanSandbox({
+      image: TEST_IMAGE,
+      podmanBin: FAKE_PODMAN,
+      tokenPath,
+      dataDir,
+      env: sandboxEnv,
+      // The fake forwards FAKE_* variables into its "container", as a test image's baked-in environment.
+      passEnv: [...new Set([...Object.keys(sandboxEnv).filter((k) => k.startsWith("FAKE_")), "FAKE_PODMAN_WRANGLER", "FAKE_PODMAN_INSTALL_FILES"])],
+      stopTimeoutSec: 1,
+      egressWaitMs: 3000,
+      ...over,
+    });
+  const sandbox = makeSandbox();
   const options: BuildRunnerOptions = {
     buildRoot,
     templateRepo,
@@ -213,6 +219,7 @@ export function makeHarness(
     ghLog,
     wranglerLog,
     sandbox,
+    makeSandbox,
     sandboxEnv,
     podmanLog,
     podmanState,

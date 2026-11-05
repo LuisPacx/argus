@@ -394,6 +394,8 @@ export class ClaudeCodeBrain implements Brain {
           if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
           throw new BrainError("failed", `The sandbox could not be started: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500), info);
         }
+        // An abort that came while the sandbox was starting fired no listener: nothing is spawned, and what it started is ended below.
+        if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
       }
       // The sandbox's command is the podman client; the `claude` argv rides inside it, unchanged.
       out = await exec(launched?.command ?? command, launched?.args ?? args, {
@@ -506,6 +508,7 @@ function exec(
       killGroup(child, o.killGraceMs);
     };
     o.signal?.addEventListener("abort", onAbort, { once: true });
+    if (o.signal?.aborted) onAbort();
     const timer = setTimeout(() => {
       timedOut = true;
       endContainer();

@@ -9,13 +9,13 @@ import {
   buildPodmanRunArgs,
   capsFromEnv,
   containerEnv,
+  dataIdFor,
   egressRunArgs,
   readBuildToken,
   resumeCommand,
   type ContainerRole,
   type SandboxJob,
 } from "./sandbox.ts";
-import { FAKE_PODMAN } from "./testing/fake-tools.ts";
 import { makeHarness, TEST_IMAGE, TEST_TOKEN, type Harness } from "./testing/build-harness.ts";
 import { tempPath } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
@@ -33,8 +33,9 @@ const job = (role: ContainerRole, over: Partial<SandboxJob> = {}): SandboxJob =>
   timeoutMs: 600_000,
   ...over,
 });
+const OWNERSHIP = { dataId: "0123456789ab", owner: "4242.99" };
 const argvFor = (role: ContainerRole, over: Partial<SandboxJob> = {}) =>
-  buildPodmanRunArgs({ job: job(role, { ...(role === "bundle" ? { binDir: BIN_DIR } : {}), ...over }), name: role === "agent" ? NAME : `argus-${role}-7-0123abcd`, image: TEST_IMAGE, caps: DEFAULT_CAPS });
+  buildPodmanRunArgs({ job: job(role, { ...(role === "bundle" ? { binDir: BIN_DIR } : {}), ...over }), name: role === "agent" ? NAME : `argus-${role}-7-0123abcd`, image: TEST_IMAGE, caps: DEFAULT_CAPS, ownership: OWNERSHIP });
 
 /** The values of every occurrence of a flag (`--env X`, `-v X`, `--label X`). */
 const flagValues = (argv: string[], flag: string) => argv.flatMap((a, i) => (a === flag ? [argv[i + 1]!] : []));
@@ -76,7 +77,7 @@ describe("buildPodmanRunArgs: the container's policy", () => {
     expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=2g"]);
     // The conmon backstop: the caller's cap plus a minute.
     expect(argv).toContain("--timeout=660");
-    expect(flagValues(argv, "--label")).toEqual(["argus.build=7", `argus.role=${role}`]);
+    expect(flagValues(argv, "--label")).toEqual(["argus.build=7", `argus.role=${role}`, "argus.data=0123456789ab", "argus.owner=4242.99"]);
     for (const forbidden of ["--privileged", "--network host", "--network=host", "--env-host", "--device", "--cap-add", "--pid=", "--ipc", "--uts", "label=disable", "--userns=host", "--mount", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "CLOUDFLARE", "docker.sock", "podman.sock"]) {
       expect(text, forbidden).not.toContain(forbidden);
     }
@@ -127,27 +128,27 @@ describe("buildPodmanRunArgs: the container's policy", () => {
   });
 
   it("applies the caps it is given", () => {
-    const argv = buildPodmanRunArgs({ job: job("agent"), name: NAME, image: TEST_IMAGE, caps: { memoryGiB: 2, cpus: 1.5, pids: 99, tmpGiB: 1 } });
+    const argv = buildPodmanRunArgs({ job: job("agent"), name: NAME, image: TEST_IMAGE, caps: { memoryGiB: 2, cpus: 1.5, pids: 99, tmpGiB: 1 }, ownership: OWNERSHIP });
     expect(argv).toEqual(expect.arrayContaining(["--pids-limit=99", "--memory=2g", "--cpus=1.5"]));
     expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=1g"]);
   });
 
   it("refuses a container name that is not argus's", () => {
     for (const bad of ["x", "argus-build-7", "argus-build-7-XYZ", "argus-build-7-0123abcd --privileged"]) {
-      expect(() => buildPodmanRunArgs({ job: job("agent"), name: bad, image: TEST_IMAGE, caps: DEFAULT_CAPS })).toThrow(/bad container name/);
+      expect(() => buildPodmanRunArgs({ job: job("agent"), name: bad, image: TEST_IMAGE, caps: DEFAULT_CAPS, ownership: OWNERSHIP })).toThrow(/bad container name/);
     }
   });
 });
 
 describe("the egress sidecar's argv", () => {
   it("is dual-homed, unprivileged, mounts nothing, and its only env is the allowlist", () => {
-    const argv = egressRunArgs({ name: "argus-egress-7-0123abcd", buildId: 7, image: TEST_IMAGE });
+    const argv = egressRunArgs({ name: "argus-egress-7-0123abcd", buildId: 7, image: TEST_IMAGE, ownership: OWNERSHIP });
     expect(flagValues(argv, "--network")).toEqual(["argus-build-net:ip=10.89.77.2", "podman"]);
     expect(argv).toEqual(expect.arrayContaining(["--rm", "-d", "--pull=never", "--cap-drop=all", "--read-only", "--userns=keep-id"]));
     expect(flagValues(argv, "--security-opt")).toEqual(["no-new-privileges"]);
     expect(flagValues(argv, "-v")).toEqual([]);
     expect(flagValues(argv, "--env")).toEqual(["ARGUS_EGRESS_ALLOW=api.anthropic.com:443,registry.npmjs.org:443"]);
-    expect(flagValues(argv, "--label")).toEqual(["argus.build=7", "argus.role=egress"]);
+    expect(flagValues(argv, "--label")).toEqual(["argus.build=7", "argus.role=egress", "argus.data=0123456789ab", "argus.owner=4242.99"]);
     expect(argv.slice(argv.indexOf(TEST_IMAGE) + 1)).toEqual(["node", "/opt/argus/egress-proxy.mjs"]);
     expect(argv.join(" ")).not.toContain("--privileged");
   });
@@ -170,7 +171,7 @@ describe("small pieces", () => {
   });
 
   it("PodmanSandbox only accepts a pinned image tag", () => {
-    const mk = (image: string) => new PodmanSandbox({ image, tokenPath: "/nowhere" });
+    const mk = (image: string) => new PodmanSandbox({ image, tokenPath: "/nowhere", dataDir: "/nowhere" });
     expect(() => mk("localhost/argus-build:latest")).toThrow(/pinned/);
     expect(() => mk("localhost/argus-build")).toThrow(/pinned/);
     expect(() => mk("localhost/argus-build:cc2.1.318-n22.23.4-p11.2.2-1a2322f33ee5")).not.toThrow();
@@ -224,7 +225,8 @@ const untilDead = async (pid: number, deadlineMs = 20_000) => {
 const at = (calls: string[][], ...prefix: string[]) => calls.findIndex((c) => prefix.every((p, i) => c[i] === p));
 const names = (calls: string[][]) => calls.filter((c) => c[0] === "run").map((c) => c[c.indexOf("--name") + 1]!);
 
-describe("a Build runs its claude in a container", () => {
+// Each test runs whole Builds: git, a container's worth of fake processes, a bundle and a deploy. Under load that is not 5 s.
+describe("a Build runs its claude in a container", { timeout: 60_000 }, () => {
   it("passes the claude argv, budget and timeout through byte for byte, and starts the sidecar first", async () => {
     const h = makeHarness();
     const r = await runBuild(h);
@@ -305,7 +307,7 @@ describe("a Build runs its claude in a container", () => {
 
   it("fails the Build and removes the sidecar when it never reports listening", async () => {
     const h = makeHarness({ podmanEnv: { FAKE_PODMAN_EGRESS_SILENT: "1" } });
-    h.options.sandbox = new PodmanSandbox({ image: TEST_IMAGE, podmanBin: FAKE_PODMAN, tokenPath: h.tokenPath, env: h.sandboxEnv, passEnv: Object.keys(h.sandboxEnv).filter((k) => k.startsWith("FAKE_")), stopTimeoutSec: 1, egressWaitMs: 300 });
+    h.options.sandbox = h.makeSandbox({ egressWaitMs: 300 });
     const r = await runBuild(h);
     expect(r.after.status).toBe("build-failed");
     expect(r.reason).toContain("did not report listening");
@@ -314,7 +316,7 @@ describe("a Build runs its claude in a container", () => {
   });
 });
 
-describe("timeout, abort and shutdown each stop the container, then remove it, and leave nothing", () => {
+describe("timeout, abort and shutdown each stop the container, then remove it, and leave nothing", { timeout: 60_000 }, () => {
   const stubborn = (extra: Record<string, string> = {}) => ({ FAKE_CLAUDE_MODE: "hang-stubborn", ...extra });
 
   /** The container and sidecar the Build started: stop came before rm -f for each, and the sidecar outlived the Build container. */
@@ -389,16 +391,17 @@ describe("timeout, abort and shutdown each stop the container, then remove it, a
   });
 });
 
-describe("startup reconciliation", () => {
+describe("startup reconciliation", { timeout: 30_000 }, () => {
   const seed = (h: Harness, name: string, labels: Record<string, string>, pgid?: number) => {
     mkdirSync(h.podmanState, { recursive: true });
     writeFileSync(join(h.podmanState, `${name}.json`), JSON.stringify({ name, id: `id-${name}`, labels, ...(pgid ? { pgid } : {}) }));
   };
 
-  it("stops and removes labelled leftovers, and never touches an unrelated container", async () => {
+  it("stops and removes labelled leftovers of a dead worker, and never touches an unrelated container (owners are covered in sandbox-lifecycle.test.ts)", async () => {
     const h = makeHarness();
-    seed(h, "argus-build-7-0123abcd", { "argus.build": "7", "argus.role": "agent" });
-    seed(h, "argus-egress-7-0123abcd", { "argus.build": "7", "argus.role": "egress" });
+    const dead = { "argus.data": dataIdFor(h.dataDir), "argus.owner": "999999999.5" }; // a pid that does not exist
+    seed(h, "argus-build-7-0123abcd", { "argus.build": "7", "argus.role": "agent", ...dead });
+    seed(h, "argus-egress-7-0123abcd", { "argus.build": "7", "argus.role": "egress", ...dead });
     seed(h, "supabase_db_workers", { "com.docker.compose.project": "supabase" });
     seed(h, "argus-build-9-feedface", {}); // our name but no label: not ours to touch
     seed(h, "my-own-thing", { "argus.build": "1" }); // our label but not our name: not ours either
@@ -415,14 +418,14 @@ describe("startup reconciliation", () => {
 
   it("does nothing, and says so, when podman cannot list containers", async () => {
     const h = makeHarness();
-    h.options.sandbox = new PodmanSandbox({ image: TEST_IMAGE, podmanBin: join(h.root, "no-such-podman"), tokenPath: h.tokenPath });
+    h.options.sandbox = h.makeSandbox({ podmanBin: join(h.root, "no-such-podman") });
     const lines: string[] = [];
     expect(await h.options.sandbox.reconcile((l) => lines.push(l))).toEqual([]);
     expect(lines.join("\n")).toContain("could not list leftover Build containers");
   });
 });
 
-describe("preflight: a Build that cannot be contained does not start", () => {
+describe("preflight: a Build that cannot be contained does not start", { timeout: 60_000 }, () => {
   const logged = (h: Harness) => h.logs.filter((l) => l.includes("not started"));
 
   async function refused(h: Harness, expectLine: RegExp) {
@@ -452,7 +455,7 @@ describe("preflight: a Build that cannot be contained does not start", () => {
 
   it("a missing podman", async () => {
     const h = makeHarness();
-    h.options.sandbox = new PodmanSandbox({ image: TEST_IMAGE, podmanBin: join(h.root, "no-such-podman"), tokenPath: h.tokenPath, env: h.sandboxEnv });
+    h.options.sandbox = h.makeSandbox({ podmanBin: join(h.root, "no-such-podman") });
     await refused(h, /podman is not available/);
   });
 

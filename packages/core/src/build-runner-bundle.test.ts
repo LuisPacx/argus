@@ -28,7 +28,8 @@ async function build(h: Harness) {
   };
 }
 
-describe("the deploy bundle holds only files of the committed tree", () => {
+// Each test runs whole Builds: git, a container's worth of fake processes, a bundle and a deploy. Under load that is not 5 s.
+describe("the deploy bundle holds only files of the committed tree", { timeout: 60_000 }, () => {
   it("rejects a Build whose commit holds a symlink, and deploys nothing", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "symlink-file,commit" } });
     const r = await build(h);
@@ -171,7 +172,7 @@ describe("the deploy bundle holds only files of the committed tree", () => {
   });
 });
 
-describe("the bundle's output directory holds only what is expected", () => {
+describe("the bundle's output directory holds only what is expected", { timeout: 60_000 }, () => {
   it("rejects a Build when wrangler left a file in the outdir besides the entry, its map and README.md, and deploys nothing", async () => {
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_OUT_EXTRA: JSON.stringify(["188e772cbd5dc38f6f8675060f53c929581de722-secret.txt"]) } });
     const r = await build(h);

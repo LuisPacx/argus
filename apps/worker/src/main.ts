@@ -12,6 +12,7 @@ import {
   killLiveBrainChildren,
   revisePendingSpecs,
   runPendingBuilds,
+  sweepStaleSeals,
   type BuildRunnerOptions,
 } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
@@ -35,6 +36,7 @@ const sandbox = new PodmanSandbox({
   image: process.env.ARGUS_BUILD_IMAGE || currentImageTag(repoRoot),
   podmanBin: process.env.ARGUS_PODMAN_BIN || "podman",
   tokenPath: process.env.ARGUS_BUILD_TOKEN_FILE || join(homedir(), ".config", "argus", "build-token"),
+  dataDir,
   caps: capsFromEnv(process.env),
 });
 const buildOptions: BuildRunnerOptions = {
@@ -56,8 +58,13 @@ const sweepStaleRuns = () => {
   if (interrupted > 0) console.error(`[worker] ${interrupted} brain run(s) were interrupted by a dead worker; flagged on their cards`);
 };
 sweepStaleRuns();
-// Containers an earlier worker left behind (it crashed mid-Build) are stopped and removed, found by label only. A dry run touches nothing.
-if (!dryRun) await sandbox.reconcile(console.log);
+// What an earlier worker left behind when it died mid-Build is cleaned up: its containers (found by label, and only those of this
+// data dir whose owning worker is gone) and its seal directories (same rule). A worker that is alive, such as the daemon beside a
+// `--once` run, keeps its own. A dry run touches nothing.
+if (!dryRun) {
+  await sandbox.reconcile(console.log);
+  sweepStaleSeals(dataDir, console.log);
+}
 
 const shutdown = new AbortController();
 const tick = reentrant(

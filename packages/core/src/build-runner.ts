@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
-import type { SandboxJob, SandboxRunner } from "./sandbox.ts";
+import { ownerAlive, ownerToken, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
 export function buildLogPathFor(dataDir: string, proposalId: number): string {
@@ -120,6 +120,8 @@ function runCommand(bin: string, args: string[], o: { cwd?: string; env: Record<
       kill();
     }, o.timeoutMs);
     o.signal?.addEventListener("abort", kill, { once: true });
+    // An abort that came before the listener existed fires no event; it is still an abort.
+    if (o.signal?.aborted) kill();
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (e) => {
@@ -424,6 +426,8 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
       throw new StepError(`${label} failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400));
     }
     try {
+      // An abort that landed while the sandbox was starting leaves nothing to run: end what it started and stop here.
+      if (signal?.aborted) throw new StepError(`${label} failed: the worker is stopping`);
       await step(label, launched.command, launched.args, launched.env, job.cwd, launched.stop);
     } finally {
       await launched.stop().catch(() => {});
@@ -564,7 +568,8 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     const head = readHeadCommit(repo);
     // Under the data dir, on the disk: the dependency install below puts a node_modules in it, which does not belong in /tmp.
     mkdirSync(dirname(home), { recursive: true });
-    seal = mkdtempSync(join(dirname(home), "seal-"));
+    // Named for the worker that made it, so a later worker can tell a seal whose Build is over from one still in use.
+    seal = mkdtempSync(join(dirname(home), `seal-${ownerToken()}-`));
     const sealGit = join(seal, ".git");
     await step("git init", git, [...SAFE_GIT, "init", "--quiet", seal], gitEnv, seal);
     writeFileSync(join(sealGit, "objects", "info", "alternates"), join(repo, ".git", "objects") + "\n");
@@ -679,11 +684,8 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
       return { proposalId: id, result: "abandoned" };
     }
     // A built Build is never resumed: its home (session transcripts, package store) goes. A failed Build keeps it (design Q8).
-    try {
-      rmSync(home, { recursive: true, force: true });
-    } catch (e) {
-      note(`Warning: could not remove ${home}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    const homeError = removeTree(home);
+    if (homeError) note(`Warning: could not remove ${home}: ${homeError}`);
     // The repo holds the built code; a failed push does not undo a verified preview.
     try {
       await push(seal, originUrl, head, branch);
@@ -696,7 +698,89 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     return fail(e instanceof Error ? e.message : String(e));
   } finally {
     clearInterval(heartbeat);
-    if (seal) rmSync(seal, { recursive: true, force: true });
-    closeRun();
+    // The seal holds what the containers wrote, and nothing about that is under argus's control (a mode-000 directory from an install
+    // script, say). Removing it can fail, and failing must neither skip closing the run nor leave the seal unmentioned.
+    try {
+      if (seal) {
+        const sealError = removeTree(seal);
+        if (sealError) note(`Warning: could not remove ${seal}: ${sealError}`);
+      }
+    } catch {
+      // nothing left to report to
+    } finally {
+      closeRun();
+    }
   }
+}
+
+/**
+ * Removes a directory tree that a container wrote to: directories the agent's install scripts left unreadable or unwritable
+ * (mode 000, say) are made enterable first, as `chmod -R u+rwX` would, without following a symlink. Never throws; returns the
+ * reason it could not remove the tree, or undefined when it is gone.
+ */
+export function removeTree(path: string): string | undefined {
+  const open = (p: string): void => {
+    let st;
+    try {
+      st = lstatSync(p);
+    } catch {
+      return;
+    }
+    if (!st.isDirectory()) return;
+    try {
+      chmodSync(p, st.mode | 0o700);
+    } catch {
+      // not ours to change, or gone: rmSync below says what is left
+    }
+    let names: string[] = [];
+    try {
+      names = readdirSync(p);
+    } catch {
+      return;
+    }
+    for (const n of names) open(join(p, n));
+  };
+  try {
+    open(path);
+    rmSync(path, { recursive: true, force: true });
+    return undefined;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
+/**
+ * At worker start: removes the seal directories (`proposals/<id>/seal-<pid>.<ticks>-*`) of Builds that are over, found by the worker
+ * that made them being gone. A seal whose worker is alive (a Build running now, in this process or in a `--once` run beside it) and
+ * one whose name says nothing about its owner are left alone. Returns the paths removed.
+ */
+export function sweepStaleSeals(dataDir: string, log: (line: string) => void = () => {}): string[] {
+  const removed: string[] = [];
+  const proposals = join(resolve(dataDir), "proposals");
+  let ids: string[] = [];
+  try {
+    ids = readdirSync(proposals);
+  } catch {
+    return removed;
+  }
+  for (const id of ids) {
+    let names: string[] = [];
+    try {
+      names = readdirSync(join(proposals, id));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const m = /^seal-([1-9][0-9]{0,9}\.[0-9]{1,15})-[A-Za-z0-9]{6}$/.exec(name);
+      if (!m || ownerAlive(m[1]!)) continue;
+      const path = join(proposals, id, name);
+      const error = removeTree(path);
+      if (error) log(`[worker] could not remove stale seal ${path}: ${error}`);
+      else {
+        removed.push(path);
+        log(`[worker] removed stale seal ${path}`);
+      }
+    }
+  }
+  return removed;
 }

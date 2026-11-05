@@ -11,11 +11,13 @@
 //     the working directory `-w` names, and values under a `-v host:container` mount mapped back to the host path;
 //   - its output reaches the client over pipes, so SIGKILL of the client leaves the container running (only `stop`/`rm` end it);
 //     SIGTERM to the client is proxied to the container;
+//   - FAKE_PODMAN_RUN_STARTED (a file) is written when the client starts; FAKE_PODMAN_RUN_GATE (a file) holds the creation of the
+//     container until it exists: a window in which a `stop` finds nothing to stop;
 //   - when the container's main process exits, everything left in its group is killed (the PID namespace is torn down).
 //   `run -d` of a sidecar only records state. FAKE_PODMAN_EGRESS_FAIL=1 makes starting a sidecar fail; FAKE_PODMAN_EGRESS_SILENT=1 makes
 //   it never log "listening"; FAKE_PODMAN_EGRESS_LOG is extra text `logs` prints (denial lines).
 //   In the container: `pnpm install` writes FAKE_PODMAN_INSTALL_FILES (a JSON object of cwd-relative path -> text), or fails with
-//   FAKE_PODMAN_INSTALL_FAIL, or hangs (after writing its pid to FAKE_PODMAN_INSTALL_STARTED) with FAKE_PODMAN_INSTALL_HANG; `wrangler` runs FAKE_PODMAN_WRANGLER (default: the fake wrangler beside this file).
+//   FAKE_PODMAN_INSTALL_FAIL, or hangs (after writing its pid to FAKE_PODMAN_INSTALL_STARTED) with FAKE_PODMAN_INSTALL_HANG; FAKE_PODMAN_INSTALL_LOCKED leaves a mode-000 directory in the cwd; `wrangler` runs FAKE_PODMAN_WRANGLER (default: the fake wrangler beside this file).
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -195,6 +197,8 @@ if (a === "run") {
          setInterval(() => {}, 1000);
        } else {
          for (const [f, text] of Object.entries(JSON.parse(process.env.FAKE_PODMAN_INSTALL_FILES ?? "{}"))) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); }
+         // A package's install script can leave a directory nobody can enter (mode 000), which a plain recursive remove cannot clear.
+         if (process.env.FAKE_PODMAN_INSTALL_LOCKED) { fs.mkdirSync("locked/inner", { recursive: true }); fs.writeFileSync("locked/inner/f", "x"); fs.chmodSync("locked/inner", 0); fs.chmodSync("locked", 0); }
        }`,
     ];
   } else {
@@ -202,13 +206,19 @@ if (a === "run") {
     process.exit(125);
   }
 
-  const child = spawn(program, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  // --sig-proxy: SIGTERM and SIGINT reach the container; SIGKILL cannot be caught, so it never does. A signal that arrives while the
+  // container is still being created has nothing to reach, and the client carries on creating it.
+  let child;
+  for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => child && killGroup(child.pid, sig));
+  // Creating the container takes time that a test can hold open: the client says it has started, then waits for the gate file.
+  if (process.env.FAKE_PODMAN_RUN_STARTED) writeFileSync(process.env.FAKE_PODMAN_RUN_STARTED, String(process.pid));
+  while (process.env.FAKE_PODMAN_RUN_GATE && !existsSync(process.env.FAKE_PODMAN_RUN_GATE)) await sleep(10);
+
+  child = spawn(program, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   registerPid(child.pid);
   if (name) writeState({ name, id: `fake-${name}`, kind: "build", labels: flags.labels, pgid: child.pid, image });
   child.stdout.pipe(process.stdout, { end: false });
   child.stderr.pipe(process.stderr, { end: false });
-  // --sig-proxy: SIGTERM and SIGINT reach the container; SIGKILL cannot be caught, so it never does.
-  for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => killGroup(child.pid, sig));
   child.on("error", (e) => {
     console.error(`fake podman: ${e.message}`);
     if (name) dropState(name);

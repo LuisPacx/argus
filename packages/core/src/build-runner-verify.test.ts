@@ -14,7 +14,8 @@ async function build(h: Harness, name = "Cat Coin") {
   return { p, outcome, after, reason, deploys: h.deployCalls(), runs: h.store.brainRunsFor(p.id) };
 }
 
-describe("Build Runner: a Build succeeds only on argus's own checks", () => {
+// Each test runs whole Builds: git, a container's worth of fake processes, a bundle and a deploy. Under load that is not 5 s.
+describe("Build Runner: a Build succeeds only on argus's own checks", { timeout: 60_000 }, () => {
   describe("the final message's last line", () => {
     it("classifies only the last line, per the template README contract", () => {
       expect(classifyFinalMessage("Done.\npnpm check passed")).toEqual({ kind: "ok" });
@@ -155,7 +156,7 @@ describe("Build Runner: a Build succeeds only on argus's own checks", () => {
   });
 });
 
-describe("Build Runner: spend is recorded on every path", () => {
+describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, () => {
   it("a failed claude run records its cost and session on the run and the card", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "failure", FAKE_CLAUDE_EFFECT: "" } });
     const r = await build(h);

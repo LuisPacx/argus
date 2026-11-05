@@ -6,7 +6,8 @@ import { makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
 import { tempDir } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
 
-describe("Build Runner: happy path", () => {
+// Each test runs whole Builds: git, a container's worth of fake processes, a bundle and a deploy. Under load that is not 5 s.
+describe("Build Runner: happy path", { timeout: 60_000 }, () => {
   it("clones the template, creates the repo, runs the build, deploys, and marks the Proposal built with its preview and cost", async () => {
     const h = makeHarness();
     const p = h.seedApproved("Cat Coin");
@@ -78,7 +79,7 @@ describe("Build Runner: happy path", () => {
   });
 });
 
-describe("Build Runner: queue", { timeout: 30_000 }, () => {
+describe("Build Runner: queue", { timeout: 60_000 }, () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   it("builds one at a time: a second pass while a Build runs spawns nothing, and the next Build starts after", async () => {
@@ -141,7 +142,7 @@ describe("Build Runner: queue", { timeout: 30_000 }, () => {
   });
 });
 
-describe("Build Runner: dry-run", () => {
+describe("Build Runner: dry-run", { timeout: 30_000 }, () => {
   it("logs the clone, repo-create, spawn and deploy commands and runs none of them", async () => {
     const h = makeHarness({ dryRun: true });
     const p = h.seedApproved("Cat Coin");
@@ -178,7 +179,7 @@ describe("Build Runner: dry-run", () => {
   });
 });
 
-describe("Build Runner: temp dirs", () => {
+describe("Build Runner: temp dirs", { timeout: 60_000 }, () => {
   /**
    * Runs one Build with the temp dir pointed at a fresh directory and returns what the runner left in it besides the
    * harness's own root: the seal (and the env and config files inside it) must be gone on every terminal path.

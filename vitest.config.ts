@@ -8,8 +8,5 @@ export default defineConfig({
     // Local runs cap workers at 2 so concurrent agents don't saturate the machine.
     // CI keeps the default. See CODING_STANDARDS.md.
     maxWorkers: process.env.CI ? undefined : 2,
-    // A Build test spawns a few dozen fake processes (git, the fake podman and the fake claude, gh and wrangler inside it) and must
-    // pass under load from other projects on the machine (CODING_STANDARDS 14), so the 5 s default is too tight for all of them.
-    testTimeout: 30_000,
   },
 });

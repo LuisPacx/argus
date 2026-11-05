@@ -34,7 +34,8 @@ const untilDead = async (pid: number, deadlineMs = 20_000) => {
   expect(alive(pid)).toBe(false);
 };
 
-describe("deploy uses a wrangler config that argus wrote", () => {
+// Each test runs whole Builds: git, a container's worth of fake processes, a bundle and a deploy. Under load that is not 5 s.
+describe("deploy uses a wrangler config that argus wrote", { timeout: 60_000 }, () => {
   it("ignores everything in the agent's wrangler.jsonc: name, main, account, routes, assets, bindings and a build command hidden behind a JSON escape", async () => {
     const pwned = marker("wrangler");
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "tamper-wrangler-config,commit", FAKE_CLAUDE_MARKER: pwned } });
@@ -67,7 +68,7 @@ describe("deploy uses a wrangler config that argus wrote", () => {
   });
 });
 
-describe("wrangler never runs where the agent's files are", () => {
+describe("wrangler never runs where the agent's files are", { timeout: 60_000 }, () => {
   it("runs in argus's own scratch directory with an argus-owned empty --env-file, so a hostile .env, .env.local or .dev.vars in the repo is never loaded", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "commit,plant-env" } });
     const r = await build(h);
@@ -91,7 +92,7 @@ describe("wrangler never runs where the agent's files are", () => {
   });
 });
 
-describe("runner git ignores every config the agent or the machine could supply", () => {
+describe("runner git ignores every config the agent or the machine could supply", { timeout: 60_000 }, () => {
   it("never runs a filter, credential helper or ssh command from .git/config, and pushes to the real origin despite pushurl and insteadOf", async () => {
     const pwned = marker("gitconfig");
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "commit,plant-git-config", FAKE_CLAUDE_MARKER: pwned } });
@@ -113,7 +114,7 @@ describe("runner git ignores every config the agent or the machine could supply"
   });
 });
 
-describe("a command's whole process group is killed on timeout", () => {
+describe("a command's whole process group is killed on timeout", { timeout: 60_000 }, () => {
   it("a wrangler that hangs after starting a grandchild is killed with it", async () => {
     const dir = tempDir("argus-wr-");
     const grandchild = join(dir, "grandchild");
@@ -137,7 +138,7 @@ describe("a command's whole process group is killed on timeout", () => {
   });
 });
 
-describe("every normal exit reaps the command's process group", () => {
+describe("every normal exit reaps the command's process group", { timeout: 60_000 }, () => {
   it("a process wrangler leaves running after a successful deploy is killed", async () => {
     const straggler = marker("straggler");
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STRAGGLER: straggler } });
@@ -155,7 +156,7 @@ describe("every normal exit reaps the command's process group", () => {
   });
 });
 
-describe("the build run stays open until the Build is over", () => {
+describe("the build run stays open until the Build is over", { timeout: 60_000 }, () => {
   it("is still in flight, with the claude spend already recorded, while wrangler deploys; then closed as the Proposal turns built", async () => {
     const dir = tempDir("argus-wr-");
     const started = join(dir, "started");
@@ -271,7 +272,7 @@ describe("the build run stays open until the Build is over", () => {
   });
 });
 
-describe("a Worker name already taken in the Cloudflare account is never overwritten", () => {
+describe("a Worker name already taken in the Cloudflare account is never overwritten", { timeout: 60_000 }, () => {
   it("fails the Build before anything is created or spent when the name is taken", async () => {
     const h = makeHarness({ workers: ["cat-coin"] });
     const r = await build(h);

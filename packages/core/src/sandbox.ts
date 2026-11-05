@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { statSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { BUILD_NETWORK, imageReady } from "./build-image.ts";
@@ -149,11 +149,62 @@ export function containerEnv(role: ContainerRole, binDir?: string): Array<[strin
   }
 }
 
+/** Field 3 (state) and field 22 (start time in ticks since boot) of /proc/<pid>/stat, or undefined when the process is gone or there is no /proc. */
+function readProcStat(pid: number): { state: string; ticks: number } | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // after "pid (comm) ": state is fields[0], starttime fields[19]
+    const ticks = Number(fields[19]);
+    return Number.isFinite(ticks) ? { state: fields[0]!, ticks } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Names a worker process: its pid and start time, so a reused pid is not mistaken for it. Labels on its containers and its seal directories carry it. */
+export function ownerToken(pid = process.pid): string {
+  return `${pid}.${readProcStat(pid)?.ticks ?? 0}`;
+}
+
+/**
+ * Is the process an owner token names still running? A token is read as data (it comes from a label or a directory name): anything
+ * that is not `<pid>.<ticks>` is not an owner, and so never proves anything alive. Where /proc is missing (not Linux) a token
+ * with no start time falls back to signalling the pid.
+ */
+export function ownerAlive(token: string): boolean {
+  const m = /^([1-9][0-9]{0,9})\.([0-9]{1,15})$/.exec(token);
+  if (!m) return false;
+  const pid = Number(m[1]);
+  const ticks = Number(m[2]);
+  const now = readProcStat(pid);
+  if (now) return now.state !== "Z" && now.ticks === ticks;
+  if (ticks !== 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Identifies a data directory in labels: containers of another checkout or data dir carry another id and are never touched. */
+export function dataIdFor(dataDir: string): string {
+  return createHash("sha256").update(resolve(dataDir)).digest("hex").slice(0, 12);
+}
+
+/** Who a container belongs to, as labels: the data dir it serves and the worker process that started it. */
+export interface Ownership {
+  dataId: string;
+  owner: string;
+}
+const ownershipLabels = (o: Ownership): string[] => ["--label", `argus.data=${o.dataId}`, "--label", `argus.owner=${o.owner}`];
+
 export interface RunSpec {
   job: SandboxJob;
   name: string;
   image: string;
   caps: SandboxCaps;
+  ownership: Ownership;
 }
 
 /**
@@ -162,14 +213,14 @@ export interface RunSpec {
  * copy of the output, an init, a PID limit and memory and CPU caps, the conmon timeout, the internal network (none at all for the
  * bundle), exactly the mounts the job names plus the home, and only the env of `containerEnv(role)`.
  */
-export function buildPodmanRunArgs({ job, name, image, caps }: RunSpec): string[] {
+export function buildPodmanRunArgs({ job, name, image, caps, ownership }: RunSpec): string[] {
   const { role } = job;
   if (!NAME_RE.test(name)) throw new Error(`bad container name ${JSON.stringify(name)}`);
   if (!Number.isInteger(job.buildId) || job.buildId < 0) throw new Error("bad build id");
   const mounts = job.mounts.map(checkMountPath);
   const flags = [
     "run", "--rm", "--name", name,
-    "--label", `${BUILD_LABEL}=${job.buildId}`, "--label", `argus.role=${role}`,
+    "--label", `${BUILD_LABEL}=${job.buildId}`, "--label", `argus.role=${role}`, ...ownershipLabels(ownership),
     "--pull=never", "--init", "--log-driver=none",
     "--userns=keep-id", "--cap-drop=all", "--security-opt", "no-new-privileges",
     "--read-only", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${caps.tmpGiB}g`,
@@ -184,11 +235,11 @@ export function buildPodmanRunArgs({ job, name, image, caps }: RunSpec): string[
 }
 
 /** The egress sidecar's `podman run` argv: dual-homed (the internal network at its fixed address, and the default network for the way out). */
-export function egressRunArgs({ name, buildId, image }: { name: string; buildId: number; image: string }): string[] {
+export function egressRunArgs({ name, buildId, image, ownership }: { name: string; buildId: number; image: string; ownership: Ownership }): string[] {
   if (!NAME_RE.test(name)) throw new Error(`bad container name ${JSON.stringify(name)}`);
   return [
     "run", "-d", "--rm", "--name", name,
-    "--label", `${BUILD_LABEL}=${buildId}`, "--label", "argus.role=egress",
+    "--label", `${BUILD_LABEL}=${buildId}`, "--label", "argus.role=egress", ...ownershipLabels(ownership),
     "--pull=never", "--userns=keep-id", "--cap-drop=all", "--security-opt", "no-new-privileges", "--read-only",
     "--pids-limit=256", "--memory=256m", "--cpus=1",
     "--network", `${BUILD_NETWORK.name}:ip=${EGRESS_ADDRESS}`, "--network", EGRESS_NETWORK_UPSTREAM,
@@ -225,6 +276,10 @@ export interface PodmanSandboxOptions {
   image: string;
   podmanBin?: string;
   tokenPath: string;
+  /** The data dir this worker serves. Its id labels every container, and reconcile touches only containers with the same id. */
+  dataDir: string;
+  /** Who this worker is, for the labels; default `ownerToken()` of this process. Tests inject others to play a dead or a live neighbour. */
+  owner?: string;
   /** Where PATH, HOME and XDG_RUNTIME_DIR for the podman client come from. Default `process.env`. */
   env?: NodeJS.ProcessEnv;
   /** Extra variable names the podman client may inherit (tests point the fake with these). */
@@ -250,8 +305,10 @@ export class PodmanSandbox implements SandboxRunner {
   private readonly podmanBin: string;
   private readonly opts: PodmanSandboxOptions;
   private readonly caps: SandboxCaps;
+  private readonly ownership: Ownership;
 
   constructor(opts: PodmanSandboxOptions) {
+    this.ownership = { dataId: dataIdFor(opts.dataDir), owner: opts.owner ?? ownerToken() };
     if (opts.image.endsWith(":latest") || !/^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+$/.test(opts.image)) throw new Error(`the Build image must be a pinned tag, got ${JSON.stringify(opts.image)}`);
     this.image = opts.image;
     this.opts = opts;
@@ -305,9 +362,13 @@ export class PodmanSandbox implements SandboxRunner {
     }
     const removed: string[] = [];
     for (const row of rows) {
-      // The filter is podman's; only a container that carries our label and has one of our names is ever touched.
+      // The filter is podman's; a container is touched only if it carries our label and one of our names, belongs to this data
+      // dir, and its owning worker is provably gone. A container with no owner, a garbled one, or a live one (the daemon beside
+      // a `--once` run, or the other way round) is left alone; so is every container of another data dir or checkout.
       const name = Array.isArray(row.Names) ? row.Names[0] : row.Names;
       if (typeof name !== "string" || !NAME_RE.test(name) || !row.Labels || !(BUILD_LABEL in row.Labels)) continue;
+      const { "argus.data": data, "argus.owner": owner } = row.Labels;
+      if (data !== this.ownership.dataId || typeof owner !== "string" || !/^[1-9][0-9]{0,9}\.[0-9]{1,15}$/.test(owner) || ownerAlive(owner)) continue;
       await this.endContainer(name);
       removed.push(name);
       log(`[worker] removed leftover Build container ${name}`);
@@ -333,8 +394,8 @@ export class PodmanSandbox implements SandboxRunner {
     const egress = `argus-egress-${job.buildId}-${nonce}`;
     const line = (args: string[]) => `${this.podmanBin} ${show(args)}`.replaceAll(nonce, "<nonce>");
     const lines: string[] = [];
-    if (ROLE_HAS_NETWORK[job.role]) lines.push(line(egressRunArgs({ name: egress, buildId: job.buildId, image: this.image })));
-    lines.push(line(buildPodmanRunArgs({ job, name: container, image: this.image, caps: this.caps })));
+    if (ROLE_HAS_NETWORK[job.role]) lines.push(line(egressRunArgs({ name: egress, buildId: job.buildId, image: this.image, ownership: this.ownership })));
+    lines.push(line(buildPodmanRunArgs({ job, name: container, image: this.image, caps: this.caps, ownership: this.ownership })));
     const stopSec = this.opts.stopTimeoutSec ?? 5;
     const ends = [container, ...(ROLE_HAS_NETWORK[job.role] ? [egress] : [])];
     for (const n of ends) lines.push(line(["stop", "--ignore", "-t", String(stopSec), n]), line(["rm", "-f", "--ignore", n]));
@@ -344,12 +405,23 @@ export class PodmanSandbox implements SandboxRunner {
   async launch(job: SandboxJob): Promise<SandboxRun> {
     const names = this.names(job);
     const started: string[] = []; // in start order; ended in reverse
-    let ended: Promise<void> | undefined;
+    let ending: Promise<void> | undefined;
+    let denialsNoted = false;
+    // Calls made while an end is under way share it; a call after it has finished ends everything again. That matters: a stop that
+    // came before `podman run` had created the container ended nothing, and the caller's last stop, once the podman client has
+    // exited, must not be answered from memory.
     const stop = () =>
-      (ended ??= (async () => {
-        for (const name of [...started].reverse()) {
-          if (name === names.egress) await this.noteDenials(name, job);
-          await this.endContainer(name);
+      (ending ??= (async () => {
+        try {
+          for (const name of [...started].reverse()) {
+            if (name === names.egress && !denialsNoted) {
+              denialsNoted = true;
+              await this.noteDenials(name, job);
+            }
+            await this.endContainer(name);
+          }
+        } finally {
+          ending = undefined;
         }
       })());
     try {
@@ -364,7 +436,7 @@ export class PodmanSandbox implements SandboxRunner {
       started.push(names.container);
       return {
         command: this.podmanBin,
-        args: buildPodmanRunArgs({ job, name: names.container, image: this.image, caps: this.caps }),
+        args: buildPodmanRunArgs({ job, name: names.container, image: this.image, caps: this.caps, ownership: this.ownership }),
         env: this.clientEnv(extra),
         stop,
       };
@@ -375,7 +447,7 @@ export class PodmanSandbox implements SandboxRunner {
   }
 
   private async startEgress(name: string, job: SandboxJob): Promise<void> {
-    const r = await this.podman(egressRunArgs({ name, buildId: job.buildId, image: this.image }), 60_000);
+    const r = await this.podman(egressRunArgs({ name, buildId: job.buildId, image: this.image, ownership: this.ownership }), 60_000);
     if (r.code !== 0) throw new Error(`the egress proxy sidecar could not be started: ${r.stderr.trim().slice(0, 200)}`);
     const deadline = Date.now() + (this.opts.egressWaitMs ?? 20_000);
     for (;;) {
