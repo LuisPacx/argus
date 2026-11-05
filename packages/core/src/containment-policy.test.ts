@@ -68,6 +68,41 @@ describe("checkDryRunOutput", () => {
     }
   });
 
+  it.each(["/tmp", "/var/tmp", "/run"])("fails when the agent container's %s tmpfs loses noexec, nosuid or nodev, or goes missing", (dir) => {
+    const opts = { operatorHome: HOME };
+    for (const opt of ["noexec", "nosuid", "nodev"]) {
+      const problems = checkDryRunOutput(edit("argus-build", (l) => l.replace(new RegExp(`(--tmpfs ${dir}:[^ ]*?),?${opt}`), "$1")), opts);
+      expect(problems.join(), `${dir} without ${opt}`).toContain(`--tmpfs ${dir} with ${opt}`);
+    }
+    const missing = checkDryRunOutput(edit("argus-install", (l) => l.replace(new RegExp(`--tmpfs ${dir}:\\S+ `), "")), opts);
+    expect(missing.join()).toContain(`--tmpfs ${dir} with noexec`);
+  });
+
+  it("fails on a tmpfs that is not one of the three, or a repeated one", () => {
+    const opts = { operatorHome: HOME };
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", "podman run --tmpfs /opt:rw,noexec,nosuid,nodev,size=1g")), opts).join()).toContain("unexpected --tmpfs /opt");
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", "podman run --tmpfs /var/tmp:rw,exec,size=1g")), opts).join()).toMatch(/unexpected --tmpfs \/var\/tmp:rw,exec/);
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", "podman run --tmpfs /run:rw,noexec,nosuid,nodev,size=1g")), opts).join()).toContain("repeated --tmpfs /run");
+  });
+
+  it("sees through `..` segments: a source that resolves to the home, its parent or the root is exposure", () => {
+    for (const source of ["/home/operator/x/..", "/home/operator/x/../..", "/work/../home/operator", "/work/../../", "/home/operator/./", "/home//operator"]) {
+      const problems = checkDryRunOutput(edit("argus-build", (l) => l.replace("-v /work/repo:", `-v ${source}:`)), { operatorHome: HOME });
+      expect(problems.join(), source).toContain("exposes the Operator's home");
+    }
+    // The home given with `..` in it is the same home.
+    const viaDots = checkDryRunOutput(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /home:")), { operatorHome: "/srv/../home/operator" });
+    expect(viaDots.join()).toContain("exposes the Operator's home");
+  });
+
+  it("does not take a `..` source for being under a mount root or clear of the system paths", () => {
+    const roots = { mountRoots: ["/work"] };
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /work/../srv/loot:")), { operatorHome: HOME, ...roots }).join()).toMatch(/mount source \/work\/\.\.\/srv\/loot is outside/);
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /work/repo/../../etc/ssh:")), { operatorHome: HOME, ...roots }).join()).toContain("system path");
+    // Staying under the root through a `..` that cancels out is fine.
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /work/x/../repo:")), { operatorHome: HOME, ...roots }).join()).not.toMatch(/outside/);
+  });
+
   it("fails on a system mount, a secret env name and a token with a value", () => {
     expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", "podman run -v /run/user/1000/podman/podman.sock:/s:Z")), { operatorHome: HOME }).join()).toContain("system path");
     expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", "podman run --env GH_TOKEN")), { operatorHome: HOME }).join()).toContain("GH_TOKEN");
@@ -163,8 +198,8 @@ const GOOD: ProbeReport = {
   envNames: ["HOME", "PATH", "HTTPS_PROXY", "CLAUDE_CODE_OAUTH_TOKEN", "HOSTNAME", "container"],
   paths: { "/home/operator/.config": false, "/home/operator/code/argus-build-template": false },
   writes: { "/work/repo": true, "/work/home": true, "/": false, "/usr": false, "/etc": false, "/tmp/x": true, "/work": false },
-  tmpExec: false,
-  mounts: { "/": "ro,relatime", "/tmp": "rw,nosuid,nodev,noexec", "/work/repo": "rw", "/home/agent": "rw", "/proc": "rw", "/dev/shm": "rw", "/etc/hosts": "ro", "/run/.containerenv": "ro", "/run/podman-init": "ro", "/var/tmp": "rw" },
+  execFrom: { "/tmp": { copied: true, ran: false }, "/var/tmp": { copied: true, ran: false }, "/run": { copied: true, ran: false } },
+  mounts: { "/": "ro,relatime", "/tmp": "rw,nosuid,nodev,noexec", "/var/tmp": "rw,nosuid,nodev,noexec", "/run": "rw,nosuid,nodev,noexec", "/work/repo": "rw", "/home/agent": "rw", "/proc": "rw", "/dev/shm": "rw", "/etc/hosts": "ro", "/run/.containerenv": "ro", "/run/podman-init": "ro" },
   cgroup: { memoryMax: String(8 * 2 ** 30), pidsMax: "1024", cpuMax: "400000 100000" },
   direct: { "1.1.1.1:443": false, "example.com (dns)": false },
   proxy: { "api.anthropic.com:443": "HTTP/1.1 200 Connection Established", "registry.npmjs.org:443": "HTTP/1.1 200 OK", "example.com:443": "HTTP/1.1 403 Forbidden", "GET http://api.anthropic.com/": "closed" },
@@ -178,6 +213,11 @@ describe("judgeProbe", () => {
     expect(failing(GOOD)).toEqual([]);
     expect(checks.every((c) => c.finding === "HIGH2" || c.finding === "MED4")).toBe(true);
     expect(checks.some((c) => c.finding === "MED4")).toBe(true);
+  });
+
+  it("accepts a directory nothing can write to as having nothing to run (the engine's root-owned /run), but only on the write probe's word", () => {
+    const unwritable: ProbeReport = { ...GOOD, writes: { ...GOOD.writes, "/run": false }, execFrom: { ...GOOD.execFrom, "/run": { copied: false, ran: false } } };
+    expect(failing(unwritable)).toEqual([]);
   });
 
   it.each<[string, Partial<ProbeReport>, RegExp]>([
@@ -195,7 +235,18 @@ describe("judgeProbe", () => {
     ["an inheritable capability", { capInh: "0000000000000001" }, /unprivileged/],
     ["a write outside", { writes: { ...GOOD.writes, "/usr": true } }, /writes outside/],
     ["root is writable", { mounts: { ...GOOD.mounts, "/": "rw" } }, /writes outside/],
-    ["exec from /tmp", { tmpExec: true }, /noexec/],
+    ["a binary ran from /tmp", { execFrom: { ...GOOD.execFrom, "/tmp": { copied: true, ran: true } } }, /noexec/],
+    ["a binary ran from /var/tmp", { execFrom: { ...GOOD.execFrom, "/var/tmp": { copied: true, ran: true } } }, /noexec/],
+    ["a binary ran from /run", { execFrom: { ...GOOD.execFrom, "/run": { copied: true, ran: true } } }, /noexec/],
+    ["the exec probe could not place a binary in /run (a vacuous pass)", { execFrom: { ...GOOD.execFrom, "/run": { copied: false, ran: false } } }, /noexec/],
+    ["the exec probe could not place a binary in /var/tmp although the write probe says it is writable", { writes: { ...GOOD.writes, "/var/tmp": true }, execFrom: { ...GOOD.execFrom, "/var/tmp": { copied: false, ran: false } } }, /noexec/],
+    ["a directory was not probed for exec", { execFrom: { "/tmp": { copied: true, ran: false } } }, /noexec/],
+    ["/tmp is mounted without noexec", { mounts: { ...GOOD.mounts, "/tmp": "rw,nosuid,nodev" } }, /noexec/],
+    ["/var/tmp is mounted without noexec", { mounts: { ...GOOD.mounts, "/var/tmp": "rw,nosuid,nodev" } }, /noexec/],
+    ["/run is mounted without noexec", { mounts: { ...GOOD.mounts, "/run": "rw,nosuid,nodev" } }, /noexec/],
+    ["/var/tmp is mounted without nosuid", { mounts: { ...GOOD.mounts, "/var/tmp": "rw,nodev,noexec" } }, /noexec/],
+    ["/run is mounted without nodev", { mounts: { ...GOOD.mounts, "/run": "rw,nosuid,noexec" } }, /noexec/],
+    ["/var/tmp is not a mount at all", { mounts: Object.fromEntries(Object.entries(GOOD.mounts).filter(([k]) => k !== "/var/tmp")) }, /noexec/],
     ["a direct connection", { direct: { "1.1.1.1:443": true } }, /no direct network/],
     ["the proxy allows another host", { proxy: { ...GOOD.proxy, "github.com:443": "HTTP/1.1 200 OK" } }, /proxy tunnels/],
     ["the proxy refuses the npm registry", { proxy: { ...GOOD.proxy, "registry.npmjs.org:443": "HTTP/1.1 403 Forbidden" } }, /proxy tunnels/],

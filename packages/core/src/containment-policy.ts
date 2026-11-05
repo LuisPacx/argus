@@ -1,5 +1,5 @@
-import { isAbsolute } from "node:path";
-import { containerEnv } from "./sandbox.ts";
+import { isAbsolute, posix } from "node:path";
+import { TMPFS_DIRS, containerEnv } from "./sandbox.ts";
 
 /**
  * The pure halves of the two containment checks (`pnpm verify:boot` reads the dry run, `pnpm verify:contain` runs the real
@@ -25,9 +25,14 @@ const ROLE_NAME = /^argus-(build|install|bundle|egress)-\d+-/;
 
 /** A mount source that is, or contains, the Operator's home would hand the agent the credentials the container exists to hide. */
 function exposesHome(source: string, home: string): boolean {
-  const h = home.replace(/\/+$/, "");
-  const s = source.replace(/\/+$/, "") || "/";
+  const h = resolveAbs(home);
+  const s = resolveAbs(source);
   return s === "/" || s === h || h.startsWith(`${s}/`);
+}
+
+/** An absolute path with `.`, `..` and repeated slashes folded away, the way the kernel will read it. A relative path is returned as is (callers refuse those first). */
+function resolveAbs(p: string): string {
+  return isAbsolute(p) ? posix.normalize(p).replace(/(.)\/+$/, "$1") : p;
 }
 
 export interface PolicyOptions {
@@ -64,7 +69,11 @@ const VALUE_FLAGS = new Set(["--name", "--label", "--security-opt", "--tmpfs", "
 /** Flags that take a value we refuse outright; named so the message says what was tried. */
 const REFUSED_WITH_VALUE = new Set(["--user", "-u", "--env-file", "--add-host", "--cgroupns", "--cap-add", "--device", "--volume", "--mount", "--secret", "--volumes-from", "--pid", "--ipc", "--uts", "--hostname", "--dns", "--entrypoint"]);
 const LABEL_KEYS: Record<string, RegExp> = { "argus.build": /^[0-9]+$/, "argus.role": /^(agent|install|bundle|egress)$/, "argus.owner": /^[0-9]+\.[0-9]+$/, "argus.data": /^[0-9a-f]{12}$/ };
-const pathUnder = (p: string, root: string) => p === root || p.startsWith(`${root.replace(/\/$/, "")}/`);
+const pathUnder = (p: string, root: string) => {
+  if (!isAbsolute(p) || !isAbsolute(root)) return false;
+  const [a, r] = [resolveAbs(p), resolveAbs(root)];
+  return a === r || a.startsWith(`${r === "/" ? "" : r}/`);
+};
 
 /**
  * The strict half of the policy: every flag of the `podman run` must be on the list for its role, with a valid value; the mounts,
@@ -75,6 +84,7 @@ function checkAllowlist(t: readonly string[], role: string, o: PolicyOptions): s
   const bad = (m: string) => problems.push(`${role}: ${m}`);
   const start = t.indexOf("run") + 1;
   const mounts: Array<{ src: string; dest: string }> = [];
+  const tmpfsSeen = new Set<string>();
   let cwd: string | undefined;
   let i = start;
   for (; i < t.length; i++) {
@@ -95,7 +105,10 @@ function checkAllowlist(t: readonly string[], role: string, o: PolicyOptions): s
       } else if (a === "--security-opt") {
         if (v !== "no-new-privileges") bad(`forbidden --security-opt ${v}`);
       } else if (a === "--tmpfs") {
-        if (role === "egress" || !/^\/tmp:rw,noexec,nosuid,nodev,size=[0-9]+g$/.test(v)) bad(`unexpected --tmpfs ${v}`);
+        const dir = v.split(":")[0] ?? "";
+        if (role === "egress" || !(TMPFS_DIRS as readonly string[]).includes(dir) || !new RegExp(`^${dir}:rw,noexec,nosuid,nodev,size=[0-9]+[gm]$`).test(v)) bad(`unexpected --tmpfs ${v}`);
+        else if (tmpfsSeen.has(dir)) bad(`repeated --tmpfs ${dir}`);
+        tmpfsSeen.add(dir);
       } else if (a === "--network") {
         const ok = role === "bundle" ? v === "none" : role === "egress" ? v === "podman" || /^argus-build-net:ip=[0-9.]+$/.test(v) : v === "argus-build-net";
         if (!ok) bad(`unexpected --network ${v}`);
@@ -158,7 +171,10 @@ export function checkRunTokens(t: readonly string[], o: PolicyOptions): string[]
     need(t.includes("--init"), "--init");
     need(t.includes("--log-driver=none"), "--log-driver=none");
     for (const p of ["--pids-limit=", "--memory=", "--cpus=", "--timeout="]) need(t.some((a) => a.startsWith(p)), `${p}N`);
-    need(values(t, "--tmpfs").some((v) => v.startsWith("/tmp:") && v.split(":")[1]!.split(",").includes("noexec")), "--tmpfs /tmp with noexec");
+    for (const dir of TMPFS_DIRS) {
+      const opts = values(t, "--tmpfs").find((v) => v.startsWith(`${dir}:`))?.split(":")[1]?.split(",") ?? [];
+      for (const opt of ["noexec", "nosuid", "nodev"]) need(opts.includes(opt), `--tmpfs ${dir} with ${opt}`);
+    }
     const want = role === "bundle" ? "none" : "argus-build-net";
     need(networks.length === 1 && networks[0] === want, `--network ${want} (and no other)`);
     need(values(t, "-v").some((v) => v.includes(":/home/agent:")), "the per-Build home at /home/agent");
@@ -172,7 +188,7 @@ export function checkRunTokens(t: readonly string[], o: PolicyOptions): string[]
     const [source = "", dest = ""] = v.split(":");
     if (!isAbsolute(source)) problems.push(`${role}: mount source ${JSON.stringify(source)} is not an absolute host path`);
     else if (exposesHome(source, o.operatorHome)) problems.push(`${role}: mount source ${source} exposes the Operator's home ${o.operatorHome}`);
-    if (/docker\.sock|podman\.sock|^\/(proc|sys|dev|etc|run|root|boot|usr|bin|sbin|lib\w*)(\/|$)|^\/var\/(run|lib|log)(\/|$)/.test(source)) problems.push(`${role}: mount source ${source} is a system path`);
+    if (/docker\.sock|podman\.sock|^\/(proc|sys|dev|etc|run|root|boot|usr|bin|sbin|lib\w*)(\/|$)|^\/var\/(run|lib|log)(\/|$)/.test(resolveAbs(source))) problems.push(`${role}: mount source ${source} is a system path`);
     if (dest.startsWith("/proc") || dest.startsWith("/sys")) problems.push(`${role}: mount destination ${dest}`);
   }
   for (const e of values(t, "--env")) {
@@ -228,8 +244,8 @@ export interface ProbeReport {
   paths: Record<string, boolean>;
   /** path -> true when a write there succeeded */
   writes: Record<string, boolean>;
-  /** true when a file copied to /tmp could be executed */
-  tmpExec: boolean;
+  /** dir -> whether a copy of a real binary could be placed there, and whether running it worked (it must not) */
+  execFrom: Record<string, { copied: boolean; ran: boolean }>;
   /** mount point -> mount options */
   mounts: Record<string, string>;
   cgroup: { memoryMax?: string; pidsMax?: string; cpuMax?: string };
@@ -295,12 +311,21 @@ export function judgeProbe(r: ProbeReport, e: ProbeExpect): Check[] {
     ...(r.noNewPrivs === "1" ? [] : [`NoNewPrivs ${r.noNewPrivs}`]),
   ], `uid ${r.uid}, CapEff/CapPrm/CapInh/CapBnd all 0, NoNewPrivs 1`);
   add("HIGH2", "writes outside the repo and home fail (read-only root)", [
-    ...Object.entries(r.writes).filter(([k, v]) => v && k !== e.repo && k !== e.home && k !== "/tmp" && !k.startsWith("/tmp/")).map(([k]) => `write to ${k} succeeded`),
+    ...Object.entries(r.writes).filter(([k, v]) => v && k !== e.repo && k !== e.home && !TMPFS_DIRS.some((d) => k === d || k.startsWith(`${d}/`))).map(([k]) => `write to ${k} succeeded`),
     ...(r.writes[e.repo] ? [] : ["the repo is not writable"]),
     ...(r.writes[e.home] ? [] : ["the home is not writable"]),
     ...(r.mounts["/"]?.split(",").includes("ro") ? [] : ["root is not read-only"]),
-  ], "only the repo, home and /tmp take writes");
-  add("HIGH2", "nothing runs from /tmp (noexec)", [...(r.tmpExec ? ["a binary copied to /tmp ran"] : []), ...(r.mounts["/tmp"]?.split(",").includes("noexec") ? [] : ["/tmp is not mounted noexec"])], "exec from /tmp refused");
+  ], "only the repo, home and the tmpfs dirs take writes");
+  add("HIGH2", "nothing runs from /tmp, /var/tmp or /run (noexec, nosuid, nodev)", TMPFS_DIRS.flatMap((d) => {
+    const opts = r.mounts[d]?.split(",");
+    const probe = r.execFrom?.[d];
+    return [
+      ...(opts ? ["noexec", "nosuid", "nodev"].filter((o) => !opts.includes(o)).map((o) => `${d} is not mounted ${o}`) : [`${d} is not a mount of its own`]),
+      // Nothing could be copied in: that proves nothing about exec unless the independent write probe shows the directory is not writable
+      // for this uid at all (the engine's /run tmpfs is root-owned 0755), in which case there is nothing to run from it.
+      ...(!probe ? [`${d} was not probed for exec`] : !probe.copied ? (r.writes[d] === false ? [] : [`${d}: no binary could be placed there, so the exec test proves nothing`]) : probe.ran ? [`a binary copied to ${d} ran`] : []),
+    ];
+  }), "the exec probe was refused where a binary could be placed, the rest is not writable, and each is mounted noexec,nosuid,nodev");
   add("HIGH2", "no direct network egress (IP and name, ignoring the proxy)", Object.entries(r.direct).filter(([, v]) => v).map(([k]) => `direct connection to ${k} succeeded`), `${Object.keys(r.direct).length} targets unreachable`);
   const status = (k: string) => r.proxy[k] ?? "missing";
   const tunnelled = (k: string) => /^HTTP\/1\.[01] 200/.test(status(k));

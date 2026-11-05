@@ -9,7 +9,7 @@
 //
 // What each check shows (reviewer 07 findings, containment design section 3):
 //   HIGH2 credentials readable ........ "host credentials ... not reachable", "no secrets in the environment"
-//   HIGH2 writes outside the repo ..... "writes outside the repo and home fail", "nothing runs from /tmp", "only the repo and home are host mounts"
+//   HIGH2 writes outside the repo ..... "writes outside the repo and home fail", "nothing runs from /tmp, /var/tmp or /run" (a copied binary and script are refused), "only the repo and home are host mounts"
 //   HIGH2 arbitrary code (pnpm/tests) . "unprivileged", "resource caps", "pnpm install of the template lockfile ... through the proxy", argv policy
 //   HIGH2 exfiltration ................ "no direct network egress", "the proxy tunnels only the allowlisted hosts", "bundle has no network", "refusals reach the Build log"
 //   MED4 grandchildren survive ........ "stop ends the container and every grandchild", "--timeout ends an abandoned container"
@@ -19,8 +19,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLAUDE_CODE_VERSION, BUILD_NETWORK, EGRESS_ADDRESS, EGRESS_PORT, EGRESS_ALLOW, PodmanSandbox, DEFAULT_CAPS, containerEnv, currentImageTag, imageReady, ownerState } from '../packages/core/src/index.ts';
+import { CLAUDE_CODE_VERSION, BUILD_NETWORK, EGRESS_ADDRESS, EGRESS_PORT, EGRESS_ALLOW, PodmanSandbox, DEFAULT_CAPS, TMPFS_DIRS, containerEnv, currentImageTag, imageReady, ownerState, ownerToken } from '../packages/core/src/index.ts';
 import { checkRunTokens, judgeProbe } from '../packages/core/src/containment-policy.ts';
+import { Teardown, scratchPrefixFor, sweepStaleScratch } from '../packages/core/src/containment-verify.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const podman = process.env.ARGUS_PODMAN_BIN || 'podman';
@@ -48,7 +49,11 @@ function report(finding, name, ok, detail) {
 }
 
 // ---- scratch space on the home disk (never /tmp), and the sandbox under test ----
-const scratch = fs.mkdtempSync(path.join(os.homedir(), '.cache', 'argus-verify-contain-'));
+// The directory name carries this process's owner token, so a later run can tell a dead run's leftovers from a live neighbour's.
+const cacheDir = path.join(os.homedir(), '.cache');
+fs.mkdirSync(cacheDir, { recursive: true });
+sweepStaleScratch(cacheDir, { log: (l) => console.log(l) }); // dirs of runs that were SIGKILLed; "unknown" owners are left alone
+const scratch = fs.mkdtempSync(path.join(cacheDir, scratchPrefixFor(ownerToken())));
 const repo = path.join(scratch, 'repo');
 const homeDir = path.join(scratch, 'home');
 const installDir = path.join(scratch, 'install');
@@ -63,7 +68,9 @@ const BUILD_ID = 900_000 + Math.floor(Math.random() * 99_999);
 const SENTINELS = { GH_TOKEN: 'verify-sentinel', ANTHROPIC_API_KEY: 'verify-sentinel', CLOUDFLARE_API_TOKEN: 'verify-sentinel', ARGUS_VERIFY_SENTINEL: '1' };
 const sandbox = new PodmanSandbox({ image, podmanBin: podman, tokenPath, dataDir: scratch, env: { ...process.env, ...SENTINELS } });
 
-const runs = []; // every SandboxRun launched, for the final stop
+// One cleanup, shared by the signal handlers and the final block; once it has started nothing launches another container.
+let leftovers = [];
+const teardown = new Teardown(finishCleanup);
 const children = []; // every podman client spawned
 const seenIds = new Set();
 const snapshotIds = () => {
@@ -74,8 +81,7 @@ const job = (role, over) => ({ role, buildId: BUILD_ID, cwd: repo, mounts: [repo
 
 /** Launches `job` through the real sandbox, replaces the command after the image with `cmd`, and spawns the podman client. */
 async function start(j, cmd, { detach = false, timeoutSec } = {}) {
-  const run = await sandbox.launch(j);
-  runs.push(run);
+  const run = await teardown.launch(() => sandbox.launch(j));
   let args = run.args.slice(0, run.args.indexOf(image) + 1);
   if (timeoutSec !== undefined) args = args.map((a) => (a.startsWith('--timeout=') ? `--timeout=${timeoutSec}` : a));
   if (detach) args.splice(1, 0, '-d');
@@ -127,7 +133,12 @@ const st=fs.readFileSync('/proc/self/status','utf8');
 for(const f of ['CapEff','CapBnd','CapPrm','CapInh'])R['cap'+f.slice(3)]=new RegExp(f+':\\\\s*(\\\\S+)').exec(st)[1];R.noNewPrivs=/NoNewPrivs:\\s*(\\S+)/.exec(st)[1];
 for(const p of CFG.hostPaths)R.paths[p]=fs.existsSync(p);
 for(const d of CFG.writeDirs){try{const f=d.replace(/\\/$/,'')+'/.verify-contain-probe';fs.writeFileSync(f,'x');fs.unlinkSync(f);R.writes[d]=true}catch{R.writes[d]=false}}
-try{fs.copyFileSync('/bin/true','/tmp/t');fs.chmodSync('/tmp/t',0o755);cp.execFileSync('/tmp/t');R.tmpExec=true}catch{R.tmpExec=false}
+R.execFrom={};
+for(const d of CFG.execDirs){const o={copied:false,ran:false};
+ for(const kind of ['binary','script']){const f=d+'/.verify-contain-exec-'+kind;
+  try{if(kind==='binary')fs.copyFileSync('/bin/true',f);else fs.writeFileSync(f,'#!/bin/sh\\nexit 0\\n');fs.chmodSync(f,0o755);o.copied=true;cp.execFileSync(f);o.ran=true}catch{}
+  try{fs.unlinkSync(f)}catch{}}
+ R.execFrom[d]=o}
 for(const l of fs.readFileSync('/proc/self/mountinfo','utf8').split('\\n')){const f=l.split(' ');if(f.length>5)R.mounts[f[4]]=f[5]}
 for(const [k,f] of [['memoryMax','memory.max'],['pidsMax','pids.max'],['cpuMax','cpu.max']]){try{R.cgroup[k]=fs.readFileSync('/sys/fs/cgroup/'+f,'utf8').trim()}catch{}}
 for(const t of ['gh','ssh','curl','wget','wrangler','git','node','pnpm','claude'])R.tools[t]=process.env.PATH.split(':').some((d)=>fs.existsSync(d+'/'+t));
@@ -154,7 +165,8 @@ async function agentChecks() {
     '-e',
     probeScript({
       hostPaths,
-      writeDirs: ['/', '/usr', '/etc', '/opt', '/var', '/home', '/home/node', path.dirname(repo), repo, '/home/agent', '/tmp'],
+      writeDirs: ['/', '/usr', '/etc', '/opt', '/var', '/home', '/home/node', path.dirname(repo), repo, '/home/agent', ...TMPFS_DIRS],
+      execDirs: [...TMPFS_DIRS],
       directTargets: ['1.1.1.1:443', '8.8.8.8:53', '192.168.1.1:80', `${BUILD_NETWORK.gateway}:22`, '169.254.169.254:80'],
       connectTargets,
       proxyHost: EGRESS_ADDRESS,
@@ -196,8 +208,7 @@ async function installCheck() {
   for (const f of files) fs.copyFileSync(path.join(template, f), path.join(installDir, f));
   // The role's own command (`pnpm install --frozen-lockfile`), unchanged: that is the thing under test.
   const j = job('install', { cwd: installDir, mounts: [installDir], home: installHome, timeoutMs: 8 * 60_000 });
-  const run = await sandbox.launch(j);
-  runs.push(run);
+  const run = await teardown.launch(() => sandbox.launch(j));
   const child = spawn(run.command, run.args, { env: run.env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   let stderr = '';
@@ -278,19 +289,11 @@ async function guarded(name, finding, fn) {
   }
 }
 
-let leftovers = [];
-let cleaned = false;
-/** Stops what this run started, removes by ID whatever its label still finds, and deletes the scratch dir. Safe to call twice. */
-async function cleanup() {
-  if (cleaned) return;
-  cleaned = true;
-  for (const run of runs) {
-    try {
-      await run.stop();
-    } catch {
-      // Reported below if anything is left.
-    }
-  }
+/**
+ * The cleanup after every launched run was stopped (`Teardown.stop()` does that part): kill our podman clients, remove by ID whatever
+ * the label still finds, delete the scratch dir. Reached only through `teardown.stop()`, so it runs once and every caller awaits it.
+ */
+async function finishCleanup() {
   for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
   snapshotIds();
   leftovers = pm(['ps', '-a', '-q', '--no-trunc', '--filter', `label=argus.build=${BUILD_ID}`]).stdout.split('\n').filter(Boolean);
@@ -298,13 +301,16 @@ async function cleanup() {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-// An interrupted run must not strand the sidecar: it holds the fixed address every real Build needs.
+// An interrupted run must not strand the sidecar: it holds the fixed address every real Build needs. A second signal waits for
+// the cleanup already running (it never exits mid-cleanup), and no check can launch a container once the cleanup has started.
+let interrupted;
 for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
   process.on(sig, () => {
+    interrupted ??= code;
     console.log(`FAIL verify:contain interrupted by ${sig}; cleaning up`);
-    cleanup().then(
-      () => process.exit(code),
-      () => process.exit(code),
+    teardown.stop().then(
+      () => process.exit(interrupted),
+      () => process.exit(interrupted),
     );
   });
 }
@@ -335,8 +341,9 @@ try {
   await guarded('stop kills grandchildren', 'MED4', stopCheck);
   await guarded('--timeout backstop', 'MED4', timeoutCheck);
 } finally {
-  await cleanup();
+  await teardown.stop();
 }
+if (interrupted !== undefined) process.exit(interrupted);
 const stillThere = pm(['ps', '-a', '-q', '--no-trunc', '--filter', `label=argus.build=${BUILD_ID}`]).stdout.split('\n').filter(Boolean);
 report('HIGH2', 'every container this run started is gone', stillThere.length === 0 && leftovers.length === 0, `${seenIds.size} containers seen (${[...seenIds].map((i) => i.slice(0, 12)).join(', ')}); removed by cleanup: ${leftovers.length}; remaining: ${stillThere.length}`);
 

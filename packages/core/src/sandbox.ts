@@ -211,6 +211,14 @@ export interface Ownership {
 }
 const ownershipLabels = (o: Ownership): string[] => ["--label", `argus.data=${o.dataId}`, "--label", `argus.owner=${o.owner}`];
 
+/** Directories that are writable tmpfs in every Build container, and so must never allow execution. */
+export const TMPFS_DIRS = ["/tmp", "/var/tmp", "/run"] as const;
+/** The `--tmpfs` flags of a Build container. `--read-only` makes podman add its own tmpfs on /var/tmp and /run without `noexec`; naming them here replaces those. */
+function tmpfsFlags(caps: SandboxCaps): string[] {
+  const size: Record<(typeof TMPFS_DIRS)[number], string> = { "/tmp": `${caps.tmpGiB}g`, "/var/tmp": `${caps.tmpGiB}g`, "/run": "64m" };
+  return TMPFS_DIRS.flatMap((d) => ["--tmpfs", `${d}:rw,noexec,nosuid,nodev,size=${size[d]}`]);
+}
+
 export interface RunSpec {
   job: SandboxJob;
   name: string;
@@ -235,7 +243,7 @@ export function buildPodmanRunArgs({ job, name, image, caps, ownership }: RunSpe
     "--label", `${BUILD_LABEL}=${job.buildId}`, "--label", `argus.role=${role}`, ...ownershipLabels(ownership),
     "--pull=never", "--init", "--log-driver=none",
     "--userns=keep-id", "--cap-drop=all", "--security-opt", "no-new-privileges",
-    "--read-only", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${caps.tmpGiB}g`,
+    "--read-only", ...tmpfsFlags(caps),
     `--pids-limit=${caps.pids}`, `--memory=${caps.memoryGiB}g`, `--cpus=${caps.cpus}`,
     `--timeout=${Math.ceil(job.timeoutMs / 1000) + 60}`,
     "--network", ROLE_HAS_NETWORK[role] ? BUILD_NETWORK.name : "none",
