@@ -14,3 +14,4 @@
 - [ ] Missing podman or image refuses the Build and leaves the Proposal `approved` with a clear log line
 - [ ] Existing 07 runner tests pass against the fake podman unchanged in what they assert
 - [ ] `pnpm check` passes
+- [ ] The bundle step (`wrangler deploy --dry-run --outdir --metafile`) runs inside the Build container with no credentials; the host keeps the metafile-inside-export check and deploys the checked output with `--no-bundle` (design §13, npm dependencies); a test Build that imports an npm package bundles and passes the check

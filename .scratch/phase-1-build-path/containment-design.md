@@ -318,6 +318,7 @@ Hermetic by default (`pnpm check` must not need podman, per project convention o
 - Q1, Q2, Q3, Q5, Q7, Q9: accepted as recommended.
 - Q4 Token: a separate `claude setup-token` token for Builds only, rotated independently of the brain's token. The Operator mints it.
 - Q6 Resource caps: 8 GiB memory, 4 CPUs, 1024 pids, 2 GiB /tmp.
+- Npm dependencies (decided after ticket 07 round 3, commit 1fcdf6d): the deploy bundle step (`wrangler deploy --dry-run --outdir --metafile`) runs inside the Build container, where `node_modules` exists but no host files do. argus then checks the metafile on the host and uploads with `--no-bundle`. Until ticket 15 lands, Builds bundle from a clean `git archive` export on the host, so only Workers with no runtime npm dependencies can build.
 - Q8 Retention: keep the per-Build home for `build-failed`; delete it on `built` and `dismissed`.
 
 ## 14. Answers (ticket 12 spike, 2026-11-05)
