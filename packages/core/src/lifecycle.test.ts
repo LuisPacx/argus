@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { tempDir } from "./testing/temp.ts";
+import { FAKE_GH } from "./testing/fake-tools.ts";
 import { buildHomeFor, nextBuildable } from "./build-runner.ts";
 import { Datastore, type WarRoomStore } from "./datastore.ts";
 import {
@@ -11,6 +12,7 @@ import {
   approve,
   applyPendingCommands,
   findTransition,
+  githubRepoCheck,
   DomainError,
   type ProposalStatus,
 } from "./lifecycle.ts";
@@ -212,6 +214,95 @@ describe("re-queue from build-failed", () => {
     applyPendingCommands(ds);
     expect(ds.listCommands().map((c) => c.status)).toEqual(["applied", "applied"]);
     expect(ds.historyFor(id).filter((e) => e.to === "approved")).toHaveLength(2); // once on the way to the failure, once re-queued
+  });
+
+  describe("is refused while the failed Build's leftovers exist", () => {
+    /** A build-failed Proposal (slug cat-coin) and a build root, with a queued re-queue; the command is not applied yet. */
+    function failed() {
+      const ds = Datastore.open(":memory:");
+      const id = proposalAt(ds, "build-failed");
+      const buildRoot = tempDir("argus-requeue-");
+      const requeue = () => ds.enqueueCommand(id, "requeue").id;
+      return { ds, id, buildRoot, requeue };
+    }
+
+    it("names the local directory, and flips nothing", () => {
+      const { ds, id, buildRoot, requeue } = failed();
+      mkdirSync(join(buildRoot, "cat-coin"));
+      const c = requeue();
+      applyPendingCommands(ds, undefined, { buildRoot, githubRepoExists: () => false });
+      expect(ds.getCommand(c)).toMatchObject({ status: "rejected" });
+      expect(ds.getCommand(c)!.error).toContain(join(buildRoot, "cat-coin"));
+      expect(ds.getCommand(c)!.error).not.toContain("GitHub");
+      expect(ds.getProposal(id)!.status).toBe("build-failed");
+      expect(ds.historyFor(id).at(-1)).toMatchObject({ to: "build-failed" });
+    });
+
+    it("names the GitHub repo when that is what is left", () => {
+      const { ds, id, buildRoot, requeue } = failed();
+      const asked: string[] = [];
+      const c = requeue();
+      applyPendingCommands(ds, undefined, { buildRoot, githubRepoExists: (slug) => (asked.push(slug), true) });
+      expect(asked).toEqual(["cat-coin"]);
+      expect(ds.getCommand(c)).toMatchObject({ status: "rejected" });
+      expect(ds.getCommand(c)!.error).toContain("GitHub repo cat-coin");
+      expect(ds.getCommand(c)!.error).not.toContain("local directory");
+      expect(ds.getProposal(id)!.status).toBe("build-failed");
+    });
+
+    it("also names the Cloudflare Worker when the Build deployed it, and not when it did not", () => {
+      const a = failed();
+      mkdirSync(join(a.buildRoot, "cat-coin"));
+      const ca = a.requeue();
+      applyPendingCommands(a.ds, undefined, { buildRoot: a.buildRoot, githubRepoExists: () => true });
+      expect(a.ds.getCommand(ca)!.error).toContain("local directory");
+      expect(a.ds.getCommand(ca)!.error).toContain("GitHub repo cat-coin");
+      expect(a.ds.getCommand(ca)!.error).not.toContain("Cloudflare");
+
+      const b = failed();
+      mkdirSync(join(b.buildRoot, "cat-coin"));
+      b.ds.markWorkerDeployed(b.id);
+      const cb = b.requeue();
+      applyPendingCommands(b.ds, undefined, { buildRoot: b.buildRoot, githubRepoExists: () => true });
+      expect(b.ds.getCommand(cb)!.error).toContain("Cloudflare Worker cat-coin");
+      expect(b.ds.getProposal(b.id)!.status).toBe("build-failed");
+    });
+
+    it("goes through once both are gone", () => {
+      const { ds, id, buildRoot, requeue } = failed();
+      const c = requeue();
+      applyPendingCommands(ds, undefined, { buildRoot, githubRepoExists: () => false });
+      expect(ds.getCommand(c)!.status).toBe("applied");
+      expect(ds.getProposal(id)!.status).toBe("approved");
+    });
+
+    it("a GitHub check that cannot be answered is retried, not taken for a no", () => {
+      const { ds, id, buildRoot, requeue } = failed();
+      const c = requeue();
+      applyPendingCommands(ds, undefined, { buildRoot, githubRepoExists: () => { throw new Error("could not check GitHub"); } });
+      expect(ds.getCommand(c)).toMatchObject({ status: "pending", attempts: 1 });
+      expect(ds.getProposal(id)!.status).toBe("build-failed");
+    });
+  });
+
+  describe("the GitHub check through gh", () => {
+    const remotes = () => {
+      const dir = tempDir("argus-remotes-");
+      return { dir, env: { PATH: process.env.PATH, FAKE_GH_REMOTES: dir } };
+    };
+
+    it("says a repo exists when gh can view it, and that it does not on gh's not-found answer", () => {
+      const { dir, env } = remotes();
+      mkdirSync(join(dir, "cat-coin.git"));
+      const exists = githubRepoCheck(FAKE_GH, env);
+      expect(exists("cat-coin")).toBe(true);
+      expect(exists("dog-coin")).toBe(false);
+    });
+
+    it("throws on any other gh failure", () => {
+      const { env } = remotes();
+      expect(() => githubRepoCheck(FAKE_GH, { ...env, FAKE_GH_VIEW_FAIL: "1" })("cat-coin")).toThrow(/could not check GitHub/);
+    });
   });
 
   it("dismiss still works from build-failed", () => {

@@ -106,6 +106,8 @@ if (process.env.FAKE_WRANGLER_HANG) {
     process.exit(1);
   }
   const name = argv[argv.indexOf("--name") + 1] ?? "unknown";
+  // The (fake) account now holds this Worker: the harness's fake Cloudflare API reads this file to answer "taken".
+  if (process.env.FAKE_WRANGLER_LOG) appendFileSync(`${process.env.FAKE_WRANGLER_LOG}.deployed`, `${name}\n`);
   console.log("Total Upload: 1.00 KiB / gzip: 0.50 KiB");
   console.log(`Deployed ${name} triggers (0.50 sec)`);
   console.log(process.env.FAKE_WRANGLER_URL ?? `  https://${name}.fake-account.workers.dev`);

@@ -110,7 +110,7 @@ async function submit() {
             <p>To continue its session, run in tmux on the host:</p>
             <pre class="overflow-auto whitespace-pre-wrap text-xs">{{ p.resumeCommand }}</pre>
           </template>
-          <p class="text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }} and the private GitHub repo {{ p.slug }}.</p>
+          <p class="text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }}, the private GitHub repo {{ p.slug }}<template v-if="p.workerDeployed"> and the Cloudflare Worker {{ p.slug }} (the Build deployed it)</template>. Re-queue is refused while the directory or the repo is still there.</p>
         </div>
         <p v-if="rejection(p)" class="mt-2 text-sm text-red-500">
           Command {{ rejection(p)!.status }}: {{ rejection(p)!.error }}

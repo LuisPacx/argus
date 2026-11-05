@@ -246,6 +246,17 @@ export function parseResult(stdout: string): ResultMessage | undefined {
 }
 
 /**
+ * The session a run is recorded under: the result's, else (a killed run prints no result) the stream's `system`/`init` message's.
+ * No other message is trusted for it, and only a UUID is kept: the id is later put on a command line (`claude --resume`).
+ */
+export function sessionIdOf(messages: ResultMessage[]): string | undefined {
+  const result = messages.filter((m) => m.type === "result").at(-1);
+  const init = messages.find((m) => m.type === "system" && m.subtype === "init");
+  const id = result?.session_id ?? init?.session_id;
+  return typeof id === "string" && SESSION_ID_RE.test(id) ? id : undefined;
+}
+
+/**
  * Phrases claude prints when the subscription runs out. Anchored to the start of a line so that a spec or error that merely
  * mentions "429" or "rate limit" in passing is not mistaken for throttling.
  */
@@ -416,7 +427,7 @@ export class ClaudeCodeBrain implements Brain {
     const messages = parseMessages(stdout);
     const msg = messages.filter((m) => m.type === "result").at(-1);
     // A killed run prints no result (spend unknown, so $0), but a stream's earlier messages carry the session: the work can still be resumed.
-    const base = { sessionId: msg?.session_id ?? messages.find((m) => typeof m.session_id === "string")?.session_id, totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
+    const base = { sessionId: sessionIdOf(messages), totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
     // A complete successful result is the run's outcome even if our own kill (cap or shutdown) landed after it was printed.
     const killedByUs = timedOut || interrupted;
     const succeeded = msg?.subtype === "success" && !msg.is_error && (code === 0 || killedByUs);

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { tempDir } from "./testing/temp.ts";
 import { describe, expect, it, vi } from "vitest";
-import { BrainError, ClaudeCodeBrain, DEFAULT_ROUTING, killLiveBrainChildren, resolveRouting, scrubEnv } from "./brain.ts";
+import { BrainError, ClaudeCodeBrain, DEFAULT_ROUTING, killLiveBrainChildren, resolveRouting, scrubEnv, sessionIdOf } from "./brain.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { untilExists } from "./testing/wait.ts";
 
@@ -421,5 +421,25 @@ describe("ClaudeCodeBrain", () => {
     expect(run.dryRun).toBe(true);
     expect(lines.join("\n")).toContain("--max-budget-usd 2");
     expect(() => readFileSync(log)).toThrow();
+  });
+});
+
+describe("sessionIdOf: the session a run is recorded under", () => {
+  const ID = "5e55a0a0-0000-4000-8000-000000000001";
+  const OTHER = "5e55a0a0-0000-4000-8000-000000000002";
+
+  it("takes the result's session, then the stream's init message", () => {
+    expect(sessionIdOf([{ type: "system", subtype: "init", session_id: OTHER }, { type: "result", session_id: ID }])).toBe(ID);
+    expect(sessionIdOf([{ type: "system", subtype: "init", session_id: ID }])).toBe(ID);
+  });
+
+  it("ignores a session_id on any other message, even before the init", () => {
+    expect(sessionIdOf([{ type: "rate_limit_event", session_id: OTHER }, { type: "assistant", session_id: OTHER }, { type: "system", subtype: "other", session_id: OTHER }])).toBeUndefined();
+    expect(sessionIdOf([{ type: "user", session_id: OTHER }, { type: "system", subtype: "init", session_id: ID }])).toBe(ID);
+  });
+
+  it("stores only a UUID", () => {
+    expect(sessionIdOf([{ type: "system", subtype: "init", session_id: "../../etc/passwd" }])).toBeUndefined();
+    expect(sessionIdOf([{ type: "result", session_id: "not-a-uuid; rm -rf" }])).toBeUndefined();
   });
 });

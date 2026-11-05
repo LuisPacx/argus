@@ -9,6 +9,7 @@ import {
   capsFromEnv,
   currentImageTag,
   draftPendingSpecs,
+  githubRepoCheck,
   killLiveBrainChildren,
   revisePendingSpecs,
   runPendingBuilds,
@@ -73,7 +74,7 @@ const tick = reentrant(
     const n = applyPendingCommands(
       store,
       (c, e) => console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
-      { dataDir, log: console.log },
+      { dataDir, log: console.log, buildRoot, githubRepoExists: githubRepoCheck(process.env.ARGUS_GH_BIN || "gh", process.env) },
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();

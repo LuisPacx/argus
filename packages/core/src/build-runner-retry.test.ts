@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildHomeFor, runNextBuild } from "./build-runner.ts";
-import { makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
+import { fakePreview, makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
+import { tempPath } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
 
 const SESSION = "5e55a0a0-0000-4000-8000-000000000001";
@@ -113,6 +114,80 @@ describe("Build Runner: one automatic retry", { timeout: 90_000 }, () => {
     expect(r.runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }, { exitStatus: "timed-out", totalCostUsd: 0 }]);
     expect(r.history.at(-1)!.reason).toContain("timed-out");
     expect(h.containers()).toEqual([]);
+  });
+
+  it("a post-deploy failure is retried and the retry redeploys over the Build's own Worker; each attempt pays for its claude run", async () => {
+    // The preview is broken until the second deploy: the first attempt deploys, fails the footer check and is retried.
+    const broken = fakePreview({ "/": [200, "text/html", "<!doctype html><html><body>no footer</body></html>"] });
+    const good = fakePreview();
+    const h: Harness = makeHarness({ fetch: ((input, init) => (h.deployCalls().length < 2 ? broken : good)(input, init)) as typeof fetch });
+    const r = await build(h);
+
+    expect(r.outcome).toEqual({ proposalId: r.p.id, result: "built" });
+    expect(r.claude).toHaveLength(2);
+    expect(r.claude[1]!.argv[1]).toContain("failed verification");
+    expect(h.deployCalls()).toHaveLength(2);
+    // The account check ran before the clone and before each deploy; the second saw the Worker the first deployed, and let it through.
+    expect(h.apiCalls).toHaveLength(3);
+    expect(r.history.map((e) => e.to)).toEqual(["new", "shortlisted", "spec-drafted", "approved", "building", "built"]);
+    // Two claude runs, both paid for.
+    expect(r.runs.map((x) => x.totalCostUsd)).toEqual([0.0123, 0.0123]);
+    expect(r.after.agentCostUsd).toBeCloseTo(0.0246);
+    expect(r.after.workerDeployed).toBe(true);
+  });
+
+  it("a deploy that fails twice leaves no Worker deployed on the card", async () => {
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_FAIL: "1" } });
+    const r = await build(h);
+
+    expect(r.after).toMatchObject({ status: "build-failed", workerDeployed: false });
+    expect(r.after.agentCostUsd).toBeCloseTo(0.0246);
+  });
+
+  it("a Worker name taken by someone else after setup is final: build-failed, one claude run, no retry", async () => {
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "wait-release,commit" } });
+    const p = h.seedApproved("Cat Coin");
+    const running = runNextBuild(h.store, h.brain, h.options);
+    await untilExists(h.started);
+    h.workers.add("cat-coin"); // taken by a third party while the first claude run works
+    writeFileSync(h.release, "");
+
+    expect(await running).toEqual({ proposalId: p.id, result: "build-failed" });
+    expect(h.calls(h.claudeLog)).toHaveLength(1);
+    expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }]);
+    expect(h.store.getProposal(p.id)).toMatchObject({ status: "build-failed", workerDeployed: false, brainRunInFlightSince: null });
+    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0123);
+    expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("already exists");
+    expect(h.deployCalls()).toEqual([]);
+    expect(readFileSync(join(h.dataDir, "proposals", String(p.id), "build.log"), "utf8")).not.toContain("Retrying");
+  });
+
+  it("the retry resets the tree from argus's own git dir: a hook, fsmonitor, filter and pushurl planted by the first attempt never run", async () => {
+    const marker = tempPath("pwned-retry");
+    rmSync(marker, { force: true });
+    const h = makeHarness({
+      claudeEnv: {
+        FAKE_CLAUDE_MARKER: marker,
+        ...sequence(
+          // Commits, plants the config and the hooks, leaves uncommitted work, then reports failure.
+          { FAKE_CLAUDE_EFFECT: "commit,plant-git-config,plant-git-scripts,modify-spec,dirty", FAKE_CLAUDE_RESULT: 'ARGUS_BUILD_FAILED::{"summary":"planted"}' },
+          { FAKE_CLAUDE_EFFECT: "" },
+        ),
+      },
+    });
+    const p = h.seedApproved("Cat Coin");
+    const outcome = await runNextBuild(h.store, h.brain, h.options);
+
+    expect(outcome).toEqual({ proposalId: p.id, result: "built" });
+    expect(h.calls(h.claudeLog)).toHaveLength(2);
+    // Not a git command on the planted repo (it would run the planted code): the files say the reset happened.
+    const repo = h.repoDir("cat-coin");
+    expect(existsSync(join(repo, "leftover.txt"))).toBe(false);
+    expect(readFileSync(join(repo, "SPEC.md"), "utf8")).not.toContain("half-done");
+    expect(readFileSync(join(repo, ".git", "config"), "utf8")).toContain("filter"); // the plant is still there; it was never read
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(`${marker}-evil-pushurl.git`)).toBe(false);
+    expect(existsSync(`${marker}-evil`)).toBe(false);
   });
 
   it("a setup failure is not retried", async () => {

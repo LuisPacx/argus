@@ -300,8 +300,9 @@ describe("a Worker name already taken in the Cloudflare account is never overwri
     expect(await running).toEqual({ proposalId: p.id, result: "build-failed" });
     expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("already exists");
     expect(h.deployCalls()).toEqual([]);
-    // The spend of both claude runs (the attempt and its retry, which found the name taken too) is still on the card.
-    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0246);
+    // A name someone else took is final: no retry, so one claude run is all that was spent, and it is on the card.
+    expect(h.calls(h.claudeLog)).toHaveLength(1);
+    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(0.0123);
   });
 
   it("fails closed when the account cannot be checked", async () => {

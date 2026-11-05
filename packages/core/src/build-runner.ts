@@ -94,6 +94,9 @@ export function wranglerConfigFor(slug: string, main: string): string {
 /** A step that failed, with a message fit for the Proposal's status history. */
 class StepError extends Error {}
 
+/** The Worker name belongs to someone else: no retry can change that, so the Build fails for good. */
+class NameTakenError extends StepError {}
+
 interface Cmd {
   code: number | null;
   stdout: string;
@@ -359,6 +362,8 @@ interface Attempts {
   setup?: { originUrl: string; branch: string; templateCommit: string; specCommit: string };
   /** Set by a failed first attempt that is to be retried: the failure report appended to the retry's prompt. */
   retryReport?: string;
+  /** Set once this Build's `wrangler deploy` succeeded: the Worker under the slug is the Build's own, and the retry may redeploy over it. */
+  deployed?: boolean;
 }
 
 /** Lines of the Build log, each cut short, that the retry's prompt carries. */
@@ -466,12 +471,13 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   /**
    * Marks the Proposal failed first, then the run closes (in `finally`): the run is open for as long as the Proposal is `building`.
    * A first attempt that failed after setup, and was not stopped by a shutdown, is not final: the report is kept and `build()` retries.
+   * A failure a retry cannot change (`retryable` false: the Worker name is someone else's) is final.
    */
-  const fail = (reason: string, exitStatus = "failed"): BuildOutcome => {
+  const fail = (reason: string, exitStatus = "failed", retryable = true): BuildOutcome => {
     note(`Build failed: ${reason}`);
     runEnd ??= { sessionId: null, totalCostUsd: 0, exitStatus };
     const building = store.getProposal(id)?.status === "building";
-    if (building && state.attempt === 1 && state.setup && exitStatus !== "interrupted" && !signal?.aborted) {
+    if (building && retryable && state.attempt === 1 && state.setup && exitStatus !== "interrupted" && !signal?.aborted) {
       state.retryReport = failureReport(logPath, reason);
     } else if (building) store.transition(id, "build-failed", "build", `Build failed: ${reason}`.slice(0, 500));
     return { proposalId: id, result: "build-failed" };
@@ -555,7 +561,10 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     }
   };
 
-  /** Never deploys over a Worker that is already in the account: the name is the slug, and an existing one is someone's. */
+  /**
+   * Never deploys over a Worker that is already in the account: the name is the slug, and an existing one is someone's, unless
+   * this Build deployed it itself (`state.deployed`: the retry redeploys over its own Worker).
+   */
   const requireFreeWorkerName = async () => {
     const account = source.CLOUDFLARE_ACCOUNT_ID;
     const token = source.CLOUDFLARE_API_TOKEN;
@@ -567,7 +576,8 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     } catch (e) {
       throw new StepError(`could not check the Cloudflare account for a Worker named ${p.slug}: ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (res.status === 200) throw new StepError(`a Worker named ${p.slug} already exists in the Cloudflare account; refusing to overwrite it`);
+    if (res.status === 200 && state.deployed) return;
+    if (res.status === 200) throw new NameTakenError(`a Worker named ${p.slug} already exists in the Cloudflare account; refusing to overwrite it`);
     // Only Cloudflare's own "no such Worker" answer (error 10007) counts as free; any other reply is not an answer.
     let notFound = false;
     if (res.status === 404) {
@@ -792,7 +802,11 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     writeFileSync(configPath, wranglerConfigFor(p.slug, uploadMain));
     await requireFreeWorkerName();
     const deployed = await step("wrangler deploy", wrangler, ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile, "--no-bundle"], wranglerEnv, sealDir);
-    const url = WORKERS_DEV_URL_RE.exec(deployed)?.[0];
+    // The Worker under the slug is this Build's now: the retry (should the checks below fail) may redeploy over it, and the card
+    // names it among the leftovers the Operator removes before a re-queue.
+    state.deployed = true;
+    store.markWorkerDeployed(id);
+    const url =WORKERS_DEV_URL_RE.exec(deployed)?.[0];
     if (!url) return fail("wrangler deploy printed no workers.dev URL");
     note(`Deployed to ${url}; checking the preview`);
     const check = await checkDisclosure(url, o.fetch ?? fetch, { attempts: o.previewAttempts, delayMs: o.previewDelayMs });
@@ -818,7 +832,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     note("Build done");
     return { proposalId: id, result: "built" };
   } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e));
+    return fail(e instanceof Error ? e.message : String(e), "failed", !(e instanceof NameTakenError));
   } finally {
     clearInterval(heartbeat);
     // The seal holds what the containers wrote, and nothing about that is under argus's control (a mode-000 directory from an install

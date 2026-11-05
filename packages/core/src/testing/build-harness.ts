@@ -70,7 +70,10 @@ export interface Harness {
   buildRoot: string;
   dataDir: string;
   logs: string[];
-  /** Names of Workers that already exist in the (fake) Cloudflare account; add to it mid-build to race a deploy. */
+  /**
+   * Names of Workers that someone else already has in the (fake) Cloudflare account; add to it mid-build to race a deploy. A Worker
+   * the fake wrangler deploys is also answered as existing, without being listed here.
+   */
   workers: Set<string>;
   /** Requests the runner made to the (fake) Cloudflare API. */
   apiCalls: Array<{ url: string; authorization: string | null }>;
@@ -192,7 +195,14 @@ export function makeHarness(
       apiCalls.push({ url: String(url), authorization: new Headers(init?.headers).get("authorization") });
       if (opts.cloudflareDown) return Promise.resolve(new Response("bad gateway", { status: 502 }));
       if (!m) return Promise.resolve(Response.json({ success: false, errors: [{ code: 7003, message: "Could not route" }] }, { status: 404 }));
-      const taken = workers.has(m[2]!);
+      // Taken: by someone else (`workers`), or by a deploy the fake wrangler made (it records the name it deployed).
+      let deployedByUs: string[] = [];
+      try {
+        deployedByUs = readFileSync(`${wranglerLog}.deployed`, "utf8").split("\n");
+      } catch {
+        // nothing deployed yet
+      }
+      const taken = workers.has(m[2]!) || deployedByUs.includes(m[2]!);
       return Promise.resolve(
         taken
           ? Response.json({ success: true, errors: [], result: {} })

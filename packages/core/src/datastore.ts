@@ -48,6 +48,8 @@ export interface Proposal {
   previewUrl: string | null;
   /** The Claude session of the Proposal's latest Build run that has one; what `claude --resume` continues after a `build-failed`. */
   buildSessionId: string | null;
+  /** Whether the latest Build deployed the Proposal's Worker to Cloudflare (a leftover the Operator removes before a re-queue). */
+  workerDeployed: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -154,6 +156,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "approved_at", "TEXT");
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "proposals", "preview_url", "TEXT");
+  ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
 }
 
 export function slugify(text: string): string {
@@ -185,6 +188,7 @@ interface Row {
   approved_at: string | null;
   preview_url: string | null;
   build_session_id: string | null;
+  worker_deployed: number;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +218,7 @@ function toProposal(r: Row): Proposal {
     approvedAt: r.approved_at,
     previewUrl: r.preview_url,
     buildSessionId: r.build_session_id,
+    workerDeployed: r.worker_deployed === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -472,8 +477,15 @@ export class Datastore {
   beginBuild(proposalId: number, route: Pick<NewBrainRun, "backend" | "model">): number {
     return this.inTransaction(() => {
       this.transition(proposalId, "building", "build");
+      // A fresh Build: the Worker a previous one deployed was removed by the Operator before the re-queue.
+      this.db.prepare("UPDATE proposals SET worker_deployed = 0 WHERE id = ?").run(proposalId);
       return this.startBrainRun({ proposalId, task: "build", ...route });
     });
+  }
+
+  /** WORKER ONLY. Records that the Build deployed the Proposal's Worker to Cloudflare (it is a leftover if the Build then fails). */
+  markWorkerDeployed(proposalId: number): void {
+    this.db.prepare("UPDATE proposals SET worker_deployed = 1 WHERE id = ?").run(proposalId);
   }
 
   /**

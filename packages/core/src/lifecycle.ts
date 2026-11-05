@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { buildHomeFor, removeTree } from "./build-runner.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 
@@ -142,6 +145,47 @@ export interface ApplyOptions {
   /** argus's data dir. When set, dismissing a Proposal deletes its per-Build home (retention: kept for `build-failed`, gone on `built` and `dismissed`). */
   dataDir?: string;
   log?: (line: string) => void;
+  /**
+   * Where the Build repos are (`~/code`) and how to ask GitHub whether the Build's private repo exists (see `githubRepoCheck`). When
+   * set, a re-queue is refused while the failed Build's directory or repo is still there; the worker always sets both.
+   */
+  buildRoot?: string;
+  githubRepoExists?: (slug: string) => boolean;
+}
+
+/**
+ * Builds the answer to "does the private GitHub repo `slug` exist?" from the `gh` CLI: yes when `gh repo view` succeeds, no on
+ * GitHub's not-found answer, and an error for anything else (no network, no login), so the command is retried rather than let through.
+ */
+export function githubRepoCheck(ghBin: string, env: NodeJS.ProcessEnv): (slug: string) => boolean {
+  const childEnv: Record<string, string> = {};
+  for (const name of ["PATH", "HOME", "USER", "LANG", "TMPDIR", "GH_TOKEN", "GITHUB_TOKEN", "FAKE_GH_REMOTES", "FAKE_GH_VIEW_FAIL"]) {
+    if (env[name] !== undefined) childEnv[name] = env[name]!;
+  }
+  return (slug) => {
+    try {
+      execFileSync(ghBin, ["repo", "view", slug, "--json", "name"], { env: childEnv, stdio: "pipe", timeout: 30_000 });
+      return true;
+    } catch (e) {
+      const stderr = String((e as { stderr?: unknown }).stderr ?? "");
+      if (/Could not resolve to a Repository/i.test(stderr)) return false;
+      throw new Error(`could not check GitHub for a repo named ${slug}: ${(stderr || (e instanceof Error ? e.message : String(e))).trim().slice(-200)}`);
+    }
+  };
+}
+
+/** What a failed Build left that the Operator must remove before a re-queue; empty when nothing blocks one. */
+function requeueLeftovers(p: Proposal, opts: ApplyOptions): string[] {
+  const left: string[] = [];
+  if (opts.buildRoot !== undefined) {
+    const dir = resolve(opts.buildRoot, p.slug);
+    if (existsSync(dir)) left.push(`the local directory ${dir}`);
+  }
+  if (opts.githubRepoExists?.(p.slug)) left.push(`the private GitHub repo ${p.slug}`);
+  // Named only with something else in the way: whether the Worker is still there is not asked of Cloudflare, and the fresh Build's
+  // first step refuses a name that is taken.
+  if (left.length > 0 && p.workerDeployed) left.push(`the Cloudflare Worker ${p.slug} (the Build deployed it)`);
+  return left;
 }
 
 /**
@@ -169,6 +213,11 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
   // Two commands reach `approved`: approve (from spec-drafted) and requeue (from build-failed); neither stands in for the other.
   if (command.type === "approve" && proposal.status === "build-failed") throw new DomainError("A failed Build is re-queued, not approved");
   if (command.type === "requeue" && proposal.status !== "build-failed") throw new DomainError(`Re-queue needs a build-failed Proposal (it is ${proposal.status})`);
+  if (command.type === "requeue") {
+    // argus never deletes a Build's repos: a fresh Build needs the directory and the GitHub repo gone, so the Operator removes them first.
+    const leftovers = requeueLeftovers(proposal, opts);
+    if (leftovers.length > 0) throw new DomainError(`Not re-queued: remove ${leftovers.join(", ")}, then re-queue. argus never deletes them.`);
+  }
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
   else if (command.type === "dismiss") {
     store.transition(command.proposalId, "dismissed", "operator", reason);

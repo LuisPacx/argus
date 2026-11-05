@@ -142,7 +142,7 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reaso
         <p class="text-sm">To continue its session, run in tmux on the host:</p>
         <pre class="overflow-auto whitespace-pre-wrap text-xs">{{ p.resumeCommand }}</pre>
       </template>
-      <p class="text-sm text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }} and the private GitHub repo {{ p.slug }}.</p>
+      <p class="text-sm text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }}, the private GitHub repo {{ p.slug }}<template v-if="p.workerDeployed"> and the Cloudflare Worker {{ p.slug }} (the Build deployed it)</template>. Re-queue is refused while the directory or the repo is still there.</p>
       <div><UButton size="sm" :disabled="working || sending" @click="send('requeue')">Re-queue</UButton></div>
     </section>
     <section v-if="p.status === 'spec-drafted' && loadedFor" class="mt-4 grid gap-2">
