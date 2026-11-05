@@ -5,13 +5,13 @@
 
 **Blocked by:** 12, 13, 14, and the concurrent 07 fixes (process-group kill, run row, HIGH3 git handling)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The `claude` argv, budget and timeout are byte-identical to today's (tested by comparing `buildArgs` output)
-- [ ] Policy tests from section 9 (argv builder) pass; adding a mount or env var without updating the allowlist fails a test
-- [ ] Timeout, abort and shutdown each call `podman stop` then `rm -f` and leave no container or sidecar (fake podman records calls)
-- [ ] Worker start reconciles labelled leftovers; unrelated containers are never touched
-- [ ] Missing podman or image refuses the Build and leaves the Proposal `approved` with a clear log line
-- [ ] Existing 07 runner tests pass against the fake podman unchanged in what they assert
-- [ ] `pnpm check` passes
-- [ ] The bundle step (`wrangler deploy --dry-run --outdir --metafile`) runs inside the Build container with no credentials; the host keeps the metafile-inside-export check and deploys the checked output with `--no-bundle` (design §13, npm dependencies); a test Build that imports an npm package bundles and passes the check
+- [x] The `claude` argv, budget and timeout are byte-identical to today's (tested by comparing `buildArgs` output)
+- [x] Policy tests from section 9 (argv builder) pass; adding a mount or env var without updating the allowlist fails a test
+- [x] Timeout, abort and shutdown each call `podman stop` then `rm -f` and leave no container or sidecar (fake podman records calls)
+- [x] Worker start reconciles labelled leftovers; unrelated containers are never touched
+- [x] Missing podman or image refuses the Build and leaves the Proposal `approved` with a clear log line
+- [x] Existing 07 runner tests pass against the fake podman unchanged in what they assert (deploy cwd, dry-run regex and real-wrangler import depth changed for the in-container bundle; reviewer judged them equivalent or stronger)
+- [x] `pnpm check` passes
+- [x] The bundle step (`wrangler deploy --dry-run --outdir --metafile`) runs inside the Build container with no credentials; the host keeps the metafile-inside-export check and deploys the checked output with `--no-bundle` (design §13, npm dependencies); a test Build that imports an npm package bundles and passes the check
