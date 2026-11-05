@@ -20,6 +20,8 @@ export class Teardown<R extends Stoppable> {
   private readonly runs: R[] = [];
   private inflight: Promise<void> | undefined;
   private started = false;
+  private readonly aborter = new AbortController();
+  private readonly pending = new Set<Promise<R>>();
 
   /** `finish` runs after every tracked run has been stopped (remove what the label finds, delete the scratch dir). */
   private readonly finish: () => Promise<void> | void;
@@ -31,12 +33,25 @@ export class Teardown<R extends Stoppable> {
     return this.started;
   }
 
-  /** Starts a container through `launcher` and tracks it for the cleanup. Throws once the cleanup has started. */
-  async launch(launcher: () => Promise<R>): Promise<R> {
+  /**
+   * Starts a container through `launcher` (which gets a signal that `stop()` aborts, to hand to the sandbox job) and tracks it for
+   * the cleanup. Throws once the cleanup has started. The launch stays pending until it settles, and `stop()` waits for that.
+   */
+  async launch(launcher: (signal: AbortSignal) => Promise<R>): Promise<R> {
     this.refuseIfStopping();
-    const run = await launcher();
+    const launching = this.launchTracked(launcher);
+    this.pending.add(launching);
+    try {
+      return await launching;
+    } finally {
+      this.pending.delete(launching);
+    }
+  }
+
+  private async launchTracked(launcher: (signal: AbortSignal) => Promise<R>): Promise<R> {
+    const run = await launcher(this.aborter.signal);
     if (this.started) {
-      // The cleanup began while this launch was in flight and has already walked the runs: this one is ours to stop.
+      // The cleanup began while this launch was in flight: this run did not exist when it walked the runs, so it is ours to stop.
       await run.stop().catch(() => {});
       this.refuseIfStopping();
     }
@@ -46,11 +61,15 @@ export class Teardown<R extends Stoppable> {
 
   stop(): Promise<void> {
     this.started = true;
+    this.aborter.abort();
     this.inflight ??= this.run();
     return this.inflight;
   }
 
   private async run(): Promise<void> {
+    // Launches still creating containers (the sidecar start alone can take seconds) finish first, each stopping what it made, so
+    // the final label sweep and the process exit cannot overtake a container that appears late.
+    await Promise.allSettled([...this.pending]);
     for (const r of this.runs) {
       try {
         await r.stop();

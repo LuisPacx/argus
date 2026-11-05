@@ -43,17 +43,43 @@ describe("Teardown: one in-flight cleanup, and nothing launches once it has star
     await stopping;
   });
 
-  it("a container whose launch was still in flight when the cleanup began is stopped by launch() itself and then refused", async () => {
+  it("stop() stays pending until a launch that was in flight has settled; the late run is stopped before the cleanup body runs", async () => {
     let finishLaunch!: () => void;
     const launching = new Promise<void>((r) => (finishLaunch = r));
-    const stopped: string[] = [];
-    const td = new Teardown<{ stop(): Promise<void> }>(async () => {});
-    const pending = td.launch(async () => (await launching, { stop: async () => void stopped.push("late run") }));
-    const rejected = expect(pending).rejects.toThrow(/shutting down/);
-    await td.stop(); // the cleanup finds no run yet
+    const order: string[] = [];
+    const td = new Teardown<{ stop(): Promise<void> }>(async () => void order.push("finish"));
+    const launched = td.launch(async () => (await launching, { stop: async () => void order.push("late run stopped") }));
+    const rejected = expect(launched).rejects.toThrow(/shutting down/);
+
+    let stopDone = false;
+    const stopping = td.stop().then(() => (stopDone = true));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(stopDone, "the cleanup must not finish (and the process must not exit) while a launch is still creating containers").toBe(false);
+    expect(order).toEqual([]);
+
     finishLaunch();
+    await stopping;
     await rejected;
-    expect(stopped).toEqual(["late run"]);
+    expect(order).toEqual(["late run stopped", "finish"]);
+  });
+
+  it("stop() aborts the signal handed to in-flight launchers, and a launcher that fails on it does not block the cleanup", async () => {
+    let seen: AbortSignal | undefined;
+    let finished = false;
+    const td = new Teardown<{ stop(): Promise<void> }>(async () => void (finished = true));
+    const launched = td.launch(
+      (signal) =>
+        new Promise((_, reject) => {
+          seen = signal;
+          signal.addEventListener("abort", () => reject(new Error("interrupted while starting")));
+        }),
+    );
+    const rejected = expect(launched).rejects.toThrow(/interrupted/);
+    expect(seen?.aborted).toBe(false);
+    await td.stop();
+    await rejected;
+    expect(seen?.aborted).toBe(true);
+    expect(finished).toBe(true);
   });
 
   it("a run that fails to stop does not keep the others from stopping or the cleanup body from running", async () => {

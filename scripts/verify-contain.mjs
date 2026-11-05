@@ -81,7 +81,7 @@ const job = (role, over) => ({ role, buildId: BUILD_ID, cwd: repo, mounts: [repo
 
 /** Launches `job` through the real sandbox, replaces the command after the image with `cmd`, and spawns the podman client. */
 async function start(j, cmd, { detach = false, timeoutSec } = {}) {
-  const run = await teardown.launch(() => sandbox.launch(j));
+  const run = await teardown.launch((signal) => sandbox.launch({ ...j, signal }));
   let args = run.args.slice(0, run.args.indexOf(image) + 1);
   if (timeoutSec !== undefined) args = args.map((a) => (a.startsWith('--timeout=') ? `--timeout=${timeoutSec}` : a));
   if (detach) args.splice(1, 0, '-d');
@@ -208,7 +208,7 @@ async function installCheck() {
   for (const f of files) fs.copyFileSync(path.join(template, f), path.join(installDir, f));
   // The role's own command (`pnpm install --frozen-lockfile`), unchanged: that is the thing under test.
   const j = job('install', { cwd: installDir, mounts: [installDir], home: installHome, timeoutMs: 8 * 60_000 });
-  const run = await teardown.launch(() => sandbox.launch(j));
+  const run = await teardown.launch((signal) => sandbox.launch({ ...j, signal }));
   const child = spawn(run.command, run.args, { env: run.env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   let stderr = '';
