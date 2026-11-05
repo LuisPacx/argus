@@ -1,3 +1,5 @@
+> Superseded where it differs from the code by docs/adr/0005-builds-run-in-a-rootless-podman-container.md; see the discrepancies listed in ADR 0005.
+
 # Build containment: rootless podman design note
 
 Status: proposal for the Operator's decision. No code changes in this note. Written against `main` at 784ae1e (Build Runner from 20e49f9). Spike results (ticket 12, run on this host 2026-11-05) are in section 14 and marked inline as **verified**, **refuted** or **adjusted**.

@@ -29,6 +29,10 @@ The written description of a Tech from which a Build is produced. It is drafted 
 **Build**:
 The software project produced from an approved Proposal's Spec. It is a narrow, working MVP produced unattended within hours.
 
+**Build container**:
+The isolated environment in which a Build's agent and the code it produces run, with no access to the Operator's credentials or files and no network beyond an allowlist.
+_Avoid_: Sandbox, VM
+
 **Launch**:
 The on-chain token created for a Proposal. Launches happen outside this system, by the Operator.
 _Avoid_: Deploy, mint

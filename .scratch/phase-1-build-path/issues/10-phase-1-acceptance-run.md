@@ -3,7 +3,7 @@
 
 **What to build:** Exercise the Phase 1 definition of done (§12) for real: a hand-entered Proposal is shortlisted, its Spec edited, approved, and without further input ends with a private GitHub repo, a working `<slug>.workers.dev` preview, status `built` and agent cost on the card. Also the forced failure, the on-chain Spec, dry-run and caps. Record real usage to answer the §13 question on Max-plan limits.
 
-Operator prerequisites: `claude setup-token` exported as `CLAUDE_CODE_OAUTH_TOKEN`; `gh` and `wrangler` authenticated; re-check that `claude -p` still draws from the subscription (§13).
+Operator prerequisites: image built (`pnpm image:build`), network created (same command), Build token set (a separate `claude setup-token` token in `~/.config/argus/build-token`, mode 600, or `ARGUS_BUILD_TOKEN_FILE`), see architecture section 4 "Operator setup for Builds"; `claude setup-token` exported as `CLAUDE_CODE_OAUTH_TOKEN` for the brain; `gh` and `wrangler` authenticated; re-check that `claude -p` still draws from the subscription (§13).
 
 **Blocked by:** 08, 09, 15
 
