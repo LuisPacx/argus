@@ -134,7 +134,7 @@ async function submit() {
         </div>
         <p v-if="dismissing === p.id && actionError" class="text-sm text-red-500">{{ actionError }}</p>
         <p class="mt-2 text-sm text-muted">
-          Agent cost: ${{ p.agentCostUsd.toFixed(2) }} · Score: n/a · Collision checks: n/a · Narrative age: n/a
+          <span title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): ${{ p.agentCostUsd.toFixed(2) }}</span> · Score: n/a · Collision checks: n/a · Narrative age: n/a
         </p>
       </UCard>
     </section>

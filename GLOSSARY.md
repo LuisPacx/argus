@@ -57,3 +57,6 @@ The Operator's decision not to pursue a Proposal. Dismissals, like approvals, ar
 
 **Proposal status**:
 The state of a Proposal, which is one of: new, shortlisted, spec-drafted, approved, building, built, build-failed, needs-human, launched, or closed. A Proposal may enter dismissed from any state except closed. The system sets new, spec-drafted (after the Operator shortlists), and closed on expiry (48 hours in new, 7 days in shortlisted); the Operator sets shortlisted, approved, dismissed, launched, and closed after a Launch; the Build step sets building, built, build-failed (when a Build fails after its retry), and needs-human (when a Spec requires something that cannot be built unattended, such as an on-chain program).
+
+**Est. usage**:
+The API-equivalent dollar figure (`total_cost_usd`) that `claude -p` reports for each run. On the Claude subscription it measures usage against plan limits, not money billed. Per-task caps (`--max-budget-usd`) limit how much usage one run can take.

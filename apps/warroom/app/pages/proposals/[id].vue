@@ -103,7 +103,7 @@ async function send(type: "revise" | "approve" | "retry-spec", reason = "") {
       </dd>
       <dt class="font-semibold">Slug</dt>
       <dd>{{ p.slug }}</dd>
-      <dt class="font-semibold">Agent cost</dt>
+      <dt class="font-semibold" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt>
       <dd>${{ p.agentCostUsd.toFixed(2) }}</dd>
       <dt class="font-semibold">Created</dt>
       <dd>{{ p.createdAt }}</dd>
