@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+if ! pnpm check; then
+  echo "pre-push: pnpm check failed; push blocked" >&2
+  exit 1
+fi
