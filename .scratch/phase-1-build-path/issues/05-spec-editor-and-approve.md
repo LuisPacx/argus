@@ -5,9 +5,9 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Textarea loads and saves `spec.md`; the stored hash updates on save; saving over a version changed underneath is refused with a message
-- [ ] Revise is sent as a command; the worker resumes the Spec session through the Brain; the new `spec.md` and the run's cost are recorded; revise uses the same caps and dry-run as ticket 04
-- [ ] Approve is enabled only in `spec-drafted`, goes through `approve()`, and records the approval time (the FIFO key for ticket 07)
-- [ ] Tests cover save, hash conflict and approve; `pnpm check` passes
+- [x] Textarea loads and saves `spec.md`; the stored hash updates on save; saving over a version changed underneath is refused with a message
+- [x] Revise is sent as a command; the worker resumes the Spec session through the Brain; the new `spec.md` and the run's cost are recorded; revise uses the same caps and dry-run as ticket 04
+- [x] Approve is enabled only in `spec-drafted`, goes through `approve()`, and records the approval time (the FIFO key for ticket 07)
+- [x] Tests cover save, hash conflict and approve; `pnpm check` passes

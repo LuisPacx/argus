@@ -1,4 +1,4 @@
-import type { Datastore } from "./datastore.ts";
+import type { Datastore, Proposal } from "./datastore.ts";
 
 export type ProposalStatus =
   | "new"
@@ -101,7 +101,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "dismiss" | "approve";
+export type CommandType = "shortlist" | "dismiss" | "approve" | "revise";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -128,7 +128,7 @@ export interface HistoryEntry {
   at: string;
 }
 
-const TARGET: Record<CommandType, ProposalStatus> = {
+const TARGET: Partial<Record<CommandType, ProposalStatus>> = {
   shortlist: "shortlisted",
   approve: "approved",
   dismiss: "dismissed",
@@ -140,13 +140,21 @@ const TARGET: Record<CommandType, ProposalStatus> = {
  * Throws DomainError subclasses for commands that can never succeed.
  */
 export function applyCommand(store: Datastore, command: Command): void {
+  const proposal = store.getProposal(command.proposalId);
+  if (command.type === "revise") {
+    if (!proposal) throw new ProposalNotFoundError(command.proposalId);
+    reviseCommand(store, proposal, command.reason);
+    return;
+  }
   const target = TARGET[command.type];
   if (!target) throw new DomainError(`Unknown command type ${String(command.type)}`);
-  const proposal = store.getProposal(command.proposalId);
   if (!proposal) throw new ProposalNotFoundError(command.proposalId);
   const reason = command.reason.trim() || undefined;
   if (command.type === "dismiss" && !reason) throw new MissingReasonError();
   if (proposal.status === target) return;
+  if (command.type === "approve" && (proposal.specRevision !== null || proposal.brainRunInFlightSince !== null)) {
+    throw new DomainError("A Spec revision is pending or running; approve once it finishes");
+  }
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
   else if (command.type === "dismiss") {
     store.transition(command.proposalId, "dismissed", "operator", reason);
@@ -169,4 +177,17 @@ export function applyPendingCommands(store: Datastore, onError?: (command: Comma
     }
   }
   return n;
+}
+
+/** Longest revise instruction accepted. */
+export const MAX_REVISE_INSTRUCTION_CHARS = 4000;
+
+function reviseCommand(store: Datastore, p: Proposal, instruction: string): void {
+  const text = instruction.trim();
+  if (!text) throw new DomainError("Revise needs an instruction");
+  if (text.length > MAX_REVISE_INSTRUCTION_CHARS) throw new DomainError(`Revise instruction is over ${MAX_REVISE_INSTRUCTION_CHARS} characters`);
+  if (p.status !== "spec-drafted") throw new DomainError(`Revise needs a spec-drafted Proposal (it is ${p.status})`);
+  if (p.brainRunInFlightSince !== null) throw new DomainError("A brain run is in flight for this Proposal; try again when it finishes");
+  if (p.specRevision !== null) throw new DomainError("A revision is already queued");
+  store.queueRevision(p.id, text);
 }

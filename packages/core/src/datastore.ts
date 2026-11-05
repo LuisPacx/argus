@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
@@ -39,6 +40,10 @@ export interface Proposal {
    * worker is not running it is stale, and the next worker boot marks it `interrupted` and sets `specError`.
    */
   brainRunInFlightSince: string | null;
+  /** The Operator's queued "ask the agent to revise" instruction, until the worker runs it. Untrusted text. */
+  specRevision: string | null;
+  /** When the Operator approved (the FIFO key for the Build queue); null until then. */
+  approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -138,6 +143,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "spec_error", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "spec_retry_after", "TEXT");
   ensureColumn(db, "proposals", "spec_attempts", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "proposals", "spec_revision", "TEXT");
+  ensureColumn(db, "proposals", "approved_at", "TEXT");
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
 }
 
@@ -166,6 +173,8 @@ interface Row {
   spec_retry_after: string | null;
   spec_attempts: number;
   in_flight_since: string | null;
+  spec_revision: string | null;
+  approved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -191,6 +200,8 @@ function toProposal(r: Row): Proposal {
     specRetryAfter: r.spec_retry_after,
     specAttempts: r.spec_attempts,
     brainRunInFlightSince: r.in_flight_since,
+    specRevision: r.spec_revision,
+    approvedAt: r.approved_at,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -210,7 +221,18 @@ export type WarRoomStore = Pick<
   | "historyFor"
   | "enqueueCommand"
   | "createProposal"
+  | "saveSpec"
 >;
+
+/** The Spec was changed since the caller loaded it (or spec.md no longer matches the stored hash). */
+export class SpecConflictError extends DomainError {
+  constructor(message = "The Spec changed since you opened it. Reload to see the current version before saving.") {
+    super(message);
+    this.name = "SpecConflictError";
+  }
+}
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 export class Datastore {
   private readonly db: DatabaseSync;
@@ -360,6 +382,7 @@ export class Datastore {
       const t = assertTransition(current.status, to, actor);
       const now = new Date().toISOString();
       this.db.prepare("UPDATE proposals SET status = ?, updated_at = ? WHERE id = ?").run(to, now, proposalId);
+      if (to === "approved") this.db.prepare("UPDATE proposals SET approved_at = ? WHERE id = ?").run(now, proposalId);
       this.db
         .prepare(
           "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -463,6 +486,14 @@ export class Datastore {
         if (new Date(r.created_at).getTime() >= now.getTime() - staleAfterMs(r.task)) continue;
         n++;
         this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
+        if (r.task === "spec-revise") {
+          this.db
+            .prepare("UPDATE proposals SET spec_error = ?, spec_revision = NULL WHERE id = ? AND status = 'spec-drafted'")
+            .run(
+              "Spec revision interrupted: the worker stopped during the brain run, so its spend is unknown. The Spec is unchanged; ask again.",
+              r.proposal_id,
+            );
+        }
         if (r.task === "spec") {
           this.db
             .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = NULL WHERE id = ? AND status = 'shortlisted'")
@@ -515,6 +546,59 @@ export class Datastore {
         .prepare("UPDATE proposals SET spec_error = ?, spec_retry_after = ?, spec_attempts = ? WHERE id = ?")
         .run(message, retryAfter, attempts, proposalId);
     });
+  }
+
+  /**
+   * Replaces spec.md with `text` if, and only if, it is still the version the caller saw: the stored hash equals
+   * `expectedHash` and so does the file's actual hash. Done under the write lock, so a worker revise and an Operator
+   * save cannot both win. Used by the War Room save (the Spec is not status) and the worker's revise.
+   * Returns the new hash. Throws SpecConflictError when the version moved, DomainError when the Proposal is not
+   * `spec-drafted` or the text is empty.
+   */
+  saveSpec(proposalId: number, expectedHash: string, text: string, opts: { completesRevision?: boolean } = {}): string {
+    if (!text.trim()) throw new DomainError("The Spec is empty");
+    const body = text.endsWith("\n") ? text : text + "\n";
+    return this.inTransaction(() => {
+      const p = this.getProposal(proposalId);
+      if (!p) throw new ProposalNotFoundError(proposalId);
+      if (p.status !== "spec-drafted") throw new DomainError(`The Spec can only be edited in spec-drafted (Proposal is ${p.status})`);
+      if (!p.specPath || !p.specHash) throw new DomainError("Proposal has no Spec");
+      if (p.specHash !== expectedHash) throw new SpecConflictError();
+      let onDisk: string;
+      try {
+        onDisk = readFileSync(p.specPath, "utf8");
+      } catch {
+        throw new SpecConflictError("spec.md is missing on disk; the Spec cannot be saved over it.");
+      }
+      if (sha256(onDisk) !== p.specHash) throw new SpecConflictError("spec.md was changed outside the War Room. Reload to see the current version.");
+      const tmp = `${p.specPath}.${process.pid}.tmp`;
+      writeFileSync(tmp, body);
+      renameSync(tmp, p.specPath);
+      const hash = sha256(body);
+      this.db
+        .prepare(
+          `UPDATE proposals SET spec_hash = ?, updated_at = ?${opts.completesRevision ? ", spec_revision = NULL, spec_error = ''" : ""} WHERE id = ?`,
+        )
+        .run(hash, new Date().toISOString(), proposalId);
+      return hash;
+    });
+  }
+
+  /** WORKER ONLY. Queues the Operator's revise instruction for the next worker pass. */
+  queueRevision(proposalId: number, instruction: string): void {
+    this.db.prepare("UPDATE proposals SET spec_revision = ?, spec_error = '' WHERE id = ?").run(instruction, proposalId);
+  }
+
+  /** WORKER ONLY. A revision that did not produce a Spec: shows the error, clears the queue, leaves spec.md alone. */
+  failRevision(proposalId: number, error: string): void {
+    this.db.prepare("UPDATE proposals SET spec_error = ?, spec_revision = NULL WHERE id = ?").run(error, proposalId);
+  }
+
+  /** The session of the Proposal's newest successful Spec run (draft or revise), the one a revise resumes. */
+  latestSpecSession(proposalId: number): string | undefined {
+    return this.brainRunsFor(proposalId)
+      .filter((r) => (r.task === "spec" || r.task === "spec-revise") && r.exitStatus === "success" && r.sessionId)
+      .at(-1)?.sessionId ?? undefined;
   }
 
   /**

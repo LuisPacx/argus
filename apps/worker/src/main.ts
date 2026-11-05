@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs, killLiveBrainChildren } from "@argus/core";
+import { ClaudeCodeBrain, Datastore, applyPendingCommands, draftPendingSpecs, killLiveBrainChildren, revisePendingSpecs } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
 
 const TICK_MS = 5_000;
@@ -31,6 +31,7 @@ const tick = reentrant(
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();
     await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
+    await revisePendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
   },
   () => console.log("[worker] tick skipped: previous tick still running"),
 );

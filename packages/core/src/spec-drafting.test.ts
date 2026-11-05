@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -215,9 +215,9 @@ describe("Spec drafting", () => {
   describe("spend is never lost or doubled", () => {
     it("records the run before any file write: a write failure keeps the cost and is not re-drafted", async () => {
       const { store, brain, id } = setup("success");
-      const blocker = join(mkdtempSync(join(tmpdir(), "argus-spec-")), "file");
-      writeFileSync(blocker, "x");
-      await draftPendingSpecs(store, brain, blocker, quiet); // dataDir is a file: mkdir fails
+      const blocker = mkdtempSync(join(tmpdir(), "argus-spec-"));
+      mkdirSync(join(blocker, "proposals", String(id), "spec.md"), { recursive: true }); // spec.md is a directory: the write fails
+      await draftPendingSpecs(store, brain, blocker, quiet);
       const p = store.getProposal(id)!;
       expect(p.status).toBe("shortlisted");
       expect(p.specError).toContain("after the run was recorded");

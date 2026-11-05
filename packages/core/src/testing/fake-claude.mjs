@@ -5,13 +5,22 @@
 // FAKE_CLAUDE_LOG, when set, receives one JSON line with this process's argv, environment and cwd (and the cwd's
 // `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
-import { appendFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_LOG) {
   const skills = existsSync(".claude/skills") ? readdirSync(".claude/skills") : [];
   appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ argv, env: process.env, cwd: process.cwd(), skills, pid: process.pid }) + "\n");
 }
+// Like the real CLI, sessions belong to the working directory: `--resume <id>` only works from the directory the session
+// was started in. A run (not a resume) records its session under ./.fake-sessions; resuming an unknown one fails.
+const resumeId = argv.includes("--resume") ? argv[argv.indexOf("--resume") + 1] : undefined;
+if (resumeId && !existsSync(`.fake-sessions/${resumeId}`)) {
+  console.error(`No conversation found with session ID: ${resumeId}`);
+  process.exit(1);
+}
+mkdirSync(".fake-sessions", { recursive: true });
+writeFileSync(".fake-sessions/fake-session-1", "");
 const format = argv[argv.indexOf("--output-format") + 1] ?? "text";
 const mode = process.env.FAKE_CLAUDE_MODE ?? "success";
 // Field names and values follow real `claude -p` output (checked against a recorded haiku run): `api_error_status` is

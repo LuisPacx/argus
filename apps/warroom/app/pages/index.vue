@@ -112,6 +112,7 @@ async function submit() {
         <p v-else-if="pendingIds.has(p.id)" class="mt-2 text-sm text-muted">Command pending...</p>
         <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="mt-2 flex flex-wrap items-center gap-2">
           <UButton v-if="p.status === 'new'" size="sm" :disabled="busy(p.id)" @click="send(p.id, 'shortlist')">Shortlist</UButton>
+          <UButton v-if="p.status === 'spec-drafted'" size="sm" variant="outline" :to="`/proposals/${p.id}`">Edit Spec</UButton>
           <UButton v-if="dismissing !== p.id" size="sm" color="neutral" variant="outline" :disabled="busy(p.id)" @click="dismissing = p.id">
             Dismiss
           </UButton>

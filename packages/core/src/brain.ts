@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,6 +26,13 @@ export interface BrainRun<T> {
 export interface BrainRunOptions {
   maxBudgetUsd?: number;
   resume?: string;
+  /**
+   * A stable working directory for this run, kept afterwards. `claude --resume <id>` finds a session by project
+   * directory, so a run that may later be resumed must always use the same one. It holds only the task's skill (copied
+   * in from `skillsDir`), never the repo root. With `resume` set the directory must already exist: a session started
+   * elsewhere (a deleted temp dir) cannot be resumed, so the run fails without spawning.
+   */
+  workDir?: string;
   /** Aborting kills a live child and fails the run as `interrupted`; an already-aborted signal spawns nothing. */
   signal?: AbortSignal;
 }
@@ -249,7 +256,9 @@ export class ClaudeCodeBrain implements Brain {
    * A live run is killed at its cap, so it never gets this old. An unknown task falls back to the longest cap.
    */
   staleAfterMs(task: string): number {
-    const route = (this.routing as Record<string, TaskRoute | undefined>)[task];
+    const routing = this.routing as Record<string, TaskRoute | undefined>;
+    // `spec-revise` rows run on the spec route.
+    const route = routing[task] ?? routing[task.split("-")[0]!];
     const cap = route ? route.timeoutMs : Math.max(...Object.values(this.routing).map((r) => r.timeoutMs));
     return cap + STALE_RUN_GRACE_MS;
   }
@@ -295,13 +304,19 @@ export class ClaudeCodeBrain implements Brain {
       return { output: "" as T, totalCostUsd: 0, dryRun: true, ...info };
     }
     if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
-    const env = scrubEnv(this.opts.env ?? process.env, this.opts.passEnv);
+    if (opts.resume && opts.workDir !== undefined && !existsSync(opts.workDir)) {
+      throw new BrainError("failed", "Cannot resume the session: its working directory is gone (the Spec was drafted before sessions were resumable)", info);
+    }
+    // Project instructions (CLAUDE.md) found in parent directories of a stable working dir must not reach the child.
+    const env = { ...scrubEnv(this.opts.env ?? process.env, this.opts.passEnv), CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" };
     let isolated: string | undefined;
     let out: ExecResult;
     try {
-      if (this.opts.cwd === undefined && this.opts.skillsDir !== undefined) isolated = prepareSkillCwd(this.opts.skillsDir, task);
+      let cwd = this.opts.cwd;
+      if (opts.workDir !== undefined) cwd = prepareSkillDir(opts.workDir, this.opts.skillsDir, task);
+      else if (cwd === undefined && this.opts.skillsDir !== undefined) cwd = isolated = prepareSkillCwd(this.opts.skillsDir, task);
       out = await exec(command, args, {
-        cwd: this.opts.cwd ?? isolated,
+        cwd,
         env,
         timeoutMs: route.timeoutMs,
         killGraceMs: this.opts.killGraceMs ?? 5_000,
@@ -352,6 +367,18 @@ function prepareSkillCwd(skillsDir: string, task: BrainTask): string {
     rmSync(dir, { recursive: true, force: true });
     throw e;
   }
+}
+
+/** Makes `dir` (kept across runs) hold exactly the task's skill, refreshed each run so skill edits apply. */
+function prepareSkillDir(dir: string, skillsDir: string | undefined, task: BrainTask): string {
+  mkdirSync(dir, { recursive: true });
+  if (skillsDir !== undefined) {
+    const dest = join(dir, ".claude", "skills", task);
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(dest, { recursive: true });
+    cpSync(join(skillsDir, task), dest, { recursive: true });
+  }
+  return dir;
 }
 
 interface ExecResult {
