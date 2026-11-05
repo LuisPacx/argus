@@ -5,8 +5,8 @@
 
 **Blocked by:** 15
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ADR records the Operator's answers to questions 1 to 9
-- [ ] Architecture §4 and §10 match the implemented behaviour
-- [ ] Ticket 10's acceptance run lists "image built, network created, token set" as prerequisites
+- [x] ADR records the Operator's answers to questions 1 to 9
+- [x] Architecture §4 and §10 match the implemented behaviour
+- [x] Ticket 10's acceptance run lists "image built, network created, token set" as prerequisites

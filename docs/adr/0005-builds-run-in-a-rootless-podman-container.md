@@ -6,7 +6,7 @@ Design note and spike results: `.scratch/phase-1-build-path/containment-design.m
 
 ## What was decided
 
-- **Boundary.** Three container roles per Build, all from the one image `localhost/argus-build:<tag>`: `agent` (the `claude` run), `install` (`pnpm install --frozen-lockfile` of a fresh export of the checked commit) and `bundle` (`wrangler deploy --dry-run --outdir --metafile`, with no network at all). The host verifies the metafile and deploys the checked output with `--no-bundle` using its own credentials. Each container is `--rm`, named `argus-<role>-<id>-<nonce>`, labelled `argus.build`, `argus.role`, `argus.data` and `argus.owner`.
+- **Boundary.** Three container roles per Build, all from the one image `localhost/argus-build:<tag>`: `agent` (the `claude` run), `install` (`pnpm install --frozen-lockfile` of a fresh export of the checked commit) and `bundle` (`wrangler deploy --dry-run --outdir --metafile`, with no network at all). The host verifies the metafile and deploys the checked output with `--no-bundle` using its own credentials. The `agent` role's container is named `argus-build-<id>-<nonce>`, and the `install` and `bundle` roles are `argus-<role>-<id>-<nonce>` (the names `NAME_RE` in `packages/core/src/sandbox.ts` accepts). Each container is `--rm`, labelled `argus.build`, `argus.role`, `argus.data` and `argus.owner`.
 - **Policy of every container.** `--userns=keep-id`, `--cap-drop=all`, `no-new-privileges`, `--read-only`, `--pull=never`, `--init`, `--log-driver=none`, pid, memory and CPU caps, `--timeout` (the caller's wall clock plus 60 s, enforced by conmon), and `noexec,nosuid,nodev` tmpfs on `/tmp`, `/var/tmp` and `/run`. No `--privileged`, host network, `--env-host`, device or socket.
 - **Mounts and env.** Only the job's directories (the Build repo, or the work directory of the install and bundle steps, at the same absolute path, `:Z`) and a per-Build home at `/home/agent`. The container env is an explicit allowlist (`containerEnv`); the only secret is `CLAUDE_CODE_OAUTH_TOKEN`, in the `agent` container only, passed by name so its value is never on a command line.
 - **Network.** `argus-build-net` is created `--internal --disable-dns` (10.89.77.0/24). The `agent` and `install` containers reach nothing except an argus-owned CONNECT-only proxy sidecar (same image, `node /opt/argus/egress-proxy.mjs`) at the fixed address 10.89.77.2:3128, which also sits on the default `podman` network and tunnels only `api.anthropic.com:443` and `registry.npmjs.org:443` (exact match, no wildcards, private answers refused, denials logged). Topology enforces the allowlist; a client that ignores `HTTPS_PROXY` simply has no route. The fixed address means one sidecar at a time, so Builds are serial.
@@ -39,7 +39,7 @@ Where `containment-design.md` and the code disagree, the code is described above
 8. `verify:contain` uses a dummy token and has no real-token check; `verify:boot` uses the shared `checkDryRunOutput` policy instead of extended `REQUIRED_BUILD_LINES`.
 9. `scripts/image-build.mjs` reads `PODMAN`, the worker reads `ARGUS_PODMAN_BIN`.
 
-## Considered options
+## Considered Options
 
 - **The reference devcontainer firewall (iptables default-deny).** Needs `NET_ADMIN`/`NET_RAW` in the container the agent controls, or a root entrypoint that drops them, and resolves names once, which goes stale for CDN hosts. Rejected for the proxy topology.
 - **pasta plus a host-side proxy.** pasta gives the container full outbound, so the proxy would be advisory. Rejected.
