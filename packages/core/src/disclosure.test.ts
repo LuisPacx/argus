@@ -70,6 +70,47 @@ describe("checkDisclosure", () => {
     }
   });
 
+  it("treats entity-encoded style values, closed <details> content, a closed <dialog> and <iframe> fallback as hidden", async () => {
+    const S = DISCLOSURE_SENTENCE;
+    for (const bad of [
+      `<div style="display&#58;none">${S}</div>`,
+      `<div style="display&colon;none">${S}</div>`,
+      `<div style="&#100;isplay:&#110;one">${S}</div>`,
+      `<div style="visibility&#x3a;hidden">${S}</div>`,
+      `<div aria-hidden="&#116;rue">${S}</div>`,
+      `<details><summary>More</summary>${S}</details>`,
+      `<details><summary>More</summary><p>x</p><footer>${S}</footer></details>`,
+      `<details>${S}</details>`,
+      `<dialog>${S}</dialog>`,
+      `<iframe src="/x">${S}</iframe>`,
+      `<iframe>${S}</iframe>`,
+      `<noembed>${S}</noembed>`,
+    ]) {
+      const { fetchFn } = preview({ "/": [200, "text/html", `<!doctype html><html><body>${bad}</body></html>`] }, [404, "text/html", html("", true)]);
+      const res = await check(fetchFn);
+      expect(res.ok, bad).toBe(false);
+      expect(res.problems.join("\n"), bad).toContain("/: HTML page without the exact disclosure sentence");
+    }
+  });
+
+  it("counts an open <details>, the <summary> of a closed one, and an open <dialog> as visible", async () => {
+    const S = DISCLOSURE_SENTENCE;
+    for (const good of [`<details open><summary>More</summary>${S}</details>`, `<details><summary>${S}</summary>hidden</details>`, `<dialog open>${S}</dialog>`]) {
+      const { fetchFn } = preview({ "/": [200, "text/html", `<!doctype html><html><body>${good}</body></html>`] }, [404, "text/html", html("", true)]);
+      expect((await check(fetchFn)).ok, good).toBe(true);
+    }
+  });
+
+  it("reads links the way a browser does: an entity-encoded href is decoded before it is crawled", async () => {
+    const { fetchFn } = preview({
+      "/": [200, "text/html", html('<a title="a>b" href="/ab&#111;ut">about</a>')],
+      "/about": [200, "text/html", html("<p>about</p>", false)],
+    });
+    const res = await check(fetchFn);
+    expect(res.ok).toBe(false);
+    expect(res.problems.join("\n")).toContain("/about");
+  });
+
   it("still passes when hidden elements sit beside a visible sentence, and when it is split across visible tags", async () => {
     const S = DISCLOSURE_SENTENCE;
     const body = `<div hidden>secret</div><p style="display:none">x</p><footer><b>This project was created by argus</b>, an autonomous project builder. <i>The creator may sell this project.</i></footer><div aria-hidden="false">${S}</div>`;

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildLogPathFor, classifyFinalMessage, runNextBuild } from "./build-runner.ts";
 import { PAGE, fakePreview, makeHarness, type Harness } from "./testing/build-harness.ts";
 import { untilExists } from "./testing/wait.ts";
@@ -174,11 +174,23 @@ describe("Build Runner: spend is recorded on every path", () => {
   });
 
   it("the wall-clock cap kills the child, fails the Build and records the run", async () => {
-    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "hang-report", FAKE_CLAUDE_EFFECT: "" }, routing: { build: { timeoutMs: 400 } } });
-    const r = await build(h);
-    expect(r.after.status).toBe("build-failed");
-    expect(r.runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0.004 }]);
-    expect(r.reason).toContain("timed-out");
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "hang-report", FAKE_CLAUDE_EFFECT: "" }, routing: { build: { timeoutMs: 60_000 } } });
+    // The cap is a timer here, driven by hand once claude says it is up (its SIGTERM handler, which reports the cost, is
+    // installed by then): no guess at how long node takes to start under load.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const p = h.seedApproved("Cat Coin");
+      const running = runNextBuild(h.store, h.brain, h.options);
+      await untilExists(h.started);
+      vi.advanceTimersByTime(60_000);
+      await running;
+      const runs = h.store.brainRunsFor(p.id);
+      expect(h.store.getProposal(p.id)!.status).toBe("build-failed");
+      expect(runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0.004 }]);
+      expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("timed-out");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shutdown mid-run kills the child, records it interrupted and frees the Build slot", async () => {

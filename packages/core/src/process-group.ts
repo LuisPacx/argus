@@ -14,12 +14,18 @@ export function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-/** Children whose pipes have closed: nothing of their group is left to signal. */
+/** Children whose pipes have closed. */
 const closed = new WeakSet<ChildProcess>();
 
-/** Call from the child's `close` handler. */
+/**
+ * Call from the child's `close` handler. Whatever the leader's exit was (a normal one, a signal, a timeout), anything still
+ * running in its group is killed now: a grandchild that outlives a leader dying on SIGTERM, or a background process left
+ * behind by a command that exited normally (it could go on to change the repo after argus has checked it), has no business
+ * running once its command is over.
+ */
 export function markClosed(child: ChildProcess): void {
   closed.add(child);
+  signalGroup(child, "SIGKILL");
 }
 
 export const isClosed = (child: ChildProcess): boolean => closed.has(child);
@@ -27,6 +33,7 @@ export const isClosed = (child: ChildProcess): boolean => closed.has(child);
 /**
  * SIGTERM to the child's whole group, then SIGKILL to the group after `graceMs` unless the child has closed by then. Escalates
  * on the group even if the leader has already exited: a grandchild that holds the output pipes open keeps `close` from firing.
+ * Once `close` fires, `markClosed` has already killed the group, so the timer has nothing left to do and is dropped.
  */
 export function killGroup(child: ChildProcess, graceMs: number): void {
   if (isClosed(child)) return;

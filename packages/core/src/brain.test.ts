@@ -140,9 +140,11 @@ describe("ClaudeCodeBrain", () => {
         return false;
       }
     };
-    const untilDead = async (pid: number, deadlineMs = 5_000) => {
+    // Real timers even while a test fakes the global ones.
+    const realSetTimeout = globalThis.setTimeout;
+    const untilDead = async (pid: number, deadlineMs = 20_000) => {
       const end = Date.now() + deadlineMs;
-      while (alive(pid) && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+      while (alive(pid) && Date.now() < end) await new Promise((r) => realSetTimeout(r, 10));
       expect(alive(pid)).toBe(false);
     };
     const fast = (timeoutMs: number) => resolveRouting({ spec: { timeoutMs } });
@@ -191,14 +193,36 @@ describe("ClaudeCodeBrain", () => {
         expect(alive(pid)).toBe(false);
       }));
 
-    it("the timeout kills the whole process group: a grandchild that ignores SIGTERM dies too", async () => {
-      const { brain, started, grandchild } = setup("hang-stubborn", { routing: fast(300), killGraceMs: 100 });
-      const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
-      await untilExists(started);
-      const gc = Number(readFileSync(grandchild, "utf8"));
-      expect(alive(gc)).toBe(true);
-      expect(await running).toMatchObject({ kind: "timed-out" });
-      await untilDead(gc);
+    it("the timeout kills the whole process group: a grandchild that ignores SIGTERM dies too", () =>
+      withFakeTimers(async () => {
+        const { brain, started, termed, grandchild } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 100 });
+        const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+        await untilExists(started);
+        const gc = Number(readFileSync(grandchild, "utf8"));
+        expect(alive(gc)).toBe(true);
+        vi.advanceTimersByTime(CAP); // SIGTERM: the leader and the grandchild both ignore it
+        await untilExists(termed);
+        vi.advanceTimersByTime(100); // grace over: SIGKILL to the group
+        expect(await running).toMatchObject({ kind: "timed-out" });
+        await untilDead(gc);
+      }));
+
+    it("a grandchild that outlives a leader dying on SIGTERM is SIGKILLed with the group, not left until the grace runs out", () =>
+      withFakeTimers(async () => {
+        // The grace timer is never advanced: only the group kill at `close` can end the grandchild.
+        const { brain, started, grandchild } = setup("hang", { routing: fast(CAP), killGraceMs: 60_000 });
+        const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+        await untilExists(started);
+        const gc = Number(readFileSync(grandchild, "utf8"));
+        vi.advanceTimersByTime(CAP); // SIGTERM: the leader dies, the grandchild ignores it
+        expect(await running).toMatchObject({ kind: "timed-out" });
+        await untilDead(gc);
+      }));
+
+    it("a process the child leaves running after a normal exit is reaped with its group", async () => {
+      const { brain, grandchild } = setup("success-straggler");
+      await brain.run("spec", { prompt: "p" });
+      await untilDead(Number(readFileSync(grandchild, "utf8")));
     });
 
     it("shutdown kills the whole process group, grandchildren included", async () => {

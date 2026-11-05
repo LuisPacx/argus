@@ -36,7 +36,7 @@ export function makeTemplate(root: string): string {
   writeFileSync(join(dir, ".github/workflows/ci.yml"), "name: ci\n");
   writeFileSync(join(dir, "src/index.ts"), "export default {};\n");
   writeFileSync(join(dir, "wrangler.jsonc"), '{\n  // The Build Runner replaces "name" with the project slug before deploying.\n  "name": "argus-build-template",\n  "main": "src/index.ts"\n}\n');
-  writeFileSync(join(dir, ".gitignore"), "node_modules/\n.fake-sessions/\n");
+  writeFileSync(join(dir, ".gitignore"), "node_modules/\n.fake-sessions/\n.env\n.env.*\n.dev.vars\n");
   vcs(dir, "init", "--quiet", "-b", "main");
   vcs(dir, "add", "-A");
   vcs(dir, "commit", "--quiet", "-m", "Template");

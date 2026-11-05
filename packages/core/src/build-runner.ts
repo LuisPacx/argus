@@ -31,6 +31,8 @@ export interface BuildRunnerOptions {
   /** Tries (and wait between them) for a fresh preview to respond. Defaults 6 and 5 s. */
   previewAttempts?: number;
   previewDelayMs?: number;
+  /** How often the Build's run row is touched to show the worker is alive (the stale sweep counts from it). Default 60 s. */
+  heartbeatMs?: number;
   /** Per git, gh and wrangler command. Default 10 minutes. */
   commandTimeoutMs?: number;
   /** Logs every clone, repo-create, spawn and deploy command and runs none of them. */
@@ -237,7 +239,7 @@ function dryRun(brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal): Bui
   say(o.gitBin ?? "git", ["push", "<origin>", "<commit>:refs/heads/<branch>"]);
   const args = brain.buildArgs("build", { prompt: String(p.id), slash: "implement-spec" });
   log(`[build ${p.id}] dry-run: claude (cwd ${repo}) ${args.map((a) => (/[\s"']/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
-  say(o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler.jsonc"]);
+  say(o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler.jsonc", "--env-file", "<argus-seal>/empty.env"]);
   return { proposalId: p.id, result: "dry-run" };
 }
 
@@ -329,6 +331,11 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     if (!notFound) throw new StepError(`could not check the Cloudflare account for a Worker named ${p.slug} (HTTP ${res.status})`);
   };
 
+  // Beats for as long as this Build runs, whatever phase it is in: the stale sweep fails a Build whose worker went quiet for the
+  // route's cap plus a grace, which a long deploy, crawl or push after a full-length claude run would otherwise look like.
+  const heartbeat = setInterval(() => store.touchBrainRun(runId), o.heartbeatMs ?? 60_000);
+  heartbeat.unref();
+
   // Scratch space for after the agent has run: a git directory of argus's own, and the wrangler config.
   let seal: string | undefined;
   try {
@@ -411,8 +418,8 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     // from HEAD's tree, so the tree is compared by content, and no filter or attribute driver is defined to run.
     const onTree = { ...gitEnv, GIT_DIR: sealGit, GIT_WORK_TREE: repo };
     await sealed("git update-ref", "update-ref", "--no-deref", "HEAD", head);
-    await step("git read-tree", git, [...SAFE_GIT, "read-tree", head], onTree, repo);
-    const dirty = await step("git status", git, [...SAFE_GIT, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all"], onTree, repo);
+    await step("git read-tree", git, [...SAFE_GIT, "read-tree", head], onTree, seal);
+    const dirty = await step("git status", git, [...SAFE_GIT, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all"], onTree, seal);
     if (dirty) return fail(`the working tree is not clean: ${dirty.split("\n").slice(0, 5).join("; ")}`);
     const changed = await sealed("git diff", "diff", "--name-only", "--no-renames", "--no-ext-diff", templateCommit, head, "--", ...PROTECTED_PATHS);
     if (changed) return fail(`protected paths differ from the template: ${changed.split("\n").slice(0, 5).join(", ")}`);
@@ -437,7 +444,12 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     const configPath = join(seal, "wrangler.jsonc");
     writeFileSync(configPath, wranglerConfigFor(p.slug, main));
     await requireFreeWorkerName();
-    const deployed = await step("wrangler deploy", o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", configPath], wranglerEnv, repo);
+    // wrangler loads .env, .env.local and .dev.vars from its working directory, and the agent can leave those in the repo (the
+    // template ignores them, so the clean-tree check passes): a CLOUDFLARE_API_BASE_URL there would send the Operator's token to
+    // the agent. So it runs in argus's scratch directory, and --env-file names an empty file of argus's own as a second guard.
+    const envFile = join(seal, "empty.env");
+    writeFileSync(envFile, "");
+    const deployed = await step("wrangler deploy", o.wranglerBin ?? "wrangler", ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile], wranglerEnv, seal);
     const url = WORKERS_DEV_URL_RE.exec(deployed)?.[0];
     if (!url) return fail("wrangler deploy printed no workers.dev URL");
     note(`Deployed to ${url}; checking the preview`);
@@ -463,6 +475,7 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));
   } finally {
+    clearInterval(heartbeat);
     if (seal) rmSync(seal, { recursive: true, force: true });
     closeRun();
   }

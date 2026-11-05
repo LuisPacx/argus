@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildLogPathFor, runNextBuild, runPendingBuilds } from "./build-runner.ts";
@@ -41,7 +41,9 @@ describe("Build Runner: happy path", () => {
     const [deploy] = h.calls(h.wranglerLog);
     expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
     expect(deploy!.argv[3]).toBe("--config");
-    expect(deploy!.cwd).toBe(repo);
+    // Not the agent's repo: wrangler loads .env files from its cwd (see build-runner-hardening.test.ts).
+    expect(deploy!.cwd).not.toBe(repo);
+    expect((deploy!.cwd as string).startsWith(realpathSync(repo))).toBe(false);
     expect(deploy!.cf).toEqual({ CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct" });
     expect(deploy!.keys).not.toContain("ANTHROPIC_API_KEY");
 

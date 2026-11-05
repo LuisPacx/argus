@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, sep } from "node:path";
-import { describe, expect, it } from "vitest";
+import { dirname, isAbsolute, join, sep } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { runNextBuild } from "./build-runner.ts";
 import { makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
 import { untilExists } from "./testing/wait.ts";
@@ -28,9 +28,11 @@ const alive = (pid: number) => {
     return false;
   }
 };
-const untilDead = async (pid: number, deadlineMs = 5_000) => {
+// Real timers even while a test fakes the global ones.
+const realSetTimeout = globalThis.setTimeout;
+const untilDead = async (pid: number, deadlineMs = 20_000) => {
   const end = Date.now() + deadlineMs;
-  while (alive(pid) && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  while (alive(pid) && Date.now() < end) await new Promise((r) => realSetTimeout(r, 10));
   expect(alive(pid)).toBe(false);
 };
 
@@ -68,6 +70,30 @@ describe("deploy uses a wrangler config that argus wrote", () => {
   });
 });
 
+describe("wrangler never runs where the agent's files are", () => {
+  it("runs in argus's own scratch directory with an argus-owned empty --env-file, so a hostile .env, .env.local or .dev.vars in the repo is never loaded", async () => {
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "commit,plant-env" } });
+    const r = await build(h);
+    expect(r.after.status).toBe("built");
+    const repo = realpathSync(h.repoDir("cat-coin"));
+    // The hostile files really are in the repo (ignored by the template, so the clean-tree check passes them).
+    expect(readFileSync(join(repo, ".env"), "utf8")).toContain("CLOUDFLARE_API_BASE_URL");
+
+    const [deploy] = r.deploys;
+    const cwd = deploy!.cwd as string; // the scratch directory is gone by now, so no realpath
+    const config = deploy!.argv[deploy!.argv.indexOf("--config") + 1] as string;
+    expect(cwd === repo || cwd.startsWith(repo + sep)).toBe(false);
+    expect(cwd).toBe(dirname(config));
+    expect(deploy!.cwdEnvFiles).toEqual([]);
+    expect(deploy!.envFiles).toHaveLength(1);
+    const envFile = deploy!.envFiles[0] as string;
+    expect(isAbsolute(envFile)).toBe(true);
+    expect(envFile.startsWith(repo + sep)).toBe(false);
+    expect(deploy!.envFileTexts).toEqual([""]);
+    expect(Object.keys(deploy!.cf)).toEqual(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
+  });
+});
+
 describe("runner git ignores every config the agent or the machine could supply", () => {
   it("never runs a filter, credential helper or ssh command from .git/config, and pushes to the real origin despite pushurl and insteadOf", async () => {
     const pwned = marker("gitconfig");
@@ -94,12 +120,41 @@ describe("a command's whole process group is killed on timeout", () => {
   it("a wrangler that hangs after starting a grandchild is killed with it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
     const grandchild = join(dir, "grandchild");
-    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_GRANDCHILD: grandchild, FAKE_WRANGLER_STARTED: join(dir, "started") } });
-    h.options.commandTimeoutMs = 2_000;
-    const r = await build(h);
-    expect(r.after.status).toBe("build-failed");
-    expect(r.reason).toContain("wrangler deploy failed");
+    const started = join(dir, "started");
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_GRANDCHILD: grandchild, FAKE_WRANGLER_STARTED: started } });
+    // The command timeout is a timer here, driven by hand once wrangler says it is up: no guess at how long node takes to start.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const p = h.seedApproved("Cat Coin");
+      const running = runNextBuild(h.store, h.brain, h.options);
+      await untilExists(started);
+      vi.advanceTimersByTime(h.options.commandTimeoutMs ?? 10 * 60_000);
+      await running;
+      const after = h.store.getProposal(p.id)!;
+      expect(after.status).toBe("build-failed");
+      expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("wrangler deploy failed");
+    } finally {
+      vi.useRealTimers();
+    }
     await untilDead(Number(readFileSync(grandchild, "utf8")));
+  });
+});
+
+describe("every normal exit reaps the command's process group", () => {
+  it("a process wrangler leaves running after a successful deploy is killed", async () => {
+    const straggler = marker("straggler");
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STRAGGLER: straggler } });
+    const r = await build(h);
+    expect(r.after.status).toBe("built");
+    await untilDead(Number(readFileSync(straggler, "utf8")));
+  });
+
+  it("a process claude leaves running after a normal exit is killed before the runner checks the repo", async () => {
+    const straggler = marker("claude-straggler");
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_MODE: "success-straggler", FAKE_CLAUDE_GRANDCHILD: straggler } });
+    const r = await build(h);
+    expect(r.after.status).toBe("built");
+    await untilDead(Number(readFileSync(straggler, "utf8")));
   });
 });
 
@@ -134,6 +189,47 @@ describe("the build run stays open until the Build is over", () => {
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "build-failed", agentCostUsd: 0.5 });
     expect(h.store.historyFor(p.id).at(-1)).toMatchObject({ to: "build-failed", actor: "build" });
     expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("no open run");
+  });
+
+  it("the sweep counts a Build's age from its last heartbeat, so a live Build that spends hours after claude is not failed", () => {
+    const h = makeHarness();
+    const p = h.seedApproved("Cat Coin");
+    h.store.transition(p.id, "building", "build");
+    const run = h.store.startBrainRun({ proposalId: p.id, task: "build", backend: "claude-code", model: "sonnet" });
+    const t0 = Date.now();
+    const stale = (task: string) => h.brain.staleAfterMs(task); // the build cap plus the grace: 4 h 5 min
+    // claude used its whole 4 h; the deploy, crawl and push now run on a worker that is still alive and beating.
+    h.store.touchBrainRun(run, new Date(t0 + 3 * 60 * 60_000 + 55 * 60_000));
+    expect(h.store.interruptStaleBrainRuns(stale, new Date(t0 + 4 * 60 * 60_000 + 30 * 60_000))).toBe(0);
+    expect(h.store.getProposal(p.id)!.status).toBe("building");
+    // A worker that died stops beating, and the run is stale once the window has passed since its last beat.
+    expect(h.store.interruptStaleBrainRuns(stale, new Date(t0 + 8 * 60 * 60_000 + 5 * 60_000))).toBe(1);
+    expect(h.store.getProposal(p.id)!.status).toBe("build-failed");
+  });
+
+  it("a running Build beats while it deploys", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const started = join(dir, "started");
+    const release = join(dir, "release");
+    const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STARTED: started, FAKE_WRANGLER_RELEASE: release } });
+    h.options.heartbeatMs = 10;
+    const p = h.seedApproved("Cat Coin");
+    const running = runNextBuild(h.store, h.brain, h.options);
+    await untilExists(started);
+    const beat = () => h.store.brainRunsFor(p.id)[0]!.heartbeatAt;
+    const waitFor = async (ok: () => boolean) => {
+      for (const end = Date.now() + 20_000; !ok() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 10));
+      expect(ok()).toBe(true);
+    };
+    await waitFor(() => beat() !== null);
+    const first = beat();
+    await waitFor(() => beat() !== first);
+    writeFileSync(release, "");
+    expect(await running).toEqual({ proposalId: p.id, result: "built" });
+    // Once the run is closed nothing touches it again.
+    const last = beat();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(beat()).toBe(last);
   });
 
   it("the sweep leaves a building Proposal with a young open run alone", () => {

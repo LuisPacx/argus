@@ -60,9 +60,11 @@ export interface BrainRunRecord {
   totalCostUsd: number;
   exitStatus: string;
   createdAt: string;
+  /** Last time the process running it said it was alive (see touchBrainRun); null if it never did. */
+  heartbeatAt: string | null;
 }
 
-export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt">;
+export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt">;
 
 /** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
 export const BRAIN_RUN_IN_FLIGHT = "in-flight";
@@ -140,6 +142,7 @@ export function migrate(db: DatabaseSync): void {
     exit_status TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
+  ensureColumn(db, "brain_runs", "heartbeat_at", "TEXT");
   ensureColumn(db, "proposals", "spec_path", "TEXT");
   ensureColumn(db, "proposals", "spec_hash", "TEXT");
   ensureColumn(db, "proposals", "spec_error", "TEXT NOT NULL DEFAULT ''");
@@ -428,6 +431,7 @@ export class Datastore {
       total_cost_usd: number;
       exit_status: string;
       created_at: string;
+      heartbeat_at: string | null;
     }[];
     return rows.map((r) => ({
       id: r.id,
@@ -439,6 +443,7 @@ export class Datastore {
       totalCostUsd: r.total_cost_usd,
       exitStatus: r.exit_status,
       createdAt: r.created_at,
+      heartbeatAt: r.heartbeat_at,
     }));
   }
 
@@ -476,6 +481,15 @@ export class Datastore {
     this.db.prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ? WHERE id = ? AND exit_status = ?").run(spend.sessionId, spend.totalCostUsd, id, BRAIN_RUN_IN_FLIGHT);
   }
 
+  /**
+   * WORKER ONLY. Says an open run's process is alive. The stale sweep counts a run's age from its last beat (or its start, if
+   * it never beat), so a Build that is still working after claude has used its whole cap (the deploy, the preview crawl and the
+   * push take as long as they take, each bounded by its own timeout) is not mistaken for one a dead worker left behind.
+   */
+  touchBrainRun(id: number, now = new Date()): void {
+    this.db.prepare("UPDATE brain_runs SET heartbeat_at = ? WHERE id = ? AND exit_status = ?").run(now.toISOString(), id, BRAIN_RUN_IN_FLIGHT);
+  }
+
   /** WORKER ONLY. Records what a run cost and how it ended, as soon as the child is done. */
   finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }): void {
     this.db
@@ -494,7 +508,7 @@ export class Datastore {
   }
 
   /**
-   * WORKER ONLY, call at worker boot and on every tick. Marks each open run older than `staleAfterMs(its task)` as `interrupted` (its
+   * WORKER ONLY, call at worker boot and on every tick. Marks each open run whose last sign of life (its last heartbeat, else its start) is older than `staleAfterMs(its task)` as `interrupted` (its
    * spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
    * Nothing is retried: the failure shows on the card. `staleAfterMs` is the task's run timeout plus a grace
    * period: a live run is killed at its timeout, so a younger row may belong to a live worker (this process, or a
@@ -504,7 +518,7 @@ export class Datastore {
   interruptStaleBrainRuns(staleAfterMs: (task: string) => number, now = new Date()): number {
     return this.inTransaction(() => {
       const rows = this.db
-        .prepare("SELECT id, proposal_id, task, created_at FROM brain_runs WHERE exit_status = ?")
+        .prepare("SELECT id, proposal_id, task, COALESCE(heartbeat_at, created_at) AS created_at FROM brain_runs WHERE exit_status = ?")
         .all(BRAIN_RUN_IN_FLIGHT) as unknown as { id: number; proposal_id: number; task: string; created_at: string }[];
       let n = 0;
       for (const r of rows) {

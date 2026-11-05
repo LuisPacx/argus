@@ -4,9 +4,11 @@
 // FAKE_WRANGLER_FAIL=1 makes it fail; FAKE_WRANGLER_URL overrides the printed URL.
 // FAKE_WRANGLER_STARTED, when set, is written to once the deploy is under way. FAKE_WRANGLER_RELEASE, when set, makes the
 // deploy wait until that file exists. FAKE_WRANGLER_HANG=1 never finishes (after starting a grandchild in the same process
-// group whose pid goes to FAKE_WRANGLER_GRANDCHILD).
+// group whose pid goes to FAKE_WRANGLER_GRANDCHILD). FAKE_WRANGLER_STRAGGLER, a file, receives the pid of a SIGTERM-ignoring process
+// in the same group that is left running after a normal exit. The log also records the .env* files in the cwd and the contents
+// of every --env-file, as wrangler would load them.
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_WRANGLER_LOG) {
@@ -18,16 +20,30 @@ if (process.env.FAKE_WRANGLER_LOG) {
   } catch {
     // no readable config
   }
-  appendFileSync(process.env.FAKE_WRANGLER_LOG, JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText }) + "\n");
+  const cwdEnvFiles = readdirSync(".").filter((f) => f.startsWith(".env") || f === ".dev.vars");
+  const envFiles = argv.flatMap((a, i) => (a === "--env-file" ? [argv[i + 1]] : []));
+  const envFileTexts = envFiles.map((f) => {
+    try {
+      return readFileSync(f, "utf8");
+    } catch {
+      return null;
+    }
+  });
+  appendFileSync(process.env.FAKE_WRANGLER_LOG, JSON.stringify({ argv, cwd: process.cwd(), cf, keys: Object.keys(process.env), configText, cwdEnvFiles, envFiles, envFileTexts }) + "\n");
 }
 if (process.env.FAKE_WRANGLER_HANG) {
   if (process.env.FAKE_WRANGLER_GRANDCHILD) {
-    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: "ignore" });
+    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
     writeFileSync(process.env.FAKE_WRANGLER_GRANDCHILD, String(gc.pid));
   }
   if (process.env.FAKE_WRANGLER_STARTED) writeFileSync(process.env.FAKE_WRANGLER_STARTED, String(process.pid));
   setInterval(() => {}, 1000);
 } else {
+  if (process.env.FAKE_WRANGLER_STRAGGLER) {
+    const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" });
+    gc.unref();
+    writeFileSync(process.env.FAKE_WRANGLER_STRAGGLER, String(gc.pid));
+  }
   if (process.env.FAKE_WRANGLER_STARTED) writeFileSync(process.env.FAKE_WRANGLER_STARTED, String(process.pid));
   while (process.env.FAKE_WRANGLER_RELEASE && !existsSync(process.env.FAKE_WRANGLER_RELEASE)) await new Promise((r) => setTimeout(r, 10));
   if (process.env.FAKE_WRANGLER_FAIL) {
