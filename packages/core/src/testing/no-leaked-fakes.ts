@@ -48,7 +48,7 @@ export default function setup(): () => Promise<void> {
   if (process.platform !== "linux") return async () => {};
   const dir = registryDirFor(process.pid);
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
-  mkdirSync(dir);
+  mkdirSync(dir, { recursive: true });
   return async () => {
     try {
       // A process just killed may take a moment to disappear.

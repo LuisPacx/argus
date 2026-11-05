@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,6 +33,24 @@ describe("the leak guard only claims fakes started under its own test run", () =
       rmSync(mine, { recursive: true, force: true });
       rmSync(other, { recursive: true, force: true });
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the registry is on the home disk, not under the TMPDIR or /tmp", () => {
+    expect(registryDirFor(1)).toMatch(/\/node_modules\/\.cache\/argus-fakes\/1$/);
+  });
+
+  it("a fake that finds its run's registry but cannot write to it fails loudly", () => {
+    const mine = registryDirFor(process.pid);
+    mkdirSync(mine, { recursive: true });
+    chmodSync(mine, 0o500);
+    try {
+      const r = spawnSync(join(import.meta.dirname, "fake-gh.mjs"), [], { env: { PATH: process.env.PATH }, encoding: "utf8" });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/EACCES/);
+    } finally {
+      chmodSync(mine, 0o700);
+      rmSync(mine, { recursive: true, force: true });
     }
   });
 
