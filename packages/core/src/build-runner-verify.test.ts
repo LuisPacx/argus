@@ -45,6 +45,36 @@ describe("Build Runner: a Build succeeds only on argus's own checks", { timeout:
     expect((await build(h)).after.status).toBe("built");
   });
 
+  it("a needs-human marker only inside a tool result does not route to needs-human", async () => {
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_NOISE: 'ARGUS_NEEDS_HUMAN::{"reason":"from a tool result"}' } });
+    expect((await build(h)).after.status).toBe("built");
+  });
+
+  it("needs-human is final: one claude run, no retry, no deploy", async () => {
+    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "", FAKE_CLAUDE_RESULT: 'No.\nARGUS_NEEDS_HUMAN::{"reason":"needs a wallet"}' } });
+    const r = await build(h);
+    expect(r.after.status).toBe("needs-human");
+    expect(h.calls(h.claudeLog)).toHaveLength(1);
+    expect(h.store.listProposals().some((p) => p.status === "building")).toBe(false);
+  });
+
+  it("a Spec whose first line is `## Needs human` goes approved -> needs-human before anything is spawned", async () => {
+    const h = makeHarness();
+    const p = h.seedApproved("Chain Coin");
+    writeFileSync(p.specPath!, "## Needs human\n\nThe Tech needs an on-chain program.\n");
+    const outcome = await runNextBuild(h.store, h.brain, h.options);
+    const after = h.store.getProposal(p.id)!;
+    expect(outcome).toEqual({ proposalId: p.id, result: "needs-human" });
+    expect(after.status).toBe("needs-human");
+    expect(h.store.historyFor(p.id).at(-1)).toMatchObject({ from: "approved", to: "needs-human" });
+    expect(h.store.historyFor(p.id).at(-1)!.reason).toContain("on-chain program");
+    expect(h.calls(h.claudeLog)).toEqual([]);
+    expect(h.calls(h.ghLog)).toEqual([]);
+    expect(h.podmanCalls()).toEqual([]);
+    expect(h.store.brainRunsFor(p.id)).toEqual([]);
+    expect(existsSync(h.repoDir(p.slug))).toBe(false);
+  });
+
   it("ARGUS_BUILD_FAILED as the last line fails the Build with the summary, no deploy", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_RESULT: 'I gave up.\nARGUS_BUILD_FAILED::{"summary":"pnpm check still failing"}' } });
     const r = await build(h);

@@ -7,7 +7,7 @@
 // FAKE_CLAUDE_EFFECT, a comma-separated list, makes a successful run act like a Build in its cwd (a repo) before it prints its
 // result: commit | dirty (leave an untracked file) | tamper-scripts | tamper-package-scripts | tamper-claude | tamper-github |
 // tamper-wrangler-build | tamper-wrangler-config | plant-env (ignored .env, .env.local, .dev.vars) | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
-// until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
+// until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker (any other value is used as the tool result's text).
 // More effects: symlink-file (commit-ready symlink src/link.txt -> /etc/hostname) | gitlink (commit a submodule entry vendor/sub;
 // follow `commit`) | index-from-env (src/index.ts := FAKE_CLAUDE_INDEX_TS) | write-files (FAKE_CLAUDE_FILES, a JSON object of
 // path -> text, written before `commit`) | ignored-files (untracked, ignored node_modules/ and .env).
@@ -211,7 +211,7 @@ if (format === "stream-json") {
   );
   console.log(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "working" }] } }));
   if (process.env.FAKE_CLAUDE_NOISE) {
-    console.log(JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: 'ARGUS_BUILD_FAILED::{"summary":"noise from a tool result"}' }] } }));
+    console.log(JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: process.env.FAKE_CLAUDE_NOISE === "1" ? 'ARGUS_BUILD_FAILED::{"summary":"noise from a tool result"}' : process.env.FAKE_CLAUDE_NOISE }] } }));
   }
   console.log(JSON.stringify(result));
 } else {

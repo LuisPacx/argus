@@ -5,6 +5,7 @@ import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
+import { needsHumanSpecReason } from "./spec-drafting.ts";
 import { ownerState, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
@@ -142,28 +143,32 @@ const show = (bin: string, args: readonly string[]) => [bin, ...args].map((a) =>
 /** What the final message's last line says (template README, "Runner contract"). Only that line counts. */
 export type FinalVerdict = { kind: "ok" } | { kind: "needs-human"; reason: string } | { kind: "failed"; summary: string };
 
+const MARKER_NAMES = ["ARGUS_NEEDS_HUMAN", "ARGUS_BUILD_FAILED"] as const;
+
 export function classifyFinalMessage(text: string): FinalVerdict {
-  const last = text.trimEnd().split("\n").at(-1)?.replace(/\r$/, "") ?? "";
-  const marker = /^(ARGUS_NEEDS_HUMAN|ARGUS_BUILD_FAILED)::(.*)$/.exec(last);
-  if (!marker) {
+  const lastRaw = text.trimEnd().split("\n").at(-1) ?? "";
+  const last = lastRaw.endsWith("\r") ? lastRaw.slice(0, -1) : lastRaw;
+  // Agent output is untrusted (standards, rule 13): no pattern matching, a fixed prefix then JSON checked against a strict shape.
+  const name = MARKER_NAMES.find((n) => last.startsWith(`${n}::`));
+  if (!name) {
     // A marker that is not the whole line (backticks, a prefix, an unknown ARGUS_ line) is a malformed marker, not success.
-    if (/ARGUS_(NEEDS_HUMAN|BUILD_FAILED)::/.test(last) || /^ARGUS_[A-Z_]+/.test(last)) {
+    if (MARKER_NAMES.some((n) => last.includes(`${n}::`)) || last.startsWith("ARGUS_")) {
       return { kind: "failed", summary: `The final line looks like a marker but is malformed: ${JSON.stringify(last.slice(0, 200))}` };
     }
     return { kind: "ok" };
   }
   let body: unknown;
   try {
-    body = JSON.parse(marker[2]!);
+    body = JSON.parse(last.slice(name.length + 2));
   } catch {
-    return { kind: "failed", summary: `Unparseable ${marker[1]} marker: ${JSON.stringify(last.slice(0, 200))}` };
+    return { kind: "failed", summary: `Unparseable ${name} marker: ${JSON.stringify(last.slice(0, 200))}` };
   }
-  const field = marker[1] === "ARGUS_NEEDS_HUMAN" ? "reason" : "summary";
-  const value = (body as Record<string, unknown> | null)?.[field];
+  const field = name === "ARGUS_NEEDS_HUMAN" ? "reason" : "summary";
+  const value = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>)[field] : undefined;
   if (typeof value !== "string" || !value.trim()) {
-    return { kind: "failed", summary: `${marker[1]} marker has no "${field}": ${JSON.stringify(last.slice(0, 200))}` };
+    return { kind: "failed", summary: `${name} marker has no "${field}": ${JSON.stringify(last.slice(0, 200))}` };
   }
-  return marker[1] === "ARGUS_NEEDS_HUMAN" ? { kind: "needs-human", reason: value.trim() } : { kind: "failed", summary: value.trim() };
+  return name === "ARGUS_NEEDS_HUMAN" ? { kind: "needs-human", reason: value.trim() } : { kind: "failed", summary: value.trim() };
 }
 
 const stableScripts = (pkg: string): string => {
@@ -312,6 +317,13 @@ export async function runNextBuild(
   const proposal = nextBuildable(store);
   if (!proposal) return undefined;
   if (o.dryRun) return dryRun(brain, o, proposal);
+  // Entry point 1 (approved -> needs-human): a Spec that is the `## Needs human` refusal is never built, so no slot, clone or container.
+  // It runs before the preflight: routing it needs no podman.
+  const refusal0 = needsHumanReasonOf(proposal);
+  if (refusal0 !== null) {
+    store.transition(proposal.id, "needs-human", "build", `Spec needs a human: ${refusal0 || "the Spec is a Needs human refusal"}`.slice(0, 500));
+    return { proposalId: proposal.id, result: "needs-human" };
+  }
   // Preflight: no Build starts without podman, the image, the network and the token. The Proposal stays approved and the next
   // tick tries again; the reason is logged when it first appears or changes, not every tick.
   const refusal = await o.sandbox.preflight();
@@ -327,6 +339,15 @@ export async function runNextBuild(
   if (signal?.aborted || nextBuildable(store)?.id !== proposal.id) return undefined;
   const runId = store.beginBuild(proposal.id, brain.routeFor("build"));
   return build(store, brain, o, store.getProposal(proposal.id)!, runId, signal);
+}
+
+/** The reason in an approved Proposal's `## Needs human` Spec, or null when its Spec is to be built (or cannot be read: the Build fails that itself). */
+function needsHumanReasonOf(p: Proposal): string | null {
+  try {
+    return needsHumanSpecReason(readFileSync(p.specPath ?? "", "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** One worker pass: build until the queue is empty (a dry run reports the next Build once and stops). */

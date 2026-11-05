@@ -55,6 +55,12 @@ export function specPathFor(dataDir: string, proposalId: number): string {
 const NEEDS_HUMAN = /^## Needs human[ \t]*$/im;
 const ANY_HEADING = /^#{1,2} \S/gm;
 
+/** The explanation of a `## Needs human` Spec (the text under its heading), or null when the Spec is a full Spec. */
+export function needsHumanSpecReason(text: string): string | null {
+  const [first = "", ...rest] = text.trim().split("\n");
+  return NEEDS_HUMAN.test(first) ? rest.join(" ").trim() : null;
+}
+
 /** Sections `.claude/skills/spec/SKILL.md` requires of a full Spec, besides the H1 title. */
 export const REQUIRED_SPEC_HEADINGS = ["Goal", "Scope", "Acceptance criteria"] as const;
 
