@@ -1,6 +1,8 @@
+import dns from "node:dns";
 import { once } from "node:events";
+import { readdirSync } from "node:fs";
 import net from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isPublicAddress, parseAllowlist, startEgressProxy, type EgressProxy, type EgressProxyOptions } from "./egress-proxy.ts";
 
 const ALLOWED = "api.anthropic.com";
@@ -16,6 +18,8 @@ interface Rig {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   while (cleanups.length) await cleanups.pop()!();
 });
 
@@ -404,4 +408,110 @@ describe("egress proxy: limits (bounded buffers, connections and time)", () => {
     await c.until((s) => s.replaceAll("echo:", "").length >= 200_000 + 39);
     expect(c.received().replaceAll("echo:", "").endsWith(big)).toBe(true);
   });
+});
+
+const PUBLIC_IP = "93.184.216.34";
+const PUBLIC_IP_2 = "93.184.216.35";
+
+/**
+ * Production wiring: no testOverrides at all. DNS is stubbed at the node:dns layer and net.connect is
+ * redirected only for the fake public addresses, so the real resolver, the real public-address check
+ * and the real dial code run. `dials` records what the proxy handed to net.connect.
+ */
+async function productionRig(answers: string[], over: Partial<EgressProxyOptions> = {}, hangFirst = false) {
+  const upstream = await fakeUpstream();
+  const realConnect = net.connect;
+  const dials: Array<{ host?: string; port?: number }> = [];
+  const lookups: string[] = [];
+  vi.spyOn(dns.promises, "lookup").mockImplementation((async (h: string) => {
+    lookups.push(h);
+    return answers.map((address) => ({ address, family: net.isIP(address) }));
+  }) as never);
+  vi.spyOn(net, "connect").mockImplementation(((...args: unknown[]) => {
+    const o = args[0] as { host?: string; port?: number };
+    if (typeof o === "object" && o !== null && answers.includes(o.host ?? "")) {
+      dials.push({ host: o.host, port: o.port });
+      // A never-connecting socket stands in for a blackholed address.
+      if (hangFirst && dials.length === 1) return new net.Socket();
+      return realConnect({ host: "127.0.0.1", port: upstream.port });
+    }
+    return (realConnect as (...a: unknown[]) => net.Socket)(...args);
+  }) as never);
+  const proxy = await startEgressProxy({ allow: [`${ALLOWED}:443`], host: "127.0.0.1", port: 0, log: () => {}, ...over });
+  cleanups.push(() => proxy.close());
+  return { proxy, dials, lookups };
+}
+
+describe("egress proxy: the test seam is closed in production", () => {
+  it("refuses testOverrides when not running under vitest", async () => {
+    vi.stubEnv("VITEST", "");
+    await expect(
+      startEgressProxy({ allow: [`${ALLOWED}:443`], host: "127.0.0.1", port: 0, log: () => {}, testOverrides: { allowPrivateAddresses: true } }),
+    ).rejects.toThrow(/testOverrides/);
+  });
+
+  it("tunnels through the default resolver with private addresses disallowed (DNS stubbed at node:dns)", async () => {
+    const r = await productionRig([PUBLIC_IP]);
+    const c = connectClient(r.proxy.port);
+    c.sock.write(connectReq(`${ALLOWED}:443`));
+    await c.until((s) => s.includes("200 Connection Established"));
+    c.sock.write("ping");
+    await c.until((s) => s.endsWith("echo:ping"));
+    expect(r.lookups).toEqual([ALLOWED]);
+  });
+
+  it("still refuses a private answer from the default resolver", async () => {
+    const r = await productionRig(["10.0.0.5"]);
+    const c = connectClient(r.proxy.port);
+    c.sock.write(connectReq(`${ALLOWED}:443`));
+    await c.until((s) => s.includes("403"));
+    expect(r.dials).toEqual([]);
+  });
+
+  it("dials the validated IP on the allowlisted port, never the name, and resolves once", async () => {
+    const r = await productionRig([PUBLIC_IP]);
+    const c = connectClient(r.proxy.port);
+    c.sock.write(connectReq(`${ALLOWED}:443`));
+    await c.until((s) => s.includes("200 Connection Established"));
+    expect(r.dials).toEqual([{ host: PUBLIC_IP, port: 443 }]);
+    expect(r.lookups).toHaveLength(1);
+  });
+});
+
+describe("egress proxy: dial and tunnel behaviour", () => {
+  it("gives each fallback address its own dial deadline (a blackholed first address does not starve the second)", async () => {
+    const r = await productionRig([PUBLIC_IP, PUBLIC_IP_2], { connectTimeoutMs: 400 }, true);
+    const c = connectClient(r.proxy.port);
+    c.sock.write(connectReq(`${ALLOWED}:443`));
+    await c.until((s) => s.includes("200 Connection Established"), 10_000);
+    expect(r.dials.map((d) => d.host)).toEqual([PUBLIC_IP, PUBLIC_IP_2]);
+  }, 30_000);
+
+  it("keeps the tunnel's return path open after the client half-closes", async () => {
+    const r = await productionRig([PUBLIC_IP]);
+    const c = connectClient(r.proxy.port);
+    c.sock.write(connectReq(`${ALLOWED}:443`));
+    await c.until((s) => s.includes("200 Connection Established"));
+    c.sock.end("last words");
+    await c.until((s) => s.endsWith("echo:last words"), 10_000);
+  }, 30_000);
+});
+
+describe("egress proxy: connection flood", () => {
+  const fdCount = () => readdirSync("/proc/self/fd").length;
+
+  it("counts connections refused over the cap and holds no more than a bounded number of them open", async () => {
+    const cap = 2;
+    const flood = 150;
+    const r = await rig({ maxConnections: cap });
+    const base = fdCount();
+    const clients = Array.from({ length: flood }, () => connectClient(r.proxy.port));
+    // Clients never read or hang up. Wait (generously) until the proxy has counted every refusal.
+    const deadline = Date.now() + 20_000;
+    while (r.proxy.refusedConnections() < flood - cap && Date.now() < deadline) await new Promise((ok) => setTimeout(ok, 25));
+    expect(r.proxy.refusedConnections()).toBeGreaterThanOrEqual(flood - cap);
+    // Client sockets account for `flood` fds at most; the proxy side may add only a bounded number.
+    expect(fdCount() - base).toBeLessThanOrEqual(flood + 2 * cap + 10);
+    expect(clients.length).toBe(flood);
+  }, 40_000);
 });

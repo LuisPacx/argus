@@ -28,6 +28,8 @@ const DEFAULTS = {
   connectTimeoutMs: 10_000,
   idleTimeoutMs: 120_000,
 } as const;
+/** Fallback addresses tried per CONNECT, each with its own deadline, so the worst case stays bounded. */
+const MAX_DIAL_ADDRESSES = 4;
 
 export interface EgressProxyOptions {
   /** Exact `host:443` entries. No wildcards, no suffixes, no IP literals. */
@@ -43,7 +45,10 @@ export interface EgressProxyOptions {
   headerTimeoutMs?: number;
   connectTimeoutMs?: number;
   idleTimeoutMs?: number;
-  /** Test seams. Never set from the environment entry; production code must leave this unset. */
+  /**
+   * Test seams. Fail-open if reachable, so startEgressProxy throws when this is set outside vitest
+   * (VITEST unset). The environment entry never passes it.
+   */
   testOverrides?: {
     resolve?: (hostname: string) => Promise<string[]>;
     /** Skip the public-address check so tests can reach a loopback fake upstream. */
@@ -57,6 +62,8 @@ export interface EgressProxy {
   port: number;
   /** Client connections currently open (head being read, resolving, or tunnelling). */
   activeConnections(): number;
+  /** Connections turned away because the cap was reached (counted, and answered or dropped at once). */
+  refusedConnections(): number;
   close(): Promise<void>;
 }
 
@@ -165,6 +172,7 @@ function respond(socket: net.Socket, status: number, extra = "") {
 }
 
 export async function startEgressProxy(options: EgressProxyOptions): Promise<EgressProxy> {
+  if (options.testOverrides && !process.env.VITEST) throw new Error("egress proxy: testOverrides is a test-only seam and is refused outside vitest");
   const allow = parseAllowlist(options.allow);
   const cfg = {
     maxConnections: options.maxConnections ?? DEFAULTS.maxConnections,
@@ -186,15 +194,28 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
 
   const open = new Set<net.Socket>();
   let active = 0;
+  let refused = 0;
+  /** Over-cap sockets still being answered. Bounded so a flood cannot hold unbounded file descriptors. */
+  let refusing = 0;
 
   const deny = (client: net.Socket, r: Refusal, method?: string) => {
     emit("denied", { reason: r.reason, status: r.status, ...(method ? { method } : {}), ...(r.target !== undefined ? { target: r.target.slice(0, 120) } : {}) });
     respond(client, r.status, r.status === 405 ? "Allow: CONNECT\r\n" : "");
   };
 
-  const server = net.createServer({ pauseOnConnect: false }, (client) => {
+  // allowHalfOpen on purpose: a TLS client may send its last bytes and FIN while the reply is still
+  // in flight, and auto-closing on that FIN would truncate the reply. Idle and header timeouts bound it.
+  const server = net.createServer({ pauseOnConnect: false, allowHalfOpen: true }, (client) => {
     if (active >= cfg.maxConnections) {
+      refused++;
       client.on("error", () => {});
+      if (refusing >= cfg.maxConnections) {
+        // Past the bound: no answer, release the fd now. The first refusal of a burst is logged.
+        client.destroy();
+        return;
+      }
+      refusing++;
+      client.once("close", () => refusing--);
       emit("denied", { reason: "too-many-connections", status: 503 });
       respond(client, 503);
       return;
@@ -239,6 +260,10 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       void route(client, head.subarray(0, end).toString("latin1"), head.subarray(end + 4));
     };
     client.on("data", onData);
+    // A FIN before the head is complete can never become a request; once the head is in, a half-close is legitimate.
+    client.once("end", () => {
+      if (!handled) client.destroy();
+    });
   }
 
   async function route(client: net.Socket, headText: string, leftover: Buffer) {
@@ -305,11 +330,11 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     client.resume();
   }
 
-  /** Try each validated address in order, by IP, within one overall deadline. Aborts if the client goes away. */
+  /** Try each validated address in order, by IP, each with its own deadline. Aborts if the client goes away. */
   function dialAny(addresses: string[], port: number, timeoutMs: number, client: net.Socket): Promise<net.Socket | null> {
     return new Promise((done) => {
-      const deadline = Date.now() + timeoutMs;
       let current: net.Socket | undefined;
+      let timer: NodeJS.Timeout | undefined;
       let finished = false;
       const finish = (s: net.Socket | null) => {
         if (finished) return;
@@ -319,19 +344,26 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
         if (!s) current?.destroy();
         done(s);
       };
-      const timer = setTimeout(() => finish(null), timeoutMs);
       const onClientGone = () => finish(null);
       client.once("close", onClientGone);
       const tryNext = (i: number) => {
         if (finished) return;
-        if (i >= addresses.length || Date.now() >= deadline) return finish(null);
-        const s = net.connect({ host: addresses[i]!, port });
+        if (i >= Math.min(addresses.length, MAX_DIAL_ADDRESSES)) return finish(null);
+        const s = net.connect({ host: addresses[i]!, port, allowHalfOpen: true });
         current = s;
-        s.once("connect", () => finish(s));
-        s.once("error", () => {
+        let moved = false;
+        const next = () => {
+          if (moved || finished) return;
+          moved = true;
+          clearTimeout(timer);
           s.destroy();
           tryNext(i + 1);
+        };
+        timer = setTimeout(next, timeoutMs);
+        s.once("connect", () => {
+          if (!moved) finish(s);
         });
+        s.once("error", next);
       };
       tryNext(0);
     });
@@ -344,12 +376,15 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       ok();
     });
   });
+  // After listen an error would otherwise be an unhandled 'error' event; log it (the proxy fails closed).
+  server.on("error", (err) => emit("server-error", { message: err.message.slice(0, 200) }));
   const port = (server.address() as net.AddressInfo).port;
   emit("listening", { port, allow: [...allow] });
 
   return {
     port,
     activeConnections: () => active,
+    refusedConnections: () => refused,
     close: () =>
       new Promise<void>((ok) => {
         for (const s of open) s.destroy();
