@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDir } from "./testing/temp.ts";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Datastore, migrate } from "./datastore.ts";
@@ -44,7 +43,7 @@ describe("Datastore", () => {
   });
 
   it("opens a file database in WAL mode", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "sub", "argus.db");
+    const path = join(tempDir("argus-"), "sub", "argus.db");
     const ds = Datastore.open(path);
     ds.createProposal(input);
     ds.close();

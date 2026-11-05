@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tempDir } from "./temp.ts";
 import { ClaudeCodeBrain, resolveRouting, type Routing, type TaskRoute } from "../brain.ts";
 import type { BuildRunnerOptions } from "../build-runner.ts";
 import { Datastore, type Proposal } from "../datastore.ts";
@@ -86,7 +86,7 @@ export interface Harness {
 export function makeHarness(
   opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
 ): Harness {
-  const root = mkdtempSync(join(tmpdir(), "argus-build-"));
+  const root = tempDir("argus-build-");
   const buildRoot = join(root, "code");
   const dataDir = join(root, "data");
   mkdirSync(buildRoot, { recursive: true });

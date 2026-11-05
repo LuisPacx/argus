@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "./testing/temp.ts";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, STALE_RUN_GRACE_MS, resolveRouting, type Brain } from "./brain.ts";
 import { Datastore, MAX_SPEC_RATE_LIMIT_ATTEMPTS } from "./datastore.ts";
@@ -11,7 +11,7 @@ import { untilExists } from "./testing/wait.ts";
 
 function setup(mode: string, routing = resolveRouting(), result?: string) {
   const store = Datastore.open(":memory:");
-  const dir = mkdtempSync(join(tmpdir(), "argus-spec-"));
+  const dir = tempDir("argus-spec-");
   const started = join(dir, "started");
   const brain = new ClaudeCodeBrain({
     routing,
@@ -215,7 +215,7 @@ describe("Spec drafting", () => {
   describe("spend is never lost or doubled", () => {
     it("records the run before any file write: a write failure keeps the cost and is not re-drafted", async () => {
       const { store, brain, id } = setup("success");
-      const blocker = mkdtempSync(join(tmpdir(), "argus-spec-"));
+      const blocker = tempDir("argus-spec-");
       mkdirSync(join(blocker, "proposals", String(id), "spec.md"), { recursive: true }); // spec.md is a directory: the write fails
       await draftPendingSpecs(store, brain, blocker, quiet);
       const p = store.getProposal(id)!;

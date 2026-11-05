@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
+import { tempDir, tempPath } from "./testing/temp.ts";
 import { describe, expect, it, vi } from "vitest";
 import { runNextBuild } from "./build-runner.ts";
 import { makeHarness, vcs, type Harness } from "./testing/build-harness.ts";
@@ -16,9 +16,7 @@ async function build(h: Harness, name = "Cat Coin") {
 }
 
 const marker = (label: string) => {
-  const path = join(tmpdir(), `argus-${label}-${process.pid}-${Math.random().toString(36).slice(2)}`);
-  rmSync(path, { force: true });
-  return path;
+  return tempPath(label);
 };
 const alive = (pid: number) => {
   try {
@@ -117,7 +115,7 @@ describe("runner git ignores every config the agent or the machine could supply"
 
 describe("a command's whole process group is killed on timeout", () => {
   it("a wrangler that hangs after starting a grandchild is killed with it", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const dir = tempDir("argus-wr-");
     const grandchild = join(dir, "grandchild");
     const started = join(dir, "started");
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_GRANDCHILD: grandchild, FAKE_WRANGLER_STARTED: started } });
@@ -159,7 +157,7 @@ describe("every normal exit reaps the command's process group", () => {
 
 describe("the build run stays open until the Build is over", () => {
   it("is still in flight, with the claude spend already recorded, while wrangler deploys; then closed as the Proposal turns built", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const dir = tempDir("argus-wr-");
     const started = join(dir, "started");
     const release = join(dir, "release");
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STARTED: started, FAKE_WRANGLER_RELEASE: release } });
@@ -207,7 +205,7 @@ describe("the build run stays open until the Build is over", () => {
   });
 
   it("a running Build beats while it deploys", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const dir = tempDir("argus-wr-");
     const started = join(dir, "started");
     const release = join(dir, "release");
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STARTED: started, FAKE_WRANGLER_RELEASE: release } });
@@ -232,7 +230,7 @@ describe("the build run stays open until the Build is over", () => {
   });
 
   it("a beat that fails (a busy database) is logged and never thrown out of the timer, so it cannot crash the worker; the Build carries on", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "argus-wr-"));
+    const dir = tempDir("argus-wr-");
     const started = join(dir, "started");
     const release = join(dir, "release");
     const h = makeHarness({ wranglerEnv: { FAKE_WRANGLER_STARTED: started, FAKE_WRANGLER_RELEASE: release } });

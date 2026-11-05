@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "./testing/temp.ts";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, SpecConflictError } from "./datastore.ts";
@@ -34,7 +34,7 @@ function brainFor(dir: string, mode = "success", result?: string, opts: { dryRun
 /** A Proposal drafted by the fake claude, so it is `spec-drafted` with a session id and stable working dir. */
 async function drafted() {
   const store = Datastore.open(":memory:");
-  const dir = mkdtempSync(join(tmpdir(), "argus-edit-"));
+  const dir = tempDir("argus-edit-");
   const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat Coin", ticker: "CAT", description: "d", evidenceLinks: [] });
   store.transition(p.id, "shortlisted", "operator");
   const first = brainFor(dir);
@@ -223,7 +223,7 @@ describe("revise", () => {
 
   it("fails without spawning when the session's working dir is gone (drafted before sessions were resumable)", async () => {
     const store = Datastore.open(":memory:");
-    const dir = mkdtempSync(join(tmpdir(), "argus-edit-"));
+    const dir = tempDir("argus-edit-");
     const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Old", ticker: "OLD", description: "d", evidenceLinks: [] });
     store.transition(p.id, "shortlisted", "operator");
     const specPath = join(dir, "proposals", String(p.id), "spec.md");

@@ -1,17 +1,17 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tempDir } from "./testing/temp.ts";
 import { describe, expect, it, vi } from "vitest";
 import { BrainError, ClaudeCodeBrain, DEFAULT_ROUTING, killLiveBrainChildren, resolveRouting, scrubEnv } from "./brain.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { untilExists } from "./testing/wait.ts";
 
 function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeCodeBrain>[0]> = {}) {
-  const log = join(mkdtempSync(join(tmpdir(), "argus-brain-")), "calls.jsonl");
+  const log = join(tempDir("argus-brain-"), "calls.jsonl");
   const brain = new ClaudeCodeBrain({
     command: FAKE_CLAUDE,
     // The fake claude writes .fake-sessions into its cwd; never let that be the repo.
-    ...(extra.skillsDir === undefined ? { cwd: mkdtempSync(join(tmpdir(), "argus-brain-cwd-")) } : {}),
+    ...(extra.skillsDir === undefined ? { cwd: tempDir("argus-brain-cwd-") } : {}),
     env: {
       PATH: process.env.PATH,
       HOME: "/home/x",
@@ -293,7 +293,7 @@ describe("ClaudeCodeBrain", () => {
   describe("build route", () => {
     it("runs in the given repo with acceptEdits, a scoped allowedTools (no bare Bash), stream-json and the caps", async () => {
       const { brain, calls } = setup("success");
-      const repo = mkdtempSync(join(tmpdir(), "argus-build-repo-"));
+      const repo = tempDir("argus-build-repo-");
       await brain.run("build", { prompt: "7", slash: "implement-spec" }, { cwd: repo });
       const { argv, cwd } = calls()[0]!;
       expect(cwd).toBe(repo);
@@ -340,7 +340,7 @@ describe("ClaudeCodeBrain", () => {
   });
 
   it("does not leak the temp dir when preparing the skill directory throws", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "argus-tmpdir-"));
+    const tmp = tempDir("argus-tmpdir-");
     const { brain } = setup("success", { skillsDir: join(tmp, "no-such-skills") });
     const saved = process.env.TMPDIR;
     process.env.TMPDIR = tmp;
@@ -365,8 +365,46 @@ describe("ClaudeCodeBrain", () => {
       expect(existsSync(call.cwd)).toBe(false);
     });
 
+    describe("removes the temp dir on every terminal path", () => {
+      const skillsDir = join(import.meta.dirname, "../../..", ".claude", "skills");
+      const isolated = (mode: string) => setup(mode, { skillsDir, routing: resolveRouting({ spec: { timeoutMs: 60_000 } }), killGraceMs: 200 });
+
+      it("failure", async () => {
+        const { brain, calls } = isolated("failure");
+        await expect(brain.run("spec", { prompt: "p" })).rejects.toBeInstanceOf(BrainError);
+        expect(existsSync(calls()[0]!.cwd)).toBe(false);
+      });
+
+      it("timeout", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+          const { brain, calls, started } = isolated("hang");
+          const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+          await untilExists(started);
+          const cwd = calls()[0]!.cwd;
+          expect(existsSync(cwd)).toBe(true);
+          vi.advanceTimersByTime(60_000);
+          expect(await running).toMatchObject({ kind: "timed-out" });
+          expect(existsSync(cwd)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("shutdown", async () => {
+        const { brain, calls, started } = isolated("hang-stubborn");
+        const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+        await untilExists(started);
+        const cwd = calls()[0]!.cwd;
+        expect(existsSync(cwd)).toBe(true);
+        await killLiveBrainChildren(200);
+        expect(await running).toMatchObject({ kind: "interrupted" });
+        expect(existsSync(cwd)).toBe(false);
+      });
+    });
+
     it("an explicit cwd wins over skillsDir", async () => {
-      const dir = mkdtempSync(join(tmpdir(), "argus-cwd-"));
+      const dir = tempDir("argus-cwd-");
       mkdirSync(join(dir, "sub"));
       writeFileSync(join(dir, "sub", ".keep"), "");
       const { brain, calls } = setup("success", { cwd: join(dir, "sub"), skillsDir: "/nonexistent" });

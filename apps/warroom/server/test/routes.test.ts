@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Datastore, MAX_REVISE_INSTRUCTION_CHARS, type CommandType } from "@argus/core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Endpoint-level tests: the real route handlers, called with the exact payloads the UI sends (index.vue and
@@ -30,11 +30,18 @@ beforeEach(() => {
   store = Datastore.open(":memory:");
 });
 
+const specDirs: string[] = [];
+afterEach(() => {
+  for (const d of specDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
 function seed(status: "new" | "shortlisted" | "spec-drafted") {
   const p = store.createProposal(proposal);
   if (status !== "new") store.transition(p.id, "shortlisted", "operator");
   if (status === "spec-drafted") {
-    const path = join(mkdtempSync(join(tmpdir(), "argus-route-")), "spec.md");
+    const dir = mkdtempSync(join(tmpdir(), "argus-route-"));
+    specDirs.push(dir);
+    const path = join(dir, "spec.md");
     writeFileSync(path, SPEC);
     store.completeSpec(p.id, { path, hash: sha(SPEC) });
   }

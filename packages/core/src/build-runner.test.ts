@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildLogPathFor, runNextBuild, runPendingBuilds } from "./build-runner.ts";
 import { makeHarness, vcs } from "./testing/build-harness.ts";
+import { tempDir } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
 
 describe("Build Runner: happy path", () => {
@@ -170,5 +171,35 @@ describe("Build Runner: dry-run", () => {
     h.seedApproved("Beta Coin");
     expect(await runPendingBuilds(h.store, h.brain, h.options)).toBe(0);
     expect(h.logs.filter((l) => l.includes("repo create"))).toHaveLength(1);
+  });
+});
+
+describe("Build Runner: temp dirs", () => {
+  /** Runs one Build with the temp dir pointed at a fresh directory and returns what the runner left in it besides the harness. */
+  async function leftBehind(claudeEnv: Record<string, string>) {
+    const tmp = tempDir("argus-seal-check-");
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = tmp;
+    try {
+      const h = makeHarness({ claudeEnv });
+      h.seedApproved("Cat Coin");
+      const outcome = await runNextBuild(h.store, h.brain, h.options);
+      return { outcome, seals: readdirSync(tmp).filter((n) => n.startsWith("argus-seal-")) };
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
+  }
+
+  it("removes the seal when the Build succeeds", async () => {
+    const { outcome, seals } = await leftBehind({});
+    expect(outcome?.result).toBe("built");
+    expect(seals).toEqual([]);
+  });
+
+  it("removes the seal when the Build fails after the seal was made", async () => {
+    const { outcome, seals } = await leftBehind({ FAKE_CLAUDE_EFFECT: "" }); // nothing committed: rejected once the seal exists
+    expect(outcome?.result).toBe("build-failed");
+    expect(seals).toEqual([]);
   });
 });

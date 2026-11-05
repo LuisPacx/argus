@@ -17,7 +17,7 @@ describe("the leak guard only claims fakes started under its own test run", () =
     mkdirSync(mine, { recursive: true });
     mkdirSync(other, { recursive: true });
     const child = spawn(join(import.meta.dirname, "fake-wrangler.mjs"), [], {
-      env: { PATH: process.env.PATH, FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started },
+      env: { PATH: process.env.PATH, TMPDIR: tmpdir(), FAKE_WRANGLER_HANG: "1", FAKE_WRANGLER_STARTED: started },
       stdio: "ignore",
       detached: true,
     });

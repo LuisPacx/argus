@@ -1,4 +1,6 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { registryDirFor, startTicks } from "./run-registry.mjs";
 
 /**
@@ -10,6 +12,11 @@ import { registryDirFor, startTicks } from "./run-registry.mjs";
  * started under this process, and each grandchild a fake starts, records its pid and start time there. After the run, any of
  * those still alive fails the run and is killed. A second vitest run in the same checkout has its own directory and is never
  * looked at. Linux only (reads /proc); elsewhere it does nothing.
+ *
+ * Temp dirs get the same treatment. The run points TMPDIR at a private directory (`argus-test-run-*`, created under the real
+ * temp dir) before any worker starts, so every `os.tmpdir()` in tests and in the code under test lands inside it. Anything
+ * still there after the run is a leak: it fails the run and is removed. A second run has its own directory and is never
+ * looked at. The private directory itself is always removed, so a clean run leaves nothing in the temp dir.
  */
 const CLK_TCK = 100; // USER_HZ is 100 on every Linux ABI node runs on
 
@@ -44,30 +51,60 @@ export function leakedIn(dir: string): Found[] {
   return found;
 }
 
+/** Names left in the run's private temp dir; empty when the run cleaned up after itself. */
+export function leakedTempEntries(root: string): string[] {
+  let left: string[] = [];
+  try {
+    left = readdirSync(root);
+  } catch {
+    // never created
+  }
+  return left;
+}
+
+function isolateTmpdir(): () => void {
+  const saved = process.env.TMPDIR;
+  const root = mkdtempSync(join(tmpdir(), "argus-test-run-"));
+  process.env.TMPDIR = root;
+  return () => {
+    if (saved === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = saved;
+    const left = leakedTempEntries(root);
+    rmSync(root, { recursive: true, force: true });
+    if (left.length > 0) throw new Error(`The test run left ${left.length} temp entr${left.length === 1 ? "y" : "ies"} behind (removed now):\n${left.map((e) => `  ${e}`).join("\n")}`);
+  };
+}
+
 export default function setup(): () => Promise<void> {
-  if (process.platform !== "linux") return async () => {};
-  const dir = registryDirFor(process.pid);
+  const restoreTmpdir = isolateTmpdir();
+  if (process.platform !== "linux") return async () => restoreTmpdir();
+  const dir = registryDirFor(process.pid); // on the home disk, found by the fakes without any env
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
   mkdirSync(dir, { recursive: true });
   return async () => {
     try {
-      // A process just killed may take a moment to disappear.
-      let leaked = leakedIn(dir);
-      for (let i = 0; i < 100 && leaked.length > 0; i++) {
-        await new Promise((r) => setTimeout(r, 50));
-        leaked = leakedIn(dir);
-      }
-      if (leaked.length === 0) return;
-      for (const l of leaked) {
-        try {
-          process.kill(l.pid, "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
-      throw new Error(`The test run left ${leaked.length} fake process(es) running (killed now):\n${leaked.map((l) => `  ${l.pid} ${l.cmdline}`).join("\n")}`);
+      await failOnLeakedFakes(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+      restoreTmpdir();
     }
   };
+}
+
+async function failOnLeakedFakes(dir: string): Promise<void> {
+  // A process just killed may take a moment to disappear.
+  let leaked = leakedIn(dir);
+  for (let i = 0; i < 100 && leaked.length > 0; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    leaked = leakedIn(dir);
+  }
+  if (leaked.length === 0) return;
+  for (const l of leaked) {
+    try {
+      process.kill(l.pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+  throw new Error(`The test run left ${leaked.length} fake process(es) running (killed now):\n${leaked.map((l) => `  ${l.pid} ${l.cmdline}`).join("\n")}`);
 }

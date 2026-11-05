@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tempDir, tempPath } from "./testing/temp.ts";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkMetafile, findUnsafeEntries, runNextBuild } from "./build-runner.ts";
@@ -152,7 +152,7 @@ describe("checkMetafile: every input is a plain path to a regular file inside th
   let exportDir = "";
   let outdir = "";
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "argus-meta-"));
+    dir = tempDir("argus-meta-");
     exportDir = join(dir, "export");
     outdir = join(dir, "dist");
     mkdirSync(join(exportDir, "src"), { recursive: true });
@@ -165,7 +165,6 @@ describe("checkMetafile: every input is a plain path to a regular file inside th
     writeFileSync(join(dir, "outside.json"), "{}");
     symlinkSync(join(dir, "outside.json"), join(exportDir, "src/link.json"));
   });
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const meta = (...inputs: string[]) => ({
     inputs: Object.fromEntries(inputs.map((f) => [f, { bytes: 1, imports: [] }])),
     outputs: { "dist/index.js": { entryPoint: "export/src/index.ts", inputs: {}, imports: [], exports: [], bytes: 1 } },
@@ -218,7 +217,7 @@ const hasWrangler = spawnSync("wrangler", ["--version"], { encoding: "utf8" }).s
 
 describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeout: 120_000 }, () => {
   // A file the Operator can read, outside anything a Build owns: beside the seal's parent, in the temp dir.
-  const secret = join(tmpdir(), `argus-secret-${process.pid}-${Math.random().toString(36).slice(2)}.json`);
+  const secret = tempPath("secret", ".json");
   beforeAll(() => writeFileSync(secret, '{"secret":"operator-only"}\n'));
   afterAll(() => rmSync(secret, { force: true }));
 
@@ -261,7 +260,7 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
   // those rules so the bundler refuses such an import, wherever the file is.
   for (const ext of ["txt", "html", "bin", "wasm"]) {
     it(`rejects an import of a .${ext} file outside the export, and deploys nothing`, async () => {
-      const outside = join(tmpdir(), `argus-secret-${process.pid}.${ext}`);
+      const outside = tempPath("secret", `.${ext}`);
       writeFileSync(outside, ext === "wasm" ? "\0asm\u0001\0\0\0" : "SECRET-OUTSIDE");
       try {
         const r = await realBuild(worker(`import data from ${JSON.stringify(outside)};`));

@@ -1,8 +1,8 @@
-import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Datastore, buildLogPathFor } from "@argus/core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Endpoint-level test for the Build log tail the details view polls: the real route handler, called with the query the UI
@@ -22,6 +22,7 @@ type Tail = { content: string; offset: number; size: number };
 const tail = (await import("../api/proposals/[id]/build-log.get.ts")).default as unknown as (e: Ev) => Tail;
 const call = (id: number, query: Record<string, string> = {}) => tail({ params: { id: String(id) }, query });
 
+afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 beforeEach(() => {
   store = Datastore.open(":memory:");
   dataDir = mkdtempSync(join(tmpdir(), "argus-buildlog-"));

@@ -2,8 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDir } from "./testing/temp.ts";
 import { Datastore, type WarRoomStore } from "./datastore.ts";
 import {
   IllegalTransitionError,
@@ -209,7 +208,7 @@ describe("command error semantics", () => {
   });
 
   it("a permanent non-domain error fails the command after 5 attempts; the next command is processed", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const path = join(tempDir("argus-"), "argus.db");
     const ds = Datastore.open(path);
     const id = ds.createProposal(input).id;
     const c = ds.enqueueCommand(id, "shortlist");
@@ -260,7 +259,7 @@ describe("command error semantics", () => {
   });
 
   it("one failing command does not stop the batch, and is retried next tick", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const path = join(tempDir("argus-"), "argus.db");
     const ds = Datastore.open(path);
     const a = ds.createProposal(input).id;
     const b = ds.createProposal({ ...input, name: "Dog" }).id;
@@ -285,7 +284,7 @@ describe("command error semantics", () => {
   });
 
   it("createProposal is atomic: a failing history insert leaves no Proposal", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "argus-")), "argus.db");
+    const path = join(tempDir("argus-"), "argus.db");
     const ds = Datastore.open(path);
     const raw = new DatabaseSync(path);
     raw.exec("CREATE TRIGGER boom BEFORE INSERT ON status_history BEGIN SELECT RAISE(ABORT, 'nope'); END");

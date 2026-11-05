@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempPath } from "./testing/temp.ts";
 import { describe, expect, it, vi } from "vitest";
 import { buildLogPathFor, classifyFinalMessage, runNextBuild } from "./build-runner.ts";
 import { PAGE, fakePreview, makeHarness, type Harness } from "./testing/build-harness.ts";
@@ -103,7 +103,7 @@ describe("Build Runner: a Build succeeds only on argus's own checks", () => {
   });
 
   it("never runs a script from the Build repo: runner git ignores hooks and fsmonitor the agent planted in .git", async () => {
-    const marker = `${tmpdir()}/argus-pwned-${process.pid}`;
+    const marker = tempPath("pwned");
     rmSync(marker, { force: true });
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "commit,plant-git-scripts", FAKE_CLAUDE_MARKER: marker } });
     const r = await build(h);

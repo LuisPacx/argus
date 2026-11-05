@@ -1,5 +1,4 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDir } from "./testing/temp.ts";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
@@ -19,7 +18,7 @@ const brainIn = (mode: string, result?: string) =>
 
 function setup() {
   const store = Datastore.open(":memory:");
-  const dir = mkdtempSync(join(tmpdir(), "argus-retry-"));
+  const dir = tempDir("argus-retry-");
   const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat Coin", ticker: "CAT", description: "d", evidenceLinks: [] });
   store.transition(p.id, "shortlisted", "operator");
   return { store, dir, id: p.id };
