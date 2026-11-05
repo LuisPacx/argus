@@ -10,6 +10,8 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
   const log = join(mkdtempSync(join(tmpdir(), "argus-brain-")), "calls.jsonl");
   const brain = new ClaudeCodeBrain({
     command: FAKE_CLAUDE,
+    // The fake claude writes .fake-sessions into its cwd; never let that be the repo.
+    ...(extra.skillsDir === undefined ? { cwd: mkdtempSync(join(tmpdir(), "argus-brain-cwd-")) } : {}),
     env: {
       PATH: process.env.PATH,
       HOME: "/home/x",
@@ -37,7 +39,7 @@ describe("ClaudeCodeBrain", () => {
     it(`returns output, session and cost on success (${format})`, async () => {
       const { brain } = setup("success", { outputFormat: format });
       const run = await brain.run<string>("spec", { prompt: "p" });
-      expect(run).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "fake-session-1", totalCostUsd: 0.0123, backend: "claude-code", model: "sonnet" });
+      expect(run).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "5e55a0a0-0000-4000-8000-000000000001", totalCostUsd: 0.0123, backend: "claude-code", model: "sonnet" });
     });
   }
 
@@ -216,7 +218,7 @@ describe("ClaudeCodeBrain", () => {
         const running = brain.run("spec", { prompt: "p" });
         await untilExists(started); // the result is already flushed; the child now hangs
         vi.advanceTimersByTime(CAP);
-        expect(await running).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "fake-session-1", totalCostUsd: 0.0123 });
+        expect(await running).toMatchObject({ output: expect.stringContaining("# Fake Spec"), sessionId: "5e55a0a0-0000-4000-8000-000000000001", totalCostUsd: 0.0123 });
       }));
 
     it("a successful result printed just before shutdown aborts still succeeds", async () => {
@@ -225,7 +227,7 @@ describe("ClaudeCodeBrain", () => {
       const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal });
       await untilExists(started);
       ac.abort();
-      expect(await running).toMatchObject({ sessionId: "fake-session-1", totalCostUsd: 0.0123 });
+      expect(await running).toMatchObject({ sessionId: "5e55a0a0-0000-4000-8000-000000000001", totalCostUsd: 0.0123 });
     });
 
     it("keeps the spend a killed child reports", async () => {
@@ -234,7 +236,7 @@ describe("ClaudeCodeBrain", () => {
       const running = brain.run("spec", { prompt: "p" }, { signal: ac.signal }).catch((e) => e);
       await untilExists(started);
       ac.abort();
-      expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" });
+      expect(await running).toMatchObject({ kind: "interrupted", totalCostUsd: 0.004, sessionId: "5e55a0a0-0000-4000-8000-000000000001" });
     });
   });
 

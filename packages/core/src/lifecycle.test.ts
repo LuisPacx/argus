@@ -313,7 +313,7 @@ describe("single writer", () => {
         if (name === "node_modules" || name.startsWith(".")) continue;
         const p = join(dir, name);
         if (statSync(p).isDirectory()) walk(p);
-        else if (/\.(ts|vue)$/.test(name)) files.push(p);
+        else if (/\.(ts|vue)$/.test(name) && !name.endsWith(".test.ts")) files.push(p); // test seeding uses the full store
       }
     };
     walk(root);

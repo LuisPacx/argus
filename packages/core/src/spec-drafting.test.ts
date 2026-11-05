@@ -78,7 +78,7 @@ describe("Spec drafting", () => {
     const text = readFileSync(p.specPath!, "utf8");
     expect(p.specHash).toBe(createHash("sha256").update(text).digest("hex"));
     expect(store.brainRunsFor(id)).toMatchObject([
-      { task: "spec", backend: "claude-code", model: "sonnet", sessionId: "fake-session-1", totalCostUsd: 0.0123, exitStatus: "success" },
+      { task: "spec", backend: "claude-code", model: "sonnet", sessionId: "5e55a0a0-0000-4000-8000-000000000001", totalCostUsd: 0.0123, exitStatus: "success" },
     ]);
     expect(p.agentCostUsd).toBeCloseTo(0.0123);
   });
@@ -207,7 +207,7 @@ describe("Spec drafting", () => {
       await untilExists(started); // the child has installed its SIGTERM handler; aborting earlier would kill it before it can report
       ac.abort();
       await drafting;
-      expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "interrupted", totalCostUsd: 0.004, sessionId: "fake-session-1" }]);
+      expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "interrupted", totalCostUsd: 0.004, sessionId: "5e55a0a0-0000-4000-8000-000000000001" }]);
       expect(store.getProposal(id)).toMatchObject({ status: "shortlisted", specError: "", agentCostUsd: 0.004 });
     });
   });
@@ -222,7 +222,7 @@ describe("Spec drafting", () => {
       expect(p.status).toBe("shortlisted");
       expect(p.specError).toContain("after the run was recorded");
       expect(p.agentCostUsd).toBeCloseTo(0.0123);
-      expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "success", sessionId: "fake-session-1" }]);
+      expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "success", sessionId: "5e55a0a0-0000-4000-8000-000000000001" }]);
       expect(await draftPendingSpecs(store, brain, blocker, quiet)).toBe(0);
       expect(store.brainRunsFor(id)).toHaveLength(1);
     });

@@ -13,3 +13,4 @@ Rules reviewers enforce. Invariants refer to `docs/architecture.md` §10.
 9. Boot verification: verifiers prove worker boot and shutdown with `pnpm verify:boot`, never hand-rolled shell.
 10. `pnpm check` runs on every push through the pre-push hook. Never use `--no-verify`.
 11. Tests run on at most 2 workers locally. Stress loops run one loop at a time, with no parallel suites.
+12. Every War Room command type and mutating route has an endpoint-level test that calls the real route handler with the exact payload the UI sends (see `apps/warroom/server/test/routes.test.ts`); core-level tests alone don't count.

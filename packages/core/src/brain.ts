@@ -90,6 +90,9 @@ export function resolveRouting(overrides: Partial<Record<BrainTask, Partial<Task
 export type BrainFailureKind = "failed" | "budget-exceeded" | "rate-limited" | "timed-out" | "interrupted";
 
 /** A run that did not succeed. Carries what was spent so the caller can still record it. */
+/** A Claude Code session id is a UUID; anything else is never passed to `--resume`. */
+export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class BrainError extends Error {
   readonly kind: BrainFailureKind;
   readonly sessionId?: string;
@@ -304,6 +307,9 @@ export class ClaudeCodeBrain implements Brain {
       return { output: "" as T, totalCostUsd: 0, dryRun: true, ...info };
     }
     if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
+    if (opts.resume && !SESSION_ID_RE.test(opts.resume)) {
+      throw new BrainError("failed", "Cannot resume the session: invalid session id", info);
+    }
     if (opts.resume && opts.workDir !== undefined && !existsSync(opts.workDir)) {
       throw new BrainError("failed", "Cannot resume the session: its working directory is gone (the Spec was drafted before sessions were resumable)", info);
     }

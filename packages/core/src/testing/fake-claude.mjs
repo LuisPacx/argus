@@ -20,7 +20,7 @@ if (resumeId && !existsSync(`.fake-sessions/${resumeId}`)) {
   process.exit(1);
 }
 mkdirSync(".fake-sessions", { recursive: true });
-writeFileSync(".fake-sessions/fake-session-1", "");
+writeFileSync(".fake-sessions/5e55a0a0-0000-4000-8000-000000000001", "");
 const format = argv[argv.indexOf("--output-format") + 1] ?? "text";
 const mode = process.env.FAKE_CLAUDE_MODE ?? "success";
 // Field names and values follow real `claude -p` output (checked against a recorded haiku run): `api_error_status` is
@@ -28,7 +28,7 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? "success";
 const base = {
   type: "result",
   stop_reason: "end_turn",
-  session_id: "fake-session-1",
+  session_id: "5e55a0a0-0000-4000-8000-000000000001",
   total_cost_usd: 0.0123,
   duration_ms: 5,
   is_error: false,

@@ -1,11 +1,16 @@
 import { DomainError, SpecConflictError } from "@argus/core";
 
+const MAX_SPEC_BYTES = 200 * 1024;
+
 /** Saves the Spec if it is still the version the editor loaded (`baseHash`); otherwise 409. */
 export default defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   const body = await readBody<{ content?: unknown; baseHash?: unknown }>(event);
   if (typeof body?.content !== "string" || typeof body.baseHash !== "string") {
     throw createError({ statusCode: 400, statusMessage: "content and baseHash are required" });
+  }
+  if (Buffer.byteLength(body.content, "utf8") > MAX_SPEC_BYTES) {
+    throw createError({ statusCode: 413, statusMessage: `Spec is over ${MAX_SPEC_BYTES / 1024} KB` });
   }
   try {
     return { hash: useStore().saveSpec(id, body.baseHash, body.content) };
