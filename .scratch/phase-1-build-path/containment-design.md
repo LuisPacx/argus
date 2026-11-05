@@ -312,3 +312,10 @@ Hermetic by default (`pnpm check` must not need podman, per project convention o
 - [ ] ADR records the Operator's answers to questions 1 to 9
 - [ ] Architecture §4 and §10 match the implemented behaviour
 - [ ] Ticket 10's acceptance run lists "image built, network created, token set" as prerequisites
+
+## 13. Operator decisions (2026-11-05)
+
+- Q1, Q2, Q3, Q5, Q7, Q9: accepted as recommended.
+- Q4 Token: a separate `claude setup-token` token for Builds only, rotated independently of the brain's token. The Operator mints it.
+- Q6 Resource caps: 8 GiB memory, 4 CPUs, 1024 pids, 2 GiB /tmp.
+- Q8 Retention: keep the per-Build home for `build-failed`; delete it on `built` and `dismissed`.

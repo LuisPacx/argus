@@ -5,7 +5,7 @@
 
 Operator prerequisites: `claude setup-token` exported as `CLAUDE_CODE_OAUTH_TOKEN`; `gh` and `wrangler` authenticated; re-check that `claude -p` still draws from the subscription (§13).
 
-**Blocked by:** 08, 09
+**Blocked by:** 08, 09, 15
 
 **Status:** ready-for-agent
 

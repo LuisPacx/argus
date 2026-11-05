@@ -5,7 +5,7 @@
 
 Timed-out or shutdown-killed Brain runs record $0 because claude prints no result; real spend is unknown, so per-Proposal cost undercounts for builds that hit the wall-clock cap (up to the $25 build budget).
 
-**Blocked by:** 07
+**Blocked by:** 07, 15
 
 **Status:** ready-for-agent
 
