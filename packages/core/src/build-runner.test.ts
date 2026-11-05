@@ -154,7 +154,11 @@ describe("Build Runner: dry-run", () => {
     expect(text).toMatch(/dry-run: \S*fake-gh\.mjs repo create cat-coin --private --source \. --remote origin/);
     expect(text).toMatch(/dry-run: claude \(cwd .*cat-coin\) -p "\/implement-spec \d+" --output-format stream-json --model sonnet --max-budget-usd 25 /);
     expect(text).toContain("--permission-mode acceptEdits");
-    expect(text).toMatch(/dry-run: \S*fake-wrangler\.mjs deploy --name cat-coin --config \S*wrangler\.jsonc/);
+    // The bundle is a container step now (its own podman line, below); the deploy stays a host wrangler call.
+    expect(text).toMatch(/dry-run: \S*fake-wrangler\.mjs deploy --name cat-coin --config \S*wrangler-deploy\.jsonc/);
+    expect(text).toMatch(/dry-run: \S*fake-podman\.mjs run .*wrangler deploy --name cat-coin --config \S*wrangler\.jsonc .*--dry-run/);
+    // Nothing of podman ran either, not even the preflight.
+    expect(h.podmanCalls()).toEqual([]);
     // Nothing ran, nothing was recorded, nothing changed.
     expect(existsSync(h.repoDir("cat-coin"))).toBe(false);
     expect(h.calls(h.claudeLog)).toEqual([]);

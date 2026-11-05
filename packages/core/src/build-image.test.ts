@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUILD_NETWORK, ensureBuildNetwork, imageReady, imageTag } from "./build-image.ts";
+import { BUILD_NETWORK, currentImageTag, ensureBuildNetwork, imageReady, imageTag } from "./build-image.ts";
 
 const FAKE_PODMAN = join(import.meta.dirname, "testing", "fake-podman.mjs");
 const sources = ["../../../containers/build/Containerfile", "egress-proxy.mjs", "egress-proxy.ts"].map((p) =>
@@ -17,6 +17,10 @@ describe("imageTag", () => {
     expect(tag).not.toContain("latest");
     expect(imageTag(sources)).toBe(tag);
     expect(imageTag([sources[0] + "\n# changed", ...sources.slice(1)])).not.toBe(tag);
+  });
+
+  it("currentImageTag gives the tag `pnpm image:build` builds, for the checkout it is pointed at", () => {
+    expect(currentImageTag(join(import.meta.dirname, "..", "..", ".."))).toBe(imageTag(sources));
   });
 
   it("pins the Containerfile to the same versions", () => {

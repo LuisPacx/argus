@@ -6,6 +6,8 @@ import { Datastore } from "@argus/core";
 import { expect, it } from "vitest";
 
 const workerDir = join(import.meta.dirname, "..");
+// A booting worker reconciles leftover Build containers with podman; here that is the fake, so the test never touches a real one.
+const ARGUS_PODMAN_BIN = join(workerDir, "../../packages/core/src/testing/fake-podman.mjs");
 
 /** Boots the real worker exactly as `pnpm --filter @argus/worker start` does (plain node), sees a tick, stops it. */
 it("the worker starts with plain node, ticks and stops on SIGTERM", async () => {
@@ -14,7 +16,7 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   expect(cmd).toBe("node");
   const dir = mkdtempSync(join(tmpdir(), "argus-worker-"));
   const db = join(dir, "argus.db");
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN } });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));
@@ -55,7 +57,7 @@ it("SIGTERM kills a live claude child before the worker exits", async () => {
   store.transition(p.id, "shortlisted", "operator");
   store.close();
   const [, ...args] = pkgStart();
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN } });
   const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
   try {
     const deadline = Date.now() + 15_000;
@@ -94,7 +96,7 @@ it("SIGTERM during one Spec draft leaves the next shortlisted Proposal undrafted
   });
   store.close();
   const [, ...args] = pkgStart();
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN } });
   const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
   try {
     const deadline = Date.now() + 15_000;

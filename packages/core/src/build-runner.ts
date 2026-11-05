@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
+import type { SandboxJob, SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
 export function buildLogPathFor(dataDir: string, proposalId: number): string {
@@ -19,6 +19,11 @@ export interface BuildRunnerOptions {
   templateRepo: string;
   /** argus's data dir (`.data`): the Spec comes from, and the Build log goes under, `proposals/<id>/`. */
   dataDir: string;
+  /**
+   * Where agent-influenced code runs: the claude run, the dependency install and the dry-run bundle are containers (containment
+   * design). Required: there is no uncontained Build; only `--dry-run` runs without touching it.
+   */
+  sandbox: SandboxRunner;
   gitBin?: string;
   ghBin?: string;
   wranglerBin?: string;
@@ -94,7 +99,7 @@ interface Cmd {
   stderr: string;
 }
 
-function runCommand(bin: string, args: string[], o: { cwd?: string; env: Record<string, string>; timeoutMs: number; signal?: AbortSignal }): Promise<Cmd> {
+function runCommand(bin: string, args: string[], o: { cwd?: string; env: Record<string, string>; timeoutMs: number; signal?: AbortSignal; stop?: () => Promise<void> }): Promise<Cmd> {
   return new Promise((resolveCmd) => {
     let stdout = "";
     let stderr = "";
@@ -105,7 +110,11 @@ function runCommand(bin: string, args: string[], o: { cwd?: string; env: Record<
     } catch (e) {
       return resolveCmd({ code: null, stdout, stderr: e instanceof Error ? e.message : String(e) });
     }
-    const kill = () => signalGroup(child, "SIGKILL");
+    // A container's podman client dying leaves the container running: it is ended by name as well (stop, then rm -f).
+    const kill = () => {
+      void o.stop?.().catch(() => {});
+      signalGroup(child, "SIGKILL");
+    };
     const timer = setTimeout(() => {
       stderr += `\n[argus] killed after ${o.timeoutMs} ms`;
       kill();
@@ -261,6 +270,19 @@ export function unexpectedOutdirEntries(outdir: string, output: string): string[
     .sort();
 }
 
+/** The `wrangler deploy` arguments of the in-container bundle step: a dry run into argus's own directory (`work`), nothing uploaded. */
+export function bundleArgs(slug: string, work: string): string[] {
+  return ["--name", slug, "--config", join(work, "wrangler.jsonc"), "--env-file", join(work, "empty.env"), "--dry-run", "--outdir", join(work, "dist"), "--metafile", join(work, "meta.json")];
+}
+
+/** The last preflight refusal logged for a runner's options, so a missing image is one log line, not one per tick. */
+const lastRefusal = new WeakMap<BuildRunnerOptions, string>();
+
+/** The per-Build home (claude config and session transcripts, package store, caches): kept for a failed Build so it can be resumed. */
+export function buildHomeFor(dataDir: string, proposalId: number): string {
+  return join(resolve(dataDir), "proposals", String(proposalId), "home");
+}
+
 /** The next Proposal to build: oldest approval first (ties by id); none while a Build is running. */
 export function nextBuildable(store: Datastore): Proposal | undefined {
   const all = store.listProposals();
@@ -288,6 +310,19 @@ export async function runNextBuild(
   const proposal = nextBuildable(store);
   if (!proposal) return undefined;
   if (o.dryRun) return dryRun(brain, o, proposal);
+  // Preflight: no Build starts without podman, the image, the network and the token. The Proposal stays approved and the next
+  // tick tries again; the reason is logged when it first appears or changes, not every tick.
+  const refusal = await o.sandbox.preflight();
+  if (refusal) {
+    if (lastRefusal.get(o) !== refusal) {
+      lastRefusal.set(o, refusal);
+      (o.log ?? console.log)(`[worker] Build for proposal ${proposal.id} not started: ${refusal}. It stays approved and is retried on the next tick.`);
+    }
+    return undefined;
+  }
+  lastRefusal.delete(o);
+  // The slot is taken synchronously below; the preflight awaited, so make sure the queue still looks the way it did.
+  if (signal?.aborted || nextBuildable(store)?.id !== proposal.id) return undefined;
   const runId = store.beginBuild(proposal.id, brain.routeFor("build"));
   return build(store, brain, o, store.getProposal(proposal.id)!, runId, signal);
 }
@@ -313,8 +348,16 @@ function dryRun(brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal): Bui
   say(o.gitBin ?? "git", ["push", "<origin>", "<commit>:refs/heads/<branch>"]);
   const args = brain.buildArgs("build", { prompt: String(p.id), slash: "implement-spec" });
   log(`[build ${p.id}] dry-run: claude (cwd ${repo}) ${args.map((a) => (/[\s"']/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
+  // The containers: the agent, then (from a fresh export of the checked commit) the dependency install and the dry-run bundle.
+  const seal = join(resolve(o.dataDir), "proposals", String(p.id), "seal-<random>");
+  const work = join(seal, "work");
+  const containers: SandboxJob[] = [
+    { role: "agent", buildId: p.id, cwd: repo, mounts: [repo], home: buildHomeFor(o.dataDir, p.id), args, timeoutMs: brain.timeoutFor("build") },
+    { role: "install", buildId: p.id, cwd: join(work, "export"), mounts: [work], home: join(seal, "home"), args: [], timeoutMs: o.commandTimeoutMs ?? 10 * 60_000 },
+    { role: "bundle", buildId: p.id, cwd: work, mounts: [work], home: join(seal, "home"), args: bundleArgs(p.slug, work), binDir: join(work, "export", "node_modules", ".bin"), timeoutMs: o.commandTimeoutMs ?? 10 * 60_000 },
+  ];
+  for (const job of containers) for (const line of o.sandbox.describe(job)) log(`[build ${p.id}] dry-run: ${line}`);
   const wrangler = o.wranglerBin ?? "wrangler";
-  say(wrangler, ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler.jsonc", "--env-file", "<argus-seal>/empty.env", "--dry-run", "--outdir", "<argus-seal>/dist", "--metafile", "<argus-seal>/meta.json"]);
   say(wrangler, ["deploy", "--name", p.slug, "--config", "<argus-seal>/wrangler-deploy.jsonc", "--env-file", "<argus-seal>/empty.env", "--no-bundle"]);
   return { proposalId: p.id, result: "dry-run" };
 }
@@ -324,6 +367,7 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
   const logSink = (o.log ?? console.log) as (line: string) => void;
   const logPath = buildLogPathFor(o.dataDir, id);
   const repo = resolve(o.buildRoot, p.slug);
+  const home = buildHomeFor(o.dataDir, id);
   let midLine = false;
   const append = (text: string) => {
     mkdirSync(dirname(logPath), { recursive: true });
@@ -365,11 +409,25 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
   const gh = o.ghBin ?? "gh";
 
   /** Runs one command; a non-zero exit throws a StepError carrying the tail of its stderr. */
-  const step = async (label: string, bin: string, args: string[], env: Record<string, string>, cwd?: string): Promise<string> => {
+  const step = async (label: string, bin: string, args: string[], env: Record<string, string>, cwd?: string, stop?: () => Promise<void>): Promise<string> => {
     note(`$ ${show(bin, args)}${cwd ? ` (cwd ${cwd})` : ""}`);
-    const r = await runCommand(bin, args, { cwd, env, timeoutMs, signal });
+    const r = await runCommand(bin, args, { cwd, env, timeoutMs, signal, stop });
     if (r.code !== 0) throw new StepError(`${label} failed (exit ${r.code}): ${(r.stderr || r.stdout).trim().slice(-300)}`);
     return r.stdout.trim();
+  };
+  /** One step as a container (dependency install, bundle): its sidecar and container are ended by name however the step ends. */
+  const inContainer = async (label: string, job: Pick<SandboxJob, "role" | "cwd" | "mounts" | "home" | "args" | "binDir">): Promise<void> => {
+    let launched;
+    try {
+      launched = await o.sandbox.launch({ ...job, buildId: id, timeoutMs, signal, note });
+    } catch (e) {
+      throw new StepError(`${label} failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400));
+    }
+    try {
+      await step(label, launched.command, launched.args, launched.env, job.cwd, launched.stop);
+    } finally {
+      await launched.stop().catch(() => {});
+    }
   };
   const inRepo = (label: string, ...args: string[]) => step(label, git, [...SAFE_GIT, ...args], gitEnv, repo);
   /** Pushes `commit` to `branch` at `url` (both recorded by argus before the agent ran), with gh as the credential helper. */
@@ -457,10 +515,22 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
 
     // The claude run.
     if (signal?.aborted) return fail("the worker is stopping", "interrupted");
-    note(`Starting claude in ${repo}`);
+    note(`Starting claude in a container (cwd ${repo})`);
+    // The per-Build home: claude's config and sessions, the package store and caches. Kept when the Build fails (so the session can
+    // be resumed), removed when it is built.
+    mkdirSync(home, { recursive: true, mode: 0o700 });
     let run;
     try {
-      run = await brain.run<string>("build", { prompt: String(id), slash: "implement-spec" }, { cwd: repo, signal, onOutput: append });
+      run = await brain.run<string>(
+        "build",
+        { prompt: String(id), slash: "implement-spec" },
+        {
+          cwd: repo,
+          signal,
+          onOutput: append,
+          sandbox: (job) => o.sandbox.launch({ role: "agent", buildId: id, cwd: job.cwd, mounts: [job.cwd], home, args: job.args, timeoutMs: job.timeoutMs, signal: job.signal, note }),
+        },
+      );
     } catch (e) {
       const be = e instanceof BrainError ? e : undefined;
       // Spend first: whatever the run cost is recorded before anything else happens.
@@ -492,7 +562,9 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     // `objects/info/alternates`). The agent's .git/config, hooks, attributes drivers and refs are never read, so nothing it
     // planted there can run, and the push below comes from here, to the origin recorded before the agent ran.
     const head = readHeadCommit(repo);
-    seal = mkdtempSync(join(tmpdir(), "argus-seal-"));
+    // Under the data dir, on the disk: the dependency install below puts a node_modules in it, which does not belong in /tmp.
+    mkdirSync(dirname(home), { recursive: true });
+    seal = mkdtempSync(join(dirname(home), "seal-"));
     const sealGit = join(seal, ".git");
     await step("git init", git, [...SAFE_GIT, "init", "--quiet", seal], gitEnv, seal);
     writeFileSync(join(sealGit, "objects", "info", "alternates"), join(repo, ".git", "objects") + "\n");
@@ -521,17 +593,22 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     }
 
     // Only what is committed is ever bundled, and the Worker is deployed with the global wrangler (never the repo's node_modules)
-    // under the slug, with a config argus wrote. The tree must hold no symlink and no submodule (either would let the bundle pull
-    // in any file the Operator can read), and the bundle is built from a fresh export of the commit inside the seal, never from
-    // the agent's working tree. esbuild would still follow a `../` or absolute import out of the export, so bundling is a step of
-    // its own (--dry-run: no credentials, nothing uploaded), every input its metafile lists must lie inside the export, and only
-    // then is the output of that step deployed (--no-bundle) with the credentials.
+    // under the slug, with a config argus wrote. The tree must hold no symlink and no submodule, and the bundle is built from a
+    // fresh export of the commit, never from the agent's working tree. The dependencies come from the committed lockfile, and
+    // the bundling itself (the one step that reads dependency and agent code as a bundler does) runs in the Build container: it
+    // sees the export and nothing else of the host, has no network and no credentials. Its --dry-run uploads nothing. argus
+    // still checks what it left: every input its metafile lists must lie inside the export, the output directory must hold only
+    // the entry, and only that checked entry is deployed (--no-bundle) from argus's own directory, with the credentials.
     const unsafe = findUnsafeEntries(await sealed("git ls-tree", "ls-tree", "-r", "-z", "--full-tree", head));
     if (unsafe.length > 0) return fail(`the commit holds ${unsafe.slice(0, 5).join("; ")}; refusing to bundle it`);
     const sealDir = realpathSync(seal);
-    const exportDir = join(sealDir, "export");
+    // `work` is the one directory the containers write (the export, its node_modules, the bundle, the metafile); nothing argus
+    // trusts is in it. The seal's git directory, the tarball and the deploy's inputs stay beside it.
+    const workDir = join(sealDir, "work");
+    const exportDir = join(workDir, "export");
     const tarball = join(sealDir, "export.tar");
-    mkdirSync(exportDir);
+    mkdirSync(exportDir, { recursive: true });
+    mkdirSync(join(sealDir, "home"));
     await sealed("git archive", "archive", "--format=tar", "-o", tarball, head);
     await step("tar", "tar", ["-xf", tarball, "-C", exportDir, "--no-same-owner"], pick([]), sealDir);
     try {
@@ -541,24 +618,35 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     }
     // wrangler loads .env, .env.local and .dev.vars from its working directory, and the agent can leave those in the repo (the
     // template ignores them, so the clean-tree check passes): a CLOUDFLARE_API_BASE_URL there would send the Operator's token to
-    // the agent. So it runs in argus's scratch directory, and --env-file names an empty file of argus's own as a second guard.
+    // the agent. The deploy therefore runs in argus's own directory (`sealDir`, which no container writes), and --env-file names
+    // an empty file of argus's own as a second guard. The bundle step has no credentials; it gets the same guards anyway.
+    const bundleHome = join(sealDir, "home");
+    const bundleConfig = join(workDir, "wrangler.jsonc");
+    const outdir = join(workDir, "dist");
+    const metafile = join(workDir, "meta.json");
+    writeFileSync(join(workDir, "empty.env"), "");
+    writeFileSync(bundleConfig, wranglerConfigFor(p.slug, join(exportDir, WORKER_ENTRY)));
+    await inContainer("dependency install", { role: "install", cwd: exportDir, mounts: [workDir], home: bundleHome, args: [] });
+    // The project's own wrangler (the template's pinned devDependency, from the lockfile), run from the work directory: its config,
+    // output and metafile are there, and its working directory has no agent-written .env.
+    await inContainer("wrangler bundle", { role: "bundle", cwd: workDir, mounts: [workDir], home: bundleHome, args: bundleArgs(p.slug, workDir), binDir: join(exportDir, "node_modules", ".bin") });
     const envFile = join(sealDir, "empty.env");
     writeFileSync(envFile, "");
     const wrangler = o.wranglerBin ?? "wrangler";
-    const bundleConfig = join(sealDir, "wrangler.jsonc");
-    const outdir = join(sealDir, "dist");
-    const metafile = join(sealDir, "meta.json");
-    writeFileSync(bundleConfig, wranglerConfigFor(p.slug, join(exportDir, WORKER_ENTRY)));
-    await step(
-      "wrangler bundle",
-      wrangler,
-      ["deploy", "--name", p.slug, "--config", bundleConfig, "--env-file", envFile, "--dry-run", "--outdir", outdir, "--metafile", metafile],
-      { ...pick([]), CI: "1", WRANGLER_SEND_METRICS: "false" },
-      sealDir,
-    );
     let bundled: string;
     try {
-      const checked = checkMetafile(JSON.parse(readFileSync(metafile, "utf8")), sealDir, exportDir, outdir);
+      // The metafile and the output directory are what the container wrote: a symlink in either place could name a host file, so
+      // both must be what they claim to be before anything is read from them. The metafile is then only read as data.
+      if (!lstatSync(metafile).isFile()) throw new Error("it is not a regular file");
+      if (!lstatSync(outdir).isDirectory()) throw new Error("the output directory is not a directory");
+      if (!lstatSync(exportDir).isDirectory()) throw new Error("the export is not a directory");
+      let meta: unknown;
+      try {
+        meta = JSON.parse(readFileSync(metafile, "utf8"));
+      } catch {
+        throw new Error("it is not JSON");
+      }
+      const checked = checkMetafile(meta, workDir, exportDir, outdir);
       if ("outside" in checked) return fail(`the bundle read files outside the commit, or by a path that is not a plain one to a file in it: ${checked.outside.slice(0, 5).map((f) => JSON.stringify(f)).join(", ")}; refusing to deploy`);
       bundled = checked.output;
     } catch (e) {
@@ -589,6 +677,12 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     } catch (e) {
       note(`Could not mark the Proposal built: ${e instanceof Error ? e.message : String(e)}`);
       return { proposalId: id, result: "abandoned" };
+    }
+    // A built Build is never resumed: its home (session transcripts, package store) goes. A failed Build keeps it (design Q8).
+    try {
+      rmSync(home, { recursive: true, force: true });
+    } catch (e) {
+      note(`Warning: could not remove ${home}: ${e instanceof Error ? e.message : String(e)}`);
     }
     // The repo holds the built code; a failed push does not undo a verified preview.
     try {

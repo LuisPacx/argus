@@ -1,12 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tempDir, tempPath } from "./testing/temp.ts";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkMetafile, findUnsafeEntries, runNextBuild } from "./build-runner.ts";
-import { makeHarness, type Harness } from "./testing/build-harness.ts";
+import { makeHarness, TEST_IMAGE, type Harness } from "./testing/build-harness.ts";
 
 /** Runs one Build and returns the Proposal after, its last status reason, and what the fake wrangler saw. */
+const flagValues = (argv: string[], flag: string) => argv.flatMap((a, i) => (a === flag ? [argv[i + 1]!] : []));
+
 async function build(h: Harness) {
   const p = h.seedApproved("Cat Coin");
   const outcome = await runNextBuild(h.store, h.brain, h.options);
@@ -76,6 +78,51 @@ describe("the deploy bundle holds only files of the committed tree", () => {
     expect(r.after.status).toBe("built");
   });
 
+  it("installs the committed dependencies and bundles a Worker that imports an npm package inside containers, and the host check passes", async () => {
+    const dep = "node_modules/left-pad/index.js";
+    const h = makeHarness({
+      claudeEnv: { FAKE_CLAUDE_EFFECT: "index-from-env,commit", FAKE_CLAUDE_INDEX_TS: 'import pad from "left-pad";\nexport default { fetch: () => new Response(pad("x", 3)) };\n' },
+      // What `pnpm install --frozen-lockfile` leaves in the export, and the input esbuild then lists for the import.
+      podmanEnv: { FAKE_PODMAN_INSTALL_FILES: JSON.stringify({ [dep]: "module.exports = (s) => s;\n" }) },
+      wranglerEnv: { FAKE_WRANGLER_META_INPUTS: JSON.stringify([`export/${dep}`]) },
+    });
+    const r = await build(h);
+    expect(r.after.status).toBe("built");
+
+    // Two containers of the same image, in this order, then the host deploys: install (proxy only), bundle (no network at all).
+    const runs = h.podmanCalls().filter((c) => c[0] === "run" && !c.includes("-d"));
+    const roles = runs.map((c) => c[c.indexOf("--label", c.indexOf("--label") + 1) + 1]);
+    expect(roles).toEqual(["argus.role=agent", "argus.role=install", "argus.role=bundle"]);
+    const [, install, bundle] = runs as [string[], string[], string[]];
+    expect(install.slice(install.indexOf(TEST_IMAGE) + 1)).toEqual(["pnpm", "install", "--frozen-lockfile"]);
+    expect(install[install.indexOf("--network") + 1]).toBe("argus-build-net");
+    expect(bundle[bundle.indexOf("--network") + 1]).toBe("none");
+    expect(bundle.slice(bundle.indexOf(TEST_IMAGE) + 1).slice(0, 2)).toEqual(["wrangler", "deploy"]);
+    // The project's own wrangler (from the lockfile install) is found through PATH, ahead of the image's directories.
+    expect(flagValues(bundle, "--env").find((e) => e.startsWith("PATH="))).toMatch(/^PATH=\S*\/work\/export\/node_modules\/\.bin:\/usr\/local\/bin:/);
+    for (const c of [install, bundle]) {
+      expect(c.join(" ")).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
+      expect(c.join(" ")).not.toContain("CLOUDFLARE");
+    }
+
+    // The dependency was in the export when the bundler ran, and the bundle step had no credentials.
+    const [bundleCall] = r.bundle;
+    expect(bundleCall!.rootListing).toContain("node_modules");
+    expect(bundleCall!.cf).toEqual({});
+    expect(r.deploys).toHaveLength(1);
+    expect(h.containers()).toEqual([]);
+  });
+
+  it("fails the Build, bundling and deploying nothing, when the dependency install fails (for example a lockfile that does not match)", async () => {
+    const h = makeHarness({ podmanEnv: { FAKE_PODMAN_INSTALL_FAIL: "1" } });
+    const r = await build(h);
+    expect(r.after.status).toBe("build-failed");
+    expect(r.reason).toContain("dependency install failed");
+    expect(r.reason).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+    expect(r.calls).toEqual([]);
+    expect(h.containers()).toEqual([]);
+  });
+
   it("bundles a fresh export of HEAD in the seal (not the agent's working tree), then deploys the checked output with --no-bundle", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "commit,ignored-files" } });
     const r = await build(h);
@@ -110,13 +157,17 @@ describe("the deploy bundle holds only files of the committed tree", () => {
     expect(deploy!.argv).toContain("--no-bundle");
     expect(deploy!.argv).not.toContain("--dry-run");
     // It is uploaded from a fresh directory holding only the checked entry file, never from the outdir as it was left.
-    expect(JSON.parse(deploy!.configText as string).main).toBe(`${bundle!.cwd}/upload/index.js`);
-    expect(deploy!.main).toBe(`${bundle!.cwd}/upload/index.js`);
+    // The upload directory and the deploy's working directory are argus's own (the seal), never the directory the bundle container
+    // wrote to (`work`, which is the bundle's cwd): wrangler loads .env files and config from its cwd.
+    const seal = dirname(bundle!.cwd);
+    expect(JSON.parse(deploy!.configText as string).main).toBe(`${seal}/upload/index.js`);
+    expect(deploy!.main).toBe(`${seal}/upload/index.js`);
     expect(deploy!.mainListing).toEqual(["index.js"]);
     expect(deploy!.mainText).toContain("bundled by the fake");
     expect(JSON.parse(deploy!.configText as string).rules).toEqual(JSON.parse(bundle!.configText as string).rules);
     expect(deploy!.cf).toEqual({ CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct" });
-    expect(deploy!.cwd).toBe(bundle!.cwd);
+    expect(deploy!.cwd).toBe(seal);
+    expect(deploy!.cwd).not.toBe(bundle!.cwd);
   });
 });
 
@@ -229,6 +280,7 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
     writeFileSync(wrapper, `#!/bin/sh\nfor a in "$@"; do [ "$a" = "--dry-run" ] && exec wrangler "$@"; done\necho "$@" >> '${deployLog}'\necho 'https://cat-coin.fake-account.workers.dev'\n`);
     chmodSync(wrapper, 0o755);
     h.options.wranglerBin = wrapper;
+    h.sandboxEnv.FAKE_PODMAN_WRANGLER = wrapper; // what `pnpm exec wrangler` runs in the fake container
     const p = h.seedApproved("Cat Coin");
     await runNextBuild(h.store, h.brain, h.options);
     const reason = h.store.historyFor(p.id).at(-1)!.reason;
@@ -247,8 +299,8 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
   });
 
   it("rejects a ../ import of a file outside the export, and deploys nothing", async () => {
-    // From <seal>/export/src, three levels up is the temp dir.
-    const r = await realBuild(worker(`import data from "../../../${basename(secret)}";`));
+    // From <tmp>/argus-build-x/data/proposals/<id>/seal-x/work/export/src, eight levels up is the temp dir.
+    const r = await realBuild(worker(`import data from "${"../".repeat(8)}${basename(secret)}";`));
     expect(r.status).toBe("build-failed");
     expect(r.reason).toContain("outside");
     expect(r.reason).toContain(basename(secret));
@@ -285,7 +337,7 @@ describe.skipIf(!hasWrangler)("with the real wrangler (--dry-run only)", { timeo
   // (cwd-relative) normalises back inside the export while the bundler read the file in the seal, outside it.
   for (const mark of ["?", "#"]) {
     it(`rejects a ${mark} suffix whose ../ climbs back into the export, and deploys nothing`, async () => {
-      // From <seal>/export/src, two levels up is the seal, which holds argus's own bundle config.
+      // From <seal>/work/export/src, two levels up is the work directory, which holds argus's own bundle config.
       const r = await realBuild(worker(`import data from "../../wrangler.jsonc${mark}/../export/x" with { type: "json" };`));
       expect(r.status).toBe("build-failed");
       expect(r.reason).toContain("outside the commit");

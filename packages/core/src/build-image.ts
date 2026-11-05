@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -19,10 +21,18 @@ export function imageTag(contents: readonly string[]): string {
   return `${IMAGE_REPO}:cc${CLAUDE_CODE_VERSION}-n${NODE_VERSION}-p${PNPM_VERSION}-${hash.digest("hex").slice(0, 12)}`;
 }
 
-/** True when the image exists locally. The worker calls this before every Build; any failure counts as absent. */
-export async function imageReady(tag: string, podman = "podman"): Promise<boolean> {
+/** The files whose content the tag hashes, relative to the repo root: what `pnpm image:build` puts in the image. */
+export const IMAGE_CONTEXT_FILES = ["containers/build/Containerfile", "packages/core/src/egress-proxy.mjs", "packages/core/src/egress-proxy.ts"] as const;
+
+/** The tag `pnpm image:build` gives the image built from the checkout at `repoRoot`. */
+export function currentImageTag(repoRoot: string): string {
+  return imageTag(IMAGE_CONTEXT_FILES.map((f) => readFileSync(join(repoRoot, f), "utf8")));
+}
+
+/** True when the image exists locally. The worker calls this before every Build; any failure counts as absent. `env`, when given, is the podman client's whole environment. */
+export async function imageReady(tag: string, podman = "podman", env?: NodeJS.ProcessEnv): Promise<boolean> {
   try {
-    await run(podman, ["image", "exists", tag]);
+    await run(podman, ["image", "exists", tag], env ? { env } : {});
     return true;
   } catch {
     return false;

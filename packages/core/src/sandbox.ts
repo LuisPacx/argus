@@ -1,0 +1,410 @@
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { statSync, readFileSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { BUILD_NETWORK, imageReady } from "./build-image.ts";
+
+/**
+ * The Build container (containment design, ADR 0005 to come): every command that runs agent-written or agent-influenced code
+ * (the claude run, the dependency install and the dry-run bundle) is a rootless podman container of the pinned image. This module
+ * is the one place that knows podman: the argv builder is pure and tested against an allowlist, the `SandboxRunner` seam is what
+ * the brain and the Build Runner call, and the fake `podman` of the tests stands in for the real one behind it.
+ */
+
+/** Where the per-Build home is mounted inside the container. */
+export const AGENT_HOME = "/home/agent";
+/** Every container argus starts carries this label (value: the Proposal id), so startup can find leftovers and nothing else. */
+export const BUILD_LABEL = "argus.build";
+/** The only hosts the egress sidecar lets a Build container reach. */
+export const EGRESS_ALLOW: readonly string[] = ["api.anthropic.com:443", "registry.npmjs.org:443"];
+/** The sidecar's fixed address on the internal network (design 5.2): one at a time, which is how Builds run. */
+export const EGRESS_ADDRESS = "10.89.77.2";
+export const EGRESS_PORT = 3128;
+const PROXY_URL = `http://${EGRESS_ADDRESS}:${EGRESS_PORT}`;
+/** The image's own PATH (the Containerfile sets it); a bundle puts the project's bin directory in front of it. */
+const IMAGE_PATH = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin";
+const EGRESS_NETWORK_UPSTREAM = "podman";
+
+export type ContainerRole = "agent" | "install" | "bundle";
+/** The program each role runs; a job's args are appended. */
+const ROLE_COMMAND: Record<ContainerRole, readonly string[]> = {
+  agent: ["claude"],
+  install: ["pnpm", "install", "--frozen-lockfile"],
+  // `wrangler` is found on PATH, which holds the export's node_modules/.bin (the job's `binDir`): what `pnpm exec` would arrange,
+  // without pnpm insisting on a package.json in the working directory.
+  bundle: ["wrangler", "deploy"],
+};
+const ROLE_NAME: Record<ContainerRole, string> = { agent: "build", install: "install", bundle: "bundle" };
+/** Roles whose container reaches the allowlisted hosts (through the sidecar); the bundle has no network at all. */
+const ROLE_HAS_NETWORK: Record<ContainerRole, boolean> = { agent: true, install: true, bundle: false };
+
+export interface SandboxCaps {
+  memoryGiB: number;
+  cpus: number;
+  pids: number;
+  tmpGiB: number;
+}
+/** The Operator's decision (design section 13, Q6). */
+export const DEFAULT_CAPS: SandboxCaps = { memoryGiB: 8, cpus: 4, pids: 1024, tmpGiB: 2 };
+
+/** Caps from `ARGUS_BUILD_MEMORY_GIB`, `ARGUS_BUILD_CPUS`, `ARGUS_BUILD_PIDS`, `ARGUS_BUILD_TMP_GIB`; a value that is not a positive number is an error, never a silent default. */
+export function capsFromEnv(env: NodeJS.ProcessEnv): SandboxCaps {
+  const read = (name: string, fallback: number): number => {
+    const raw = env[name];
+    if (raw === undefined || raw === "") return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number, got ${JSON.stringify(raw.slice(0, 40))}`);
+    return n;
+  };
+  return {
+    memoryGiB: read("ARGUS_BUILD_MEMORY_GIB", DEFAULT_CAPS.memoryGiB),
+    cpus: read("ARGUS_BUILD_CPUS", DEFAULT_CAPS.cpus),
+    pids: Math.floor(read("ARGUS_BUILD_PIDS", DEFAULT_CAPS.pids)),
+    tmpGiB: read("ARGUS_BUILD_TMP_GIB", DEFAULT_CAPS.tmpGiB),
+  };
+}
+
+/** One container run, as the callers describe it. */
+export interface SandboxJob {
+  role: ContainerRole;
+  /** The Proposal's id: names and labels carry it. */
+  buildId: number;
+  /** Working directory inside the container; the same absolute path as on the host. */
+  cwd: string;
+  /** Host directories mounted read-write at the same path inside (the repo; or the bundle's work directory). */
+  mounts: readonly string[];
+  /** Host directory mounted at /home/agent: the claude config dir, the package store and caches. */
+  home: string;
+  /** Appended after the role's program (`claude`, `pnpm install --frozen-lockfile`, `wrangler deploy`). */
+  args: readonly string[];
+  /** The bundle role only: the host directory (mounted at the same path) whose executables, the project's wrangler, go first on PATH. */
+  binDir?: string;
+  /** The wall-clock cap the caller enforces; the container gets a minute more as a crash-proof backstop (`--timeout`). */
+  timeoutMs: number;
+  signal?: AbortSignal;
+  /** Where the sandbox reports things worth putting in the Build log (the sidecar's denials). */
+  note?: (line: string) => void;
+}
+
+/** What to spawn for a job, and how to end it. */
+export interface SandboxRun {
+  command: string;
+  args: string[];
+  /** The environment of the process that is spawned (the podman client), never that of the container. */
+  env: Record<string, string>;
+  /** `podman stop`, then `rm -f`, of the container and its sidecar. Idempotent; resolves once both are gone. */
+  stop(): Promise<void>;
+}
+
+/** The seam: the brain and the Build Runner start agent-influenced code only through this. */
+export interface SandboxRunner {
+  /** Why a Build cannot start (podman, image, network or token missing), or undefined when it can. */
+  preflight(): Promise<string | undefined>;
+  /** Stops and removes every container an earlier worker left behind (by label only). Returns their names. */
+  reconcile(log?: (line: string) => void): Promise<string[]>;
+  /** Starts what the job needs besides its own container (the egress sidecar) and returns the command that runs it. */
+  launch(job: SandboxJob): Promise<SandboxRun>;
+  /** The commands `launch` would run, for the dry run. Runs nothing. */
+  describe(job: SandboxJob): string[];
+  /** The token and caps are not secrets, the image is: the tag the Builds run. */
+  readonly image: string;
+}
+
+const NAME_RE = /^argus-(?:build|install|bundle|egress)-\d+-[0-9a-f]{8}$/;
+
+function checkMountPath(p: string): string {
+  // A colon or comma would let the path add mount options; anything not already normalised is not what was meant.
+  if (!isAbsolute(p) || resolve(p) !== p || /[:,\0\n\r]/.test(p) || p === "/") throw new Error(`refusing to mount ${JSON.stringify(p)}`);
+  return p;
+}
+
+/** The env the container gets, by role: (name, value) pairs; a pair with no value is passed through from the podman client's environment. */
+export function containerEnv(role: ContainerRole, binDir?: string): Array<[string, string | undefined]> {
+  const proxy: Array<[string, string]> = [["HTTPS_PROXY", PROXY_URL], ["https_proxy", PROXY_URL], ["NO_PROXY", ""]];
+  switch (role) {
+    case "agent":
+      return [
+        ["HOME", AGENT_HOME],
+        ["CLAUDE_CONFIG_DIR", `${AGENT_HOME}/.claude`],
+        ["CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"],
+        ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"],
+        ["DISABLE_AUTOUPDATER", "1"],
+        ...proxy,
+        // The Operator's ~/.gitconfig is not in the container, so the agent's commits need an identity of their own.
+        ["GIT_AUTHOR_NAME", "argus"],
+        ["GIT_AUTHOR_EMAIL", "argus@localhost"],
+        ["GIT_COMMITTER_NAME", "argus"],
+        ["GIT_COMMITTER_EMAIL", "argus@localhost"],
+        ["GIT_CONFIG_GLOBAL", "/dev/null"],
+        ["GIT_CONFIG_SYSTEM", "/dev/null"],
+        ["CI", "1"],
+        // No value: podman takes it from its own environment, so it is never on a command line.
+        ["CLAUDE_CODE_OAUTH_TOKEN", undefined],
+      ];
+    case "install":
+      return [["HOME", AGENT_HOME], ...proxy, ["CI", "1"]];
+    case "bundle":
+      if (!binDir) throw new Error("the bundle needs the directory of the project's wrangler");
+      return [["HOME", AGENT_HOME], ["PATH", `${binDir}:${IMAGE_PATH}`], ["CI", "1"], ["WRANGLER_SEND_METRICS", "false"]];
+  }
+}
+
+export interface RunSpec {
+  job: SandboxJob;
+  name: string;
+  image: string;
+  caps: SandboxCaps;
+}
+
+/**
+ * The `podman run` argv (after `podman`) for one job. Pure. Policy, all of it checked by tests against an allowlist: rootless
+ * with the caller's uid mapped, no capabilities, no new privileges, read-only root, `noexec` tmpfs, no image pull, no log driver
+ * copy of the output, an init, a PID limit and memory and CPU caps, the conmon timeout, the internal network (none at all for the
+ * bundle), exactly the mounts the job names plus the home, and only the env of `containerEnv(role)`.
+ */
+export function buildPodmanRunArgs({ job, name, image, caps }: RunSpec): string[] {
+  const { role } = job;
+  if (!NAME_RE.test(name)) throw new Error(`bad container name ${JSON.stringify(name)}`);
+  if (!Number.isInteger(job.buildId) || job.buildId < 0) throw new Error("bad build id");
+  const mounts = job.mounts.map(checkMountPath);
+  const flags = [
+    "run", "--rm", "--name", name,
+    "--label", `${BUILD_LABEL}=${job.buildId}`, "--label", `argus.role=${role}`,
+    "--pull=never", "--init", "--log-driver=none",
+    "--userns=keep-id", "--cap-drop=all", "--security-opt", "no-new-privileges",
+    "--read-only", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${caps.tmpGiB}g`,
+    `--pids-limit=${caps.pids}`, `--memory=${caps.memoryGiB}g`, `--cpus=${caps.cpus}`,
+    `--timeout=${Math.ceil(job.timeoutMs / 1000) + 60}`,
+    "--network", ROLE_HAS_NETWORK[role] ? BUILD_NETWORK.name : "none",
+  ];
+  for (const m of mounts) flags.push("-v", `${m}:${m}:Z`);
+  flags.push("-v", `${checkMountPath(job.home)}:${AGENT_HOME}:Z`, "-w", checkMountPath(job.cwd));
+  for (const [k, v] of containerEnv(role, job.binDir === undefined ? undefined : checkMountPath(job.binDir))) flags.push("--env", v === undefined ? k : `${k}=${v}`);
+  return [...flags, image, ...ROLE_COMMAND[role], ...job.args];
+}
+
+/** The egress sidecar's `podman run` argv: dual-homed (the internal network at its fixed address, and the default network for the way out). */
+export function egressRunArgs({ name, buildId, image }: { name: string; buildId: number; image: string }): string[] {
+  if (!NAME_RE.test(name)) throw new Error(`bad container name ${JSON.stringify(name)}`);
+  return [
+    "run", "-d", "--rm", "--name", name,
+    "--label", `${BUILD_LABEL}=${buildId}`, "--label", "argus.role=egress",
+    "--pull=never", "--userns=keep-id", "--cap-drop=all", "--security-opt", "no-new-privileges", "--read-only",
+    "--pids-limit=256", "--memory=256m", "--cpus=1",
+    "--network", `${BUILD_NETWORK.name}:ip=${EGRESS_ADDRESS}`, "--network", EGRESS_NETWORK_UPSTREAM,
+    "--env", `ARGUS_EGRESS_ALLOW=${EGRESS_ALLOW.join(",")}`,
+    image, "node", "/opt/argus/egress-proxy.mjs",
+  ];
+}
+
+/** `cd <repo> && CLAUDE_CONFIG_DIR=<home>/.claude claude --resume <id>`: what the Operator runs on the host to continue a failed Build's session (consumed by ticket 08's card). */
+export function resumeCommand(o: { repo: string; home: string; sessionId: string }): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o.sessionId)) throw new Error("not a session id");
+  const q = (s: string) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+  return `cd ${q(o.repo)} && CLAUDE_CONFIG_DIR=${q(`${o.home}/.claude`)} claude --resume ${o.sessionId}`;
+}
+
+/** The Build token: one line in a file only the Operator can read. Throws a message that never contains the token. */
+export function readBuildToken(path: string): string {
+  let st;
+  try {
+    st = statSync(path);
+  } catch {
+    throw new Error(`the Build token file ${path} does not exist (mint one with \`claude setup-token\` and save it there, chmod 600)`);
+  }
+  if (!st.isFile()) throw new Error(`the Build token path ${path} is not a file`);
+  if ((st.mode & 0o077) !== 0) throw new Error(`the Build token file ${path} is readable by others; chmod 600 it`);
+  const token = readFileSync(path, "utf8").trim();
+  if (!token) throw new Error(`the Build token file ${path} is empty`);
+  if (/\s/.test(token)) throw new Error(`the Build token file ${path} holds more than one line`);
+  return token;
+}
+
+export interface PodmanSandboxOptions {
+  /** The image to run, e.g. `localhost/argus-build:cc2.1.318-...`. Never pulled or built here. */
+  image: string;
+  podmanBin?: string;
+  tokenPath: string;
+  /** Where PATH, HOME and XDG_RUNTIME_DIR for the podman client come from. Default `process.env`. */
+  env?: NodeJS.ProcessEnv;
+  /** Extra variable names the podman client may inherit (tests point the fake with these). */
+  passEnv?: readonly string[];
+  caps?: SandboxCaps;
+  /** `podman stop -t`: seconds between SIGTERM and SIGKILL inside the container. Default 5. */
+  stopTimeoutSec?: number;
+  /** How long to wait for the egress sidecar's "listening" line. Default 20 s. */
+  egressWaitMs?: number;
+}
+
+interface Podman {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+const show = (args: readonly string[]) => args.map((a) => (/[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export class PodmanSandbox implements SandboxRunner {
+  readonly image: string;
+  private readonly podmanBin: string;
+  private readonly opts: PodmanSandboxOptions;
+  private readonly caps: SandboxCaps;
+
+  constructor(opts: PodmanSandboxOptions) {
+    if (opts.image.endsWith(":latest") || !/^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+$/.test(opts.image)) throw new Error(`the Build image must be a pinned tag, got ${JSON.stringify(opts.image)}`);
+    this.image = opts.image;
+    this.opts = opts;
+    this.podmanBin = opts.podmanBin ?? "podman";
+    this.caps = opts.caps ?? DEFAULT_CAPS;
+  }
+
+  /** The podman client's own environment: what it needs to find its rootless store and runtime dir, and nothing else. */
+  private clientEnv(extra: Record<string, string> = {}): Record<string, string> {
+    const source = this.opts.env ?? process.env;
+    const env: Record<string, string> = {};
+    for (const n of ["PATH", "HOME", "XDG_RUNTIME_DIR", ...(this.opts.passEnv ?? [])]) if (source[n] !== undefined) env[n] = source[n]!;
+    return { ...env, ...extra };
+  }
+
+  private podman(args: string[], timeoutMs = 30_000): Promise<Podman> {
+    return new Promise((res) => {
+      execFile(this.podmanBin, args, { env: this.clientEnv(), timeout: timeoutMs, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+        const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : null) : 0;
+        res({ code, stdout: String(stdout), stderr: String(stderr || (err ? err.message : "")) });
+      });
+    });
+  }
+
+  async preflight(): Promise<string | undefined> {
+    const v = await this.podman(["--version"], 15_000);
+    if (v.code !== 0) return `podman is not available (${this.podmanBin}; set ARGUS_PODMAN_BIN): ${v.stderr.trim().slice(0, 150)}`;
+    if (!(await imageReady(this.image, this.podmanBin, this.clientEnv()))) return `the Build image ${this.image} is not present; run \`pnpm image:build\``;
+    const n = await this.podman(["network", "exists", BUILD_NETWORK.name], 15_000);
+    if (n.code !== 0) return `the podman network ${BUILD_NETWORK.name} does not exist; run \`pnpm image:build\``;
+    try {
+      readBuildToken(this.opts.tokenPath);
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+    return undefined;
+  }
+
+  async reconcile(log: (line: string) => void = () => {}): Promise<string[]> {
+    const ps = await this.podman(["ps", "-a", "--filter", `label=${BUILD_LABEL}`, "--format", "json"]);
+    if (ps.code !== 0) {
+      log(`[worker] could not list leftover Build containers: ${ps.stderr.trim().slice(0, 150)}`);
+      return [];
+    }
+    let rows: Array<{ Names?: unknown; Labels?: Record<string, string> | null }>;
+    try {
+      rows = JSON.parse(ps.stdout || "[]");
+    } catch {
+      log("[worker] could not read the list of leftover Build containers");
+      return [];
+    }
+    const removed: string[] = [];
+    for (const row of rows) {
+      // The filter is podman's; only a container that carries our label and has one of our names is ever touched.
+      const name = Array.isArray(row.Names) ? row.Names[0] : row.Names;
+      if (typeof name !== "string" || !NAME_RE.test(name) || !row.Labels || !(BUILD_LABEL in row.Labels)) continue;
+      await this.endContainer(name);
+      removed.push(name);
+      log(`[worker] removed leftover Build container ${name}`);
+    }
+    return removed;
+  }
+
+  /** `podman stop`, then `rm -f`, of one container. Either failing is not an error (the container may be gone already: `--rm`). */
+  private async endContainer(name: string): Promise<void> {
+    const stopSec = this.opts.stopTimeoutSec ?? 5;
+    await this.podman(["stop", "--ignore", "-t", String(stopSec), name], (stopSec + 25) * 1000);
+    await this.podman(["rm", "-f", "--ignore", name]);
+  }
+
+  private names(job: SandboxJob): { container: string; egress: string } {
+    const nonce = randomBytes(4).toString("hex");
+    return { container: `argus-${ROLE_NAME[job.role]}-${job.buildId}-${nonce}`, egress: `argus-egress-${job.buildId}-${nonce}` };
+  }
+
+  describe(job: SandboxJob): string[] {
+    const nonce = "00000000";
+    const container = `argus-${ROLE_NAME[job.role]}-${job.buildId}-${nonce}`;
+    const egress = `argus-egress-${job.buildId}-${nonce}`;
+    const line = (args: string[]) => `${this.podmanBin} ${show(args)}`.replaceAll(nonce, "<nonce>");
+    const lines: string[] = [];
+    if (ROLE_HAS_NETWORK[job.role]) lines.push(line(egressRunArgs({ name: egress, buildId: job.buildId, image: this.image })));
+    lines.push(line(buildPodmanRunArgs({ job, name: container, image: this.image, caps: this.caps })));
+    const stopSec = this.opts.stopTimeoutSec ?? 5;
+    const ends = [container, ...(ROLE_HAS_NETWORK[job.role] ? [egress] : [])];
+    for (const n of ends) lines.push(line(["stop", "--ignore", "-t", String(stopSec), n]), line(["rm", "-f", "--ignore", n]));
+    return lines;
+  }
+
+  async launch(job: SandboxJob): Promise<SandboxRun> {
+    const names = this.names(job);
+    const started: string[] = []; // in start order; ended in reverse
+    let ended: Promise<void> | undefined;
+    const stop = () =>
+      (ended ??= (async () => {
+        for (const name of [...started].reverse()) {
+          if (name === names.egress) await this.noteDenials(name, job);
+          await this.endContainer(name);
+        }
+      })());
+    try {
+      let extra: Record<string, string> = {};
+      if (job.role === "agent") extra = { CLAUDE_CODE_OAUTH_TOKEN: readBuildToken(this.opts.tokenPath) };
+      if (ROLE_HAS_NETWORK[job.role]) {
+        started.push(names.egress);
+        await this.startEgress(names.egress, job);
+      }
+      // Registered before it exists: stop() tolerates a container that was never created, and a kill that lands between here and
+      // the spawn still ends whatever starts.
+      started.push(names.container);
+      return {
+        command: this.podmanBin,
+        args: buildPodmanRunArgs({ job, name: names.container, image: this.image, caps: this.caps }),
+        env: this.clientEnv(extra),
+        stop,
+      };
+    } catch (e) {
+      await stop();
+      throw e;
+    }
+  }
+
+  private async startEgress(name: string, job: SandboxJob): Promise<void> {
+    const r = await this.podman(egressRunArgs({ name, buildId: job.buildId, image: this.image }), 60_000);
+    if (r.code !== 0) throw new Error(`the egress proxy sidecar could not be started: ${r.stderr.trim().slice(0, 200)}`);
+    const deadline = Date.now() + (this.opts.egressWaitMs ?? 20_000);
+    for (;;) {
+      if (job.signal?.aborted) throw new Error("interrupted while starting the egress proxy sidecar");
+      const logs = await this.podman(["logs", name], 15_000);
+      if (logs.code !== 0) throw new Error(`the egress proxy sidecar exited before it was listening: ${logs.stderr.trim().slice(0, 200)}`);
+      if (/"event":"listening"/.test(logs.stdout)) return;
+      if (Date.now() > deadline) throw new Error("the egress proxy sidecar did not report listening in time");
+      await sleep(100);
+    }
+  }
+
+  /** The sidecar's refusals, as lines in the Build log: what a Build tried to reach and was not allowed to. */
+  private async noteDenials(name: string, job: SandboxJob): Promise<void> {
+    if (!job.note) return;
+    const logs = await this.podman(["logs", name], 15_000);
+    if (logs.code !== 0) return;
+    let shown = 0;
+    for (const line of logs.stdout.split("\n")) {
+      let ev: { event?: unknown; target?: unknown; reason?: unknown };
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (ev.event !== "denied") continue;
+      if (++shown > 20) break;
+      const clean = (v: unknown) => String(v ?? "?").replace(/[^\x20-\x7e]/g, "?").slice(0, 120);
+      job.note(`argus-egress: denied ${clean(ev.target)} (${clean(ev.reason)})`);
+    }
+  }
+}

@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import {
   ClaudeCodeBrain,
   Datastore,
+  PodmanSandbox,
   applyPendingCommands,
+  capsFromEnv,
+  currentImageTag,
   draftPendingSpecs,
   killLiveBrainChildren,
   revisePendingSpecs,
@@ -26,10 +29,19 @@ const brain = new ClaudeCodeBrain({ skillsDir: join(repoRoot, ".claude", "skills
 // The Build Runner: Build repos live under ~/code (ARGUS_BUILD_ROOT), cloned from the template repo. The *_BIN overrides
 // point the runner at other executables (tests use fakes); nothing else about a Build is configurable from the environment.
 const buildRoot = process.env.ARGUS_BUILD_ROOT || join(homedir(), "code");
+// Builds run in rootless podman containers (containment design). The image is the tag `pnpm image:build` prints, derived from this
+// checkout unless ARGUS_BUILD_IMAGE names one; the worker never builds or pulls it. The Build token is read from a file on each Build.
+const sandbox = new PodmanSandbox({
+  image: process.env.ARGUS_BUILD_IMAGE || currentImageTag(repoRoot),
+  podmanBin: process.env.ARGUS_PODMAN_BIN || "podman",
+  tokenPath: process.env.ARGUS_BUILD_TOKEN_FILE || join(homedir(), ".config", "argus", "build-token"),
+  caps: capsFromEnv(process.env),
+});
 const buildOptions: BuildRunnerOptions = {
   buildRoot,
   templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
   dataDir,
+  sandbox,
   gitBin: process.env.ARGUS_GIT_BIN || undefined,
   ghBin: process.env.ARGUS_GH_BIN || undefined,
   wranglerBin: process.env.ARGUS_WRANGLER_BIN || undefined,
@@ -44,6 +56,8 @@ const sweepStaleRuns = () => {
   if (interrupted > 0) console.error(`[worker] ${interrupted} brain run(s) were interrupted by a dead worker; flagged on their cards`);
 };
 sweepStaleRuns();
+// Containers an earlier worker left behind (it crashed mid-Build) are stopped and removed, found by label only. A dry run touches nothing.
+if (!dryRun) await sandbox.reconcile(console.log);
 
 const shutdown = new AbortController();
 const tick = reentrant(

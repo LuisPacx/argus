@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tempDir } from "./temp.ts";
 import { ClaudeCodeBrain, resolveRouting, type Routing, type TaskRoute } from "../brain.ts";
@@ -7,9 +7,15 @@ import type { BuildRunnerOptions } from "../build-runner.ts";
 import { Datastore, type Proposal } from "../datastore.ts";
 import { DISCLOSURE_SENTENCE } from "../disclosure.ts";
 import { approve } from "../lifecycle.ts";
+import { PodmanSandbox } from "../sandbox.ts";
 import { specPathFor } from "../spec-drafting.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
-import { FAKE_GH, FAKE_WRANGLER } from "./fake-tools.ts";
+import { FAKE_GH, FAKE_PODMAN, FAKE_WRANGLER } from "./fake-tools.ts";
+
+/** The image tag the harness's fake podman has. */
+export const TEST_IMAGE = "localhost/argus-build:test-0123456789ab";
+/** The fake Build token's value; tests assert it never appears in an argv, a log or a container's environment. */
+export const TEST_TOKEN = "sk-ant-oat01-fake-build-token-for-tests";
 
 /** Real `git`, but only ever against throwaway directories and with no user config. */
 export function vcs(cwd: string, ...args: string[]): string {
@@ -72,6 +78,17 @@ export interface Harness {
   claudeLog: string;
   ghLog: string;
   wranglerLog: string;
+  /** The Build sandbox (over the fake podman) and what the fake knows. */
+  sandbox: PodmanSandbox;
+  /** The environment the podman client's own env is picked from; tests add FAKE_PODMAN_* switches here. */
+  sandboxEnv: Record<string, string | undefined>;
+  podmanLog: string;
+  podmanState: string;
+  tokenPath: string;
+  /** Every argv the fake podman was called with, in order. */
+  podmanCalls(): string[][];
+  /** Names of the containers the fake podman still has (running, or seeded). */
+  containers(): string[];
   remotes: string;
   release: string;
   started: string;
@@ -84,7 +101,7 @@ export interface Harness {
 }
 
 export function makeHarness(
-  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
+  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; podmanEnv?: Record<string, string>; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
 ): Harness {
   const root = tempDir("argus-build-");
   const buildRoot = join(root, "code");
@@ -123,10 +140,41 @@ export function makeHarness(
     killGraceMs: 200,
   });
   const store = Datastore.open(":memory:");
+  // The sandbox: the real PodmanSandbox over the fake podman. Its source env holds secrets too, to show they never reach the podman client.
+  const podmanLog = join(root, "podman.jsonl");
+  const podmanState = join(root, "podman-state");
+  const tokenPath = join(root, "build-token");
+  writeFileSync(tokenPath, `${TEST_TOKEN}\n`, { mode: 0o600 });
+  const sandboxEnv: Record<string, string | undefined> = {
+    ...base,
+    XDG_RUNTIME_DIR: join(root, "run"),
+    ANTHROPIC_API_KEY: "sk-secret",
+    CLOUDFLARE_API_TOKEN: "cf-secret",
+    GH_TOKEN: "gh-secret",
+    ...fakeEnv,
+    ...opts.claudeEnv,
+    ...opts.wranglerEnv,
+    FAKE_PODMAN_LOG: podmanLog,
+    FAKE_PODMAN_STATE: podmanState,
+    FAKE_PODMAN_IMAGES: TEST_IMAGE,
+    FAKE_PODMAN_NETWORK: JSON.stringify({ internal: true, dns_enabled: false }),
+    ...opts.podmanEnv,
+  };
+  const sandbox = new PodmanSandbox({
+    image: TEST_IMAGE,
+    podmanBin: FAKE_PODMAN,
+    tokenPath,
+    env: sandboxEnv,
+    // The fake forwards FAKE_* variables into its "container", as a test image's baked-in environment.
+    passEnv: [...new Set([...Object.keys(sandboxEnv).filter((k) => k.startsWith("FAKE_")), "FAKE_PODMAN_WRANGLER", "FAKE_PODMAN_INSTALL_FILES", "FAKE_PODMAN_INSTALL_FAIL", "FAKE_PODMAN_INSTALL_HANG", "FAKE_PODMAN_INSTALL_STARTED", "FAKE_PODMAN_EGRESS_FAIL", "FAKE_PODMAN_EGRESS_SILENT", "FAKE_PODMAN_EGRESS_LOG"])],
+    stopTimeoutSec: 1,
+    egressWaitMs: 3000,
+  });
   const options: BuildRunnerOptions = {
     buildRoot,
     templateRepo,
     dataDir,
+    sandbox,
     ghBin: FAKE_GH,
     wranglerBin: FAKE_WRANGLER,
     env: { ...base, ANTHROPIC_API_KEY: "sk-secret", CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct", ...fakeEnv, ...opts.ghEnv, ...opts.wranglerEnv },
@@ -164,6 +212,25 @@ export function makeHarness(
     claudeLog,
     ghLog,
     wranglerLog,
+    sandbox,
+    sandboxEnv,
+    podmanLog,
+    podmanState,
+    tokenPath,
+    podmanCalls() {
+      try {
+        return readFileSync(podmanLog, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as string[]);
+      } catch {
+        return [];
+      }
+    },
+    containers() {
+      try {
+        return readdirSync(podmanState).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
+      } catch {
+        return [];
+      }
+    },
     remotes,
     release,
     started,

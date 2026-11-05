@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isClosed, killGroup, markClosed } from "./process-group.ts";
+import type { SandboxRun } from "./sandbox.ts";
 
 export type BrainTask = "judge" | "propose" | "spec" | "build";
 export type BrainBackend = "claude-code" | "api";
@@ -45,6 +46,13 @@ export interface BrainRunOptions {
   onOutput?: (chunk: string) => void;
   /** Aborting kills a live child and fails the run as `interrupted`; an already-aborted signal spawns nothing. */
   signal?: AbortSignal;
+  /**
+   * Runs the child in a sandbox instead of directly (the build route runs in a podman container). Given the `claude` argv, the
+   * working directory (the repo, the same path inside) and the wall-clock cap, it returns what to spawn on the host and how to
+   * end the container; the argv itself is untouched. The brain ends the container on timeout, abort, shutdown and when the child
+   * has exited, whatever the outcome. Needs `cwd`.
+   */
+  sandbox?: (job: { args: string[]; cwd: string; timeoutMs: number; signal?: AbortSignal }) => Promise<SandboxRun>;
 }
 
 export interface Brain {
@@ -262,19 +270,25 @@ const liveChildren = new Set<ChildProcess>();
 /** Children killed by shutdown, so their runs are reported as `interrupted` rather than failed. */
 const shutdownKilled = new WeakSet<ChildProcess>();
 
+/** How to end the container a sandboxed live child runs in (killing the podman client alone would leave it running). */
+const liveStops = new Map<ChildProcess, () => Promise<void>>();
+
 /** Kills every live brain child (SIGTERM, then SIGKILL after `graceMs`) and resolves once they have all exited. */
 export async function killLiveBrainChildren(graceMs = 5_000): Promise<number> {
   const children = [...liveChildren];
   for (const c of children) shutdownKilled.add(c);
   await Promise.all(
-    children.map(
-      (c) =>
+    children.map((c) => {
+      const stopped = liveStops.get(c)?.().catch(() => {});
+      return Promise.all([
+        stopped,
         new Promise<void>((resolve) => {
           if (isClosed(c)) return resolve();
           c.once("close", () => resolve());
           killGroup(c, graceMs);
         }),
-    ),
+      ]);
+    }),
   );
   return children.length;
 }
@@ -294,6 +308,11 @@ export class ClaudeCodeBrain implements Brain {
   routeFor(task: BrainTask): { backend: BrainBackend; model: string } {
     const { backend, model } = this.routing[task];
     return { backend, model };
+  }
+
+  /** The task's wall-clock cap in ms. */
+  timeoutFor(task: BrainTask): number {
+    return this.routing[task].timeoutMs;
   }
 
   /**
@@ -361,21 +380,35 @@ export class ClaudeCodeBrain implements Brain {
     // Project instructions (CLAUDE.md) found in parent directories of a stable working dir must not reach the child.
     const env = { ...scrubEnv(this.opts.env ?? process.env, this.opts.passEnv), CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" };
     let isolated: string | undefined;
+    let launched: SandboxRun | undefined;
     let out: ExecResult;
     try {
       let cwd = opts.cwd ?? this.opts.cwd;
       if (opts.workDir !== undefined) cwd = prepareSkillDir(opts.workDir, this.opts.skillsDir, task);
       else if (cwd === undefined && this.opts.skillsDir !== undefined) cwd = isolated = prepareSkillCwd(this.opts.skillsDir, task);
-      out = await exec(command, args, {
+      if (opts.sandbox) {
+        if (cwd === undefined) throw new BrainError("failed", "A sandboxed run needs a working directory", info);
+        try {
+          launched = await opts.sandbox({ args, cwd, timeoutMs: route.timeoutMs, signal: opts.signal });
+        } catch (e) {
+          if (opts.signal?.aborted) throw new BrainError("interrupted", "Run not started: the worker is stopping", info);
+          throw new BrainError("failed", `The sandbox could not be started: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500), info);
+        }
+      }
+      // The sandbox's command is the podman client; the `claude` argv rides inside it, unchanged.
+      out = await exec(launched?.command ?? command, launched?.args ?? args, {
         cwd,
-        env,
+        env: launched?.env ?? env,
         timeoutMs: route.timeoutMs,
         killGraceMs: this.opts.killGraceMs ?? 5_000,
         signal: opts.signal,
         onOutput: opts.onOutput,
+        stop: launched?.stop,
       });
     } finally {
       if (isolated) rmSync(isolated, { recursive: true, force: true });
+      // Whatever happened, no container or sidecar outlives the run.
+      await launched?.stop().catch(() => {});
     }
     const { stdout, stderr, code, signal, timedOut, interrupted } = out;
     const messages = parseMessages(stdout);
@@ -453,29 +486,36 @@ function exec(
     killGraceMs: number;
     signal?: AbortSignal;
     onOutput?: (chunk: string) => void;
+    /** Ends the container the child is the podman client of; called wherever the child's group is killed. */
+    stop?: () => Promise<void>;
   },
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     // Detached: the child leads its own process group, so a kill reaches everything it started (see process-group.ts).
     const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     liveChildren.add(child);
+    if (o.stop) liveStops.set(child, o.stop);
+    const endContainer = () => void o.stop?.().catch(() => {});
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     let aborted = false;
     const onAbort = () => {
       aborted = true;
+      endContainer();
       killGroup(child, o.killGraceMs);
     };
     o.signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => {
       timedOut = true;
+      endContainer();
       killGroup(child, o.killGraceMs);
     }, o.timeoutMs);
     const done = () => {
       clearTimeout(timer);
       o.signal?.removeEventListener("abort", onAbort);
       liveChildren.delete(child);
+      liveStops.delete(child);
     };
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (d: string) => {
