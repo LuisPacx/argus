@@ -3,6 +3,8 @@
 
 **What to build:** After approval, the worker dequeues the Proposal (FIFO by approval time, one Build at a time), clones the template to `~/code/<slug>`, creates a private GitHub repo, writes the Spec, and runs `/implement-spec` headlessly per the §4 mechanics. The log streams live into the War Room. The worker then deploys to `<slug>.workers.dev`, verifies the preview responds and the disclosure footer is present, and marks the Proposal `built` with the preview link and cost on the card.
 
+Timed-out or shutdown-killed Brain runs record $0 because claude prints no result; real spend is unknown, so per-Proposal cost undercounts for builds that hit the wall-clock cap (up to the $25 build budget).
+
 **Blocked by:** 05, 06
 
 **Status:** ready-for-agent

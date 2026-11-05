@@ -3,6 +3,8 @@
 
 **What to build:** When a Build fails (non-zero exit, budget cap, 4 h wall clock, deploy or footer check failure), the runner retries once with the failure report appended. If the retry fails, the Proposal becomes `build-failed` with its session_id stored, and the card shows the exact `claude --resume <session_id>` command to run in tmux from the repo directory. The Operator can re-queue a `build-failed` Proposal; this settles the recovery gap noted in §3.
 
+Timed-out or shutdown-killed Brain runs record $0 because claude prints no result; real spend is unknown, so per-Proposal cost undercounts for builds that hit the wall-clock cap (up to the $25 build budget).
+
 **Blocked by:** 07
 
 **Status:** ready-for-agent
