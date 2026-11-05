@@ -594,6 +594,11 @@ export class Datastore {
     this.db.prepare("UPDATE proposals SET spec_error = ?, spec_revision = NULL WHERE id = ?").run(error, proposalId);
   }
 
+  /** WORKER ONLY. Clears a failed Spec draft (error, attempt count and retry time) so the next tick drafts again. */
+  resetSpecFailure(proposalId: number): void {
+    this.db.prepare("UPDATE proposals SET spec_error = '', spec_attempts = 0, spec_retry_after = NULL WHERE id = ?").run(proposalId);
+  }
+
   /** The session of the Proposal's newest successful Spec run (draft or revise), the one a revise resumes. */
   latestSpecSession(proposalId: number): string | undefined {
     return this.brainRunsFor(proposalId)

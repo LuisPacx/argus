@@ -101,7 +101,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "dismiss" | "approve" | "revise";
+export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -141,9 +141,10 @@ const TARGET: Partial<Record<CommandType, ProposalStatus>> = {
  */
 export function applyCommand(store: Datastore, command: Command): void {
   const proposal = store.getProposal(command.proposalId);
-  if (command.type === "revise") {
+  if (command.type === "revise" || command.type === "retry-spec") {
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
-    reviseCommand(store, proposal, command.reason);
+    if (command.type === "revise") reviseCommand(store, proposal, command.reason);
+    else retrySpecCommand(store, proposal);
     return;
   }
   const target = TARGET[command.type];
@@ -190,4 +191,14 @@ function reviseCommand(store: Datastore, p: Proposal, instruction: string): void
   if (p.brainRunInFlightSince !== null) throw new DomainError("A brain run is in flight for this Proposal; try again when it finishes");
   if (p.specRevision !== null) throw new DomainError("A revision is already queued");
   store.queueRevision(p.id, text);
+}
+
+/**
+ * Retry a failed Spec draft: clears the error, attempt count and retry time so the next worker pass drafts again (a new
+ * brain run, with its own cost). Refused while any brain run is in flight for the Proposal.
+ */
+function retrySpecCommand(store: Datastore, p: Proposal): void {
+  if (p.brainRunInFlightSince !== null) throw new DomainError("A brain run is in flight for this Proposal; retry when it finishes");
+  if (p.status !== "shortlisted" || !p.specError) throw new DomainError("Nothing to retry: this Proposal has no failed Spec draft");
+  store.resetSpecFailure(p.id);
 }

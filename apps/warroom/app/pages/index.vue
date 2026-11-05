@@ -36,7 +36,7 @@ const rejection = (p: { id: number; updatedAt: string }) => {
 
 const retrying = (id: number) => commands.value.find((c) => c.proposalId === id && c.status === "pending" && c.attempts > 0);
 
-async function send(id: number, type: "shortlist" | "dismiss", reason = "") {
+async function send(id: number, type: "shortlist" | "dismiss" | "retry-spec", reason = "") {
   if (busy(id)) return;
   actionError.value = "";
   sending.value.add(id);
@@ -112,6 +112,14 @@ async function submit() {
         <p v-else-if="pendingIds.has(p.id)" class="mt-2 text-sm text-muted">Command pending...</p>
         <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="mt-2 flex flex-wrap items-center gap-2">
           <UButton v-if="p.status === 'new'" size="sm" :disabled="busy(p.id)" @click="send(p.id, 'shortlist')">Shortlist</UButton>
+          <UButton
+            v-if="p.status === 'shortlisted' && p.specError"
+            size="sm"
+            :disabled="busy(p.id) || !!p.brainRunInFlightSince"
+            @click="send(p.id, 'retry-spec')"
+          >
+            Retry Spec
+          </UButton>
           <UButton v-if="p.status === 'spec-drafted'" size="sm" variant="outline" :to="`/proposals/${p.id}`">Edit Spec</UButton>
           <UButton v-if="dismissing !== p.id" size="sm" color="neutral" variant="outline" :disabled="busy(p.id)" @click="dismissing = p.id">
             Dismiss

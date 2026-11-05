@@ -5,12 +5,12 @@
 
 **Blocked by:** 04
 
-**Status:** open
+**Status:** done
 
 Note: closely related to ticket 05 (Spec editor and approve); may be merged into it if done together.
 
-- [ ] War Room card with `spec_error` shows a "Retry Spec" action
-- [ ] Retry is a command through the ticket 03 command channel; the worker clears `spec_error` and `spec_attempts` and drafts again on the next tick
-- [ ] Retry is refused while a brain run is in flight for that Proposal
-- [ ] Every retry is a new `brain_runs` row with its own cost; the card's agent cost includes all of them
-- [ ] Tests cover retry after failed, after invalid-output, and refusal while in flight
+- [x] War Room card with `spec_error` shows a "Retry Spec" action
+- [x] Retry is a command through the ticket 03 command channel; the worker clears `spec_error` and `spec_attempts` and drafts again on the next tick
+- [x] Retry is refused while a brain run is in flight for that Proposal
+- [x] Every retry is a new `brain_runs` row with its own cost; the card's agent cost includes all of them
+- [x] Tests cover retry after failed, after invalid-output, and refusal while in flight

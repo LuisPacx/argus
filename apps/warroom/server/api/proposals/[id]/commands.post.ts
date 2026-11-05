@@ -1,6 +1,6 @@
 import type { CommandType } from "@argus/core";
 
-const types: CommandType[] = ["shortlist", "dismiss", "approve", "revise"];
+const types: CommandType[] = ["shortlist", "dismiss", "approve", "revise", "retry-spec"];
 
 export default defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   if (!type) throw createError({ statusCode: 400, statusMessage: "Unknown command type" });
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   if (type === "dismiss" && !reason) throw createError({ statusCode: 400, statusMessage: "Dismissal needs a reason" });
-  if (type === "revise" && !reason) throw createError({ statusCode: 400, statusMessage: "Revise needs an instruction" });
+  if ((type === "retry-spec" || type === "revise") && !reason) throw createError({ statusCode: 400, statusMessage: "Revise needs an instruction" });
   // Fast feedback only; the worker re-checks when it applies the command.
   if (type === "revise" && proposal.brainRunInFlightSince) {
     throw createError({ statusCode: 409, statusMessage: "A brain run is in flight for this Proposal; try again when it finishes" });

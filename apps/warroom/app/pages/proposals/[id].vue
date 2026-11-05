@@ -59,7 +59,7 @@ async function save() {
   }
 }
 
-async function send(type: "revise" | "approve", reason = "") {
+async function send(type: "revise" | "approve" | "retry-spec", reason = "") {
   if (sending.value || working.value) return;
   sending.value = true;
   message.value = "";
@@ -110,6 +110,10 @@ async function send(type: "revise" | "approve", reason = "") {
       <dt class="font-semibold">Updated</dt>
       <dd>{{ p.updatedAt }}</dd>
     </dl>
+    <section v-if="p.status === 'shortlisted' && p.specError" class="mt-4">
+      <p class="text-sm text-red-500">{{ p.specError }}</p>
+      <UButton class="mt-2" size="sm" :disabled="working || sending" @click="send('retry-spec')">Retry Spec</UButton>
+    </section>
     <section v-if="p.status === 'spec-drafted' && loadedFor" class="mt-4 grid gap-2">
       <h3 class="font-semibold">Spec</h3>
       <UTextarea v-model="text" :rows="24" class="font-mono" @update:model-value="edited = true" />
