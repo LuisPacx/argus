@@ -15,6 +15,7 @@
     "dev:stop": "node scripts/dev-server.mjs stop",
     "dev:status": "node scripts/dev-server.mjs status",
     "verify:boot": "node scripts/verify-boot.mjs",
+    "verify:parent": "node scripts/verify-parent.mjs",
     "image:build": "node scripts/image-build.mjs",
     "prepare": "git config core.hooksPath .githooks"
   },
