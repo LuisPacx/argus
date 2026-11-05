@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, MAX_SPEC_RATE_LIMIT_ATTEMPTS } from "./datastore.ts";
-import { applyPendingCommands } from "./lifecycle.ts";
+import { applyPending as applyPendingCommands } from "./testing/apply.ts";
 import { draftPendingSpecs } from "./spec-drafting.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 

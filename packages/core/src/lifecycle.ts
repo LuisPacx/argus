@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildHomeFor, removeTree } from "./build-runner.ts";
@@ -145,43 +144,24 @@ export interface ApplyOptions {
   /** argus's data dir. When set, dismissing a Proposal deletes its per-Build home (retention: kept for `build-failed`, gone on `built` and `dismissed`). */
   dataDir?: string;
   log?: (line: string) => void;
-  /**
-   * Where the Build repos are (`~/code`) and how to ask GitHub whether the Build's private repo exists (see `githubRepoCheck`). When
-   * set, a re-queue is refused while the failed Build's directory or repo is still there; the worker always sets both.
-   */
-  buildRoot?: string;
-  githubRepoExists?: (slug: string) => boolean;
 }
 
 /**
- * Builds the answer to "does the private GitHub repo `slug` exist?" from the `gh` CLI: yes when `gh repo view` succeeds, no on
- * GitHub's not-found answer, and an error for anything else (no network, no login), so the command is retried rather than let through.
+ * How a re-queue finds out what a failed Build left behind: where the Build repos are (`~/code`) and how to ask GitHub whether the
+ * Build's private repo exists (see `githubRepoCheck`). Both are required wherever commands are applied, so a re-queue is never let
+ * through unchecked. They do I/O, so they run in `applyPendingCommands` before a transaction opens, never inside `applyCommand`.
  */
-export function githubRepoCheck(ghBin: string, env: NodeJS.ProcessEnv): (slug: string) => boolean {
-  const childEnv: Record<string, string> = {};
-  for (const name of ["PATH", "HOME", "USER", "LANG", "TMPDIR", "GH_TOKEN", "GITHUB_TOKEN", "FAKE_GH_REMOTES", "FAKE_GH_VIEW_FAIL"]) {
-    if (env[name] !== undefined) childEnv[name] = env[name]!;
-  }
-  return (slug) => {
-    try {
-      execFileSync(ghBin, ["repo", "view", slug, "--json", "name"], { env: childEnv, stdio: "pipe", timeout: 30_000 });
-      return true;
-    } catch (e) {
-      const stderr = String((e as { stderr?: unknown }).stderr ?? "");
-      if (/Could not resolve to a Repository/i.test(stderr)) return false;
-      throw new Error(`could not check GitHub for a repo named ${slug}: ${(stderr || (e instanceof Error ? e.message : String(e))).trim().slice(-200)}`);
-    }
-  };
+export interface RequeueChecks {
+  buildRoot: string;
+  githubRepoExists: (slug: string) => boolean;
 }
 
-/** What a failed Build left that the Operator must remove before a re-queue; empty when nothing blocks one. */
-function requeueLeftovers(p: Proposal, opts: ApplyOptions): string[] {
+/** What a failed Build left that the Operator must remove before a re-queue; empty when nothing blocks one. Does I/O: call it outside any transaction. */
+export function requeueLeftovers(p: Proposal, checks: RequeueChecks): string[] {
   const left: string[] = [];
-  if (opts.buildRoot !== undefined) {
-    const dir = resolve(opts.buildRoot, p.slug);
-    if (existsSync(dir)) left.push(`the local directory ${dir}`);
-  }
-  if (opts.githubRepoExists?.(p.slug)) left.push(`the private GitHub repo ${p.slug}`);
+  const dir = resolve(checks.buildRoot, p.slug);
+  if (existsSync(dir)) left.push(`the local directory ${dir}`);
+  if (checks.githubRepoExists(p.slug)) left.push(`the private GitHub repo ${p.slug}`);
   // Named only with something else in the way: whether the Worker is still there is not asked of Cloudflare, and the fresh Build's
   // first step refuses a name that is taken.
   if (left.length > 0 && p.workerDeployed) left.push(`the Cloudflare Worker ${p.slug} (the Build deployed it)`);
@@ -192,8 +172,10 @@ function requeueLeftovers(p: Proposal, opts: ApplyOptions): string[] {
  * Applies one pending command via the lifecycle. Used by the worker, the sole writer of status.
  * A command whose target status is already current is a no-op (a double-click is not an error).
  * Throws DomainError subclasses for commands that can never succeed.
+ * Does no exec or network I/O (it runs inside a SQLite transaction): a re-queue needs `leftovers`, computed beforehand by
+ * `requeueLeftovers`, and without them it fails closed rather than skipping the check.
  */
-export function applyCommand(store: Datastore, command: Command, opts: ApplyOptions = {}): void {
+export function applyCommand(store: Datastore, command: Command, opts: ApplyOptions = {}, leftovers?: readonly string[]): void {
   const proposal = store.getProposal(command.proposalId);
   if (command.type === "revise" || command.type === "retry-spec") {
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
@@ -215,7 +197,7 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
   if (command.type === "requeue" && proposal.status !== "build-failed") throw new DomainError(`Re-queue needs a build-failed Proposal (it is ${proposal.status})`);
   if (command.type === "requeue") {
     // argus never deletes a Build's repos: a fresh Build needs the directory and the GitHub repo gone, so the Operator removes them first.
-    const leftovers = requeueLeftovers(proposal, opts);
+    if (leftovers === undefined) throw new Error("re-queue applied without its leftovers check");
     if (leftovers.length > 0) throw new DomainError(`Not re-queued: remove ${leftovers.join(", ")}, then re-queue. argus never deletes them.`);
   }
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
@@ -235,11 +217,29 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
  * A command that fails with a non-domain error stays pending (retried next tick, up to 5 attempts, then `failed`) and is reported to
  * `onError`; it never stops the rest of the batch.
  */
-export function applyPendingCommands(store: Datastore, onError?: (command: Command, error: unknown) => void, opts: ApplyOptions = {}): number {
+export function applyPendingCommands(store: Datastore, onError: ((command: Command, error: unknown) => void) | undefined, opts: ApplyOptions & RequeueChecks): number {
   let n = 0;
   for (const c of store.pendingCommands()) {
     try {
-      store.resolveCommand(c.id, () => applyCommand(store, c, opts));
+      // The slow checks (filesystem, `gh`) run here, before resolveCommand opens its write transaction. Only a re-queue of a
+      // build-failed Proposal needs them; any other re-queue is refused by applyCommand before it needs them (and fails closed if the status moved to build-failed meanwhile). A check that cannot be
+      // answered is thrown from inside resolveCommand so the attempt is counted like any other non-domain failure.
+      let leftovers: readonly string[] | undefined;
+      let checkError: unknown;
+      if (c.type === "requeue") {
+        const p = store.getProposal(c.proposalId);
+        if (p?.status === "build-failed") {
+          try {
+            leftovers = requeueLeftovers(p, opts);
+          } catch (e) {
+            checkError = e;
+          }
+        }
+      }
+      store.resolveCommand(c.id, () => {
+        if (checkError !== undefined) throw checkError;
+        applyCommand(store, c, opts, leftovers);
+      });
       n++;
     } catch (e) {
       onError?.(c, e);

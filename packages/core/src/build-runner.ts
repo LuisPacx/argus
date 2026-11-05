@@ -62,6 +62,18 @@ const COMMON_ENV = ["PATH", "HOME", "USER", "LANG", "TMPDIR"];
 const GITHUB_ENV = ["GH_TOKEN", "GITHUB_TOKEN"];
 const CLOUDFLARE_ENV = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"];
 
+/** The allowlisted environment of a child command: COMMON_ENV, the injected `passEnv` names and `names`, taken from `source`. */
+function pickEnv(source: NodeJS.ProcessEnv, passEnv: readonly string[] | undefined, names: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const n of [...COMMON_ENV, ...(passEnv ?? []), ...names]) if (source[n] !== undefined) out[n] = source[n]!;
+  return out;
+}
+
+/** The environment `gh` runs with: the same allowlist the Build's own `gh` calls get (common variables plus the GitHub token). */
+export function githubCommandEnv(source: NodeJS.ProcessEnv, passEnv?: readonly string[]): Record<string, string> {
+  return pickEnv(source, passEnv, GITHUB_ENV);
+}
+
 /**
  * git run by the runner: hooks and the fsmonitor are switched off and diffs never run external programs. The Build agent can
  * write `.git/config` and `.git/hooks` in its repo, so once it has run, no git command of the runner reads that repo's config
@@ -484,11 +496,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   };
 
   const source = o.env ?? process.env;
-  const pick = (names: readonly string[]): Record<string, string> => {
-    const out: Record<string, string> = {};
-    for (const n of [...COMMON_ENV, ...(o.passEnv ?? []), ...names]) if (source[n] !== undefined) out[n] = source[n]!;
-    return out;
-  };
+  const pick = (names: readonly string[]) => pickEnv(source, o.passEnv, names);
   const gitEnv = { ...pick([]), ...GIT_ISOLATION };
   const pushEnv = { ...pick(GITHUB_ENV), ...GIT_ISOLATION };
   const ghEnv = pick(GITHUB_ENV);
@@ -806,7 +814,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     // names it among the leftovers the Operator removes before a re-queue.
     state.deployed = true;
     store.markWorkerDeployed(id);
-    const url =WORKERS_DEV_URL_RE.exec(deployed)?.[0];
+    const url = WORKERS_DEV_URL_RE.exec(deployed)?.[0];
     if (!url) return fail("wrangler deploy printed no workers.dev URL");
     note(`Deployed to ${url}; checking the preview`);
     const check = await checkDisclosure(url, o.fetch ?? fetch, { attempts: o.previewAttempts, delayMs: o.previewDelayMs });

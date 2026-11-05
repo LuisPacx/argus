@@ -10,12 +10,14 @@ import {
   IllegalTransitionError,
   TRANSITIONS,
   approve,
-  applyPendingCommands,
+  applyCommand,
   findTransition,
-  githubRepoCheck,
   DomainError,
   type ProposalStatus,
 } from "./lifecycle.ts";
+// After build-runner/datastore/lifecycle: these import them back, and the cycle only resolves in this order.
+import { applyPending as applyPendingCommands } from "./testing/apply.ts";
+import { githubRepoCheck } from "./github-repo.ts";
 
 const input = {
   narrativeSummary: "n",
@@ -285,23 +287,62 @@ describe("re-queue from build-failed", () => {
     });
   });
 
+  it("runs the leftovers check with no transaction open: a War Room write from another connection goes through meanwhile", () => {
+    const file = join(tempDir("argus-txn-"), "argus.db");
+    const ds = Datastore.open(file);
+    const other = Datastore.open(file);
+    const id = proposalAt(ds, "build-failed");
+    const c = ds.enqueueCommand(id, "requeue").id;
+    let written: number | undefined;
+    const started = Date.now();
+    applyPendingCommands(ds, undefined, {
+      githubRepoExists: () => {
+        written = other.enqueueCommand(id, "dismiss", "meanwhile").id; // would wait on the write lock (then throw) inside BEGIN IMMEDIATE
+        return false;
+      },
+    });
+    expect(written).toBeDefined();
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(ds.getCommand(c)!.status).toBe("applied");
+  });
+
+  it("applyCommand fails closed on a re-queue whose leftovers were not checked", () => {
+    const ds = Datastore.open(":memory:");
+    const id = proposalAt(ds, "build-failed");
+    const c = ds.enqueueCommand(id, "requeue");
+    expect(() => applyCommand(ds, c)).toThrow(/without its leftovers check/);
+    expect(ds.getProposal(id)!.status).toBe("build-failed");
+  });
+
   describe("the GitHub check through gh", () => {
     const remotes = () => {
       const dir = tempDir("argus-remotes-");
-      return { dir, env: { PATH: process.env.PATH, FAKE_GH_REMOTES: dir } };
+      return { dir, cwd: tempDir("argus-ghcwd-"), env: { PATH: process.env.PATH, FAKE_GH_REMOTES: dir } };
     };
+    const passEnv = ["FAKE_GH_REMOTES", "FAKE_GH_VIEW_FAIL"];
 
     it("says a repo exists when gh can view it, and that it does not on gh's not-found answer", () => {
-      const { dir, env } = remotes();
+      const { dir, cwd, env } = remotes();
       mkdirSync(join(dir, "cat-coin.git"));
-      const exists = githubRepoCheck(FAKE_GH, env);
+      const exists = githubRepoCheck({ ghBin: FAKE_GH, cwd, env, passEnv });
       expect(exists("cat-coin")).toBe(true);
       expect(exists("dog-coin")).toBe(false);
     });
 
     it("throws on any other gh failure", () => {
-      const { env } = remotes();
-      expect(() => githubRepoCheck(FAKE_GH, { ...env, FAKE_GH_VIEW_FAIL: "1" })("cat-coin")).toThrow(/could not check GitHub/);
+      const { cwd, env } = remotes();
+      expect(() => githubRepoCheck({ ghBin: FAKE_GH, cwd, env: { ...env, FAKE_GH_VIEW_FAIL: "1" }, passEnv })("cat-coin")).toThrow(/could not check GitHub/);
+    });
+
+    it("runs gh in the given directory with only the allowlisted environment", () => {
+      const { dir, cwd, env } = remotes();
+      const log = join(dir, "gh.log");
+      mkdirSync(join(dir, "cat-coin.git"));
+      githubRepoCheck({ ghBin: FAKE_GH, cwd, env: { ...env, FAKE_GH_LOG: log, GH_TOKEN: "t", ANTHROPIC_API_KEY: "secret" }, passEnv: [...passEnv, "FAKE_GH_LOG"] })("cat-coin");
+      const call = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]!);
+      expect(call.cwd).toBe(cwd);
+      expect(call.env.GH_TOKEN).toBe("t");
+      expect(call.env.ANTHROPIC_API_KEY).toBeUndefined();
     });
   });
 

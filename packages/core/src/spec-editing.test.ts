@@ -5,7 +5,8 @@ import { tempDir } from "./testing/temp.ts";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, SpecConflictError } from "./datastore.ts";
-import { applyCommand, applyPendingCommands } from "./lifecycle.ts";
+import { applyCommand } from "./lifecycle.ts";
+import { applyPending as applyPendingCommands } from "./testing/apply.ts";
 import { draftSpec, reviseSpec, revisePromptFor } from "./spec-drafting.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 

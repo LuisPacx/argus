@@ -68,13 +68,14 @@ if (!dryRun) {
 }
 
 const shutdown = new AbortController();
+const ghRepoExists = githubRepoCheck({ ghBin: process.env.ARGUS_GH_BIN || "gh", cwd: dataDir });
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
     const n = applyPendingCommands(
       store,
       (c, e) => console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
-      { dataDir, log: console.log, buildRoot, githubRepoExists: githubRepoCheck(process.env.ARGUS_GH_BIN || "gh", process.env) },
+      { dataDir, log: console.log, buildRoot, githubRepoExists: ghRepoExists },
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();
