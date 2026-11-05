@@ -13,3 +13,4 @@
 - [ ] Tested with the fake `claude` emitting the marker
 - [ ] The marker is read only from the last line of the final stream-json `result` event's `result` text (format documented in the template README), never from other events, because the marker text also appears in tool results; a test where the marker appears only inside a tool-result event does not route to `needs-human`
 - [ ] `pnpm check` passes
+- [ ] A Spec whose first line is `## Needs human` (accepted by ticket 04's Spec validation) moves the Proposal to `needs-human` and is never built; tested
