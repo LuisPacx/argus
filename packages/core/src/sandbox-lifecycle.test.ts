@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { BrainRunOptions } from "./brain.ts";
 import { buildHomeFor, removeTree, runNextBuild, sweepStaleSeals } from "./build-runner.ts";
-import { dataIdFor, ownerAlive, ownerState, ownerToken, parseProcStat, type ProcStatRead } from "./sandbox.ts";
+import { dataIdFor, ownerAlive, ownerState, ownerToken, parseProcStat, PodmanSandbox, type ProcStatRead } from "./sandbox.ts";
 import { makeHarness, type Harness } from "./testing/build-harness.ts";
 import { tempDir, tempPath } from "./testing/temp.ts";
 import { untilExists } from "./testing/wait.ts";
@@ -27,6 +27,14 @@ function deadPid(): number {
   const r = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" });
   return Number(r.stdout);
 }
+
+describe("the owner is minted once, at the sandbox, and handed to the Build Runner", () => {
+  it("the sandbox exposes the owner it labels containers with (injected, or this process's token)", () => {
+    const base = { image: "localhost/argus-build:test-0123456789ab", tokenPath: "/nowhere", dataDir: "/nowhere" };
+    expect(new PodmanSandbox({ ...base, owner: "4242.99" }).owner).toBe("4242.99");
+    expect(new PodmanSandbox(base).owner).toBe(ownerToken());
+  });
+});
 
 describe("who owns a container: only a dead owner's containers of this data dir are reaped", { timeout: 60_000 }, () => {
   const seed = (h: Harness, name: string, labels: Record<string, string>) => {

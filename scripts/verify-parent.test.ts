@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain .mjs script, no types
-import { selectTestChanges, selectTestFiles, splitByStatus, summarize } from "./verify-parent.mjs";
+import { selectTestChanges, selectTestFiles, splitByStatus, summarize, testNames } from "./verify-parent.mjs";
 
 describe("verify-parent", () => {
   it("selects only added or modified *.test.ts files", () => {
@@ -18,6 +18,30 @@ describe("verify-parent", () => {
     const { lines, exitCode } = summarize(report, ["a.test.ts", "b.test.ts"], "/r");
     expect(exitCode).toBe(0);
     expect(lines.join("\n")).toContain("passes on parent (suspicious): p");
+  });
+
+  it("only judges tests the commit added or changed; tests already in the parent's file are expected to pass", () => {
+    const parentSrc = ['describe("x", () => {', '  it("old one", () => {});', "  test.skip('old two', () => {});", "});"].join("\n");
+    expect([...testNames(parentSrc)].sort()).toEqual(["old one", "old two"]);
+    const report = {
+      testResults: [
+        {
+          name: "/r/a.test.ts",
+          status: "failed",
+          assertionResults: [
+            { status: "failed", title: "new one", fullName: "x new one" },
+            { status: "passed", title: "old one", fullName: "x old one" },
+            { status: "passed", title: "new passing", fullName: "x new passing" },
+          ],
+        },
+      ],
+    };
+    const { lines, exitCode } = summarize(report, ["a.test.ts"], "/r", [], { "a.test.ts": testNames(parentSrc) });
+    const text = lines.join("\n");
+    expect(exitCode).toBe(0);
+    expect(text).toContain("passes on parent (unchanged, expected to pass): x old one");
+    expect(text).toContain("passes on parent (suspicious): x new passing");
+    expect(text).not.toContain("suspicious): x old one");
   });
 
   it("no-arg mode: added files are strict, modified files are INFO and never change the exit code", () => {

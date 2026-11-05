@@ -33,8 +33,17 @@ export function splitByStatus(changes) {
   return { strict: changes.filter((c) => c.status === 'A').map((c) => c.file), info: changes.filter((c) => c.status === 'M').map((c) => c.file) };
 }
 
+// Pure: the names of the tests (it/test, any modifier) declared in a test file's source.
+export function testNames(source) {
+  const names = new Set();
+  for (const m of (source ?? '').matchAll(/\b(?:it|test)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1).)*)\1/g)) names.add(m[2]);
+  return names;
+}
+
 // Pure: vitest JSON report + the repo-relative files we ran -> per-file results, summary text and exit code.
-export function summarize(report, files, root = '', infoFiles = []) {
+// `parentNames` maps file -> names of the tests already in that file on the parent: those are unchanged by the commit, so
+// passing on the parent is expected, not suspicious. Only tests the commit added or renamed are judged.
+export function summarize(report, files, root = '', infoFiles = [], parentNames = {}) {
   const byFile = new Map();
   for (const r of report?.testResults ?? []) byFile.set(path.relative(root, r.name), r);
   const lines = [];
@@ -51,12 +60,17 @@ export function summarize(report, files, root = '', infoFiles = []) {
     const state = !r ? 'NOT RUN' : loadFailure ? 'file failed to load' : `${failed.length} failed, ${passed.length} passed`;
     const label = info ? 'INFO (modified file, not gating)' : ok ? 'FAILS ON PARENT (good)' : 'NO FAILURE ON PARENT (bad)';
     lines.push(`${label}  ${file}: ${state}`);
-    if (!info) for (const t of passed) lines.push(`    passes on parent (suspicious): ${t.fullName ?? t.title}`);
+    if (!info) {
+      for (const t of passed) {
+        const unchanged = parentNames[file]?.has(t.title ?? t.fullName);
+        lines.push(`    passes on parent (${unchanged ? 'unchanged, expected to pass' : 'suspicious'}): ${t.fullName ?? t.title}`);
+      }
+    }
   }
   lines.push(
     allFail
       ? 'OK: every file has at least one test that fails on the parent. Parent failures are the EXPECTED, good result.'
-      : 'NOT PROVEN: some file has no failing test on the parent. Parent failures are the EXPECTED, good result; passing tests are suspicious.',
+      : 'NOT PROVEN: some file has no failing test on the parent. Parent failures are the EXPECTED, good result; passing tests the commit added are suspicious.',
   );
   return { lines, exitCode: allFail ? 0 : 1 };
 }
@@ -67,17 +81,38 @@ function git(args, opts = {}) {
   return r.stdout;
 }
 
-let activeChild = null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The child runs in its own process group so cleanup can signal pnpm and every vitest worker below it at once.
+let active = null; // { pid, exited: Promise }
 function run(cmd, args, cwd, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, env, stdio: 'inherit' });
-    activeChild = child;
+    const child = spawn(cmd, args, { cwd, env, stdio: 'inherit', detached: true });
+    const exited = new Promise((done) => child.on('close', done));
+    active = { pid: child.pid, exited };
     child.on('error', reject);
-    child.on('close', (code) => {
-      activeChild = null;
+    exited.then((code) => {
+      active = null;
       resolve(code);
     });
   });
+}
+
+// SIGTERM the whole group, wait for the child to exit (SIGKILL the group after 10 s).
+async function stopActive() {
+  if (!active) return;
+  const { pid, exited } = active;
+  const signalGroup = (sig) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {}
+  };
+  signalGroup('SIGTERM');
+  const timedOut = await Promise.race([exited.then(() => false), sleep(10_000).then(() => true)]);
+  if (timedOut) {
+    signalGroup('SIGKILL');
+    await Promise.race([exited, sleep(5_000)]);
+  }
 }
 
 async function main() {
@@ -88,22 +123,24 @@ async function main() {
   }
   let wt = null;
   let created = false;
-  const cleanup = () => {
-    if (activeChild?.pid) {
-      try {
-        process.kill(activeChild.pid, 'SIGTERM');
-      } catch {}
-    }
+  let cleaning = null;
+  const cleanup = () => (cleaning ??= doCleanup());
+  const doCleanup = async () => {
+    await stopActive();
     if (created) {
-      const r = spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: ROOT, encoding: 'utf8' });
+      let r;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        r = spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: ROOT, encoding: 'utf8' });
+        if (r.status === 0) break;
+        await sleep(1000);
+      }
       if (r.status !== 0) console.error(`WARNING: could not remove worktree ${wt}: ${r.stderr.trim()}`);
       created = false;
     }
   };
-  for (const sig of ['SIGINT', 'SIGTERM']) {
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
-      cleanup();
-      process.exit(2);
+      cleanup().finally(() => process.exit(2));
     });
   }
   try {
@@ -142,7 +179,13 @@ async function main() {
       console.error('vitest produced no JSON report');
       return 2;
     }
-    const { lines, exitCode } = summarize(JSON.parse(fs.readFileSync(reportPath, 'utf8')), files, wt, infoFiles);
+    // Tests already declared in each file on the parent are unchanged by the commit (a file new in the commit has none).
+    const parentNames = {};
+    for (const f of files) {
+      const r = spawnSync('git', ['show', `${parent}:${f}`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      parentNames[f] = testNames(r.status === 0 ? r.stdout : '');
+    }
+    const { lines, exitCode } = summarize(JSON.parse(fs.readFileSync(reportPath, 'utf8')), files, wt, infoFiles, parentNames);
     console.log('\n=== verify-parent summary ===');
     for (const l of lines) console.log(l);
     return exitCode;
@@ -150,7 +193,7 @@ async function main() {
     console.error(`setup error: ${err.message}`);
     return 2;
   } finally {
-    cleanup();
+    await cleanup();
   }
 }
 

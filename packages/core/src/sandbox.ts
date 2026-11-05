@@ -108,6 +108,8 @@ export interface SandboxRunner {
   describe(job: SandboxJob): string[];
   /** The token and caps are not secrets, the image is: the tag the Builds run. */
   readonly image: string;
+  /** Who this worker is: minted once at boot, labels its containers and names its seals. */
+  readonly owner: string;
 }
 
 const NAME_RE = /^argus-(?:build|install|bundle|egress)-\d+-[0-9a-f]{8}$/;
@@ -322,13 +324,15 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export class PodmanSandbox implements SandboxRunner {
   readonly image: string;
+  readonly owner: string;
   private readonly podmanBin: string;
   private readonly opts: PodmanSandboxOptions;
   private readonly caps: SandboxCaps;
   private readonly ownership: Ownership;
 
   constructor(opts: PodmanSandboxOptions) {
-    this.ownership = { dataId: dataIdFor(opts.dataDir), owner: opts.owner ?? ownerToken() };
+    this.owner = opts.owner ?? ownerToken();
+    this.ownership = { dataId: dataIdFor(opts.dataDir), owner: this.owner };
     if (opts.image.endsWith(":latest") || !/^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+$/.test(opts.image)) throw new Error(`the Build image must be a pinned tag, got ${JSON.stringify(opts.image)}`);
     this.image = opts.image;
     this.opts = opts;
@@ -388,7 +392,7 @@ export class PodmanSandbox implements SandboxRunner {
       const name = Array.isArray(row.Names) ? row.Names[0] : row.Names;
       if (typeof name !== "string" || !NAME_RE.test(name) || !row.Labels || !(BUILD_LABEL in row.Labels)) continue;
       const { "argus.data": data, "argus.owner": owner } = row.Labels;
-      if (data !== this.ownership.dataId || typeof owner !== "string" || !/^[1-9][0-9]{0,9}\.[0-9]{1,15}$/.test(owner) ) continue;
+      if (data !== this.ownership.dataId || typeof owner !== "string" || !/^[1-9][0-9]{0,9}\.[0-9]{1,15}$/.test(owner)) continue;
       const state = ownerState(owner, readStat);
       if (state === "unknown") log(`[worker] left alone Build container ${name}: could not tell whether its owner ${owner} is running`);
       if (state !== "dead") continue;

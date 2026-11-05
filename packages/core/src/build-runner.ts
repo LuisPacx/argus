@@ -5,7 +5,7 @@ import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
-import { ownerState, ownerToken, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
+import { ownerState, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
 export function buildLogPathFor(dataDir: string, proposalId: number): string {
@@ -569,7 +569,7 @@ async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOpt
     // Under the data dir, on the disk: the dependency install below puts a node_modules in it, which does not belong in /tmp.
     mkdirSync(dirname(home), { recursive: true });
     // Named for the worker that made it, so a later worker can tell a seal whose Build is over from one still in use.
-    seal = mkdtempSync(join(dirname(home), `seal-${ownerToken()}-`));
+    seal = mkdtempSync(join(dirname(home), `seal-${o.sandbox.owner}-`));
     const sealGit = join(seal, ".git");
     await step("git init", git, [...SAFE_GIT, "init", "--quiet", seal], gitEnv, seal);
     writeFileSync(join(sealGit, "objects", "info", "alternates"), join(repo, ".git", "objects") + "\n");
