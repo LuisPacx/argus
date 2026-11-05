@@ -102,14 +102,6 @@ describe("Build Runner: a Build succeeds only on argus's own checks", () => {
     expect(r.deploys).toEqual([]);
   });
 
-  it("refuses to deploy a wrangler.jsonc that sets a build command", async () => {
-    const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "tamper-wrangler-build,commit" } });
-    const r = await build(h);
-    expect(r.after.status).toBe("build-failed");
-    expect(r.reason).toContain('sets "build"');
-    expect(r.deploys).toEqual([]);
-  });
-
   it("never runs a script from the Build repo: runner git ignores hooks and fsmonitor the agent planted in .git", async () => {
     const marker = `${tmpdir()}/argus-pwned-${process.pid}`;
     rmSync(marker, { force: true });

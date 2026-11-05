@@ -49,6 +49,34 @@ describe("checkDisclosure", () => {
     expect(res.problems.join("\n")).toContain("/__argus_not_found__");
   });
 
+  it("counts only visible text: the sentence in hidden markup does not satisfy the check", async () => {
+    const S = DISCLOSURE_SENTENCE;
+    for (const bad of [
+      `<div style="display:none">${S}</div>`,
+      `<div style='color:red; DISPLAY : none !important'>${S}</div>`,
+      `<p hidden>${S}</p>`,
+      `<p hidden="">${S}</p>`,
+      `<span aria-hidden="true">${S}</span>`,
+      `<noscript>${S}</noscript>`,
+      `<template>${S}</template>`,
+      `<div style="display:none"><p>x</p><footer>${S}</footer></div>`,
+      `<style>.cloak{display:none}</style><div class="a cloak">${S}</div>`,
+      `<style>#gone { display: none; }</style><div id="gone">${S}</div>`,
+    ]) {
+      const { fetchFn } = preview({ "/": [200, "text/html", `<!doctype html><html><head><title>${S}</title></head><body>${bad}</body></html>`] }, [404, "text/html", html("", true)]);
+      const res = await check(fetchFn);
+      expect(res.ok, bad).toBe(false);
+      expect(res.problems.join("\n"), bad).toContain("/: HTML page without the exact disclosure sentence");
+    }
+  });
+
+  it("still passes when hidden elements sit beside a visible sentence, and when it is split across visible tags", async () => {
+    const S = DISCLOSURE_SENTENCE;
+    const body = `<div hidden>secret</div><p style="display:none">x</p><footer><b>This project was created by argus</b>, an autonomous project builder. <i>The creator may sell this project.</i></footer><div aria-hidden="false">${S}</div>`;
+    const { fetchFn } = preview({ "/": [200, "text/html", `<!doctype html><html><body>${body}</body></html>`] }, [404, "text/html", html("")]);
+    expect((await check(fetchFn)).ok).toBe(true);
+  });
+
   it("does not trust a reworded sentence, or one hidden in a comment, script or style", async () => {
     for (const bad of [
       "<footer>This project was created by argus. The creator may sell this project.</footer>",

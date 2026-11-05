@@ -39,7 +39,8 @@ describe("Build Runner: happy path", () => {
 
     // wrangler deploys under the slug, with the Cloudflare credentials and nothing the build run saw.
     const [deploy] = h.calls(h.wranglerLog);
-    expect(deploy!.argv).toEqual(["deploy", "--name", "cat-coin", "--config", "wrangler.jsonc"]);
+    expect(deploy!.argv.slice(0, 3)).toEqual(["deploy", "--name", "cat-coin"]);
+    expect(deploy!.argv[3]).toBe("--config");
     expect(deploy!.cwd).toBe(repo);
     expect(deploy!.cf).toEqual({ CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct" });
     expect(deploy!.keys).not.toContain("ANTHROPIC_API_KEY");
@@ -150,7 +151,7 @@ describe("Build Runner: dry-run", () => {
     expect(text).toMatch(/dry-run: \S*fake-gh\.mjs repo create cat-coin --private --source \. --remote origin/);
     expect(text).toMatch(/dry-run: claude \(cwd .*cat-coin\) -p "\/implement-spec \d+" --output-format stream-json --model sonnet --max-budget-usd 25 /);
     expect(text).toContain("--permission-mode acceptEdits");
-    expect(text).toMatch(/dry-run: \S*fake-wrangler\.mjs deploy --name cat-coin --config wrangler\.jsonc/);
+    expect(text).toMatch(/dry-run: \S*fake-wrangler\.mjs deploy --name cat-coin --config \S*wrangler\.jsonc/);
     // Nothing ran, nothing was recorded, nothing changed.
     expect(existsSync(h.repoDir("cat-coin"))).toBe(false);
     expect(h.calls(h.claudeLog)).toEqual([]);

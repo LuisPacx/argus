@@ -64,6 +64,10 @@ export interface Harness {
   buildRoot: string;
   dataDir: string;
   logs: string[];
+  /** Names of Workers that already exist in the (fake) Cloudflare account; add to it mid-build to race a deploy. */
+  workers: Set<string>;
+  /** Requests the runner made to the (fake) Cloudflare API. */
+  apiCalls: Array<{ url: string; authorization: string | null }>;
   /** Files the fakes append JSON lines to. */
   claudeLog: string;
   ghLog: string;
@@ -78,7 +82,7 @@ export interface Harness {
 }
 
 export function makeHarness(
-  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
+  opts: { claudeEnv?: Record<string, string>; ghEnv?: Record<string, string>; wranglerEnv?: Record<string, string>; fetch?: typeof fetch; cloudflareDown?: boolean; workers?: string[]; routing?: Partial<Record<keyof Routing, Partial<TaskRoute>>>; dryRun?: boolean } = {},
 ): Harness {
   const root = mkdtempSync(join(tmpdir(), "argus-build-"));
   const buildRoot = join(root, "code");
@@ -92,6 +96,9 @@ export function makeHarness(
   const release = join(root, "release");
   const started = join(root, "started");
   const logs: string[] = [];
+  const previewFetch = fakePreview();
+  const apiCalls: Array<{ url: string; authorization: string | null }> = [];
+  const workers = new Set(opts.workers ?? []);
   const base = { PATH: process.env.PATH, HOME: root };
   const fakeEnv = {
     FAKE_CLAUDE_MODE: "success",
@@ -122,7 +129,20 @@ export function makeHarness(
     wranglerBin: FAKE_WRANGLER,
     env: { ...base, ANTHROPIC_API_KEY: "sk-secret", CLOUDFLARE_API_TOKEN: "cf-secret", CLOUDFLARE_ACCOUNT_ID: "acct", ...fakeEnv, ...opts.ghEnv, ...opts.wranglerEnv },
     passEnv: [...Object.keys(fakeEnv), ...Object.keys(opts.ghEnv ?? {}), ...Object.keys(opts.wranglerEnv ?? {})],
-    fetch: opts.fetch ?? fakePreview(),
+    fetch: ((input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "api.cloudflare.com") return (opts.fetch ?? previewFetch)(input, init);
+      const m = /^\/client\/v4\/accounts\/([^/]+)\/workers\/scripts\/([^/]+)\/settings$/.exec(url.pathname);
+      apiCalls.push({ url: String(url), authorization: new Headers(init?.headers).get("authorization") });
+      if (opts.cloudflareDown) return Promise.resolve(new Response("bad gateway", { status: 502 }));
+      if (!m) return Promise.resolve(Response.json({ success: false, errors: [{ code: 7003, message: "Could not route" }] }, { status: 404 }));
+      const taken = workers.has(m[2]!);
+      return Promise.resolve(
+        taken
+          ? Response.json({ success: true, errors: [], result: {} })
+          : Response.json({ success: false, errors: [{ code: 10007, message: "This Worker does not exist on your account." }] }, { status: 404 }),
+      );
+    }) as typeof fetch,
     previewAttempts: 1,
     previewDelayMs: 0,
     dryRun: opts.dryRun,
@@ -137,6 +157,8 @@ export function makeHarness(
     buildRoot,
     dataDir,
     logs,
+    workers,
+    apiCalls,
     claudeLog,
     ghLog,
     wranglerLog,

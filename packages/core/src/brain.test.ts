@@ -22,8 +22,9 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
       FAKE_CLAUDE_LOG: log,
       FAKE_CLAUDE_STARTED: join(dirname(log), "started"),
       FAKE_CLAUDE_TERMED: join(dirname(log), "termed"),
+      FAKE_CLAUDE_GRANDCHILD: join(dirname(log), "grandchild"),
     },
-    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG", "FAKE_CLAUDE_STARTED", "FAKE_CLAUDE_TERMED"],
+    passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_LOG", "FAKE_CLAUDE_STARTED", "FAKE_CLAUDE_TERMED", "FAKE_CLAUDE_GRANDCHILD"],
     ...extra,
   });
   const calls = () =>
@@ -31,7 +32,7 @@ function setup(mode: string, extra: Partial<ConstructorParameters<typeof ClaudeC
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string>; cwd: string; skills: string[]; pid: number });
-  return { brain, calls, log, started: join(dirname(log), "started"), termed: join(dirname(log), "termed") };
+  return { brain, calls, log, started: join(dirname(log), "started"), termed: join(dirname(log), "termed"), grandchild: join(dirname(log), "grandchild") };
 }
 
 describe("ClaudeCodeBrain", () => {
@@ -139,6 +140,11 @@ describe("ClaudeCodeBrain", () => {
         return false;
       }
     };
+    const untilDead = async (pid: number, deadlineMs = 5_000) => {
+      const end = Date.now() + deadlineMs;
+      while (alive(pid) && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+      expect(alive(pid)).toBe(false);
+    };
     const fast = (timeoutMs: number) => resolveRouting({ spec: { timeoutMs } });
     const CAP = 60_000;
 
@@ -184,6 +190,26 @@ describe("ClaudeCodeBrain", () => {
         expect(err.kind).toBe("timed-out");
         expect(alive(pid)).toBe(false);
       }));
+
+    it("the timeout kills the whole process group: a grandchild that ignores SIGTERM dies too", async () => {
+      const { brain, started, grandchild } = setup("hang-stubborn", { routing: fast(300), killGraceMs: 100 });
+      const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+      await untilExists(started);
+      const gc = Number(readFileSync(grandchild, "utf8"));
+      expect(alive(gc)).toBe(true);
+      expect(await running).toMatchObject({ kind: "timed-out" });
+      await untilDead(gc);
+    });
+
+    it("shutdown kills the whole process group, grandchildren included", async () => {
+      const { brain, started, grandchild } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 100 });
+      const running = brain.run("spec", { prompt: "p" }).catch((e) => e);
+      await untilExists(started);
+      const gc = Number(readFileSync(grandchild, "utf8"));
+      expect(await killLiveBrainChildren(100)).toBe(1);
+      expect(await running).toMatchObject({ kind: "interrupted" });
+      await untilDead(gc);
+    });
 
     it("killLiveBrainChildren stops a running child (worker shutdown)", async () => {
       const { brain, calls, started } = setup("hang-stubborn", { routing: fast(CAP), killGraceMs: 200 });

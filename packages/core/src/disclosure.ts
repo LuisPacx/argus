@@ -27,13 +27,83 @@ export interface DisclosureResult {
 const looksLikeHtml = (contentType: string, body: string): boolean =>
   /html/i.test(contentType) || /^\s*(<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/i.test(body);
 
-/** The text a visitor could read: comments, scripts and styles are dropped, tags removed, whitespace collapsed. */
-function visibleText(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ");
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+/** Elements whose content is not page text: skipped through their closing tag, markup and all. */
+const SKIPPED = new Set(["script", "style", "noscript", "template", "title", "textarea"]);
+const HIDING_DECL_RE = /(?:^|[;{\s])(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i;
+const TOKEN_RE = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][^\s/>]*)((?:"[^"]*"|'[^']*'|[^'">])*)>|<![^>]*>|<\?[^>]*>|[^<]+|</g;
+
+function attributes(raw: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of raw.matchAll(/([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+    const key = m[1]!.toLowerCase();
+    if (!out.has(key)) out.set(key, m[2] ?? m[3] ?? m[4] ?? "");
+  }
+  return out;
+}
+
+/** Simple `.class`, `#id` and `tag` selectors in the page's own <style> blocks that hide what they match. */
+function hidingSelectors(html: string): { classes: Set<string>; ids: Set<string>; tags: Set<string> } {
+  const out = { classes: new Set<string>(), ids: new Set<string>(), tags: new Set<string>() };
+  for (const block of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)) {
+    for (const rule of block[1]!.replace(/\/\*[\s\S]*?\*\//g, " ").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!HIDING_DECL_RE.test(rule[2]!)) continue;
+      for (const sel of rule[1]!.split(",").map((x) => x.trim())) {
+        const m = /^([.#]?)([a-zA-Z_][\w-]*)$/.exec(sel);
+        if (m) (m[1] === "." ? out.classes : m[1] === "#" ? out.ids : out.tags).add(m[2]!.toLowerCase());
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The text a visitor could read, from a small tokenizer rather than regexes over the whole page: comments, scripts, styles,
+ * <noscript>, <template>, <title> and the head are dropped, and so is everything inside an element that is hidden (the
+ * `hidden` or `aria-hidden="true"` attribute, an inline `display:none` or `visibility:hidden`, or a simple class, id or tag
+ * selector in the page's own <style> that sets one). Not covered, and a limit of this check: external stylesheets, compound
+ * selectors, off-screen positioning and tiny or transparent text; only a real browser render would close those.
+ */
+export function visibleText(html: string): string {
+  const hiding = hidingSelectors(html);
+  const stack: { name: string; hidden: boolean }[] = [];
+  const parts: string[] = [];
+  let skipUntil: string | undefined;
+  for (const m of html.matchAll(TOKEN_RE)) {
+    const [token, closing, rawName, rawAttrs = ""] = m;
+    if (skipUntil) {
+      if (closing && rawName!.toLowerCase() === skipUntil) skipUntil = undefined;
+      continue;
+    }
+    if (!rawName) {
+      if (!token.startsWith("<") && !stack.some((e) => e.hidden)) parts.push(token);
+      continue;
+    }
+    const name = rawName.toLowerCase();
+    if (closing) {
+      const i = stack.findLastIndex((e) => e.name === name);
+      if (i >= 0) stack.length = i;
+      continue;
+    }
+    const selfClosed = /\/\s*$/.test(rawAttrs);
+    if (SKIPPED.has(name)) {
+      if (!selfClosed) skipUntil = name;
+      continue;
+    }
+    if (VOID_TAGS.has(name) || selfClosed) continue;
+    const attrs = attributes(rawAttrs);
+    const hidden =
+      name === "head" ||
+      attrs.has("hidden") ||
+      attrs.get("aria-hidden")?.trim().toLowerCase() === "true" ||
+      HIDING_DECL_RE.test(attrs.get("style") ?? "") ||
+      hiding.tags.has(name) ||
+      (attrs.get("class") ?? "").toLowerCase().split(/\s+/).some((c) => hiding.classes.has(c)) ||
+      hiding.ids.has((attrs.get("id") ?? "").toLowerCase());
+    stack.push({ name, hidden });
+  }
+  // Tags separate words ("a</b>b" is two); the squash below keeps a sentence split across visible tags intact.
+  return parts.join(" ").replace(/\s+/g, " ");
 }
 
 // "words , more" would break a sentence split across tags at a comma, so tags are replaced by a space and the comparison

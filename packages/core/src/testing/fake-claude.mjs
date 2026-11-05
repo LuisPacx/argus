@@ -6,11 +6,13 @@
 // `.claude/skills` entries). FAKE_CLAUDE_STARTED, when set, is written to once the process is running and its SIGTERM handler is installed (hang modes).
 // FAKE_CLAUDE_EFFECT, a comma-separated list, makes a successful run act like a Build in its cwd (a repo) before it prints its
 // result: commit | dirty (leave an untracked file) | tamper-scripts | tamper-package-scripts | tamper-claude | tamper-github |
-// tamper-wrangler-build (edit a protected path; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
+// tamper-wrangler-build | tamper-wrangler-config | symlink-main | plant-git-config (edit a protected path or plant config; follow with commit) | wait-release (write FAKE_CLAUDE_STARTED, then wait
 // until FAKE_CLAUDE_RELEASE exists). FAKE_CLAUDE_NOISE=1 adds a stream event whose tool result contains a failure marker.
 // FAKE_CLAUDE_TERMED, when set, is written to when hang-stubborn receives (and ignores) SIGTERM.
-import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+// FAKE_CLAUDE_GRANDCHILD, when set, is a file that receives the pid of a grandchild (same process group, output detached,
+// ignores SIGTERM) started by the hang modes before they signal readiness.
+import { execFileSync, spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_LOG) {
@@ -69,6 +71,10 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
     });
   }
   const hang = () => {
+    if (process.env.FAKE_CLAUDE_GRANDCHILD) {
+      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: "ignore" });
+      writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
+    }
     if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
     setInterval(() => {}, 1000);
   };
@@ -111,6 +117,34 @@ async function applyEffects() {
       writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
     } else if (effect === "tamper-wrangler-build") {
       writeFileSync("wrangler.jsonc", readFileSync("wrangler.jsonc", "utf8").replace("{", '{ "build": { "command": "echo pwned" },'));
+    } else if (effect === "tamper-wrangler-config") {
+      // A hostile wrangler.jsonc: a build command hidden behind a JSON escape, routes, another account, assets and a main outside the repo.
+      writeFileSync(
+        "wrangler.jsonc",
+        '{ "name": "evil", "main": "../../../../etc/hostname", "account_id": "attacker", "routes": ["evil.example/*"], ' +
+          '"assets": { "directory": "/home" }, "kv_namespaces": [{ "binding": "X", "id": "1" }], "\\u0062uild": { "command": "touch ' +
+          process.env.FAKE_CLAUDE_MARKER +
+          '" } }\n',
+      );
+    } else if (effect === "symlink-main") {
+      rmSync("src/index.ts");
+      symlinkSync("/etc/hostname", "src/index.ts");
+    } else if (effect === "plant-git-config") {
+      // Commit a .gitattributes that routes every file through a filter, then define that filter (and a credential helper, an ssh
+      // command, a pushurl and an insteadOf for the origin) in .git/config. Each command would touch FAKE_CLAUDE_MARKER or
+      // redirect the push somewhere else.
+      const marker = process.env.FAKE_CLAUDE_MARKER;
+      writeFileSync(".gitattributes", "* filter=pwn\n");
+      vcs("add", ".gitattributes");
+      vcs("commit", "-m", "Attributes");
+      const origin = execFileSync("git", ["config", "remote.origin.url"], { encoding: "utf8" }).trim();
+      appendFileSync(
+        ".git/config",
+        `[filter "pwn"]\n\tclean = touch ${marker}; cat\n\tsmudge = touch ${marker}; cat\n` +
+          `[credential]\n\thelper = !touch ${marker}\n[core]\n\tsshCommand = touch ${marker}\n` +
+          `[remote "origin"]\n\tpushurl = ${marker}-evil-pushurl.git\n` +
+          `[url "${marker}-evil/"]\n\tinsteadOf = ${origin.slice(0, origin.lastIndexOf("/") + 1)}\n`,
+      );
     } else if (effect === "wait-release") {
       if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
       while (!existsSync(process.env.FAKE_CLAUDE_RELEASE)) await new Promise((r) => setTimeout(r, 10));

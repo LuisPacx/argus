@@ -456,6 +456,26 @@ export class Datastore {
     return Number(res.lastInsertRowid);
   }
 
+  /**
+   * WORKER ONLY. Takes the Build slot: `approved` -> `building` and the Build's brain run opened, in one transaction, so a
+   * `building` Proposal never exists without an open run (the sweep treats one that does as left by a crash). Returns the run id.
+   */
+  beginBuild(proposalId: number, route: Pick<NewBrainRun, "backend" | "model">): number {
+    return this.inTransaction(() => {
+      this.transition(proposalId, "building", "build");
+      return this.startBrainRun({ proposalId, task: "build", ...route });
+    });
+  }
+
+  /**
+   * WORKER ONLY. Records what an open run has cost so far and its session, leaving it open (`in-flight`). The Build run stays
+   * open past the claude child, through the deploy and checks, until the Proposal reaches its terminal state; the spend is
+   * on the card from here on, even if the worker dies before the run is closed.
+   */
+  recordBrainRunSpend(id: number, spend: { sessionId: string | null; totalCostUsd: number }): void {
+    this.db.prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ? WHERE id = ? AND exit_status = ?").run(spend.sessionId, spend.totalCostUsd, id, BRAIN_RUN_IN_FLIGHT);
+  }
+
   /** WORKER ONLY. Records what a run cost and how it ended, as soon as the child is done. */
   finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }): void {
     this.db
@@ -478,8 +498,8 @@ export class Datastore {
    * spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
    * Nothing is retried: the failure shows on the card. `staleAfterMs` is the task's run timeout plus a grace
    * period: a live run is killed at its timeout, so a younger row may belong to a live worker (this process, or a
-   * foreground `--once` run beside the daemon) and is left alone. Returns how many
-   * runs were marked.
+   * foreground `--once` run beside the daemon) and is left alone. Also fails any `building` Proposal that has no open
+   * build run (see below). Returns how many runs and Proposals were marked.
    */
   interruptStaleBrainRuns(staleAfterMs: (task: string) => number, now = new Date()): number {
     return this.inTransaction(() => {
@@ -519,6 +539,19 @@ export class Datastore {
               r.proposal_id,
             );
         }
+      }
+      // A `building` Proposal with no open build run is a Build the worker left behind (beginBuild opens the run in the same
+      // transaction, and the runner closes it only after the Proposal's terminal transition). Without this the queue, which
+      // runs one Build at a time, would stay blocked on it forever.
+      const orphans = this.db
+        .prepare(
+          `SELECT id FROM proposals WHERE status = 'building'
+             AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.proposal_id = proposals.id AND b.task = 'build' AND b.exit_status = ?)`,
+        )
+        .all(BRAIN_RUN_IN_FLIGHT) as unknown as { id: number }[];
+      for (const o of orphans) {
+        n++;
+        this.transition(o.id, "build-failed", "build", "Build interrupted: the worker stopped mid-Build (no open run was left). Not retried automatically.");
       }
       return n;
     });

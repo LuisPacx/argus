@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isClosed, killGroup, markClosed } from "./process-group.ts";
 
 export type BrainTask = "judge" | "propose" | "spec" | "build";
 export type BrainBackend = "claude-code" | "api";
@@ -258,16 +259,6 @@ export function isRateLimited(messages: ResultMessage[], failureText: string): b
 /** Children currently running, so shutdown can kill them (no orphaned, still-spending claude). */
 const liveChildren = new Set<ChildProcess>();
 
-function killChild(child: ChildProcess, graceMs: number): void {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  const t = setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-  }, graceMs);
-  t.unref();
-  child.once("close", () => clearTimeout(t));
-}
-
 /** Children killed by shutdown, so their runs are reported as `interrupted` rather than failed. */
 const shutdownKilled = new WeakSet<ChildProcess>();
 
@@ -279,9 +270,9 @@ export async function killLiveBrainChildren(graceMs = 5_000): Promise<number> {
     children.map(
       (c) =>
         new Promise<void>((resolve) => {
-          if (c.exitCode !== null || c.signalCode !== null) return resolve();
+          if (isClosed(c)) return resolve();
           c.once("close", () => resolve());
-          killChild(c, graceMs);
+          killGroup(c, graceMs);
         }),
     ),
   );
@@ -465,7 +456,8 @@ function exec(
   },
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["ignore", "pipe", "pipe"] });
+    // Detached: the child leads its own process group, so a kill reaches everything it started (see process-group.ts).
+    const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     liveChildren.add(child);
     let stdout = "";
     let stderr = "";
@@ -473,12 +465,12 @@ function exec(
     let aborted = false;
     const onAbort = () => {
       aborted = true;
-      killChild(child, o.killGraceMs);
+      killGroup(child, o.killGraceMs);
     };
     o.signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => {
       timedOut = true;
-      killChild(child, o.killGraceMs);
+      killGroup(child, o.killGraceMs);
     }, o.timeoutMs);
     const done = () => {
       clearTimeout(timer);
@@ -496,6 +488,7 @@ function exec(
       reject(e);
     });
     child.on("close", (code, signal) => {
+      markClosed(child);
       done();
       resolve({ stdout, stderr, code, signal, timedOut, interrupted: aborted || shutdownKilled.has(child) });
     });
