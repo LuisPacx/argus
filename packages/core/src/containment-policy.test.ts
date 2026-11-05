@@ -90,6 +90,61 @@ describe("checkDryRunOutput", () => {
   });
 });
 
+describe("checkDryRunOutput: allowlist per role", () => {
+  const add = (prefix: string, extra: string) => edit(prefix, (l) => l.replace("podman run", `podman run ${extra}`));
+  const problemsOf = (text: string, o: Partial<Parameters<typeof checkDryRunOutput>[1]> = {}) => checkDryRunOutput(text, { operatorHome: HOME, ...o });
+
+  it("accepts the real dry run with the mount roots and the image pinned", () => {
+    expect(problemsOf(dryRun(), { mountRoots: ["/work"], image: TEST_IMAGE })).toEqual([]);
+  });
+
+  it.each([
+    ["-e GH_TOKEN=x", /unexpected env GH_TOKEN|forbidden env GH_TOKEN/],
+    ["-e FOO=1", /unexpected env FOO/],
+    ["--env FOO=1", /unexpected env FOO/],
+    ["--env-file /home/operator/.env", /--env-file/],
+    ["--user 0", /--user/],
+    ["-u root", /-u/],
+    ["--cgroupns=host", /--cgroupns/],
+    ["--add-host evil:1.2.3.4", /--add-host/],
+    ["--privileged", /--privileged/],
+    ["--security-opt label=disable", /--security-opt/],
+    ["--security-opt seccomp=unconfined", /--security-opt/],
+    ["--security-opt apparmor=unconfined", /--security-opt/],
+    ["--pids-limit=0", /--pids-limit/],
+    ["--pids-limit=-1", /--pids-limit/],
+    ["--memory=0", /--memory/],
+    ["--memory=9999g", /--memory/],
+    ["--cpus=0", /--cpus/],
+    ["--cpus=9999", /--cpus/],
+    ["--timeout=0", /--timeout/],
+    ["--some-new-flag", /unknown flag --some-new-flag/],
+    ["--hostname=x", /forbidden flag/],
+    ["-v /srv/other:/srv/other:Z", /mount source/],
+    ["-v /work/repo:/etc:Z", /mount destination/],
+    ["-v /work/repo:/work/repo:rw", /mount options/],
+    ["--label foo=bar", /label/],
+  ])("fails when the agent container adds %s", (extra, pattern) => {
+    const problems = problemsOf(add("argus-build", extra), { mountRoots: ["/work"] });
+    expect(problems.join("\n")).toMatch(pattern);
+  });
+
+  it("fails on mounts outside the expected roots, even when they are not the home", () => {
+    expect(problemsOf(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /home/operator/.ssh:")), { mountRoots: ["/work"] }).join()).toMatch(/mount source/);
+    expect(problemsOf(edit("argus-build", (l) => l.replace("-v /work/repo:", "-v /home/operator/.config/gh:")), { mountRoots: ["/work"] }).join()).toMatch(/mount source/);
+  });
+
+  it("fails on an unpinned or other image and on a changed command", () => {
+    expect(problemsOf(edit("argus-build", (l) => l.replace(TEST_IMAGE, "docker.io/library/node:latest")), { image: TEST_IMAGE }).join()).toMatch(/image/);
+    expect(problemsOf(edit("argus-install", (l) => l.replace("pnpm install --frozen-lockfile", "sh -c evil"))).join()).toMatch(/command/);
+  });
+
+  it("fails on a bad flag in the sidecar", () => {
+    expect(problemsOf(add("argus-egress", "--privileged")).join()).toMatch(/--privileged/);
+    expect(problemsOf(add("argus-egress", "-v /work:/work:Z")).join()).toMatch(/egress.*mount|mount.*egress/);
+  });
+});
+
 describe("checkRunTokens", () => {
   it("refuses a podman run that is not an argus container", () => {
     expect(checkRunTokens(tokenize("run --name other"), { operatorHome: HOME })).toHaveLength(1);
@@ -100,13 +155,16 @@ const EXPECT: ProbeExpect = { uid: 1000, repo: "/work/repo", home: "/work/home",
 const GOOD: ProbeReport = {
   uid: 1000,
   capEff: "0000000000000000",
+  capBnd: "0000000000000000",
+  capPrm: "0000000000000000",
+  capInh: "0000000000000000",
   noNewPrivs: "1",
   home: "/home/agent",
   envNames: ["HOME", "PATH", "HTTPS_PROXY", "CLAUDE_CODE_OAUTH_TOKEN", "HOSTNAME", "container"],
   paths: { "/home/operator/.config": false, "/home/operator/code/argus-build-template": false },
   writes: { "/work/repo": true, "/work/home": true, "/": false, "/usr": false, "/etc": false, "/tmp/x": true, "/work": false },
   tmpExec: false,
-  mounts: { "/": "ro,relatime", "/tmp": "rw,nosuid,nodev,noexec", "/work/repo": "rw", "/home/agent": "rw" },
+  mounts: { "/": "ro,relatime", "/tmp": "rw,nosuid,nodev,noexec", "/work/repo": "rw", "/home/agent": "rw", "/proc": "rw", "/dev/shm": "rw", "/etc/hosts": "ro", "/run/.containerenv": "ro", "/run/podman-init": "ro", "/var/tmp": "rw" },
   cgroup: { memoryMax: String(8 * 2 ** 30), pidsMax: "1024", cpuMax: "400000 100000" },
   direct: { "1.1.1.1:443": false, "example.com (dns)": false },
   proxy: { "api.anthropic.com:443": "HTTP/1.1 200 Connection Established", "registry.npmjs.org:443": "HTTP/1.1 200 OK", "example.com:443": "HTTP/1.1 403 Forbidden", "GET http://api.anthropic.com/": "closed" },
@@ -127,9 +185,14 @@ describe("judgeProbe", () => {
     ["the template exists", { paths: { "/home/operator/code/argus-build-template": true } }, /template/],
     ["HOME is not the per-Build home", { home: "/home/operator" }, /credentials/],
     ["an extra home mount", { mounts: { ...GOOD.mounts, "/home/operator/code": "rw" } }, /host mounts/],
+    ["an extra mount outside the old prefix list", { mounts: { ...GOOD.mounts, "/srv/data": "rw" } }, /host mounts/],
+    ["an extra mount under /data", { mounts: { ...GOOD.mounts, "/data": "rw" } }, /host mounts/],
     ["a secret in the env", { envNames: [...GOOD.envNames, "GH_TOKEN"] }, /secrets/],
     ["root", { uid: 0 }, /unprivileged/],
     ["a capability", { capEff: "0000000000000400" }, /unprivileged/],
+    ["a bounding-set capability (cap-drop missing, keep-id zeroes only CapEff)", { capBnd: "00000000a80425fb" }, /unprivileged/],
+    ["a permitted capability", { capPrm: "0000000000000001" }, /unprivileged/],
+    ["an inheritable capability", { capInh: "0000000000000001" }, /unprivileged/],
     ["a write outside", { writes: { ...GOOD.writes, "/usr": true } }, /writes outside/],
     ["root is writable", { mounts: { ...GOOD.mounts, "/": "rw" } }, /writes outside/],
     ["exec from /tmp", { tmpExec: true }, /noexec/],

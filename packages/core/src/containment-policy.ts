@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { containerEnv } from "./sandbox.ts";
 
 /**
  * The pure halves of the two containment checks (`pnpm verify:boot` reads the dry run, `pnpm verify:contain` runs the real
@@ -29,8 +30,113 @@ function exposesHome(source: string, home: string): boolean {
   return s === "/" || s === h || h.startsWith(`${s}/`);
 }
 
+export interface PolicyOptions {
+  operatorHome: string;
+  /** When given, every mount source must be one of these directories or inside one. */
+  mountRoots?: readonly string[];
+  /** When given, the image must be exactly this tag. */
+  image?: string;
+  /** Check the program after the image too (the dry run's); false for argv whose command a probe replaced. Default true. */
+  checkCommand?: boolean;
+}
+
+const ROLE_COMMANDS: Record<string, string> = { build: "claude", install: "pnpm install --frozen-lockfile", bundle: "wrangler deploy", egress: "node /opt/argus/egress-proxy.mjs" };
+const BOOL_FLAGS = new Set(["--rm", "--init", "--read-only"]);
+const intIn = (v: string, lo: number, hi: number) => /^[0-9]{1,9}$/.test(v) && Number(v) >= lo && Number(v) <= hi;
+const GIB = 2 ** 30;
+function memoryOk(v: string): boolean {
+  const m = /^([0-9]+(?:\.[0-9]+)?)([mg])$/.exec(v);
+  if (!m) return false;
+  const bytes = Number(m[1]) * (m[2] === "g" ? GIB : 2 ** 20);
+  return bytes > 0 && bytes <= 64 * GIB;
+}
+const EQ_FLAGS: Record<string, (v: string) => boolean> = {
+  "--pull": (v) => v === "never",
+  "--userns": (v) => v === "keep-id",
+  "--cap-drop": (v) => v === "all",
+  "--log-driver": (v) => v === "none",
+  "--pids-limit": (v) => intIn(v, 1, 65536),
+  "--memory": memoryOk,
+  "--cpus": (v) => /^[0-9]+(?:\.[0-9]+)?$/.test(v) && Number(v) > 0 && Number(v) <= 64,
+  "--timeout": (v) => intIn(v, 1, 172800),
+};
+const VALUE_FLAGS = new Set(["--name", "--label", "--security-opt", "--tmpfs", "--network", "-v", "-w", "--env", "-e"]);
+/** Flags that take a value we refuse outright; named so the message says what was tried. */
+const REFUSED_WITH_VALUE = new Set(["--user", "-u", "--env-file", "--add-host", "--cgroupns", "--cap-add", "--device", "--volume", "--mount", "--secret", "--volumes-from", "--pid", "--ipc", "--uts", "--hostname", "--dns", "--entrypoint"]);
+const LABEL_KEYS: Record<string, RegExp> = { "argus.build": /^[0-9]+$/, "argus.role": /^(agent|install|bundle|egress)$/, "argus.owner": /^[0-9]+\.[0-9]+$/, "argus.data": /^[0-9a-f]{12}$/ };
+const pathUnder = (p: string, root: string) => p === root || p.startsWith(`${root.replace(/\/$/, "")}/`);
+
+/**
+ * The strict half of the policy: every flag of the `podman run` must be on the list for its role, with a valid value; the mounts,
+ * environment, image and command must be the expected ones. An unknown flag is a failure until someone adds it here on purpose.
+ */
+function checkAllowlist(t: readonly string[], role: string, o: PolicyOptions): string[] {
+  const problems: string[] = [];
+  const bad = (m: string) => problems.push(`${role}: ${m}`);
+  const start = t.indexOf("run") + 1;
+  const mounts: Array<{ src: string; dest: string }> = [];
+  let cwd: string | undefined;
+  let i = start;
+  for (; i < t.length; i++) {
+    const a = t[i]!;
+    if (!a.startsWith("-")) break;
+    const eq = a.startsWith("--") ? a.indexOf("=") : -1;
+    if (eq > 0) {
+      const k = a.slice(0, eq);
+      if (!EQ_FLAGS[k]) bad(REFUSED_WITH_VALUE.has(k) || k === "--privileged" ? `forbidden flag ${a}` : `unknown flag ${a}`);
+      else if (!EQ_FLAGS[k]!(a.slice(eq + 1))) bad(`invalid value in ${a}`);
+    } else if (BOOL_FLAGS.has(a) || (a === "-d" && role === "egress")) {
+      // known, no value
+    } else if (VALUE_FLAGS.has(a)) {
+      const v = t[++i] ?? "";
+      if (a === "--label") {
+        const [k = "", ...rest] = v.split("=");
+        if (!LABEL_KEYS[k]?.test(rest.join("="))) bad(`unexpected label ${JSON.stringify(v)}`);
+      } else if (a === "--security-opt") {
+        if (v !== "no-new-privileges") bad(`forbidden --security-opt ${v}`);
+      } else if (a === "--tmpfs") {
+        if (role === "egress" || !/^\/tmp:rw,noexec,nosuid,nodev,size=[0-9]+g$/.test(v)) bad(`unexpected --tmpfs ${v}`);
+      } else if (a === "--network") {
+        const ok = role === "bundle" ? v === "none" : role === "egress" ? v === "podman" || /^argus-build-net:ip=[0-9.]+$/.test(v) : v === "argus-build-net";
+        if (!ok) bad(`unexpected --network ${v}`);
+      } else if (a === "-w") {
+        cwd = v;
+      } else if (a === "-v") {
+        const [src = "", dest = "", opts, ...extra] = v.split(":");
+        if (role === "egress") bad(`egress takes no mounts, got ${v}`);
+        if (opts !== "Z" || extra.length > 0) bad(`mount options of ${v} must be exactly Z`);
+        if (dest !== src && dest !== "/home/agent") bad(`mount destination ${dest} is neither the source path nor /home/agent`);
+        mounts.push({ src, dest });
+        if (o.mountRoots && !o.mountRoots.some((r) => pathUnder(src, r))) bad(`mount source ${src} is outside the expected directories ${o.mountRoots.join(", ")}`);
+      } else if (a === "--env" || a === "-e") {
+        const n = v.split("=")[0]!;
+        const allowed = role === "egress" ? ["ARGUS_EGRESS_ALLOW"] : containerEnv(role === "build" ? "agent" : (role as "install" | "bundle"), "/x").map(([k]) => k);
+        if (FORBIDDEN_ENV.test(n) || /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL)/i.test(n)) {
+          if (!(n === "CLAUDE_CODE_OAUTH_TOKEN" && role === "build")) bad(`forbidden env ${n}`);
+        } else if (!allowed.includes(n)) bad(`unexpected env ${n}`);
+        else if (n === "CLAUDE_CODE_OAUTH_TOKEN" && v.includes("=")) bad("the token has a value on the command line");
+      }
+    } else if (REFUSED_WITH_VALUE.has(a)) {
+      bad(`forbidden flag ${a}`);
+      i++;
+    } else {
+      bad(a === "--privileged" || a === "--env-host" ? `forbidden flag ${a}` : `unknown flag ${a}`);
+    }
+  }
+  const image = t[i];
+  if (image === undefined) bad("no image in the podman run");
+  else if (o.image ? image !== o.image : !/^localhost\/argus-build:[A-Za-z0-9._-]+$/.test(image) || image.endsWith(":latest")) bad(`unexpected image ${image}`);
+  if (cwd !== undefined && !mounts.some((m) => pathUnder(cwd!, m.dest))) bad(`working directory ${cwd} is not inside a mount`);
+  if (o.checkCommand !== false && image !== undefined) {
+    const cmd = t.slice(i + 1).join(" ");
+    const want = ROLE_COMMANDS[role]!;
+    if (role === "build" || role === "bundle" ? cmd !== want && !cmd.startsWith(`${want} `) : cmd !== want) bad(`unexpected command ${JSON.stringify(cmd.slice(0, 80))}`);
+  }
+  return problems;
+}
+
 /** Problems with one `podman run` line (tokens after `podman`). Empty when it meets the policy of its role. */
-export function checkRunTokens(t: readonly string[], o: { operatorHome: string }): string[] {
+export function checkRunTokens(t: readonly string[], o: PolicyOptions): string[] {
   const problems: string[] = [];
   const name = values(t, "--name")[0] ?? "";
   const role = ROLE_NAME.exec(name)?.[1];
@@ -76,6 +182,7 @@ export function checkRunTokens(t: readonly string[], o: { operatorHome: string }
     if (n === "CLAUDE_CODE_OAUTH_TOKEN" && e.includes("=")) problems.push(`${role}: the token has a value on the command line`);
     if (n === "CLAUDE_CODE_OAUTH_TOKEN" && role !== "build") problems.push(`${role}: the token is only for the agent`);
   }
+  problems.push(...checkAllowlist(t, role, o));
   return problems;
 }
 
@@ -83,7 +190,7 @@ export function checkRunTokens(t: readonly string[], o: { operatorHome: string }
 export const DRY_RUN_ROLES: Record<string, number> = { egress: 2, build: 1, install: 1, bundle: 1 };
 
 /** Reads the `podman run` lines out of a worker's dry-run output and checks each. Every role must appear the expected number of times. */
-export function checkDryRunOutput(stdout: string, o: { operatorHome: string }): string[] {
+export function checkDryRunOutput(stdout: string, o: PolicyOptions): string[] {
   const problems: string[] = [];
   const seen: string[] = [];
   const podmanLines: string[][] = [];
@@ -111,6 +218,9 @@ export function checkDryRunOutput(stdout: string, o: { operatorHome: string }): 
 export interface ProbeReport {
   uid: number;
   capEff: string;
+  capBnd: string;
+  capPrm: string;
+  capInh: string;
   noNewPrivs: string;
   home: string;
   envNames: string[];
@@ -147,11 +257,15 @@ export interface ProbeExpect {
   caps: { memoryGiB: number; cpus: number; pids: number };
   /** Env names the container may hold (besides the engine's own). */
   allowedEnv: string[];
+  /** Further mount points the job legitimately has (none for the agent). */
+  extraMounts?: string[];
   /** Targets that the proxy must tunnel; every other proxy target must be refused. */
   proxyAllowed: string[];
 }
 
 const ENGINE_ENV = new Set(["PATH", "HOSTNAME", "container", "PWD", "SHLVL", "_", "OLDPWD", "TERM", "NODE_VERSION", "YARN_VERSION"]);
+/** Mount points every container of the engine has, besides /proc, /sys and /dev and what is under them. */
+const CONTAINER_MOUNTS = new Set(["/", "/tmp", "/etc/hosts", "/etc/hostname", "/etc/resolv.conf", "/run", "/run/.containerenv", "/run/podman-init", "/run/secrets", "/var/tmp"]);
 const SYSTEM_TOOLS = ["gh", "ssh", "curl", "wget", "wrangler"];
 
 /** Turns the probe's report into one verdict per HIGH2 / MED4 bullet it can show. */
@@ -166,7 +280,7 @@ export function judgeProbe(r: ProbeReport, e: ProbeExpect): Check[] {
   ], `${Object.keys(r.paths).length} host paths absent, HOME=/home/agent`);
   add("MED4", "the template directory is not mounted at all (it is never writable)", Object.entries(r.paths).filter(([p, v]) => v && /argus-build-template/.test(p)).map(([p]) => `${p} exists`), "template path absent");
   add("HIGH2", "only the repo and the per-Build home are host mounts", [
-    ...Object.keys(r.mounts).filter((m) => /^\/(home|root|mnt|media|run\/user|var\/home)(\/|$)/.test(m) && m !== e.repo && m !== e.home && m !== "/home/agent").map((m) => `unexpected mount ${m}`),
+    ...Object.keys(r.mounts).filter((m) => !(CONTAINER_MOUNTS.has(m) || /^\/(proc|sys|dev)(\/|$)/.test(m) || m === e.repo || m === e.home || m === "/home/agent" || e.extraMounts?.includes(m))).map((m) => `unexpected mount ${m}`),
     ...(mounted(e.repo) ? [] : [`repo ${e.repo} is not mounted`]),
     ...(mounted("/home/agent") ? [] : ["/home/agent is not mounted"]),
   ], "repo and /home/agent only");
@@ -176,9 +290,10 @@ export function judgeProbe(r: ProbeReport, e: ProbeExpect): Check[] {
   ], `${r.envNames.length} variables, all on the allowlist`);
   add("HIGH2", "unprivileged: mapped uid, no capabilities, no new privileges", [
     ...(r.uid === e.uid ? [] : [`uid ${r.uid}, expected ${e.uid}`]),
-    ...(/^0+$/.test(r.capEff) ? [] : [`CapEff ${r.capEff}`]),
+    // keep-id leaves CapEff at 0 whether or not --cap-drop=all is set; the bounding set is what the flag empties.
+    ...(["capEff", "capBnd", "capPrm", "capInh"] as const).flatMap((k) => (/^0+$/.test(r[k] ?? "") ? [] : [`${k.replace("cap", "Cap")} ${r[k]}`])),
     ...(r.noNewPrivs === "1" ? [] : [`NoNewPrivs ${r.noNewPrivs}`]),
-  ], `uid ${r.uid}, CapEff 0, NoNewPrivs 1`);
+  ], `uid ${r.uid}, CapEff/CapPrm/CapInh/CapBnd all 0, NoNewPrivs 1`);
   add("HIGH2", "writes outside the repo and home fail (read-only root)", [
     ...Object.entries(r.writes).filter(([k, v]) => v && k !== e.repo && k !== e.home && k !== "/tmp" && !k.startsWith("/tmp/")).map(([k]) => `write to ${k} succeeded`),
     ...(r.writes[e.repo] ? [] : ["the repo is not writable"]),

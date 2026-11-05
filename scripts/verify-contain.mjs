@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLAUDE_CODE_VERSION, BUILD_NETWORK, EGRESS_ADDRESS, EGRESS_PORT, EGRESS_ALLOW, PodmanSandbox, DEFAULT_CAPS, containerEnv, currentImageTag, imageReady } from '../packages/core/src/index.ts';
+import { CLAUDE_CODE_VERSION, BUILD_NETWORK, EGRESS_ADDRESS, EGRESS_PORT, EGRESS_ALLOW, PodmanSandbox, DEFAULT_CAPS, containerEnv, currentImageTag, imageReady, ownerState } from '../packages/core/src/index.ts';
 import { checkRunTokens, judgeProbe } from '../packages/core/src/containment-policy.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -124,7 +124,7 @@ const fs=require('fs'),net=require('net'),dns=require('dns'),cp=require('child_p
 const CFG=${JSON.stringify(cfg)};
 const R={uid:process.getuid(),home:process.env.HOME,envNames:Object.keys(process.env),paths:{},writes:{},mounts:{},cgroup:{},direct:{},proxy:{},tools:{}};
 const st=fs.readFileSync('/proc/self/status','utf8');
-R.capEff=/CapEff:\\s*(\\S+)/.exec(st)[1];R.noNewPrivs=/NoNewPrivs:\\s*(\\S+)/.exec(st)[1];
+for(const f of ['CapEff','CapBnd','CapPrm','CapInh'])R['cap'+f.slice(3)]=new RegExp(f+':\\\\s*(\\\\S+)').exec(st)[1];R.noNewPrivs=/NoNewPrivs:\\s*(\\S+)/.exec(st)[1];
 for(const p of CFG.hostPaths)R.paths[p]=fs.existsSync(p);
 for(const d of CFG.writeDirs){try{const f=d.replace(/\\/$/,'')+'/.verify-contain-probe';fs.writeFileSync(f,'x');fs.unlinkSync(f);R.writes[d]=true}catch{R.writes[d]=false}}
 try{fs.copyFileSync('/bin/true','/tmp/t');fs.chmodSync('/tmp/t',0o755);cp.execFileSync('/tmp/t');R.tmpExec=true}catch{R.tmpExec=false}
@@ -180,7 +180,7 @@ async function agentChecks() {
   };
   for (const c of judgeProbe(probe, expect)) report(c.finding, c.name, c.ok, c.detail);
   report('HIGH2', 'the image runs the pinned claude without a token', probe.claude === `${CLAUDE_CODE_VERSION} (Claude Code)` || probe.claude.startsWith(CLAUDE_CODE_VERSION), probe.claude);
-  const argvProblems = checkRunTokens(t.argv, { operatorHome: home });
+  const argvProblems = checkRunTokens(t.argv, { operatorHome: home, mountRoots: [scratch], image, checkCommand: false });
   report('HIGH2', 'the argv the agent container really ran with meets the dry-run policy', argvProblems.length === 0, argvProblems.join(' | ') || `${t.argv.length} args`);
   await t.run.stop(); // reads the sidecar's refusals into the notes
   report('HIGH2', 'refusals reach the Build log (argus-egress: denied ...)', notes.some((n) => /denied example\.com:443/.test(n)) && notes.some((n) => /denied 1\.1\.1\.1:443/.test(n)), `${notes.length} lines, e.g. ${notes[0] ?? 'none'}`);
@@ -279,14 +279,11 @@ async function guarded(name, finding, fn) {
 }
 
 let leftovers = [];
-try {
-  // The template check first: it is static (the paths are absent from the probe), but the probe needs the sidecar.
-  await guarded('agent container probe', 'HIGH2', agentChecks);
-  await guarded('install container', 'HIGH2', installCheck);
-  await guarded('bundle container', 'HIGH2', bundleCheck);
-  await guarded('stop kills grandchildren', 'MED4', stopCheck);
-  await guarded('--timeout backstop', 'MED4', timeoutCheck);
-} finally {
+let cleaned = false;
+/** Stops what this run started, removes by ID whatever its label still finds, and deletes the scratch dir. Safe to call twice. */
+async function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
   for (const run of runs) {
     try {
       await run.stop();
@@ -299,6 +296,46 @@ try {
   leftovers = pm(['ps', '-a', '-q', '--no-trunc', '--filter', `label=argus.build=${BUILD_ID}`]).stdout.split('\n').filter(Boolean);
   for (const id of leftovers) pm(['rm', '-f', id]); // by ID, only what our label finds
   fs.rmSync(scratch, { recursive: true, force: true });
+}
+
+// An interrupted run must not strand the sidecar: it holds the fixed address every real Build needs.
+for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
+  process.on(sig, () => {
+    console.log(`FAIL verify:contain interrupted by ${sig}; cleaning up`);
+    cleanup().then(
+      () => process.exit(code),
+      () => process.exit(code),
+    );
+  });
+}
+
+/** A crash (SIGKILL, power loss) before cleanup leaves containers labelled with a build id from this script's range and a dead owner: reap those, by ID. */
+function reapDeadRuns() {
+  let rows = [];
+  try {
+    rows = JSON.parse(pm(['ps', '-a', '--filter', 'label=argus.build', '--format', 'json']).stdout || '[]');
+  } catch {
+    return;
+  }
+  for (const row of rows) {
+    const labels = row.Labels ?? {};
+    const id = Number(labels['argus.build']);
+    if (!(id >= 900_000 && id < 1_000_000) || typeof row.Id !== 'string') continue;
+    if (ownerState(String(labels['argus.owner'] ?? '')) !== 'dead') continue;
+    console.log(`reaping container ${row.Id.slice(0, 12)} left by an earlier interrupted verify:contain (build id ${id})`);
+    pm(['rm', '-f', row.Id]);
+  }
+}
+
+try {
+  reapDeadRuns();
+  await guarded('agent container probe', 'HIGH2', agentChecks);
+  await guarded('install container', 'HIGH2', installCheck);
+  await guarded('bundle container', 'HIGH2', bundleCheck);
+  await guarded('stop kills grandchildren', 'MED4', stopCheck);
+  await guarded('--timeout backstop', 'MED4', timeoutCheck);
+} finally {
+  await cleanup();
 }
 const stillThere = pm(['ps', '-a', '-q', '--no-trunc', '--filter', `label=argus.build=${BUILD_ID}`]).stdout.split('\n').filter(Boolean);
 report('HIGH2', 'every container this run started is gone', stillThere.length === 0 && leftovers.length === 0, `${seenIds.size} containers seen (${[...seenIds].map((i) => i.slice(0, 12)).join(', ')}); removed by cleanup: ${leftovers.length}; remaining: ${stillThere.length}`);

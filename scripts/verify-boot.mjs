@@ -92,7 +92,7 @@ async function stepOnce(dir) {
   const line = stdout.split('\n').find((l) => l.includes('[brain] dry-run:')) ?? '';
   const missing = REQUIRED_FLAGS.filter((flag) => !line.includes(flag));
   const missingBuild = REQUIRED_BUILD_LINES.filter((part) => !stdout.includes(part));
-  const containment = checkDryRunOutput(stdout, { operatorHome: os.homedir() });
+  const containment = checkDryRunOutput(stdout, { operatorHome: os.homedir(), mountRoots: [dir] });
   if (code !== 0) {
     report('step 1 once dry-run', false, `exit ${code}; stderr tail: ${stderr.trim().split('\n').slice(-3).join(' | ')}`);
   } else if (!line) {
