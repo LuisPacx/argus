@@ -205,15 +205,19 @@ async function get(url, timeoutMs) {
 // Starts the real War Room dev server on its own DB, GETs every page route, then stops it and checks nothing survives.
 async function stepWarroom(dir, ids) {
   const base = `http://localhost:${WARROOM_PORT}`;
-  if ((await get(`${base}/`, 2_000)).status !== 0) {
-    report('step 4 War Room pages', false, `port ${WARROOM_PORT} already answers; set ARGUS_VERIFY_WARROOM_PORT to a free port`);
-    return;
+  // Something already listening on any loopback address would be mistaken for our server.
+  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+    if ((await get(`http://${host}:${WARROOM_PORT}/`, 2_000)).status !== 0) {
+      report('step 4 War Room pages', false, `port ${WARROOM_PORT} already answers on ${host}; set ARGUS_VERIFY_WARROOM_PORT to a free port`);
+      return;
+    }
   }
   const logFile = path.join(dir, 'warroom.log');
   const logFd = fs.openSync(logFile, 'a');
-  const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(WARROOM_PORT)], {
+  const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(WARROOM_PORT), '--strictPort'], {
     cwd: ROOT,
-    env: { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir },
+    // ARGUS_NO_DOTENV: /api/research reads the config from the environment; never the operator's .env (CODING_STANDARDS rule 16).
+    env: { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1' },
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
@@ -233,6 +237,11 @@ async function stepWarroom(dir, ids) {
     if (!up) {
       const tail = fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
       report('step 4 War Room pages', false, `dev server not up within ${WARROOM_READY_TIMEOUT_MS / 1000}s; log tail: ${tail}`);
+      return;
+    }
+    // --strictPort makes a different port an exit, not a fallback; confirm from the server's own log that it is on ours.
+    if (exited || !fs.readFileSync(logFile, 'utf8').includes(`:${WARROOM_PORT}`)) {
+      report('step 4 War Room pages', false, `dev server did not bind port ${WARROOM_PORT}; log tail: ${fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ')}`);
       return;
     }
     const routes = pageRoutes(WARROOM_PAGES, ids);
