@@ -1,0 +1,8 @@
+[
+  { "id": "rss:a:1", "sourceId": "rss:a", "sourceLabel": "Feed A", "title": "Robinhood launches tokenized stocks for European customers", "summary": "Tokenized shares of US equities now trade on-chain for users in Europe.", "url": "https://a.example/1", "publishedAt": "2026-06-14T09:00:00.000Z" },
+  { "id": "rss:b:1", "sourceId": "rss:b", "sourceLabel": "Feed B", "title": "Tokenized stocks arrive in Europe as Robinhood expands", "summary": "US equities are tokenized and traded on-chain by European customers.", "url": "https://b.example/1", "publishedAt": "2026-06-14T09:30:00.000Z" },
+  { "id": "rss:a:2", "sourceId": "rss:a", "sourceLabel": "Feed A", "title": "Cat elected mayor of small town", "summary": "A cat won the mayoral election by a landslide.", "url": "https://a.example/2", "publishedAt": "2026-06-14T10:00:00.000Z" },
+  { "id": "rss:b:2", "sourceId": "rss:b", "sourceLabel": "Feed B", "title": "Small town elects cat as mayor in landslide vote", "summary": "Voters picked the cat over two human candidates.", "url": "https://b.example/2", "publishedAt": "2026-06-14T10:20:00.000Z" },
+  { "id": "rss:a:3", "sourceId": "rss:a", "sourceLabel": "Feed A", "title": "Fed holds interest rates steady amid inflation worries", "summary": "Central bankers kept the benchmark rate unchanged.", "url": "https://a.example/3", "publishedAt": "2026-06-14T11:00:00.000Z" },
+  { "id": "rss:a:4", "sourceId": "rss:a", "sourceLabel": "Feed A", "title": "Why tokenized US stocks are coming to European traders", "summary": "Robinhood and others push tokenized equities across Europe.", "url": "https://a.example/4", "publishedAt": "2026-06-14T12:00:00.000Z" }
+]

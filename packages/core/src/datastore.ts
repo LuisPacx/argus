@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
+import { isMaterialJoin } from "./narratives.ts";
 import {
   type Rubric,
   type RubricInput,
@@ -183,6 +184,20 @@ export function migrate(db: DatabaseSync): void {
     ingested_at TEXT NOT NULL
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS signals_published_at ON signals (published_at DESC)");
+  // Narratives (phase 2 ticket 05). A Signal's `narrative_id` is a single column, so it is in at most one Narrative; null = not clustered yet.
+  db.exec(`CREATE TABLE IF NOT EXISTS narratives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    centroid TEXT NOT NULL,
+    signal_count INTEGER NOT NULL,
+    material_signal_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    last_signal_at TEXT NOT NULL,
+    changed_materially_at TEXT NOT NULL
+  )`);
+  ensureColumn(db, "signals", "narrative_id", "INTEGER");
+  db.exec("CREATE INDEX IF NOT EXISTS signals_narrative_id ON signals (narrative_id)");
 }
 
 export function slugify(text: string): string {
@@ -270,12 +285,73 @@ export type WarRoomStore = Pick<
   | "saveRubric"
   | "listRubricVersions"
   | "latestSignals"
+  | "listNarratives"
+  | "getNarrative"
 >;
 
 /** A stored Signal: the Source's item plus when argus first saw it. */
 export interface StoredSignal extends Signal {
   ingestedAt: string;
 }
+
+/** A cluster of recent Signals that share a subject (GLOSSARY: Narrative). */
+export interface Narrative {
+  id: number;
+  /** The first Signal's title: line one of the two-line summary. */
+  title: string;
+  /** The first Signal's summary, shortened: line two. May be empty. */
+  summary: string;
+  signalCount: number;
+  createdAt: string;
+  lastSignalAt: string;
+  /** When the Narrative last changed materially (see `isMaterialJoin`): the input for the judge delta. */
+  changedMateriallyAt: string;
+}
+
+export interface NarrativeDetail extends Narrative {
+  /** Newest first. */
+  signals: StoredSignal[];
+}
+
+/** What clustering needs of a Narrative that can still be joined. */
+export interface NarrativeCandidate {
+  id: number;
+  centroid: number[];
+  signalCount: number;
+}
+
+interface NarrativeRow {
+  id: number;
+  title: string;
+  summary: string;
+  signal_count: number;
+  created_at: string;
+  last_signal_at: string;
+  changed_materially_at: string;
+}
+
+const toNarrative = (r: NarrativeRow): Narrative => ({
+  id: r.id,
+  title: r.title,
+  summary: r.summary,
+  signalCount: r.signal_count,
+  createdAt: r.created_at,
+  lastSignalAt: r.last_signal_at,
+  changedMateriallyAt: r.changed_materially_at,
+});
+
+const toStoredSignal = (r: SignalRow): StoredSignal => ({
+  id: r.id,
+  sourceId: r.source_id,
+  sourceLabel: r.source_label,
+  title: r.title,
+  summary: r.summary,
+  url: r.url,
+  publishedAt: r.published_at,
+  ingestedAt: r.ingested_at,
+});
+
+const NARRATIVE_SUMMARY_CHARS = 200;
 
 interface SignalRow {
   id: string;
@@ -391,16 +467,87 @@ export class Datastore {
     const rows = this.db
       .prepare("SELECT * FROM signals ORDER BY published_at DESC, ingested_at DESC, id LIMIT ?")
       .all(limit) as unknown as SignalRow[];
-    return rows.map((r) => ({
-      id: r.id,
-      sourceId: r.source_id,
-      sourceLabel: r.source_label,
-      title: r.title,
-      summary: r.summary,
-      url: r.url,
-      publishedAt: r.published_at,
-      ingestedAt: r.ingested_at,
-    }));
+    return rows.map(toStoredSignal);
+  }
+
+  /** WORKER ONLY. Signals not yet in a Narrative, oldest first (published time, then id), so clustering is deterministic. */
+  unclusteredSignals(limit = 500): StoredSignal[] {
+    const rows = this.db
+      .prepare("SELECT * FROM signals WHERE narrative_id IS NULL ORDER BY published_at ASC, id ASC LIMIT ?")
+      .all(limit) as unknown as SignalRow[];
+    return rows.map(toStoredSignal);
+  }
+
+  /** WORKER ONLY. Narratives that gained a Signal at or after `since` (ISO), which a new Signal may join. */
+  recentNarratives(since: string): NarrativeCandidate[] {
+    const rows = this.db
+      .prepare("SELECT id, centroid, signal_count FROM narratives WHERE last_signal_at >= ? ORDER BY id")
+      .all(since) as unknown as Array<{ id: number; centroid: string; signal_count: number }>;
+    return rows.map((r) => ({ id: r.id, centroid: JSON.parse(r.centroid) as number[], signalCount: r.signal_count }));
+  }
+
+  /** WORKER ONLY. Starts a Narrative from `signal` and puts the Signal in it; returns the Narrative id. */
+  createNarrative(signal: StoredSignal, centroid: number[], now: string): number {
+    return this.inTransaction(() => {
+      const res = this.db
+        .prepare(
+          `INSERT INTO narratives (title, summary, centroid, signal_count, material_signal_count, created_at, last_signal_at, changed_materially_at)
+           VALUES (?, ?, ?, 1, 1, ?, ?, ?)`,
+        )
+        .run(signal.title, signal.summary.slice(0, NARRATIVE_SUMMARY_CHARS), JSON.stringify(centroid), now, now, now);
+      const id = Number(res.lastInsertRowid);
+      this.db.prepare("UPDATE signals SET narrative_id = ? WHERE id = ? AND narrative_id IS NULL").run(id, signal.id);
+      return id;
+    });
+  }
+
+  /** WORKER ONLY. Puts `signal` in the Narrative with its new centroid; stamps `changed_materially_at` when the join is material. */
+  joinNarrative(narrativeId: number, signal: StoredSignal, centroid: number[], now: string): void {
+    this.inTransaction(() => {
+      const row = this.db
+        .prepare("SELECT signal_count, material_signal_count FROM narratives WHERE id = ?")
+        .get(narrativeId) as unknown as { signal_count: number; material_signal_count: number } | undefined;
+      if (!row) throw new DomainError(`Narrative ${narrativeId} not found`);
+      const moved = this.db.prepare("UPDATE signals SET narrative_id = ? WHERE id = ? AND narrative_id IS NULL").run(narrativeId, signal.id);
+      if (Number(moved.changes) === 0) return; // already in a Narrative: a Signal belongs to at most one
+      const heardFrom = this.db
+        .prepare("SELECT 1 FROM signals WHERE narrative_id = ? AND source_id = ? AND id <> ? LIMIT 1")
+        .get(narrativeId, signal.sourceId, signal.id);
+      const signalCount = row.signal_count + 1;
+      const material = isMaterialJoin({ newSource: !heardFrom, signalCount, countAtLastMaterial: row.material_signal_count });
+      this.db
+        .prepare(
+          `UPDATE narratives SET signal_count = ?, centroid = ?, last_signal_at = ?,
+             material_signal_count = CASE WHEN ? THEN ? ELSE material_signal_count END,
+             changed_materially_at = CASE WHEN ? THEN ? ELSE changed_materially_at END
+           WHERE id = ?`,
+        )
+        .run(signalCount, JSON.stringify(centroid), now, Number(material), signalCount, Number(material), now, narrativeId);
+    });
+  }
+
+  /** The Narratives, most recently gained a Signal first. */
+  listNarratives(limit = 100): Narrative[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, summary, signal_count, created_at, last_signal_at, changed_materially_at
+         FROM narratives ORDER BY last_signal_at DESC, id DESC LIMIT ?`,
+      )
+      .all(limit) as unknown as NarrativeRow[];
+    return rows.map(toNarrative);
+  }
+
+  getNarrative(id: number): NarrativeDetail | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT id, title, summary, signal_count, created_at, last_signal_at, changed_materially_at FROM narratives WHERE id = ?",
+      )
+      .get(id) as unknown as NarrativeRow | undefined;
+    if (!row) return undefined;
+    const signals = this.db
+      .prepare("SELECT * FROM signals WHERE narrative_id = ? ORDER BY published_at DESC, ingested_at DESC, id")
+      .all(id) as unknown as SignalRow[];
+    return { ...toNarrative(row), signals: signals.map(toStoredSignal) };
   }
 
   /** War Room entry point: records a command row. Never touches status. */

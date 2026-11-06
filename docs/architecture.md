@@ -282,7 +282,7 @@ Ported (copied and adapted, not forked or shared as a package):
 
 - `Source` interface and the RSS adapter (`packages/core/src/sources/rss.ts`), including its time-bounded fetch.
 - PumpPortal adapter (`sources/pumpportal-bonding.ts`) and trends feeds (`trends-feeds.ts`).
-- Clustering and embedding approach (`clustering.ts`, `embedding.ts`) for Narratives.
+- Clustering and embedding approach (`clustering.ts`, `embedding.ts`) for Narratives, as `packages/core/src/narratives.ts` with helios's lexical `HashingEmbedder` as the embedder (ADR 0006). The worker clusters after each ingest tick; the War Room lists Narratives at `/narratives`.
 - Datastore pattern (`datastore.ts` head): `node:sqlite`, WAL, additive `ensureColumn` migrations, single file shared by worker and War Room.
 - Worker tick loop with the re-entrancy guard (`apps/worker/src/reentrant.ts`, not in `packages/core`).
 - War Room layout ideas (`docs/design/war-room.md`): scan, read in place, act, without leaving the page.

@@ -11,6 +11,8 @@ import {
   draftPendingSpecs,
   expireStaleProposals,
   githubRepoCheck,
+  HashingEmbedder,
+  clusterNewSignals,
   ingestSources,
   killLiveBrainChildren,
   loadRssSources,
@@ -110,6 +112,9 @@ const ingestTick = reentrant(
     const sources = loadRssSources(rssFeedsPath);
     const { stored, failed } = await ingestSources(store, sources, console.error);
     console.log(`[worker] ingest tick: ${sources.length} feed(s), ${stored} new signal(s)${failed > 0 ? `, ${failed} feed(s) failed` : ""}`);
+    // Then cluster whatever is not in a Narrative yet (also leftovers of an earlier pass). Plain code, no brain.
+    const { clustered, created } = await clusterNewSignals(store, new HashingEmbedder());
+    console.log(`[worker] cluster: ${clustered} signal(s) clustered, ${created} new narrative(s)`);
   },
   () => console.log("[worker] ingest tick skipped: previous ingest still running"),
 );

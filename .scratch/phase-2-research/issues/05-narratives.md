@@ -5,10 +5,10 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Embedding and clustering ported from helios; ingestion makes no Brain calls, and if embedding needs a model, the choice is recorded in an ADR
-- [ ] Each Signal belongs to at most one Narrative; a Narrative records when it last changed materially (the input for the judge delta)
-- [ ] Clustering is deterministic in tests with fixture Signals
-- [ ] War Room Narrative list and detail view; every new route has an endpoint-level test
-- [ ] `pnpm check` passes
+- [x] Embedding and clustering ported from helios; ingestion makes no Brain calls, and if embedding needs a model, the choice is recorded in an ADR (ADR 0006: no model, a local hashing embedder behind an `Embedder` seam)
+- [x] Each Signal belongs to at most one Narrative; a Narrative records when it last changed materially (the input for the judge delta)
+- [x] Clustering is deterministic in tests with fixture Signals
+- [x] War Room Narrative list and detail view; every new route has an endpoint-level test
+- [x] `pnpm check` passes

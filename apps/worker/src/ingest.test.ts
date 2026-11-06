@@ -35,7 +35,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
     const store = Datastore.open(db);
     try {
-      return { code, out, signals: store.latestSignals(100) };
+      return { code, out, signals: store.latestSignals(100), narratives: store.listNarratives() };
     } finally {
       store.close();
     }
@@ -63,6 +63,13 @@ it("the worker's ingest tick stores Signals from the feed list", async () => {
   ]);
 }, 60_000);
 
+it("the ingest tick clusters the new Signals into Narratives", async () => {
+  const { code, out, narratives } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
+  expect(code).toBe(0);
+  expect(out).toContain("[worker] cluster: 5 signal(s) clustered, 5 new narrative(s)");
+  expect(narratives.map((n) => n.signalCount)).toEqual([1, 1, 1, 1, 1]);
+}, 60_000);
+
 it("a failing feed is logged and the others are still stored", async () => {
   const { code, out, signals } = await runOnce([{ id: "rss:down", path: "/down" }, { id: "rss:other", path: "/other" }], routes);
   expect(code).toBe(0);
@@ -79,8 +86,9 @@ it("a malformed feed list is reported and does not stop the worker", async () =>
 }, 60_000);
 
 it("a dry run polls nothing", async () => {
-  const { code, out, signals } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_DRY_RUN: "1" });
+  const { code, out, signals, narratives } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_DRY_RUN: "1" });
   expect(code).toBe(0);
   expect(out).toContain("ingest tick: dry-run");
   expect(signals).toEqual([]);
+  expect(narratives).toEqual([]);
 }, 60_000);
