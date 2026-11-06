@@ -115,6 +115,12 @@ async function submit() {
         over {{ research.runs }} judge and propose {{ research.runs === 1 ? "run" : "runs" }}.
       </p>
       <p v-if="research.exhausted" class="mt-1 text-sm text-amber-500">Research budget reached: judging and proposing wait until older runs leave the 24 hours.</p>
+      <p class="mt-1 text-sm" data-test="api-spend">
+        <span title="Real money billed by the Anthropic API, unlike Est. usage above. Only the API fallback spends it, when the subscription is rate-limited.">API spend (real $)</span>:
+        ${{ research.api.usedUsd.toFixed(4) }} of ${{ research.api.capUsd.toFixed(2) }} daily cap over {{ research.api.runs }} {{ research.api.runs === 1 ? "run" : "runs" }}
+        <template v-if="!research.api.enabled">(fallback off: set ARGUS_API_FALLBACK=1 and ANTHROPIC_API_KEY in .env to turn it on)</template>
+      </p>
+      <p v-if="research.api.exhausted" class="mt-1 text-sm text-amber-500">API daily cap reached: the fallback sends nothing until older spend leaves the 24 hours.</p>
       <p class="mt-1 text-sm">New Proposals: {{ research.newProposals }} of {{ research.newProposalsCap }} a day<template v-if="research.newProposals >= research.newProposalsCap"> (cap reached; the next waits for the day to roll over)</template>.</p>
     </UCard>
 

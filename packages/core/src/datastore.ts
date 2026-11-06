@@ -39,8 +39,10 @@ export interface Proposal {
   ticker: string;
   description: string;
   evidenceLinks: string[];
-  /** Sum of `total_cost_usd` over the Proposal's brain runs. */
+  /** Sum of `total_cost_usd` over the Proposal's subscription brain runs: Est. usage, not a charge. */
   agentCostUsd: number;
+  /** Real dollars its ApiBrain runs cost (backend `api`); kept apart from Est. usage. */
+  apiCostUsd: number;
   specPath: string | null;
   specHash: string | null;
   /** Last Spec drafting failure; empty when none. The Proposal stays `shortlisted` while it is set. */
@@ -308,6 +310,7 @@ interface Row {
   description: string;
   evidence_links: string;
   cost_usd: number;
+  api_cost_usd: number;
   spec_path: string | null;
   spec_hash: string | null;
   spec_error: string;
@@ -328,7 +331,7 @@ interface Row {
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -343,6 +346,7 @@ function toProposal(r: Row): Proposal {
     description: r.description,
     evidenceLinks: JSON.parse(r.evidence_links) as string[],
     agentCostUsd: r.cost_usd,
+    apiCostUsd: r.api_cost_usd,
     specPath: r.spec_path,
     specHash: r.spec_hash,
     specError: r.spec_error,
@@ -386,6 +390,9 @@ export type WarRoomStore = Pick<
   | "listRubricVersions"
   | "latestScore"
   | "researchSpendSince"
+  | "apiSpendSince"
+  | "brainRunsFor"
+  | "judgeRunsFor"
   | "researchProposalsSince"
   | "latestSignals"
   | "listNarratives"
@@ -1007,17 +1014,30 @@ export class Datastore {
    * task's cap from `caps`, which is a ceiling on what it can have used. A plain `failed` run is not charged: it is also what a claude
    * that never started looks like. Without `caps` nothing is charged beyond the reported cost.
    */
-  private spendSince(tasks: readonly string[], since: string, caps: RunCaps = {}): Spend {
+  private spendSince(tasks: readonly string[], since: string, caps: RunCaps = {}, backend: "subscription" | "api" = "subscription"): Spend {
     const capFor = (task: string) => caps[task] ?? 0;
+    // Est. usage (subscription) and real dollars (api) are different currencies and never mix: each figure sees only its own runs'
+    // cost. `runs` counts every backend, so the run caps hold whatever ran them.
+    const mine = backend === "api" ? "backend = 'api'" : "backend != 'api'";
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost,
-           COALESCE(SUM(CASE WHEN total_cost_usd = 0 AND exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}')
+        `SELECT COUNT(*) AS runs, COALESCE(SUM(CASE WHEN ${mine} THEN total_cost_usd ELSE 0 END), 0) AS cost,
+           COALESCE(SUM(CASE WHEN NOT (${mine}) THEN 0 WHEN total_cost_usd = 0 AND exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}')
              THEN (CASE task ${tasks.map(() => "WHEN ? THEN ?").join(" ")} ELSE 0 END) ELSE total_cost_usd END), 0) AS charged
-         FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?`,
+         FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?${backend === "api" ? " AND backend = 'api'" : ""}`,
       )
       .get(...tasks.flatMap((t) => [t, capFor(t)]), ...tasks, since) as unknown as { runs: number; cost: number; charged: number };
     return { runs: row.runs, costUsd: row.cost, chargedUsd: row.charged };
+  }
+
+  /**
+   * The REAL dollars the API backend has spent since `since` (ISO), judge and propose together. `chargedUsd` is the figure the daily
+   * API cap is held to: what the runs reported, except that a run that has not finished (in flight) or ended with no cost (interrupted,
+   * timed out) is charged at its task's ceiling from `caps`. A failed API call whose cost was unknown is recorded with its ceiling as
+   * its cost (ApiBrain does that), so it is counted here as it stands.
+   */
+  apiSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["judge", "propose"], since, caps, "api");
   }
 
   /**
@@ -1070,11 +1090,15 @@ export class Datastore {
     this.db.prepare("UPDATE brain_runs SET heartbeat_at = ? WHERE id = ? AND exit_status = ?").run(now.toISOString(), id, BRAIN_RUN_IN_FLIGHT);
   }
 
-  /** WORKER ONLY. Records what a run cost and how it ended, as soon as the child is done. */
-  finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }): void {
+  /**
+   * WORKER ONLY. Records what a run cost and how it ended, as soon as the child is done. `backend` and `model`, when given, correct
+   * the row to what actually ran it: a run opened on claude-code may have been served by the API after a rate limit, and its dollars
+   * must land in the API figure, not in Est. usage.
+   */
+  finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string; backend?: string; model?: string }): void {
     this.db
-      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ? WHERE id = ?")
-      .run(done.sessionId, done.totalCostUsd, done.exitStatus, id);
+      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ?, backend = COALESCE(?, backend), model = COALESCE(?, model) WHERE id = ?")
+      .run(done.sessionId, done.totalCostUsd, done.exitStatus, done.backend ?? null, done.model ?? null, id);
   }
 
   /**

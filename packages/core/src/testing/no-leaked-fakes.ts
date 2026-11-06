@@ -1,4 +1,6 @@
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,10 +154,82 @@ function blockTelegram(): () => void {
   };
 }
 
-export default function setup(): () => Promise<void> {
+export interface AnthropicTripwire {
+  /** `http://127.0.0.1:<port>` */
+  url: string;
+  /** One `METHOD /path` per request that reached it. Headers and bodies are never kept: they hold the key and the prompts. */
+  hits: string[];
+  close(): Promise<void>;
+}
+
+/** A loopback server that refuses (403) every request and records `METHOD /path`: where a test that reaches for the Anthropic API ends up. */
+export async function startAnthropicTripwire(): Promise<AnthropicTripwire> {
+  const hits: string[] = [];
+  const server = createServer((req, res) => {
+    hits.push(`${req.method} ${(req.url ?? "").split("?")[0]}`);
+    req.resume();
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ type: "error", error: { type: "permission_error", message: "blocked by the test run's guard (no-leaked-fakes.ts): tests must use the fake Anthropic server" } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    hits,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/** Fails the run when anything reached the Anthropic tripwire (a real call costs real money); names each request. */
+export function failOnAnthropicCalls(hits: readonly string[]): void {
+  if (hits.length > 0) throw new Error(`The test run tried to reach the Anthropic API ${hits.length} time(s) (blocked); tests must use the fake Anthropic server (testing/fake-anthropic.ts):\n${hits.map((h) => `  ${h}`).join("\n")}`);
+}
+
+/**
+ * Keeps the run away from the real Anthropic API, which bills real money: ARGUS_ANTHROPIC_URL (the endpoint ApiBrain defaults to) and the
+ * SDK's own ANTHROPIC_BASE_URL both point at a loopback tripwire, and any API key in the environment is dropped for the run, so neither a
+ * worker a test spawns nor an ApiBrain built without a fake endpoint can reach api.anthropic.com or carry the Operator's key. A test that
+ * wants an API makes its own fake (testing/fake-anthropic.ts) and passes its URL explicitly.
+ */
+async function blockAnthropic(): Promise<{ restore: () => void; hits: string[]; close: () => Promise<void> }> {
+  const names = ["ARGUS_ANTHROPIC_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  const tripwire = await startAnthropicTripwire();
+  process.env.ARGUS_ANTHROPIC_URL = tripwire.url;
+  process.env.ANTHROPIC_BASE_URL = tripwire.url;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  return {
+    hits: tripwire.hits,
+    close: tripwire.close,
+    restore: () => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    },
+  };
+}
+
+export default async function setup(): Promise<() => Promise<void>> {
   const restoreTelegram = blockTelegram();
+  const anthropic = await blockAnthropic();
   const restoreTmpdir = isolateTmpdir();
-  if (process.platform !== "linux") return async () => (restoreTelegram(), restoreTmpdir());
+  const endAnthropic = async () => {
+    anthropic.restore();
+    await anthropic.close();
+    failOnAnthropicCalls(anthropic.hits);
+  };
+  if (process.platform !== "linux") {
+    return async () => {
+      restoreTelegram();
+      restoreTmpdir();
+      await endAnthropic();
+    };
+  }
   const dir = registryDirFor(process.pid); // on the home disk, found by the fakes without any env
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
   mkdirSync(dir, { recursive: true });
@@ -165,6 +239,7 @@ export default function setup(): () => Promise<void> {
       restorePath();
       failOnRealClaude(dir);
       await failOnLeakedFakes(dir);
+      await endAnthropic();
     } finally {
       rmSync(dir, { recursive: true, force: true });
       restoreTelegram();

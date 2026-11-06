@@ -100,6 +100,14 @@ describe("ClaudeCodeBrain", () => {
       expect(await kindOf("ratelimit")).toBe("rate-limited");
       expect(await kindOf("noresult-ratelimit")).toBe("rate-limited");
     });
+    it("says when the window resets, when claude says so: the rejected event's resetsAt, or the epoch after the usage-limit message", async () => {
+      const resetOf = async (mode: string, outputFormat: "json" | "stream-json" = "json") =>
+        ((await setup(mode, { outputFormat }).brain.run("spec", { prompt: "p" }).catch((e) => e)) as BrainError).resetsAt;
+      expect(await resetOf("ratelimit-event", "stream-json")).toEqual(new Date(1793839200 * 1000));
+      expect(await resetOf("noresult-ratelimit")).toEqual(new Date(1760000000 * 1000));
+      expect(await resetOf("ratelimit")).toBeUndefined(); // no time given
+      expect(await resetOf("failure")).toBeUndefined();
+    });
     it("prose that merely mentions 429 or rate limits is a plain failure", async () => {
       expect(await kindOf("failure-429text")).toBe("failed");
       expect(await kindOf("noresult")).toBe("failed");

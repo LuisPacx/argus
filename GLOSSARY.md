@@ -64,3 +64,6 @@ The state of a Proposal, which is one of: new, shortlisted, spec-drafted, approv
 
 **Est. usage**:
 The API-equivalent dollar figure (`total_cost_usd`) that `claude -p` reports for each run. On the Claude subscription it measures usage against plan limits, not money billed. Per-task caps (`--max-budget-usd`) limit how much usage one run can take.
+
+**API spend**:
+Real dollars billed by the Anthropic API when the optional API fallback serves a judge or propose run (the subscription is rate-limited). Computed from the provider's reported token usage times the model's price, held to a daily cap in code, and always shown apart from Est. usage, which is not money.

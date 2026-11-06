@@ -61,6 +61,11 @@ export interface Brain {
    * per-run spend cap of the route, which research uses to charge a run that ended without reporting its cost.
    */
   routeFor(task: BrainTask): { backend: BrainBackend; model: string; maxBudgetUsd?: number };
+  /**
+   * A Brain that can serve a task from another backend than its subscription one (the API fallback) reports here the subscription's
+   * route, whose per-run cap is what an unreported subscription run is charged at (Est. usage). Absent, `routeFor` is that route.
+   */
+  primaryRouteFor?(task: BrainTask): { backend: BrainBackend; model: string; maxBudgetUsd?: number };
   run<T = string>(task: BrainTask, input: BrainInput, opts?: BrainRunOptions): Promise<BrainRun<T>>;
 }
 
@@ -163,14 +168,17 @@ export class BrainError extends Error {
   readonly totalCostUsd: number;
   readonly backend: BrainBackend;
   readonly model: string;
+  /** For `rate-limited`: when claude said the window resets, if it said. Untrusted until the reader clamps it. */
+  readonly resetsAt?: Date;
   constructor(
     kind: BrainFailureKind,
     message: string,
-    info: { sessionId?: string; totalCostUsd?: number; backend: BrainBackend; model: string },
+    info: { sessionId?: string; totalCostUsd?: number; backend: BrainBackend; model: string; resetsAt?: Date },
   ) {
     super(message);
     this.name = "BrainError";
     this.kind = kind;
+    this.resetsAt = info.resetsAt;
     this.sessionId = info.sessionId;
     this.totalCostUsd = info.totalCostUsd ?? 0;
     this.backend = info.backend;
@@ -222,7 +230,7 @@ interface ResultMessage {
   total_cost_usd?: number;
   /** HTTP status of the API error behind an error result, when there was one. */
   api_error_status?: number | null;
-  rate_limit_info?: { status?: string };
+  rate_limit_info?: { status?: string; resetsAt?: number };
 }
 
 /** Every JSON message in `--output-format json` (one object or array) or `stream-json` (one per line) output. */
@@ -277,6 +285,19 @@ export function isRateLimited(messages: ResultMessage[], failureText: string): b
   if (result?.api_error_status === 429) return true;
   if (messages.some((m) => m.type === "rate_limit_event" && m.rate_limit_info?.status === "rejected")) return true;
   return LIMIT_MESSAGE_RE.test(failureText);
+}
+
+/**
+ * When a throttled run says the window resets: the `resetsAt` (Unix seconds) of a rejected `rate_limit_event`, else the epoch claude
+ * prints after its usage-limit message (`Claude AI usage limit reached|1760000000`). Only a plausible whole number is taken; the
+ * reader still clamps it, since it comes from a child's output.
+ */
+export function rateLimitResetOf(messages: ResultMessage[], failureText: string): Date | undefined {
+  const fromEvent = messages.find((m) => m.type === "rate_limit_event" && m.rate_limit_info?.status === "rejected")?.rate_limit_info?.resetsAt;
+  const piped = /^[^\n]*limit reached\|(\d{9,11})\s*$/im.exec(failureText)?.[1];
+  const seconds = typeof fromEvent === "number" ? fromEvent : piped !== undefined ? Number(piped) : undefined;
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0 || seconds > 4_102_444_800) return undefined;
+  return new Date(Math.floor(seconds) * 1000);
 }
 
 /** Children currently running, so shutdown can kill them (no orphaned, still-spending claude). */
@@ -443,16 +464,19 @@ export class ClaudeCodeBrain implements Brain {
     }
     if (!msg) {
       const detail = (stderr || stdout).trim().slice(0, 500);
-      const kind = isRateLimited(messages, stderr) ? "rate-limited" : "failed";
-      throw new BrainError(kind, `claude exited ${code ?? signal} without a result: ${detail}`, base);
+      const limited = isRateLimited(messages, stderr);
+      throw new BrainError(limited ? "rate-limited" : "failed", `claude exited ${code ?? signal} without a result: ${detail}`, {
+        ...base,
+        resetsAt: limited ? rateLimitResetOf(messages, stderr) : undefined,
+      });
     }
     if (msg.subtype === "error_max_budget_usd") {
       throw new BrainError("budget-exceeded", "Run hit the --max-budget-usd cap", base);
     }
     if (!succeeded) {
       const text = String(msg.result ?? msg.subtype ?? `exit ${code}`);
-      const kind = (msg.is_error || code !== 0) && isRateLimited(messages, text) ? "rate-limited" : "failed";
-      throw new BrainError(kind, text.slice(0, 500), base);
+      const limited = (msg.is_error || code !== 0) && isRateLimited(messages, text);
+      throw new BrainError(limited ? "rate-limited" : "failed", text.slice(0, 500), { ...base, resetsAt: limited ? rateLimitResetOf(messages, text) : undefined });
     }
     return { output: (msg.result ?? "") as T, ...base };
   }

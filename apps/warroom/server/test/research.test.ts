@@ -26,7 +26,9 @@ function narrativeWithScore(): { narrativeId: number; scoreId: number } {
   return { narrativeId, scoreId };
 }
 
-const ENV = ["ARGUS_DAILY_QUOTA_USD", "ARGUS_RESEARCH_SHARE", "ARGUS_PROPOSE_MAX_NEW_PER_DAY"];
+const narrative = (await import("../api/narratives/[id].get.ts")).default as unknown as (e: Ev) => Record<string, unknown>;
+
+const ENV = ["ARGUS_DAILY_QUOTA_USD", "ARGUS_RESEARCH_SHARE", "ARGUS_PROPOSE_MAX_NEW_PER_DAY", "ARGUS_API_FALLBACK", "ARGUS_API_DAILY_USD"];
 beforeEach(() => {
   store = Datastore.open(":memory:");
   for (const k of ENV) delete process.env[k];
@@ -46,6 +48,43 @@ it("GET /api/research reports the rolling 24 h research usage against the budget
   expect(out).toMatchObject({ usedUsd: 3, runs: 2, quotaUsd: 20, share: 0.3, exhausted: false, newProposals: 1, newProposalsCap: 10, windowHours: 24 });
   expect(out.budgetUsd).toBeCloseTo(6, 6);
   expect(out.usedShareOfQuota).toBeCloseTo(0.15, 6);
+});
+
+it("GET /api/research reports today's API spend in real dollars apart from Est. usage, and the API cap with its switch", () => {
+  const run = (task: string, backend: string, cost: number) => store.finishBrainRun(store.startBrainRun({ proposalId: 0, task, backend, model: "m" }), { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
+  run("judge", "claude-code", 1);
+  run("judge", "api", 0.004);
+  run("propose", "api", 0.006);
+  const out = research();
+  expect(out).toMatchObject({ usedUsd: 1, reportedUsd: 1, runs: 3 }); // Est. usage: the subscription run only
+  expect(out.api).toEqual({ enabled: false, capUsd: 0.5, usedUsd: 0.01, runs: 2, exhausted: false });
+  process.env.ARGUS_API_FALLBACK = "1";
+  process.env.ARGUS_API_DAILY_USD = "0.01";
+  expect(research().api).toEqual({ enabled: true, capUsd: 0.01, usedUsd: 0.01, runs: 2, exhausted: true });
+  process.env.ARGUS_API_DAILY_USD = "9";
+  expect(() => research()).toThrow(/ARGUS_API_DAILY_USD/); // the cap can only be lowered
+});
+
+it("GET /api/proposals/:id lists each brain run with the backend that served it, and the Proposal's API spend apart from its Est. usage", () => {
+  const { narrativeId, scoreId } = narrativeWithScore();
+  const p = store.createResearchProposal({ ...fields("Cat"), narrativeId, scoreId });
+  const done = (task: string, backend: string, model: string, cost: number) =>
+    store.finishBrainRun(store.startBrainRun({ proposalId: p.id, task, backend, model }), { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
+  done("propose", "api", "claude-haiku-5-5", 0.004);
+  done("spec", "claude-code", "sonnet", 0.5);
+  const out = one({ params: { id: String(p.id) } });
+  expect(out).toMatchObject({ agentCostUsd: 0.5, apiCostUsd: 0.004 });
+  expect(out.brainRuns).toMatchObject([
+    { task: "propose", backend: "api", model: "claude-haiku-5-5", totalCostUsd: 0.004, exitStatus: "success" },
+    { task: "spec", backend: "claude-code", model: "sonnet", totalCostUsd: 0.5, exitStatus: "success" },
+  ]);
+});
+
+it("GET /api/narratives/:id lists the judge runs with their backends", () => {
+  const { narrativeId } = narrativeWithScore();
+  const id = store.startBrainRun({ proposalId: 0, narrativeId, task: "judge", backend: "api", model: "claude-haiku-5-5" });
+  store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.002, exitStatus: "success" });
+  expect(narrative({ params: { id: String(narrativeId) } }).runs).toMatchObject([{ task: "judge", backend: "api", model: "claude-haiku-5-5", totalCostUsd: 0.002 }]);
 });
 
 it("GET /api/research follows the same ARGUS_* settings as the worker, and says so when they are invalid", () => {

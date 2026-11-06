@@ -248,7 +248,7 @@ export async function proposePendingNarratives(
       run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score, rejected) }, { signal: opts.signal });
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
-      store.finishBrainRun(retryId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: brainError?.kind ?? "failed" });
+      store.finishBrainRun(retryId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: brainError?.kind ?? "failed", backend: brainError?.backend, model: brainError?.model });
       log(`[worker] propose: narrative ${narrative.id} name retry ${brainError?.kind ?? "failed"}: ${e instanceof Error ? e.message : String(e)}; keeping the first name, flagged`);
       return { runId: retryId };
     }
@@ -257,7 +257,7 @@ export async function proposePendingNarratives(
       return {};
     }
     const reparsed = parseProposeOutput(run.output);
-    store.finishBrainRun(retryId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: reparsed.ok ? "success" : "invalid-output" });
+    store.finishBrainRun(retryId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: reparsed.ok ? "success" : "invalid-output", backend: run.backend, model: run.model });
     if (!reparsed.ok) {
       log(`[worker] propose: narrative ${narrative.id} name retry refused: ${reparsed.problem}; keeping the first name, flagged`);
       return { runId: retryId };
@@ -292,7 +292,8 @@ export async function proposePendingNarratives(
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       const kind = brainError?.kind ?? "failed";
-      store.finishBrainRun(runId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: kind });
+      // The run is recorded under the backend that served it, which the API fallback may have changed since the row was opened.
+      store.finishBrainRun(runId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: kind, backend: brainError?.backend, model: brainError?.model });
       if (kind === "interrupted") return { ...out, stoppedBy: "interrupted" };
       if (kind === "rate-limited") {
         log(`[worker] propose: rate-limited, stopping the pass; narrative ${narrative.id} stays queued`);
@@ -313,7 +314,7 @@ export async function proposePendingNarratives(
       return { ...out, stoppedBy: "dry-run" };
     }
     const parsed = parseProposeOutput(run.output);
-    store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output" });
+    store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: run.backend, model: run.model });
     // The spend is recorded. Nothing below calls the brain again.
     if (!parsed.ok) {
       log(`[worker] propose: narrative ${narrative.id} refused: ${parsed.problem}. Output not stored: ${JSON.stringify(run.output.trim().slice(0, 200))}`);
@@ -357,7 +358,7 @@ export async function proposePendingNarratives(
         out.withdrawn++;
         continue;
       }
-      store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "failed" });
+      store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "failed", backend: run.backend, model: run.model });
       log(`[worker] propose: narrative ${narrative.id} Proposal not stored: ${e instanceof Error ? e.message : String(e)}`);
       if (transient()) return { ...out, stoppedBy: "backoff" };
       continue;

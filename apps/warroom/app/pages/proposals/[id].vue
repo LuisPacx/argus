@@ -143,6 +143,27 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
       <dd>{{ p.slug }}</dd>
       <dt class="font-semibold" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt>
       <dd>${{ p.agentCostUsd.toFixed(2) }}</dd>
+      <template v-if="p.apiCostUsd > 0">
+        <dt class="font-semibold" title="Real money billed by the Anthropic API for this Proposal's fallback runs. Not part of Est. usage.">API spend (real $)</dt>
+        <dd data-test="api-cost">${{ p.apiCostUsd.toFixed(4) }}</dd>
+      </template>
+      <template v-if="p.brainRuns.length > 0">
+        <dt class="font-semibold">Brain runs</dt>
+        <dd>
+          <table class="text-sm" data-test="brain-runs">
+            <thead><tr class="text-left"><th class="pr-3">Task</th><th class="pr-3">Backend</th><th class="pr-3">Model</th><th class="pr-3">Result</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr v-for="r in p.brainRuns" :key="r.id">
+                <td class="pr-3">{{ r.task }}</td>
+                <td class="pr-3" :data-backend="r.backend">{{ r.backend }}</td>
+                <td class="pr-3">{{ r.model }}</td>
+                <td class="pr-3">{{ r.exitStatus }}</td>
+                <td>{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </dd>
+      </template>
       <dt class="font-semibold">Created</dt>
       <dd>{{ p.createdAt }}</dd>
       <dt class="font-semibold">Updated</dt>

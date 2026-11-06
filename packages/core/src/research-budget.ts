@@ -50,10 +50,12 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
  * What a run that reported no cost is charged against the budget: its route's per-run cap, a ceiling on what it can have used. The
  * Brain reports its routes' caps; a Brain that does not falls back to the default routing's.
  */
-export function researchRunCaps(brain: Pick<Brain, "routeFor">): RunCaps {
+export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor">): RunCaps {
+  // The subscription's caps, even while the API fallback is serving: Est. usage is charged at the subscription's per-run cap.
+  const route = (task: "judge" | "propose") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
   return {
-    judge: brain.routeFor("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
-    propose: brain.routeFor("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
+    judge: route("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
+    propose: route("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
   };
 }
 

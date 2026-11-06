@@ -202,7 +202,8 @@ export async function judgePendingNarratives(
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       const kind = brainError?.kind ?? "failed";
-      store.finishBrainRun(runId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: kind });
+      // The run is recorded under the backend that served it, which the API fallback may have changed since the row was opened.
+      store.finishBrainRun(runId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: kind, backend: brainError?.backend, model: brainError?.model });
       if (kind === "interrupted") return { ...out, stoppedBy: "interrupted" };
       if (kind === "rate-limited") {
         log(`[worker] judge: rate-limited, stopping the pass; narrative ${narrative.id} stays queued`);
@@ -223,7 +224,7 @@ export async function judgePendingNarratives(
       return { ...out, stoppedBy: "dry-run" };
     }
     const parsed = parseJudgeOutput(run.output, rubric);
-    store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output" });
+    store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: run.backend, model: run.model });
     // The spend is recorded. Nothing below calls the brain again.
     if (!parsed.ok) {
       log(`[worker] judge: narrative ${narrative.id} refused: ${parsed.problem}. Output not stored: ${JSON.stringify(run.output.trim().slice(0, 200))}`);
@@ -243,7 +244,7 @@ export async function judgePendingNarratives(
       });
       out.judged++;
     } catch (e) {
-      store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "failed" });
+      store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "failed", backend: run.backend, model: run.model });
       log(`[worker] judge: narrative ${narrative.id} Score not stored: ${e instanceof Error ? e.message : String(e)}`);
       if (transient()) return { ...out, stoppedBy: "backoff" };
     }

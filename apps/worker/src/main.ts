@@ -2,8 +2,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ApiBrain,
   BackoffSource,
+  FallbackBrain,
   announceNewProposals,
+  anthropicKeyFromEnv,
+  apiFallbackConfigFromEnv,
+  apiSpentUsd,
   createNotifier,
   telegramEnv,
   ClaudeCodeBrain,
@@ -50,8 +55,30 @@ const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
 const store = Datastore.open(dbPath);
 const dataDir = process.env.ARGUS_DATA_DIR || dirname(resolve(dbPath));
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const skillsDir = join(repoRoot, ".claude", "skills");
 // Children run from a temp dir holding only the task's skill, never the repo root (.env, .data/argus.db).
-const brain = new ClaudeCodeBrain({ skillsDir: join(repoRoot, ".claude", "skills"), dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
+const claude = new ClaudeCodeBrain({ skillsDir, dryRun, command: process.env.ARGUS_CLAUDE_BIN || "claude" });
+// The API fallback (docs/architecture.md section 5, ticket 12) is OFF unless ARGUS_API_FALLBACK=1. It serves judge and propose only,
+// on haiku, when claude is rate-limited, and is held to a daily cap in REAL dollars (ARGUS_API_DAILY_USD can only lower the cap in code).
+// ANTHROPIC_API_KEY is read here, from the environment or the git-ignored .env, only when the fallback is on, handed to ApiBrain
+// and removed from this process's environment, so no child (claude, git, gh, wrangler, podman) can inherit it. It is never logged.
+const apiFallback = apiFallbackConfigFromEnv(process.env);
+const apiKey = apiFallback.enabled ? anthropicKeyFromEnv(process.env, join(repoRoot, ".env")) : undefined;
+delete process.env.ANTHROPIC_API_KEY;
+let brain: ClaudeCodeBrain | FallbackBrain = claude;
+if (apiFallback.enabled && apiKey === undefined && !dryRun) {
+  console.warn("[worker] ARGUS_API_FALLBACK=1 but ANTHROPIC_API_KEY is not set (environment or .env): the API fallback is off");
+} else if (apiFallback.enabled) {
+  brain = new FallbackBrain({
+    primary: claude,
+    api: new ApiBrain({ apiKey, skillsDir, spentUsd: apiSpentUsd(store), dailyCapUsd: apiFallback.dailyUsd, dryRun, log: console.log }),
+    dryRun,
+    log: console.log,
+  });
+  console.log(`[worker] API fallback on: judge and propose use the API (haiku) when the subscription is rate-limited, real-dollar cap $${apiFallback.dailyUsd}/day`);
+} else {
+  console.log("[worker] API fallback off (ARGUS_API_FALLBACK=1 turns it on)");
+}
 
 // The Build Runner: Build repos live under ~/code (ARGUS_BUILD_ROOT), cloned from the template repo. The *_BIN overrides
 // point the runner at other executables (tests use fakes); nothing else about a Build is configurable from the environment.
@@ -126,7 +153,8 @@ const tick = reentrant(
 // `runPendingBuilds` itself takes one Build at a time, so a long Build never overlaps another.
 const buildTick = reentrant(
   async () => {
-    const n = await runPendingBuilds(store, brain, buildOptions, shutdown.signal);
+    // Builds are handed the claude brain itself, never the fallback: a Build cannot reach the API however the window stands.
+    const n = await runPendingBuilds(store, claude, buildOptions, shutdown.signal);
     if (n > 0) console.log(`[worker] finished ${n} build(s)`);
   },
   () => {}, // a Build is still running: the next tick tries again (no log line: a Build takes hours)

@@ -30,6 +30,18 @@ const { data: n } = await useFetch(`/api/narratives/${route.params.id}`);
         </li>
       </ol>
     </UCard>
+    <UCard v-if="n.runs.length > 0">
+      <template #header>Judge runs</template>
+      <ul class="grid gap-1 text-sm" data-testid="judge-runs">
+        <li v-for="r in n.runs" :key="r.id" class="flex flex-wrap items-baseline gap-x-2">
+          <UBadge variant="subtle" size="sm" :data-backend="r.backend">{{ r.backend }}</UBadge>
+          <span>{{ r.model }}</span>
+          <span class="text-muted">{{ r.exitStatus }}</span>
+          <span>{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</span>
+          <time class="text-muted" :datetime="r.createdAt">{{ new Date(r.createdAt).toLocaleString() }}</time>
+        </li>
+      </ul>
+    </UCard>
     <UCard>
       <template #header>Signals</template>
       <ul class="grid gap-1 text-sm">

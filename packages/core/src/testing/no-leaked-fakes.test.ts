@@ -3,9 +3,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ApiBrain, anthropicBaseUrl } from "../api-brain.ts";
 import { ClaudeCodeBrain, killLiveBrainChildren } from "../brain.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
-import { failOnRealClaude, leakedIn, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
+import { failOnAnthropicCalls, failOnRealClaude, leakedIn, startAnthropicTripwire, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
 import { registryDirFor } from "./run-registry.mjs";
 import { tempDir } from "./temp.ts";
 import { untilExists } from "./wait.ts";
@@ -107,6 +108,46 @@ describe("the leak guard only claims fakes started under its own test run", () =
     expect(r.status).toBe(127);
     expect(r.stderr).toContain("blocked by the test run's guard");
     expect(() => failOnRealClaude(dir)).toThrow(/tried to start the real `claude` 1 time[\s\S]*-p \/judge Score this --model haiku/);
+  });
+
+  it("the Anthropic API is walled off: the default endpoint is the run's loopback tripwire and no key reaches the test process", () => {
+    expect(anthropicBaseUrl()).toBe(process.env.ARGUS_ANTHROPIC_URL);
+    expect(process.env.ARGUS_ANTHROPIC_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(process.env.ARGUS_ANTHROPIC_URL); // the SDK's own variable points there too
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it("a call that reaches the tripwire is refused, recorded without its headers or body, and fails the run naming the request", async () => {
+    const tripwire = await startAnthropicTripwire();
+    try {
+      expect(() => failOnAnthropicCalls(tripwire.hits)).not.toThrow(); // no call, no failure
+      const res = await fetch(`${tripwire.url}/v1/messages`, { method: "POST", headers: { authorization: "Bearer sk-ant-secret-value" }, body: JSON.stringify({ system: "prompt text" }) });
+      expect(res.status).toBe(403);
+      expect(() => failOnAnthropicCalls(tripwire.hits)).toThrow(/tried to reach the Anthropic API 1 time[\s\S]*POST \/v1\/messages/);
+      let message = "";
+      try {
+        failOnAnthropicCalls(tripwire.hits);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).not.toContain("sk-ant-secret-value");
+      expect(message).not.toContain("prompt text");
+    } finally {
+      await tripwire.close();
+    }
+  });
+
+  it("an ApiBrain with no endpoint of its own would go to the tripwire, which is how a test that forgot its fake gets caught", async () => {
+    const tripwire = await startAnthropicTripwire();
+    try {
+      const brain = new ApiBrain({ apiKey: "sk-ant-test-0123456789abcdef", baseUrl: anthropicBaseUrl({ ARGUS_ANTHROPIC_URL: tripwire.url }), skillsDir: join(import.meta.dirname, "../../../../.claude/skills"), spentUsd: () => 0 });
+      const e = await brain.run("judge", { prompt: "p" }).catch((x) => x);
+      expect(e).toMatchObject({ kind: "failed", backend: "api", totalCostUsd: 0 }); // a 403 is a rejected request
+      expect(tripwire.hits).toEqual(["POST /v1/messages"]);
+    } finally {
+      await tripwire.close();
+    }
   });
 
   it("the run fails when it leaves a temp entry behind, and the entry is removed", () => {

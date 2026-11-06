@@ -6,6 +6,8 @@ export * from "./rubric.ts";
 export * from "./expiry.ts";
 export * from "./github-repo.ts";
 export * from "./brain.ts";
+export * from "./api-brain.ts";
+export * from "./api-fallback.ts";
 export * from "./spec-drafting.ts";
 export * from "./judge.ts";
 export * from "./research-budget.ts";
