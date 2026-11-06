@@ -136,8 +136,11 @@ export interface BrainRunSummary {
 const POLL_ERROR_CHARS = 300;
 const cleanPollError = (message: string): string =>
   message
-    .replace(/(https?:\/\/)[^\s/@]*@/g, "$1")
-    .replace(/(https?:\/\/[^\s?#]*)[?#]\S*/g, "$1")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi, "$1")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^\s?#]*)[?#]\S*/gi, "$1")
+    .replace(/\/bot[^\s/]+/gi, "/bot***")
+    .replace(/\bbearer\s+\S+/gi, "Bearer ***")
+    .replace(/\b(token|key|api_?key|access_token|secret|password)=[^\s&]+/gi, "$1=***")
     .slice(0, POLL_ERROR_CHARS);
 
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId">;

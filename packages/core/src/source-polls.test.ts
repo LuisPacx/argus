@@ -108,6 +108,43 @@ describe("ingestSources records each poll", () => {
   });
 });
 
+describe("poll bookkeeping never breaks the ingest pass", () => {
+  it("a recordSourcePoll that throws is logged, and signals and the other Sources are still handled", async () => {
+    const ds = Datastore.open(":memory:");
+    const store = { recordSignals: ds.recordSignals.bind(ds), recordSourcePoll: () => { throw new Error("database is locked"); } };
+    const lines: string[] = [];
+    const sources = [source("rss:ok", async () => [sig(1, "rss:ok")]), source("rss:bad", failing("boom"))];
+    await expect(ingestSources(store, sources, (l) => lines.push(l))).resolves.toEqual({ stored: 1, failed: 1 });
+    expect(lines.filter((l) => l.includes("database is locked"))).toHaveLength(2);
+  });
+});
+
+describe("poll error redaction", () => {
+  const stored = (error: string) => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSourcePoll({ sourceId: "s", label: "S", error });
+    return ds.sourceHealth()[0]!.lastError!;
+  };
+  it.each([
+    ["a Telegram-style path secret", "GET https://api.example/bot123:ABC-def/getUpdates failed", "bot123", "ABC-def"],
+    ["a bearer credential", "401 with Authorization: Bearer abc.def.ghi rejected", "abc.def.ghi", "abc.def"],
+    ["token= in prose", "bad request token=s3cr3t&x=1 refused", "s3cr3t", "s3cr3t"],
+    ["key= in prose", "denied: api_key=hunter2 invalid", "hunter2", "hunter2"],
+    ["userinfo in wss://", "connect wss://user:pw0rd@h.example/ws failed", "pw0rd", "user:"],
+    ["userinfo in ftp://", "fetch ftp://user:pw0rd@h.example/f failed", "pw0rd", "user:"],
+  ])("masks %s", (_name, message, secret, alsoGone) => {
+    const out = stored(message);
+    expect(out).not.toContain(secret);
+    expect(out).not.toContain(alsoGone);
+  });
+  it("keeps the readable parts of a masked message", () => {
+    expect(stored("GET https://api.example/bot123:ABC/getUpdates failed")).toBe("GET https://api.example/bot***/getUpdates failed");
+    expect(stored("rejected Bearer abc.def")).toBe("rejected Bearer ***");
+    expect(stored("bad token=s3cr3t now")).toBe("bad token=*** now");
+    expect(stored("connect wss://u:p@h.example/ws failed")).toBe("connect wss://h.example/ws failed");
+  });
+});
+
 describe("brain_runs.finished_at", () => {
   it("finishBrainRun, the stale sweep and recordBrainRun all set it; an open run has none", () => {
     const ds = Datastore.open(":memory:");

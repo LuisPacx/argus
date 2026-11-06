@@ -11,6 +11,14 @@ export async function ingestSources(
   sources: Source[],
   log: (line: string) => void,
 ): Promise<{ stored: number; failed: number }> {
+  // Bookkeeping only: a failed write is logged and never rejects the pass or costs another Source its Signals.
+  const record = (source: Source, error?: string) => {
+    try {
+      store.recordSourcePoll({ sourceId: source.id, label: source.label, ...(error === undefined ? {} : { error }) });
+    } catch (e) {
+      log(`[ingest] ${source.id} poll not recorded: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const polled = await Promise.all(
     sources.map(async (source) => {
       try {
@@ -18,7 +26,7 @@ export async function ingestSources(
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         log(`[ingest] ${source.id} failed: ${message}`);
-        store.recordSourcePoll({ sourceId: source.id, label: source.label, error: message });
+        record(source, message);
         return undefined;
       }
     }),
@@ -31,7 +39,7 @@ export async function ingestSources(
       return;
     }
     stored += store.recordSignals(signals);
-    store.recordSourcePoll({ sourceId: sources[i]!.id, label: sources[i]!.label });
+    record(sources[i]!);
   });
   return { stored, failed };
 }
