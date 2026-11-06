@@ -6,6 +6,7 @@ import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
 import { needsHumanSpecReason } from "./spec-drafting.ts";
+import { buildDoneText, buildFailedText, buildStartText, type Notifier } from "./telegram.ts";
 import { ownerState, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
@@ -44,6 +45,8 @@ export interface BuildRunnerOptions {
   /** Logs every clone, repo-create, spawn and deploy command and runs none of them. */
   dryRun?: boolean;
   log?: (line: string) => void;
+  /** Told when a Build starts, is done or has failed (Telegram). Queues only, so a slow or broken Telegram never holds a Build up. */
+  notifier?: Notifier;
 }
 
 export type BuildResult = "built" | "build-failed" | "needs-human" | "dry-run" | "abandoned";
@@ -353,7 +356,25 @@ export async function runNextBuild(
   // The slot is taken synchronously below; the preflight awaited, so make sure the queue still looks the way it did.
   if (signal?.aborted || nextBuildable(store)?.id !== proposal.id) return undefined;
   const runId = store.beginBuild(proposal.id, brain.routeFor("build"));
-  return build(store, brain, o, store.getProposal(proposal.id)!, runId, signal);
+  const building = store.getProposal(proposal.id)!;
+  tell(o, () => buildStartText(building));
+  const outcome = await build(store, brain, o, building, runId, signal);
+  // Only the final result is announced (a retried first attempt is not a failure), and never an aborted or needs-human one.
+  const after = store.getProposal(proposal.id)!;
+  if (outcome.result === "built") tell(o, () => buildDoneText(after));
+  else if (outcome.result === "build-failed" && after.status === "build-failed") {
+    tell(o, () => buildFailedText(after, store.historyFor(after.id).at(-1)?.reason ?? "unknown"));
+  }
+  return outcome;
+}
+
+/** Hands a notice to the notifier, which only queues it; nothing about notifying can fail or slow a Build. */
+function tell(o: BuildRunnerOptions, text: () => string): void {
+  try {
+    o.notifier?.notify(text());
+  } catch (e) {
+    (o.log ?? console.log)(`[worker] could not queue a notification: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /** The reason in an approved Proposal's `## Needs human` Spec, or null when its Spec is to be built (or cannot be read: the Build fails that itself). */

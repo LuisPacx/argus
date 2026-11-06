@@ -5,11 +5,11 @@
 
 **Blocked by:** Phase 1 ticket 07 (Build Runner happy path)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The bot token and chat id come from the git-ignored `.env` and are never logged; missing config disables notifications with one warning
-- [ ] Messages for new Proposal, build start, build done (with the preview link) and build failed
-- [ ] Send failures are retried with backoff and never block the worker tick or a Build
-- [ ] Dry-run logs the message instead of sending it
-- [ ] Tests use a fake Telegram API; no network
-- [ ] `pnpm check` passes
+- [x] The bot token and chat id come from the git-ignored `.env` and are never logged; missing config disables notifications with one warning
+- [x] Messages for new Proposal, build start, build done (with the preview link) and build failed
+- [x] Send failures are retried with backoff and never block the worker tick or a Build
+- [x] Dry-run logs the message instead of sending it
+- [x] Tests use a fake Telegram API; no network
+- [x] `pnpm check` passes

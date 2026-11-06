@@ -224,6 +224,8 @@ export function migrate(db: DatabaseSync): void {
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS scores_narrative_id ON scores (narrative_id, id)");
   db.exec("CREATE INDEX IF NOT EXISTS brain_runs_narrative_id ON brain_runs (narrative_id)");
+  // Proposals whose Telegram card has been queued (phase 2 ticket 11): one row each, so a restart never announces twice.
+  db.exec("CREATE TABLE IF NOT EXISTS telegram_announced (proposal_id INTEGER PRIMARY KEY, at TEXT NOT NULL)");
 }
 
 export function slugify(text: string): string {
@@ -542,6 +544,18 @@ export class Datastore {
   getProposal(id: number): Proposal | undefined {
     const row = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(id) as unknown as Row | undefined;
     return row && toProposal(row);
+  }
+
+  /** Proposals still `new` whose Telegram card has not been queued, oldest first. */
+  unannouncedNewProposals(): Proposal[] {
+    const rows = this.db
+      .prepare(`${PROPOSAL_SELECT} WHERE p.status = 'new' AND p.id NOT IN (SELECT proposal_id FROM telegram_announced) ORDER BY p.id`)
+      .all() as unknown as Row[];
+    return rows.map(toProposal);
+  }
+
+  markAnnounced(proposalId: number): void {
+    this.db.prepare("INSERT OR IGNORE INTO telegram_announced (proposal_id, at) VALUES (?, ?)").run(proposalId, new Date().toISOString());
   }
 
   listProposals(): Proposal[] {

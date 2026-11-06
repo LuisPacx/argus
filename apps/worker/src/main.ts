@@ -1,8 +1,12 @@
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
 import {
   BackoffSource,
+  announceNewProposals,
+  createNotifier,
   ClaudeCodeBrain,
   Datastore,
   DexScreenerClient,
@@ -58,7 +62,22 @@ const sandbox = new PodmanSandbox({
   dataDir,
   caps: capsFromEnv(process.env),
 });
+// Telegram (notify only): TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the environment or the git-ignored .env at the repo root (only
+// those two names are taken from the file). Missing config turns notifications off with one warning. Sending is queued and
+// asynchronous, so Telegram being slow or down never holds up a tick or a Build. ARGUS_TELEGRAM_URL exists for tests.
+const envFile = join(repoRoot, ".env");
+const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile, "utf8")) : {};
+const notifier = createNotifier({
+  env: { TELEGRAM_BOT_TOKEN: fileEnv.TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: fileEnv.TELEGRAM_CHAT_ID, ...stripEmpty(process.env) },
+  dryRun,
+  log: console.log,
+  baseUrl: process.env.ARGUS_TELEGRAM_URL || undefined,
+});
+function stripEmpty(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith("TELEGRAM_") && v));
+}
 const buildOptions: BuildRunnerOptions = {
+  notifier,
   buildRoot,
   templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
   dataDir,
@@ -98,6 +117,7 @@ const tick = reentrant(
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();
     expireStaleProposals(store, new Date(), console.log);
+    announceNewProposals(store, notifier);
     await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
     await revisePendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
   },
@@ -206,6 +226,7 @@ const stop = async () => {
   shutdown.abort();
   await killLiveBrainChildren();
   await Promise.all(running);
+  notifier.close(); // what is still queued or in flight is dropped; a notice is never worth a slow shutdown
   store.close();
   console.log("[worker] stopped");
   process.exit(0);
@@ -219,6 +240,8 @@ if (once) {
   await runBuildTick();
   await runIngestTick();
   await runJudgeTick();
+  await Promise.race([notifier.idle(), new Promise((r) => setTimeout(r, 10_000))]); // a one-shot run lets its notices go out first
+  notifier.close();
   if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
