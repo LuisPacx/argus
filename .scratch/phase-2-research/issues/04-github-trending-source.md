@@ -5,9 +5,9 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] An ADR records the chosen access method, its rate limits and how it can break
-- [ ] GitHub trending Source behind the `Source` interface, polled on the ingest tick, deduplicated and labelled
-- [ ] Parsing is tested against a saved fixture; a layout change fails loudly in the log instead of silently yielding zero Signals
-- [ ] `pnpm check` passes
+- [x] An ADR records the chosen access method, its rate limits and how it can break
+- [x] GitHub trending Source behind the `Source` interface, polled on the ingest tick, deduplicated and labelled
+- [x] Parsing is tested against a saved fixture; a layout change fails loudly in the log instead of silently yielding zero Signals
+- [x] `pnpm check` passes

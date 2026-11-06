@@ -218,7 +218,7 @@ All v1 Sources are unauthenticated and sit behind the `Source` interface (`id`, 
 | Google Trends RSS | trends | Helios `trends-feeds.ts` pattern; `sources/google-trends.ts`, `trends.google.com/trending/rss?geo=US`. |
 | PumpPortal events | launchpad | Ported from helios `sources/pumpportal-bonding.ts`; shows what already has a token. |
 | DexScreener trending | launchpad/market | New; `sources/dexscreener.ts`: top boosts for Solana, named through the token lookup. `DexScreenerClient` (with `search`) is the client the collision checks reuse. Google Trends and DexScreener are wrapped in `BackoffSource` (doubling wait, honours Retry-After). |
-| GitHub trending | tech | New; access method open (section 13). |
+| GitHub trending | tech | New; `sources/github-trending.ts`: the public search API, repos created in the last 7 days by stars, keyless, 10 requests a minute (ADR 0008). Wrapped in `BackoffSource`. |
 
 No X in v1. The helios cookie scraper is not ported. X returns later through the official API as another `Source` implementation; nothing downstream changes.
 
@@ -313,5 +313,4 @@ Definition of done: dismissal reasons visibly adjust the suggested Rubric; outco
 
 - Max-plan numeric limits are unconfirmed. Measure real usage in Phase 1 and size the 30% research share from it.
 - Whether `claude -p` keeps drawing from the subscription: a support article from October 2026 says yes, re-check before relying on it, and keep ApiBrain working.
-- GitHub trending access method: HTML scrape of github.com/trending or an unofficial/API route; decide in Phase 2.
 - newpairspam prefill mechanism: query params or pasted JSON. Check `TokenForm.vue` in newpairspam before building the Launch button; a small newpairspam change may be needed.

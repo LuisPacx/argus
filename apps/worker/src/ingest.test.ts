@@ -16,7 +16,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   const env = async (base: string) => (typeof envFor === "function" ? envFor(base) : envFor);
   const dir = tempDir("argus-ingest-");
   const server = createServer((req, res) => {
-    const r = routes[req.url ?? ""] ?? { status: 404, body: "" };
+    const r = routes[req.url ?? ""] ?? routes[(req.url ?? "").split("?")[0]!] ?? { status: 404, body: "" };
     res.writeHead(r.status, { "content-type": "application/rss+xml" }).end(r.body);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -94,14 +94,15 @@ const extraRoutes = {
   "/trends?geo=US": { status: 200, body: readFileSync(join(fixtures, "google-trends.rss.xml"), "utf8") },
   "/token-boosts/top/v1": { status: 200, body: readFileSync(join(fixtures, "dexscreener-boosts.json"), "utf8") },
   [`/tokens/v1/solana/${MOON},${BOT}`]: { status: 200, body: readFileSync(join(fixtures, "dexscreener-pairs.json"), "utf8") },
+  "/github": { status: 200, body: readFileSync(join(fixtures, "github-search.json"), "utf8") },
 };
-const extraEnv = (base: string) => ({ ARGUS_INGEST_STANDING: "1", ARGUS_TRENDS_URL: `${base}/trends`, ARGUS_DEXSCREENER_URL: base });
+const extraEnv = (base: string) => ({ ARGUS_INGEST_STANDING: "1", ARGUS_TRENDS_URL: `${base}/trends`, ARGUS_DEXSCREENER_URL: base, ARGUS_GITHUB_URL: `${base}/github` });
 
 it("Google Trends and DexScreener are polled on the same tick, stored, and labelled by Source", async () => {
   const { code, out, signals } = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
   expect(code).toBe(0);
-  expect(out).toContain("ingest tick: 3 source(s), 6 new signal(s)");
-  expect(signals.map((s) => s.sourceLabel).sort()).toEqual(["DexScreener trending", "DexScreener trending", "Google Trends", "Google Trends", "Google Trends", "RSS:OTHER"]);
+  expect(out).toContain("ingest tick: 4 source(s), 9 new signal(s)");
+  expect(signals.map((s) => s.sourceLabel).sort()).toEqual(["DexScreener trending", "DexScreener trending", "GitHub trending", "GitHub trending", "GitHub trending", "Google Trends", "Google Trends", "Google Trends", "RSS:OTHER"]);
   expect(signals.map((s) => s.title)).toEqual(expect.arrayContaining(["moon cat", "Moon Cat ($MCAT)"]));
 }, 60_000);
 
@@ -112,21 +113,21 @@ it("a rate-limited DexScreener does not stop the other Sources", async () => {
   expect(out).toContain("[ingest] dexscreener:trending failed");
   expect(out).toContain("429");
   expect(out).toContain("1 source(s) failed");
-  expect(signals.map((s) => s.sourceId).sort()).toEqual(["rss:other", "trends:google", "trends:google", "trends:google"]);
+  expect(signals.map((s) => s.sourceId).sort()).toEqual(["github:trending", "github:trending", "github:trending", "rss:other", "trends:google", "trends:google", "trends:google"]);
 }, 60_000);
 
 it("the worker logs at boot which Sources are enabled", async () => {
   const on = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
-  expect(on.out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending");
+  expect(on.out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending, github:trending");
   const off = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, {});
   expect(off.out).toContain("[worker] ingest sources: RSS catalog (standing Sources off: ARGUS_INGEST_STANDING=0)");
   expect(off.signals.map((s) => s.sourceId)).toEqual(["rss:other"]);
 }, 60_000);
 
 it("an empty URL override falls back to the default, it does not switch the Source off", async () => {
-  const { code, out, signals } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_INGEST_STANDING: "", ARGUS_TRENDS_URL: "", ARGUS_DEXSCREENER_URL: "", ARGUS_DRY_RUN: "1" });
+  const { code, out, signals } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_INGEST_STANDING: "", ARGUS_TRENDS_URL: "", ARGUS_DEXSCREENER_URL: "", ARGUS_GITHUB_URL: "", ARGUS_DRY_RUN: "1" });
   expect(code).toBe(0);
-  expect(out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending");
+  expect(out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending, github:trending");
   expect(signals).toEqual([]);
 }, 60_000);
 

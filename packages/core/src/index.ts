@@ -21,4 +21,5 @@ export * from "./sources/http.ts";
 export * from "./sources/backoff.ts";
 export * from "./sources/google-trends.ts";
 export * from "./sources/dexscreener.ts";
+export * from "./sources/github-trending.ts";
 export * from "./sources/pumpportal.ts";

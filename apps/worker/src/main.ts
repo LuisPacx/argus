@@ -7,6 +7,7 @@ import {
   Datastore,
   DexScreenerClient,
   DexScreenerTrendingSource,
+  GitHubTrendingSource,
   GoogleTrendsSource,
   PodmanSandbox,
   applyPendingCommands,
@@ -121,6 +122,7 @@ const standingSources: Source[] = standingOn
   ? [
       new BackoffSource(new GoogleTrendsSource({ baseUrl: trendsUrl })),
       new BackoffSource(new DexScreenerTrendingSource({ client: new DexScreenerClient({ baseUrl: dexUrl }) })),
+      new BackoffSource(new GitHubTrendingSource({ baseUrl: process.env.ARGUS_GITHUB_URL || undefined })),
     ]
   : [];
 // PumpPortal keeps a websocket open, so it exists only in the long-running daemon: never in a dry run or a one-shot `--once`,
