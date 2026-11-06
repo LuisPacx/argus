@@ -141,6 +141,20 @@ describe("judgeConfigFromEnv", () => {
   it("rejects a value that is not a positive number instead of falling back", () => {
     for (const bad of ["abc", "0", "-1", "NaN"]) expect(() => judgeConfigFromEnv({ ARGUS_JUDGE_MAX_DAILY_USD: bad })).toThrow("ARGUS_JUDGE_MAX_DAILY_USD");
   });
+
+  it("checks the counts after flooring: 0.5 would become 0 (a judge that never runs), so it is rejected at boot", () => {
+    for (const name of ["ARGUS_JUDGE_MAX_PER_PASS", "ARGUS_JUDGE_MAX_RUNS_PER_DAY"]) {
+      expect(() => judgeConfigFromEnv({ [name]: "0.5" }), name).toThrow(name);
+      expect(() => judgeConfigFromEnv({ [name]: "0.999" }), name).toThrow(name);
+    }
+    expect(judgeConfigFromEnv({ ARGUS_JUDGE_MAX_PER_PASS: "2.7" }).maxPerPass).toBe(2);
+    expect(judgeConfigFromEnv({ ARGUS_JUDGE_MAX_RUNS_PER_DAY: "1" }).maxRunsPerDay).toBe(1);
+    expect(judgeConfigFromEnv({ ARGUS_JUDGE_MAX_DAILY_USD: "0.5" }).maxDailyUsd).toBe(0.5); // dollars are not floored
+  });
+
+  it("has a consecutive-failure limit of 3", () => {
+    expect(DEFAULT_JUDGE_CONFIG.maxConsecutiveFailures).toBe(3);
+  });
 });
 
 describe("weightedTotal", () => {

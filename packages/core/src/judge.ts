@@ -100,6 +100,8 @@ export interface JudgeConfig {
   maxRunsPerDay: number;
   /** Most the judge may spend in any rolling 24 hours (Est. usage: on the subscription this is a measure, not a bill). A run in progress may overshoot by up to its own budget. */
   maxDailyUsd: number;
+  /** This many transient failures in a row (claude missing, auth or network trouble, a timeout) end the pass, as a rate limit does. The next tick tries again. */
+  maxConsecutiveFailures: number;
 }
 
 /**
@@ -107,22 +109,26 @@ export interface JudgeConfig {
  * about a cent, so $2 is the binding cap only if runs get ten times dearer than expected. The share of the subscription that
  * research (judge plus propose) may use is the separate daily quota of ticket 08; these caps only keep the judge itself bounded.
  */
-export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2 };
+export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2, maxConsecutiveFailures: 3 };
 
-/** The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a positive number is an error, not a fallback. */
+/**
+ * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
+ * positive number is an error, not a fallback. The two counts are floored first and the result must still be at least 1: 0.5 would
+ * otherwise become 0 and the judge would silently never run.
+ */
 export function judgeConfigFromEnv(env: Record<string, string | undefined>): JudgeConfig {
-  const read = (name: string, fallback: number): number => {
+  const read = (name: string, fallback: number, whole: boolean): number => {
     const raw = env[name];
     if (raw === undefined || raw === "") return fallback;
-    const v = Number(raw);
-    if (!Number.isFinite(v) || v <= 0) throw new Error(`${name} must be a positive number, got "${raw}"`);
+    const v = whole ? Math.floor(Number(raw)) : Number(raw);
+    if (!Number.isFinite(v) || v <= 0) throw new Error(`${name} must be ${whole ? "a whole number, 1 or more" : "a positive number"}, got "${raw}"`);
     return v;
   };
   return {
     ...DEFAULT_JUDGE_CONFIG,
-    maxPerPass: Math.floor(read("ARGUS_JUDGE_MAX_PER_PASS", DEFAULT_JUDGE_CONFIG.maxPerPass)),
-    maxRunsPerDay: Math.floor(read("ARGUS_JUDGE_MAX_RUNS_PER_DAY", DEFAULT_JUDGE_CONFIG.maxRunsPerDay)),
-    maxDailyUsd: read("ARGUS_JUDGE_MAX_DAILY_USD", DEFAULT_JUDGE_CONFIG.maxDailyUsd),
+    maxPerPass: read("ARGUS_JUDGE_MAX_PER_PASS", DEFAULT_JUDGE_CONFIG.maxPerPass, true),
+    maxRunsPerDay: read("ARGUS_JUDGE_MAX_RUNS_PER_DAY", DEFAULT_JUDGE_CONFIG.maxRunsPerDay, true),
+    maxDailyUsd: read("ARGUS_JUDGE_MAX_DAILY_USD", DEFAULT_JUDGE_CONFIG.maxDailyUsd, false),
   };
 }
 
@@ -134,7 +140,7 @@ export interface JudgeSummary {
   /** Runs that failed (error, budget, timeout) or whose Score could not be stored. */
   failed: number;
   /** Why the pass ended early, when it did. */
-  stoppedBy?: "daily-cap" | "rate-limited" | "interrupted" | "dry-run";
+  stoppedBy?: "daily-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
 }
 
 /**
@@ -143,7 +149,10 @@ export interface JudgeSummary {
  * - an `in-flight` brain_runs row exists before the child is spawned, so a crash leaves a row, not unrecorded spend;
  * - the run's cost and session are recorded the moment `brain.run` returns, before the answer is parsed or stored;
  * - an answer that does not fit the schema is refused and logged, no Score is stored, and the Narrative is not tried again until it changes;
- * - a rate limit or shutdown ends the pass at once and leaves the Narrative to the next one.
+ * - a rate limit or shutdown ends the pass at once and leaves the Narrative to the next one;
+ * - only a refused answer or a budget-exceeded run parks a Narrative (until it changes). Any other failure (claude missing, expired
+ *   auth, network, timeout) is transient: the Narrative stays eligible, the run still counts against the 24 h run and spend caps, and
+ *   `maxConsecutiveFailures` of them in a row end the pass early (logged once), so an outage costs a few runs per tick, not all of them.
  * Nothing here writes a Proposal.
  */
 export async function judgePendingNarratives(
@@ -157,6 +166,14 @@ export async function judgePendingNarratives(
   const clock = () => opts.now ?? new Date();
   const out: JudgeSummary = { judged: 0, refused: 0, failed: 0 };
   const since = new Date(clock().getTime() - config.windowHours * 3_600_000).toISOString();
+  let transientInARow = 0;
+  /** A failure that says nothing about the Narrative. Returns true when the pass should stop. */
+  const transient = (): boolean => {
+    out.failed++;
+    if (++transientInARow < config.maxConsecutiveFailures) return false;
+    log(`[worker] judge: ${transientInARow} consecutive failures (claude missing, auth or network trouble?); stopping the pass, the next tick tries again`);
+    return true;
+  };
 
   for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
@@ -182,9 +199,14 @@ export async function judgePendingNarratives(
         return { ...out, stoppedBy: "rate-limited" };
       }
       log(`[worker] judge: narrative ${narrative.id} ${kind}: ${e instanceof Error ? e.message : String(e)}`);
-      out.failed++;
+      if (kind === "budget-exceeded") {
+        // claude answered, the run was just too dear: parked until the Narrative changes, and not a sign of an outage.
+        transientInARow = 0;
+        out.failed++;
+      } else if (transient()) return { ...out, stoppedBy: "backoff" };
       continue;
     }
+    transientInARow = 0; // claude produced an answer, valid or not
     if (run.dryRun) {
       store.discardBrainRun(runId);
       log("[worker] judge: dry-run, nothing spawned; stopping the pass");
@@ -213,7 +235,7 @@ export async function judgePendingNarratives(
     } catch (e) {
       store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "failed" });
       log(`[worker] judge: narrative ${narrative.id} Score not stored: ${e instanceof Error ? e.message : String(e)}`);
-      out.failed++;
+      if (transient()) return { ...out, stoppedBy: "backoff" };
     }
   }
   return out;

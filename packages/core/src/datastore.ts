@@ -672,9 +672,10 @@ export class Datastore {
   /**
    * WORKER ONLY. The judge delta: Narratives built by `embedder` (never another embedder's) that gained a Signal at or after `since`
    * (ISO) and need a Score, busiest first. A Narrative needs one when it has none, or it changed materially after the one it has.
-   * Left out: a Narrative with a judge run open, and one whose last judge run failed, timed out, hit its budget or was refused
-   * after its last material change (it is tried again when it changes, never on a timer, so a bad Narrative cannot spend every tick).
-   * A rate-limited or interrupted run says nothing about the Narrative, so it stays eligible.
+   * Left out: a Narrative with a judge run open, and one with a judge run since its last material change that hit its budget or was
+   * refused (`budget-exceeded`, `invalid-output`): those say something about the Narrative, so it is tried again when it changes, not
+   * before. Every other ending (`failed`, `timed-out`, `rate-limited`, `interrupted`) says something about claude, the network or the
+   * worker, so the Narrative stays eligible; the 24 h run and spend caps and the consecutive-failure backoff bound the retries.
    */
   narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number): Narrative[] {
     const rows = this.db
@@ -687,7 +688,7 @@ export class Datastore {
            AND NOT EXISTS (
              SELECT 1 FROM brain_runs b
              WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
-               AND b.exit_status IN ('failed', 'invalid-output', 'budget-exceeded', 'timed-out'))
+               AND b.exit_status IN ('invalid-output', 'budget-exceeded'))
          ORDER BY n.signal_count DESC, n.id
          LIMIT ?`,
       )

@@ -253,17 +253,84 @@ describe("refused and failed answers", () => {
     expect(calls()).toHaveLength(2);
   });
 
-  it("a failed run (budget cap, claude error) is recorded with its cost and not retried until the Narrative changes", async () => {
-    for (const [mode, exit] of [["budget", "budget-exceeded"], ["failure", "failed"]] as const) {
+  it("a run that hit its budget cap is recorded with its cost and parked until the Narrative changes", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "budget" });
+    const id = addNarrative(store, "A story");
+    expect(await pass()).toMatchObject({ judged: 0, failed: 1 });
+    await pass({}, { now: minutes(30) });
+    expect(calls()).toHaveLength(1);
+    expect(store.judgeRunsFor(id)).toMatchObject([{ exitStatus: "budget-exceeded" }]);
+    expect(store.judgeRunsFor(id)[0]!.totalCostUsd).toBeGreaterThan(0);
+    expect(store.getNarrative(id)!.scores).toEqual([]);
+  });
+
+  it("a transient failure (claude error, no result, auth or network trouble) leaves the Narrative eligible on the next pass, with its cost recorded", async () => {
+    for (const mode of ["failure", "noresult"]) {
       const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: mode });
       const id = addNarrative(store, "A story");
       expect(await pass()).toMatchObject({ judged: 0, failed: 1 });
+      expect(store.judgeRunsFor(id)).toMatchObject([{ exitStatus: "failed" }]);
       await pass({}, { now: minutes(30) });
-      expect(calls()).toHaveLength(1);
-      expect(store.judgeRunsFor(id)).toMatchObject([{ exitStatus: exit }]);
-      expect(store.judgeRunsFor(id)[0]!.totalCostUsd).toBeGreaterThan(0);
-      expect(store.getNarrative(id)!.scores).toEqual([]);
+      expect(calls(), mode).toHaveLength(2);
+      expect(store.judgeRunsFor(id)).toHaveLength(2);
     }
+  });
+
+  it("a claude that cannot be started at all (missing binary) is transient too", async () => {
+    const { store, pass } = setup({}, { command: join(tempDir("argus-nobin-"), "no-such-claude") });
+    const id = addNarrative(store, "A story");
+    expect(await pass()).toMatchObject({ judged: 0, failed: 1 });
+    expect(store.judgeRunsFor(id)).toMatchObject([{ exitStatus: "failed" }]);
+    expect(store.narrativesToJudge(CUR, new Date(NOW.getTime() - 72 * 3_600_000).toISOString(), 10).map((n) => n.id)).toEqual([id]);
+  });
+
+  it("a Narrative recovers on the pass after the outage ends", async () => {
+    const { store, pass } = setup({ FAKE_CLAUDE_SEQUENCE: JSON.stringify([{ FAKE_CLAUDE_MODE: "failure" }, {}]) });
+    const id = addNarrative(store, "A story");
+    expect(await pass()).toMatchObject({ judged: 0, failed: 1 });
+    expect(await pass({}, { now: minutes(30) })).toMatchObject({ judged: 1, failed: 0 });
+    expect(store.getNarrative(id)!.scores).toHaveLength(1);
+  });
+
+  it("consecutive transient failures end the pass early, logged once, and the next pass tries again", async () => {
+    const { store, pass, calls, lines } = setup({ FAKE_CLAUDE_MODE: "failure" });
+    for (let i = 0; i < 6; i++) addNarrative(store, `Story ${i}`);
+    expect(await pass()).toMatchObject({ judged: 0, failed: 3, stoppedBy: "backoff" });
+    expect(calls()).toHaveLength(3);
+    expect(lines.filter((l) => l.includes("consecutive failures"))).toHaveLength(1);
+    expect(await pass({}, { now: minutes(30) })).toMatchObject({ failed: 3, stoppedBy: "backoff" });
+    expect(calls()).toHaveLength(6);
+  });
+
+  it("a success resets the consecutive-failure count", async () => {
+    const seq = [{ FAKE_CLAUDE_MODE: "failure" }, { FAKE_CLAUDE_MODE: "failure" }, {}, { FAKE_CLAUDE_MODE: "failure" }, { FAKE_CLAUDE_MODE: "failure" }, {}];
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_SEQUENCE: JSON.stringify(seq) });
+    for (let i = 0; i < 6; i++) addNarrative(store, `Story ${i}`);
+    const out = await pass();
+    expect(out).toMatchObject({ judged: 2, failed: 4 });
+    expect(out.stoppedBy).toBeUndefined();
+    expect(calls()).toHaveLength(6);
+  });
+
+  it("a refused answer is not a transient failure: it does not count toward the backoff", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: "garbage" });
+    for (let i = 0; i < 5; i++) addNarrative(store, `Story ${i}`);
+    const out = await pass();
+    expect(out).toMatchObject({ refused: 5, failed: 0 });
+    expect(out.stoppedBy).toBeUndefined();
+    expect(calls()).toHaveLength(5);
+  });
+
+  it("repeated transient failures stay bounded by the 24 h run and spend caps across passes", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "failure" }); // each failing fake run costs $0.004
+    for (let i = 0; i < 6; i++) addNarrative(store, `Story ${i}`);
+    for (let p = 0; p < 6; p++) await pass({ maxRunsPerDay: 7 }, { now: minutes(30 * p) });
+    expect(calls()).toHaveLength(7);
+    expect(await pass({ maxRunsPerDay: 7 }, { now: minutes(200) })).toMatchObject({ judged: 0, stoppedBy: "daily-cap" });
+    const { store: s2, pass: pass2, calls: calls2 } = setup({ FAKE_CLAUDE_MODE: "failure" });
+    for (let i = 0; i < 6; i++) addNarrative(s2, `Story ${i}`);
+    for (let p = 0; p < 6; p++) await pass2({ maxDailyUsd: 0.019 }, { now: minutes(30 * p) });
+    expect(calls2()).toHaveLength(5); // four runs spend 0.016, the fifth brings it to 0.02, over the cap
   });
 
   it("a rate-limited run stops the pass at once and is tried again on the next one", async () => {
