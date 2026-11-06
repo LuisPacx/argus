@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Datastore, clusterNewSignals } from '../packages/core/src/index.ts';
 import { checkDryRunOutput } from '../packages/core/src/containment-policy.ts';
-import { pageProblem, pageRoutes } from './warroom-pages.mjs';
+import { activityProblem, pageProblem, pageRoutes, serverLogProblem } from './warroom-pages.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKER_MAIN = path.join(ROOT, 'apps', 'worker', 'src', 'main.ts');
@@ -72,6 +72,7 @@ async function seed(db) {
   store.completeSpec(b.id, { path: path.join(path.dirname(db), 'spec.md'), hash: 'h' });
   store.transition(b.id, 'approved', 'operator');
   // One Narrative, for /narratives/<id>.
+  store.recordSourcePoll({ sourceId: 'rss:a', label: 'Feed A' });
   store.recordSignals([{ id: 's:1', sourceId: 'rss:a', sourceLabel: 'Feed A', title: 'Boot signal', summary: 's', url: 'https://a.example/1', publishedAt: new Date().toISOString() }]);
   await clusterNewSignals(store, { id: 'boot', dimension: 1, embed: async () => [1] });
   const narrativeId = store.listNarratives()[0]?.id;
@@ -250,7 +251,11 @@ async function stepWarroom(dir, ids) {
       const { status, body } = await get(`${base}${route}`, PAGE_TIMEOUT_MS);
       const problem = status === 0 ? `no answer (${body})` : pageProblem(status, body);
       if (problem) problems.push(`GET ${route}: ${problem}`);
+      else if (route === '/activity' && activityProblem(body)) problems.push(`GET ${route}: ${activityProblem(body)}`);
     }
+    if (!routes.includes('/activity')) problems.push('no /activity page route');
+    const logProblem = serverLogProblem(fs.readFileSync(logFile, 'utf8'));
+    if (logProblem) problems.push(`server output: ${logProblem}`);
     if (problems.length > 0) report('step 4 War Room pages', false, problems.join(' | '));
     else report('step 4 War Room pages', true, `${routes.join(', ')} all answered 2xx with no Nuxt error payload`);
   } finally {

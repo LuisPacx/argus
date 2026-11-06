@@ -23,6 +23,20 @@ export function pageRoutes(pagesDir, ids) {
     .sort();
 }
 
+// The /activity page's four sections must be in the server-rendered HTML. Returns a problem string, or null.
+export const ACTIVITY_HEADINGS = ['Sources', 'Narratives', 'Brain runs', 'Usage today'];
+export function activityProblem(body) {
+  const missing = ACTIVITY_HEADINGS.filter((h) => !new RegExp(`<h3[^>]*>\\s*${h}\\s*</h3>`).test(body));
+  return missing.length > 0 ? `SSR HTML lacks the heading(s) ${missing.join(', ')}` : null;
+}
+
+// Nitro's error lines in the dev server's output (a "[nitro]" line naming an error, 500 or failure, a logged request error, a 500).
+// Nitro's ordinary "[nitro] Nitro server built" line is fine. Returns the first, or null.
+export function serverLogProblem(log) {
+  const line = log.split('\n').find((l) => /\[nitro\].*(error|\b500\b|fail)|\[request error\]|statusCode:\s*500|\b500\b.*Internal Server Error/.test(l));
+  return line ? line.trim().slice(0, 200) : null;
+}
+
 // A page is healthy when it answers 2xx and the body is not Nuxt's error page / payload.
 // Returns a problem string, or null when healthy.
 export function pageProblem(status, body) {

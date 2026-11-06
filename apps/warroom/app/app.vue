@@ -4,6 +4,7 @@
       <NuxtLink to="/"><h1 class="mb-6 text-2xl font-semibold">Argus War Room</h1></NuxtLink>
       <nav class="mb-4 flex gap-4 text-sm">
         <NuxtLink to="/narratives">Narratives</NuxtLink>
+        <NuxtLink to="/activity">Activity</NuxtLink>
         <NuxtLink to="/rubric">Rubric</NuxtLink>
       </nav>
       <NuxtPage />

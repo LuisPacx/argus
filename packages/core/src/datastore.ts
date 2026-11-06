@@ -99,6 +99,47 @@ export interface BrainRunRecord {
   heartbeatAt: string | null;
 }
 
+/** One Source's health for the War Room Activity page. */
+export interface SourceHealth {
+  sourceId: string;
+  label: string;
+  /** Null for a Source that has Signals but no poll row (stored before polls were recorded). */
+  lastPolledAt: string | null;
+  lastOkAt: string | null;
+  /** The last failure's message; null after a later success. */
+  lastError: string | null;
+  lastErrorAt: string | null;
+  /** Signals first seen in the rolling 24 h. */
+  signals24h: number;
+}
+
+/** One judge or propose run for the Activity page. */
+export interface BrainRunSummary {
+  id: number;
+  task: string;
+  /** The row's `exit_status`: `in-flight`, `interrupted`, `success`, ... */
+  status: string;
+  backend: string;
+  model: string;
+  narrativeId: number | null;
+  proposalId: number;
+  estCostUsd: number;
+  /** `api` runs report real dollars, every other backend an estimate. */
+  costKind: "est" | "api";
+  startedAt: string;
+  finishedAt: string | null;
+  /** Whole seconds from start to finish; null while open and for rows from before `finished_at` existed. */
+  durationSec: number | null;
+}
+
+/** Messages are stored short and without URL credentials, query strings or fragments, which can carry tokens. */
+const POLL_ERROR_CHARS = 300;
+const cleanPollError = (message: string): string =>
+  message
+    .replace(/(https?:\/\/)[^\s/@]*@/g, "$1")
+    .replace(/(https?:\/\/[^\s?#]*)[?#]\S*/g, "$1")
+    .slice(0, POLL_ERROR_CHARS);
+
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId">;
 
 /** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
@@ -216,6 +257,17 @@ export function migrate(db: DatabaseSync): void {
     created_at TEXT NOT NULL
   )`);
   ensureColumn(db, "brain_runs", "heartbeat_at", "TEXT");
+  // When the run ended (ISO); null while open and for rows from before this column (their duration is unknown, no backfill).
+  ensureColumn(db, "brain_runs", "finished_at", "TEXT");
+  // One row per ingest Source, upserted after every poll (phase 2 ticket 16): the War Room's per-Source health.
+  db.exec(`CREATE TABLE IF NOT EXISTS source_polls (
+    source_id TEXT PRIMARY KEY,
+    source_label TEXT,
+    last_polled_at TEXT NOT NULL,
+    last_ok_at TEXT,
+    last_error TEXT,
+    last_error_at TEXT
+  )`);
   ensureColumn(db, "proposals", "spec_path", "TEXT");
   ensureColumn(db, "proposals", "spec_hash", "TEXT");
   ensureColumn(db, "proposals", "spec_error", "TEXT NOT NULL DEFAULT ''");
@@ -260,6 +312,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "narratives", "dimension", "INTEGER NOT NULL DEFAULT 256");
   ensureColumn(db, "signals", "narrative_id", "INTEGER");
   db.exec("CREATE INDEX IF NOT EXISTS signals_narrative_id ON signals (narrative_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS signals_source_ingested ON signals (source_id, ingested_at)");
   // Scores (ticket 07): one row per judge result, never updated or deleted, so a Narrative's Score history is complete. `rubric_version`
   // names the immutable Rubric version it was computed with; `changed_materially_at` is the Narrative's value when the judge read it
   // (the delta compares against it). A judge run has no Proposal: its brain_runs row has proposal_id 0 and this column.
@@ -399,6 +452,9 @@ export type WarRoomStore = Pick<
   | "latestSignals"
   | "listNarratives"
   | "getNarrative"
+  | "sourceHealth"
+  | "newestNarratives"
+  | "recentBrainRuns"
 >;
 
 /** A stored Signal: the Source's item plus when argus first saw it. */
@@ -502,6 +558,7 @@ interface BrainRunRow {
   exit_status: string;
   created_at: string;
   heartbeat_at: string | null;
+  finished_at: string | null;
 }
 
 const toBrainRun = (r: BrainRunRow): BrainRunRecord => ({
@@ -680,12 +737,12 @@ export class Datastore {
   }
 
   /** Stores Signals the datastore has not seen (by id); returns how many were new. The first observation of an item is kept. */
-  recordSignals(signals: Signal[]): number {
+  recordSignals(signals: Signal[], at: Date = new Date()): number {
     const insert = this.db.prepare(
       `INSERT OR IGNORE INTO signals (id, source_id, source_label, title, summary, url, published_at, ingested_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    const now = new Date().toISOString();
+    const now = at.toISOString();
     return this.inTransaction(() => {
       let added = 0;
       for (const s of signals) {
@@ -695,6 +752,84 @@ export class Datastore {
       }
       return added;
     });
+  }
+
+  /**
+   * WORKER ONLY. Records the outcome of one poll of a Source: a success (no `error`) sets `lastOkAt` and clears the last error; a
+   * failure keeps `lastOkAt` and stores the message (shortened, URL credentials and query strings removed).
+   */
+  recordSourcePoll(poll: { sourceId: string; label: string; error?: string }, at: Date = new Date()): void {
+    const now = at.toISOString();
+    const error = poll.error === undefined ? null : cleanPollError(poll.error);
+    this.db
+      .prepare(
+        `INSERT INTO source_polls (source_id, source_label, last_polled_at, last_ok_at, last_error, last_error_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_id) DO UPDATE SET
+           source_label = excluded.source_label,
+           last_polled_at = excluded.last_polled_at,
+           last_ok_at = COALESCE(excluded.last_ok_at, last_ok_at),
+           last_error = excluded.last_error,
+           last_error_at = excluded.last_error_at`,
+      )
+      .run(poll.sourceId, poll.label, now, error === null ? now : null, error, error === null ? null : now);
+  }
+
+  /** Every Source that has polled or has Signals, by id, with its last poll, last error and Signals ingested in the 24 h before `now`. */
+  sourceHealth(now: Date = new Date()): SourceHealth[] {
+    const dayAgo = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT i.source_id,
+                COALESCE(p.source_label, (SELECT s.source_label FROM signals s WHERE s.source_id = i.source_id ORDER BY s.ingested_at DESC LIMIT 1), i.source_id) AS label,
+                p.last_polled_at, p.last_ok_at, p.last_error, p.last_error_at,
+                (SELECT COUNT(*) FROM signals s WHERE s.source_id = i.source_id AND s.ingested_at >= ?) AS signals_24h
+         FROM (SELECT source_id FROM source_polls UNION SELECT source_id FROM signals) i
+         LEFT JOIN source_polls p ON p.source_id = i.source_id
+         ORDER BY i.source_id`,
+      )
+      .all(dayAgo) as unknown as Array<{ source_id: string; label: string; last_polled_at: string | null; last_ok_at: string | null; last_error: string | null; last_error_at: string | null; signals_24h: number }>;
+    return rows.map((r) => ({
+      sourceId: r.source_id,
+      label: r.label,
+      lastPolledAt: r.last_polled_at,
+      lastOkAt: r.last_ok_at,
+      lastError: r.last_error,
+      lastErrorAt: r.last_error_at,
+      signals24h: r.signals_24h,
+    }));
+  }
+
+  /** The newest Narratives by creation, then id, descending. */
+  newestNarratives(limit = 20): Narrative[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, summary, signal_count, created_at, last_signal_at, changed_materially_at
+         FROM narratives ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(limit) as unknown as NarrativeRow[];
+    return rows.map(toNarrative);
+  }
+
+  /** The newest judge and propose runs (Spec and Build runs left out), by id descending. */
+  recentBrainRuns(limit = 20): BrainRunSummary[] {
+    const rows = this.db
+      .prepare("SELECT * FROM brain_runs WHERE task IN ('judge', 'propose') ORDER BY id DESC LIMIT ?")
+      .all(limit) as unknown as BrainRunRow[];
+    return rows.map((r) => ({
+      id: r.id,
+      task: r.task,
+      status: r.exit_status,
+      backend: r.backend,
+      model: r.model,
+      narrativeId: r.narrative_id,
+      proposalId: r.proposal_id,
+      estCostUsd: r.total_cost_usd,
+      costKind: r.backend === "api" ? "api" : "est",
+      startedAt: r.created_at,
+      finishedAt: r.finished_at,
+      durationSec: r.finished_at === null ? null : Math.round((Date.parse(r.finished_at) - Date.parse(r.created_at)) / 1000),
+    }));
   }
 
   /** The most recently published Signals, newest first. */
@@ -978,8 +1113,8 @@ export class Datastore {
   recordBrainRun(run: NewBrainRun): void {
     this.db
       .prepare(
-        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         run.proposalId,
@@ -989,6 +1124,7 @@ export class Datastore {
         run.sessionId,
         run.totalCostUsd,
         run.exitStatus,
+        new Date().toISOString(),
         new Date().toISOString(),
       );
   }
@@ -1112,8 +1248,8 @@ export class Datastore {
    */
   finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string; backend?: string; model?: string }): void {
     this.db
-      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ?, backend = COALESCE(?, backend), model = COALESCE(?, model) WHERE id = ?")
-      .run(done.sessionId, done.totalCostUsd, done.exitStatus, done.backend ?? null, done.model ?? null, id);
+      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ?, backend = COALESCE(?, backend), model = COALESCE(?, model), finished_at = ? WHERE id = ?")
+      .run(done.sessionId, done.totalCostUsd, done.exitStatus, done.backend ?? null, done.model ?? null, new Date().toISOString(), id);
   }
 
   /**
@@ -1165,7 +1301,7 @@ export class Datastore {
       for (const r of rows) {
         if (new Date(r.created_at).getTime() >= now.getTime() - staleAfterMs(r.task)) continue;
         n++;
-        this.db.prepare("UPDATE brain_runs SET exit_status = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, r.id);
+        this.db.prepare("UPDATE brain_runs SET exit_status = ?, finished_at = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, now.toISOString(), r.id);
         if (r.task === "build") {
           // The worker died mid-Build: its spend is unknown. Free the Build slot; the failure shows in the status history.
           const p = this.getProposal(r.proposal_id);

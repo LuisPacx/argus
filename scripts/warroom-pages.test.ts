@@ -2,13 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain .mjs script, no types
-import { pageProblem, pageRoutes } from "./warroom-pages.mjs";
+import { activityProblem, pageProblem, pageRoutes, serverLogProblem } from "./warroom-pages.mjs";
 
 const PAGES = path.resolve(import.meta.dirname, "../apps/warroom/app/pages");
 
 describe("warroom pages", () => {
   it("lists every page route, filling dynamic segments by section", () => {
-    expect(pageRoutes(PAGES, { narratives: 4, proposals: 7 })).toEqual(["/", "/narratives", "/narratives/4", "/proposals/7", "/rubric"]);
+    expect(pageRoutes(PAGES, { narratives: 4, proposals: 7 })).toEqual(["/", "/activity", "/narratives", "/narratives/4", "/proposals/7", "/rubric"]);
+  });
+
+  it("requires the four /activity section headings in the SSR HTML and flags nitro errors in the server output", () => {
+    const html = (...h: string[]) => h.map((x) => `<h3 class="t">${x}</h3>`).join("");
+    expect(activityProblem(html("Sources", "Narratives", "Brain runs", "Usage today"))).toBeNull();
+    expect(activityProblem(html("Sources", "Narratives"))).toBe("SSR HTML lacks the heading(s) Brain runs, Usage today");
+    expect(serverLogProblem("ready\n[nitro] 500 boom\n")).toContain("[nitro]");
+    expect(serverLogProblem("ready\nListening on :3150\n")).toBeNull();
   });
 
   it("flags a 500 and a 200 carrying a Nuxt error payload, and passes a healthy page", () => {

@@ -96,6 +96,17 @@ it("GET /api/research follows the same ARGUS_* settings as the worker, and says 
   expect(() => research()).toThrow(/ARGUS_RESEARCH_SHARE/);
 });
 
+it("GET /api/research: a 10 USD quota at share 0.5 gives a 5 USD budget that 11 USD of runs exhausts, and the Proposal cap never exceeds 10", () => {
+  process.env.ARGUS_DAILY_QUOTA_USD = "10";
+  process.env.ARGUS_RESEARCH_SHARE = "0.5";
+  for (const [task, cost] of [["judge", 6], ["propose", 5]] as const) {
+    store.finishBrainRun(store.startBrainRun({ proposalId: 0, task, backend: "claude-code", model: "m" }), { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
+  }
+  expect(research()).toMatchObject({ usedUsd: 11, budgetUsd: 5, exhausted: true, newProposalsCap: 10 });
+  process.env.ARGUS_PROPOSE_MAX_NEW_PER_DAY = "50";
+  expect(() => research()).toThrow(/at most 10/); // a larger cap is refused, never passed through
+});
+
 it("GET /api/proposals gives a research Proposal its Narrative's latest Score and age, and a hand-entered one none", () => {
   const { narrativeId, scoreId } = narrativeWithScore();
   const researched = store.createResearchProposal({ ...fields("Researched"), narrativeId, scoreId });
