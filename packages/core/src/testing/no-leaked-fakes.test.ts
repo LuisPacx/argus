@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ApiBrain, anthropicBaseUrl } from "../api-brain.ts";
 import { ClaudeCodeBrain, killLiveBrainChildren } from "../brain.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
-import { failOnAnthropicCalls, failOnRealClaude, leakedIn, startAnthropicTripwire, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
+import { failOnAnthropicCalls, failOnRealClaude, leakedIn, runAll, startAnthropicTripwire, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
 import { registryDirFor } from "./run-registry.mjs";
 import { tempDir } from "./temp.ts";
 import { untilExists } from "./wait.ts";
@@ -148,6 +148,25 @@ describe("the leak guard only claims fakes started under its own test run", () =
     } finally {
       await tripwire.close();
     }
+  });
+
+  it("the teardown runs every step even when an earlier one fails, so a leaked claude never hides a call that reached the Anthropic tripwire", async () => {
+    const ran: string[] = [];
+    await expect(
+      runAll([
+        () => {
+          ran.push("claude");
+          throw new Error("real claude was started");
+        },
+        async () => void ran.push("leaked fakes"),
+        () => {
+          ran.push("anthropic");
+          throw new Error("api was reached");
+        },
+      ]),
+    ).rejects.toThrow("real claude was started"); // the first failure is the one reported
+    expect(ran).toEqual(["claude", "leaked fakes", "anthropic"]);
+    await expect(runAll([() => {}, async () => {}])).resolves.toBeUndefined();
   });
 
   it("the run fails when it leaves a temp entry behind, and the entry is removed", () => {

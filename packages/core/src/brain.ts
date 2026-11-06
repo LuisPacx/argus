@@ -44,6 +44,12 @@ export interface BrainRunOptions {
   cwd?: string;
   /** Called with each chunk of the child's stdout as it arrives (the Build log), before the run finishes. */
   onOutput?: (chunk: string) => void;
+  /**
+   * Called, before any request that can spend real money is sent, when the run is about to be served by another backend than the one
+   * `routeFor` reported when the caller opened its run row (the API fallback after a rate limit). The caller books the row under the new
+   * backend, so the real-dollar ledger sees the run while it is in flight. If it throws, the run is not sent.
+   */
+  onBackend?: (route: { backend: BrainBackend; model: string }) => void;
   /** Aborting kills a live child and fails the run as `interrupted`; an already-aborted signal spawns nothing. */
   signal?: AbortSignal;
   /**

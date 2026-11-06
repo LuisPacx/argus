@@ -136,6 +136,39 @@ describe("the judge pass on the API fallback", () => {
   });
 });
 
+describe("the run that hits the rate limit is booked as an API run before its request goes out", () => {
+  it("while the request is in flight its row is an API row charged at its worst case, and a crash then leaves that charge standing", async () => {
+    const { store, brain, fake } = await setup([{ status: 200, body: messageBody(JUDGE_ANSWER, USAGE), delayMs: 1200 }]);
+    const id = addNarrative(store, "A story");
+    const pass = judgePendingNarratives(store, brain, CUR, { now: NOW, log: () => {} });
+    for (let i = 0; i < 400 && fake.requests.length < 1; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(fake.requests).toHaveLength(1);
+    expect(store.judgeRunsFor(id)).toMatchObject([{ backend: "api", model: "claude-haiku-5-5", exitStatus: "in-flight", totalCostUsd: 0 }]);
+    expect(store.apiSpendSince(since, { judge: 0.01, propose: 0.02 }).chargedUsd).toBe(0.01);
+    // The worker dies here: the sweep finds the row, which is interrupted with no cost known and is still charged at its cap.
+    expect(store.interruptStaleBrainRuns(() => 0, new Date(NOW.getTime() + 3_600_000))).toBe(1);
+    expect(store.judgeRunsFor(id)).toMatchObject([{ backend: "api", exitStatus: "interrupted", totalCostUsd: 0 }]);
+    expect(store.apiSpendSince(since, { judge: 0.01, propose: 0.02 }).chargedUsd).toBe(0.01);
+    await pass;
+  });
+
+  it("two passes that overlap cannot together pass the cap: the second sees the first's in-flight run", async () => {
+    // $0.025 is left of the $0.5 cap: room for one call (its row at $0.01 or $0.02 plus its ceiling) but not for two.
+    const { store, brain, fake } = await setup([{ status: 200, body: messageBody(JUDGE_ANSWER, USAGE), delayMs: 1000 }]);
+    const preload = store.startBrainRun({ proposalId: 0, task: "judge", backend: "api", model: "claude-haiku-5-5" }, NOW);
+    store.finishBrainRun(preload, { sessionId: null, totalCostUsd: 0.475, exitStatus: "success" });
+    addNarrative(store, "To judge");
+    addScored(store, "To propose");
+    const [judged, proposed] = await Promise.all([
+      judgePendingNarratives(store, brain, CUR, { now: NOW, log: () => {} }),
+      proposePendingNarratives(store, brain, CUR, { now: NOW, log: () => {} }),
+    ]);
+    expect(fake.requests).toHaveLength(1);
+    expect([judged.stoppedBy, proposed.stoppedBy].filter((s) => s === "rate-limited")).toHaveLength(1);
+    expect(store.apiSpendSince(since, { judge: 0.01, propose: 0.02 }).chargedUsd).toBeLessThanOrEqual(0.5);
+  });
+});
+
 describe("the propose pass on the API fallback", () => {
   it("creates the Proposal from the API's answer; its dollars are the Proposal's API spend, not its Est. usage", async () => {
     const { store, brain } = await setup([{ status: 200, body: messageBody(PROPOSE_ANSWER, USAGE) }]);

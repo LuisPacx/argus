@@ -198,7 +198,7 @@ export async function judgePendingNarratives(
     const runId = store.startBrainRun({ proposalId: 0, narrativeId: narrative.id, task: "judge", ...brain.routeFor("judge") }, clock());
     let run;
     try {
-      run = await brain.run<string>("judge", { prompt: judgePromptFor(rubric, narrative) }, { signal: opts.signal });
+      run = await brain.run<string>("judge", { prompt: judgePromptFor(rubric, narrative) }, { signal: opts.signal, onBackend: (r) => store.setBrainRunBackend(runId, r.backend, r.model) });
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       const kind = brainError?.kind ?? "failed";

@@ -245,7 +245,7 @@ export async function proposePendingNarratives(
     const retryId = store.startBrainRun({ proposalId: 0, narrativeId: narrative.id, task: "propose", ...brain.routeFor("propose") }, clock());
     let run;
     try {
-      run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score, rejected) }, { signal: opts.signal });
+      run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score, rejected) }, { signal: opts.signal, onBackend: (r) => store.setBrainRunBackend(retryId, r.backend, r.model) });
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       store.finishBrainRun(retryId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: brainError?.kind ?? "failed", backend: brainError?.backend, model: brainError?.model });
@@ -288,7 +288,7 @@ export async function proposePendingNarratives(
     const runId = store.startBrainRun({ proposalId: 0, narrativeId: narrative.id, task: "propose", ...brain.routeFor("propose") }, clock());
     let run;
     try {
-      run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score) }, { signal: opts.signal });
+      run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score) }, { signal: opts.signal, onBackend: (r) => store.setBrainRunBackend(runId, r.backend, r.model) });
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       const kind = brainError?.kind ?? "failed";

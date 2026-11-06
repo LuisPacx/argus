@@ -213,6 +213,22 @@ describe("ApiBrain: failed and partial calls are counted", () => {
     expect(run.totalCostUsd).toBeLessThanOrEqual(API_DEFAULT_ROUTING.judge.maxBudgetUsd);
   });
 
+  it("a usage whose input or output count is missing or null is unknown, not zero: charged at the call's ceiling", async () => {
+    for (const usage of [{ input_tokens: null, output_tokens: 20 }, { input_tokens: 100, output_tokens: null }, { output_tokens: 20 }, { input_tokens: 100 }, {}]) {
+      const { brain, fake } = await setup();
+      fake.reply({ status: 200, body: { ...messageBody(ANSWER), usage } });
+      const run = await brain.run<string>("judge", { prompt: "p" });
+      expect(run.output).toBe(ANSWER);
+      expect(run.totalCostUsd, JSON.stringify(usage)).toBeGreaterThan(0.0005); // far above what 100 + 20 tokens cost
+      expect(() => apiCostUsd("claude-haiku-5-5", usage)).toThrow();
+      await fake.close();
+    }
+  });
+
+  it("cache counts are never requested, so a null there is just no cache and costs nothing", () => {
+    expect(apiCostUsd("claude-haiku-5-5", { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: null, cache_read_input_tokens: null })).toBeCloseTo(0.0002, 10);
+  });
+
   it("an answer cut at max_tokens costs what it reported and is still returned, for the strict parser to refuse", async () => {
     const { brain, fake } = await setup();
     fake.reply({ status: 200, body: messageBody('{"scores": {"mom', { input_tokens: 500, output_tokens: 1024 }, { stop_reason: "max_tokens" }) });

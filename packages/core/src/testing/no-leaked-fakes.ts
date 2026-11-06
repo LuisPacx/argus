@@ -223,29 +223,35 @@ export default async function setup(): Promise<() => Promise<void>> {
     await anthropic.close();
     failOnAnthropicCalls(anthropic.hits);
   };
-  if (process.platform !== "linux") {
-    return async () => {
-      restoreTelegram();
-      restoreTmpdir();
-      await endAnthropic();
-    };
-  }
+  if (process.platform !== "linux") return () => runAll([restoreTelegram, endAnthropic, restoreTmpdir]);
   const dir = registryDirFor(process.pid); // on the home disk, found by the fakes without any env
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
   mkdirSync(dir, { recursive: true });
   const restorePath = installClaudeTripwire(dir);
-  return async () => {
+  // Every check runs whatever an earlier one found, so one failure never hides another (a leaked claude, a call that reached the Anthropic tripwire).
+  return () =>
+    runAll([
+      restorePath,
+      () => failOnRealClaude(dir),
+      () => failOnLeakedFakes(dir),
+      endAnthropic,
+      () => rmSync(dir, { recursive: true, force: true }),
+      restoreTelegram,
+      restoreTmpdir,
+    ]);
+}
+
+/** Runs every step in order, whether or not an earlier one threw, then throws the first failure (the later ones are lost, not the checks). */
+export async function runAll(steps: ReadonlyArray<() => void | Promise<void>>): Promise<void> {
+  let first: { error: unknown } | undefined;
+  for (const step of steps) {
     try {
-      restorePath();
-      failOnRealClaude(dir);
-      await failOnLeakedFakes(dir);
-      await endAnthropic();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-      restoreTelegram();
-      restoreTmpdir();
+      await step();
+    } catch (error) {
+      first ??= { error };
     }
-  };
+  }
+  if (first) throw first.error;
 }
 
 async function failOnLeakedFakes(dir: string): Promise<void> {

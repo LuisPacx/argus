@@ -61,6 +61,17 @@ describe("real-dollar API spend (kept apart from Est. usage)", () => {
     expect(store.apiSpendSince(SINCE, CAPS).runs).toBe(1);
   });
 
+  it("an open run can be switched to the API before its request goes out, and from then on counts at its task's cap; a finished run cannot be switched", () => {
+    const store = Datastore.open(":memory:");
+    const open = store.startBrainRun({ proposalId: 0, task: "judge", backend: "claude-code", model: "haiku" }, NOW);
+    expect(store.apiSpendSince(SINCE, CAPS)).toMatchObject({ runs: 0, chargedUsd: 0 });
+    store.setBrainRunBackend(open, "api", "claude-haiku-5-5");
+    expect(store.apiSpendSince(SINCE, CAPS)).toMatchObject({ runs: 1, costUsd: 0, chargedUsd: 0.02 }); // in flight: the worst case
+    const done = run(store, { backend: "claude-code", cost: 1 });
+    store.setBrainRunBackend(done, "api", "claude-haiku-5-5");
+    expect(store.apiSpendSince(SINCE, CAPS).runs).toBe(1);
+  });
+
   it("a Proposal's Est. usage leaves API runs out and its API spend is its own figure", () => {
     const store = Datastore.open(":memory:");
     const p = store.createProposal({ narrativeSummary: "s", techOneLiner: "t", whyNow: "w", name: "Cat", ticker: "CAT", description: "d", evidenceLinks: ["https://e.example/1", "https://e.example/2", "https://e.example/3"] });

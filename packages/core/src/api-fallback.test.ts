@@ -150,6 +150,45 @@ describe("FallbackBrain: when the subscription window is exhausted", () => {
   });
 });
 
+describe("FallbackBrain: the run is switched to the API before the request is sent", () => {
+  it("the first call after a rate limit announces the API route first, so its row can be booked as an API run before any money can be spent", async () => {
+    const { brain, fake } = await setup("ratelimit");
+    const seen: Array<{ backend: string; model: string; requestsSoFar: number }> = [];
+    await brain.run("judge", { prompt: "p" }, { onBackend: (r) => void seen.push({ ...r, requestsSoFar: fake.requests.length }) });
+    expect(seen).toEqual([{ backend: "api", model: "claude-haiku-5-5", requestsSoFar: 0 }]);
+    expect(fake.requests).toHaveLength(1);
+  });
+
+  it("a call during the hold announces it too (the hold may have begun since its row was opened)", async () => {
+    const { brain, fake } = await setup("ratelimit");
+    await brain.run("judge", { prompt: "p" });
+    fake.reply({ status: 200, body: messageBody(ANSWER) });
+    const seen: string[] = [];
+    await brain.run("propose", { prompt: "p" }, { onBackend: (r) => void seen.push(`${r.backend}:${fake.requests.length}`) });
+    expect(seen).toEqual(["api:1"]);
+  });
+
+  it("is not announced when claude serves, or for spec and build", async () => {
+    const ok = await setup("success");
+    const seen: string[] = [];
+    await ok.brain.run("judge", { prompt: "p" }, { onBackend: (r) => void seen.push(r.backend) });
+    const limited = await setup("ratelimit");
+    await caught(limited.brain.run("spec", { prompt: "p" }, { onBackend: (r) => void seen.push(r.backend) }));
+    expect(seen).toEqual([]);
+  });
+
+  it("if the switch cannot be recorded the API is not called: after a rate limit the run fails as that rate limit, during the hold it fails closed", async () => {
+    const { brain, fake } = await setup("ratelimit");
+    const boom = () => {
+      throw new Error("db locked");
+    };
+    expect(await caught(brain.run("judge", { prompt: "p" }, { onBackend: boom }))).toMatchObject({ kind: "rate-limited", backend: "claude-code" });
+    const held = await caught(brain.run("judge", { prompt: "p" }, { onBackend: boom }));
+    expect(held).toMatchObject({ kind: "failed", backend: "api" });
+    expect(fake.requests).toHaveLength(0);
+  });
+});
+
 describe("FallbackBrain: spec and build never fall back", () => {
   it("a rate-limited spec run fails as before and the API is not called", async () => {
     const { brain, fake } = await setup("ratelimit");

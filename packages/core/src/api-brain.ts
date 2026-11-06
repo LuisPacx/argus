@@ -66,21 +66,22 @@ function priceOf(model: string): ModelPrice {
 
 /**
  * The real dollars of a call, from the provider's reported usage. Cache tokens are charged at the dearest rate they can have (cache
- * writes at 1.25 x input, cache reads at the full input rate), never less. Throws on a usage that is missing or not plain numbers.
+ * writes at 1.25 x input, cache reads at the full input rate), never less. Throws on a usage that is missing, or whose input or output
+ * count is missing, null or not a plain number: those are unknown, not zero, and the caller then charges the call's ceiling. The cache
+ * counts may be null or absent (ApiBrain never asks for caching, so none can have been billed); when present they must be plain numbers.
  */
 export function apiCostUsd(model: string, usage: ApiUsage | null | undefined): number {
   const price = priceOf(model);
   if (!usage) throw new Error("the response reports no usage");
-  const n = (v: number | null | undefined, name: string): number => {
-    if (v === undefined || v === null) return 0;
+  const count = (v: unknown, name: string): number => {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new Error(`usage.${name} is not a plain count`);
     return v;
   };
-  const input = n(usage.input_tokens, "input_tokens");
-  const output = n(usage.output_tokens, "output_tokens");
-  if (usage.input_tokens === undefined || usage.output_tokens === undefined) throw new Error("the response reports incomplete usage");
-  const cacheWrite = n(usage.cache_creation_input_tokens, "cache_creation_input_tokens");
-  const cacheRead = n(usage.cache_read_input_tokens, "cache_read_input_tokens");
+  const input = count(usage.input_tokens, "input_tokens");
+  const output = count(usage.output_tokens, "output_tokens");
+  const optional = (v: unknown, name: string): number => (v === undefined || v === null ? 0 : count(v, name));
+  const cacheWrite = optional(usage.cache_creation_input_tokens, "cache_creation_input_tokens");
+  const cacheRead = optional(usage.cache_read_input_tokens, "cache_read_input_tokens");
   return ((input + cacheWrite * 1.25 + cacheRead) * price.inputPerMTok + output * price.outputPerMTok) / 1e6;
 }
 

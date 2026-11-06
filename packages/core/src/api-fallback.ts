@@ -122,8 +122,30 @@ export class FallbackBrain implements Brain {
     return this.primary.staleAfterMs(task);
   }
 
+  /**
+   * Tells the caller the run is about to go to the API, so its row is booked as an API run (and counts in the real-dollar ledger at its
+   * worst case) before the request exists. False when that could not be recorded: then nothing is sent. The switch and the cap check in
+   * ApiBrain happen with no await between them, so overlapping runs each see the others' rows.
+   */
+  private switchToApi(task: BrainTask, opts?: BrainRunOptions): boolean {
+    try {
+      const { backend, model } = this.api.routeFor(task);
+      opts?.onBackend?.({ backend, model });
+      return true;
+    } catch (e) {
+      this.log(`[brain] could not record the switch to the API (${e instanceof Error ? e.message : "error"}); not calling it`);
+      return false;
+    }
+  }
+
   async run<T = string>(task: BrainTask, input: BrainInput, opts?: BrainRunOptions): Promise<BrainRun<T>> {
-    if (this.holding(task)) return this.api.run<T>(task, input, opts);
+    if (this.holding(task)) {
+      if (!this.switchToApi(task, opts)) {
+        const { model } = this.api.routeFor(task);
+        throw new BrainError("failed", "The run could not be recorded as an API run; not calling the API (fail closed)", { backend: "api", model });
+      }
+      return this.api.run<T>(task, input, opts);
+    }
     try {
       const run = await this.primary.run<T>(task, input, opts);
       // A dry run spawns nothing, so nothing is rate-limited; show the request the fallback would send as well.
@@ -133,6 +155,7 @@ export class FallbackBrain implements Brain {
       if (!(e instanceof BrainError) || e.kind !== "rate-limited") throw e;
       this.startHold(e);
       if (!isApiTask(task)) throw e; // spec and build wait for the window to reset
+      if (!this.switchToApi(task, opts)) throw e;
       try {
         return await this.api.run<T>(task, input, opts);
       } catch (apiError) {

@@ -1114,6 +1114,15 @@ export class Datastore {
     });
   }
 
+  /**
+   * WORKER ONLY. Switches an OPEN run to the backend and model that is about to serve it, before the request is sent: a run opened on
+   * claude-code may be handed to the API after a rate limit, and from this moment it is an API run, charged in the real-dollar ledger at
+   * its task's cap until it finishes (so overlapping runs see it, and a crash cannot leave it uncounted). A finished run is left alone.
+   */
+  setBrainRunBackend(id: number, backend: string, model: string): void {
+    this.db.prepare("UPDATE brain_runs SET backend = ?, model = ? WHERE id = ? AND exit_status = ?").run(backend, model, id, BRAIN_RUN_IN_FLIGHT);
+  }
+
   /** WORKER ONLY. Removes a run that never spawned anything (`--dry-run`). */
   discardBrainRun(id: number): void {
     this.db.prepare("DELETE FROM brain_runs WHERE id = ? AND exit_status = ?").run(id, BRAIN_RUN_IN_FLIGHT);
