@@ -67,3 +67,15 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
 - Observation (not fixed): Proposal 1 shows `agent_cost_usd` 0.0 although two propose runs cost $0.0549 in `brain_runs`; two propose runs for one Proposal also to check.
 
 - Restart 2026-11-06T19:48:25Z to 2026-11-06T19:49:04Z to deploy the Activity page (199fab8); downtime 39 s; the 48 h window continues from the original start. Migration applied (source_polls exists, brain_runs.finished_at present); source_polls has 17 rows (one per Source) after the first ingest tick; / and /activity return 200; no errors in worker.log since restart.
+
+### Check-in 2026-11-06T18:47:44-03:00
+
+- Status: `dev:status` reports warroom running (pid 659237, port 3100) and worker running (pid 660582).
+- Datastore (read-only, counts at 2026-11-06 18:47 -03:00): Signals 3248, Narratives 452, Scores 60, Proposals 7.
+- Proposals by status: new 7. Created per calendar day (UTC date): 2026-11-06 = 7. Cap is 10 per day; 3 left today.
+- Expired Proposals: 0 (no status 'expired' rows; the proposals table has no expiry column).
+- brain_runs in the last 6 h: 70 runs, estimated cost $0.3559 total.
+- worker.log since the restart (from line after 2026-11-06T19:49:04Z, log tail 21:47:33Z): 1 ingest tick with 1 failed source, 1 propose refusal, 1 ExperimentalWarning (SQLite, startup only). Count of real errors and warnings: 3 (plus 1 startup warning). Most frequent messages:
+  1. `[worker] judge tick: N scored, N refused, N failed` (4 summary lines, all 0 failed).
+  2. `[worker] propose tick: N proposed, N refused, N failed` (4 summary lines; one tick had 1 refused).
+  3. `[ingest] rss:hn-frontpage failed: This operation was aborted` (1; same fetch-timeout as before). Also: `propose: narrative 189 refused: \`evidence\` must be an array of 3 to 5 links`` (1).
