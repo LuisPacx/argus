@@ -6,6 +6,7 @@ import { Datastore, type NarrativeEmbedder, type Proposal } from "./datastore.ts
 import { expireStaleProposals } from "./expiry.ts";
 import { proposePendingNarratives, type ProposeConfig } from "./propose.ts";
 import type { ResearchBudgetConfig } from "./research-budget.ts";
+import { announceNewProposals } from "./telegram.ts";
 import type { DimensionScores } from "./rubric.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { tempDir } from "./testing/temp.ts";
@@ -435,6 +436,24 @@ describe("the Proposal-created hook", () => {
     expect(out).toMatchObject({ proposed: 2 });
     expect(store.listProposals()).toHaveLength(2);
     expect(lines.join("\n")).toMatch(/new-Proposal hook failed: telegram is down/);
+  });
+});
+
+describe("announcing (ticket 11 polls for unannounced Proposals)", () => {
+  it("a Proposal made by the propose pass is announced exactly once through the Telegram mechanism, with its card text", async () => {
+    const { store, pass } = setup();
+    addScored(store, "Tokenized stocks arrive");
+    const sent: string[] = [];
+    const notifier = { enabled: true, notify: (t: string) => void sent.push(t) };
+    expect(announceNewProposals(store, notifier)).toBe(0);
+    await pass();
+    expect(announceNewProposals(store, notifier)).toBe(1);
+    expect(announceNewProposals(store, notifier)).toBe(0);
+    await pass({}, { now: minutes(30) }); // proposes nothing new
+    expect(announceNewProposals(store, notifier)).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("New Proposal: Stock Paws ($PAWS)");
+    expect(sent[0]).toContain("Narrative: Tokenized stocks arrive Tokenized stocks arrive summary");
   });
 });
 
