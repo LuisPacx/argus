@@ -132,7 +132,6 @@ export class PumpPortalSource implements Source {
     };
     ws.onmessage = (ev) => {
       if (this.socket !== ws) return;
-      this.failures = 0; // the connection is alive: the next drop starts the wait from the beginning
       this.onMessage(ev.data, ws);
     };
     // A failed handshake raises error without close in Node, so an error counts as a drop too.
@@ -170,6 +169,7 @@ export class PumpPortalSource implements Source {
     }
     const signal = this.toSignal(data);
     if (!signal) return;
+    this.failures = 0; // a real event arrived: the next drop starts the wait from the beginning (acks and garbage do not count)
     this.buffer.delete(signal.id); // a repeat keeps one entry, at the newest position
     this.buffer.set(signal.id, signal);
     while (this.buffer.size > this.maxBuffered) {

@@ -232,6 +232,35 @@ describe("PumpPortalSource", () => {
     expect(clock.waits()).toEqual([1_000]);
   });
 
+  it("keeps growing the wait when every connection sends only garbage or oversized messages", () => {
+    const clock = fakeClock();
+    const payloads = ["not json", "x".repeat(400), JSON.stringify({ message: "ack" })];
+    let n = 0;
+    source = new PumpPortalSource({
+      schedule: clock.schedule,
+      maxMessageChars: 300,
+      createSocket: (): SocketLike => {
+        const payload = payloads[n++ % payloads.length]!;
+        const ws: SocketLike = { onopen: null, onmessage: null, onclose: null, onerror: null, send: () => {}, close: () => {} };
+        queueMicrotask(() => {
+          ws.onmessage?.({ data: payload });
+          ws.onclose?.({});
+        });
+        return ws;
+      },
+    });
+    source.start();
+    return (async () => {
+      const seen: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        await until(() => clock.waits().length === 1, "a retry timer");
+        seen.push(clock.waits()[0]!);
+        clock.fire();
+      }
+      expect(seen).toEqual([1_000, 2_000, 4_000, 8_000]);
+    })();
+  });
+
   it("survives a socket that cannot even be created, and retries", async () => {
     const clock = fakeClock();
     let attempts = 0;
