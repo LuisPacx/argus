@@ -1,7 +1,7 @@
 // Measures the Narrative join threshold on the recorded sample (docs/adr/0006, docs/adr/0007). Clusters the sample with
 // the real clusterNewSignals at thresholds 0.30 to 0.90 and scores each run against the hand labels.
 //
-//   node scripts/measure-narrative-threshold.mjs [--embedder hashing|fixture|semantic] [--embeddings <file>] [--full <full-sample.json>] [--from 0.30 --to 0.90 --step 0.05]
+//   node scripts/measure-narrative-threshold.mjs [--sample sample|holdout] [--embedder hashing|fixture|semantic] [--embeddings <file>] [--full <full-sample.json>] [--from 0.30 --to 0.90 --step 0.05]
 //
 //   --embedder hashing   (default) the lexical HashingEmbedder
 //   --embedder fixture   the committed vectors of the semantic model (narrative-sample-embeddings.json, or --embeddings <file>);
@@ -20,8 +20,9 @@ import { decodeVectors, encodeVectors } from "../packages/core/src/embedding-cod
 const args = process.argv.slice(2);
 const opt = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const fixtures = (name) => fileURLToPath(new URL(`../packages/core/src/fixtures/${name}`, import.meta.url));
-const sample = JSON.parse(readFileSync(fixtures("narrative-sample.json"), "utf8"));
-const labels = JSON.parse(readFileSync(fixtures("narrative-sample-labels.json"), "utf8"));
+const sampleName = opt("--sample") ?? "sample"; // "sample" (the tuning sample) or "holdout" (ticket hardening/04)
+const sample = JSON.parse(readFileSync(fixtures(`narrative-${sampleName}.json`), "utf8"));
+const labels = JSON.parse(readFileSync(fixtures(`narrative-${sampleName}-labels.json`), "utf8"));
 const fullPath = opt("--full");
 const full = fullPath ? JSON.parse(readFileSync(fullPath, "utf8")) : undefined;
 if (full && full.length !== sample.length) throw new Error("the full file does not match the fixture");
@@ -57,7 +58,7 @@ if (embedderChoice === "hashing") {
   const embedder = new HashingEmbedder();
   vectors = await Promise.all(signals.map((s) => embedder.embed(s)));
 } else if (embedderChoice === "fixture") {
-  const file = JSON.parse(readFileSync(opt("--embeddings") ?? fixtures("narrative-sample-embeddings.json"), "utf8"));
+  const file = JSON.parse(readFileSync(opt("--embeddings") ?? fixtures(`narrative-${sampleName}-embeddings.json`), "utf8"));
   vectors = decodeVectors(file);
   if (vectors.length !== N) throw new Error("the embeddings file does not match the sample");
   console.log(`embedder: ${file.embedder} (fixture, ${file.dimension} dims)`);
@@ -70,7 +71,7 @@ if (embedderChoice === "hashing") {
   console.log(`embedder: ${embedder.id} (${embedder.dimension} dims), ${((performance.now() - t0) / N).toFixed(1)} ms per headline`);
   if (args.includes("--check")) {
     // The committed vectors (what `pnpm check` pins) must still be what the real model produces.
-    const committed = decodeVectors(JSON.parse(readFileSync(fixtures("narrative-sample-embeddings.json"), "utf8")));
+    const committed = decodeVectors(JSON.parse(readFileSync(fixtures(`narrative-${sampleName}-embeddings.json`), "utf8")));
     const worst = Math.min(...vectors.map((v, i) => cosineSimilarity(v, committed[i])));
     console.log(`committed embeddings vs the real model: worst cosine ${worst.toFixed(5)}`);
     if (!(worst > 0.999)) {
@@ -109,6 +110,20 @@ console.log(`${N} items (${aloneAt.filter(Boolean).length} stand-alone promo pag
 console.log("pairs per 0.05 of similarity:", bins.map((n, k) => `${(k / 20).toFixed(2)}:${n}`).join(" "));
 console.log(`same-story pairs (${bySame.length}) p10/p50/p90 ${[0.1, 0.5, 0.9].map((p) => quantile(bySame, p)).join("/")}; different-story pairs (${byDifferent.length}) p50/p99/max ${[0.5, 0.99, 0.99999].map((p) => quantile(byDifferent, p)).join("/")}`);
 
+// The closest different-story pairs (the margin to the threshold), with a mark on the templated ones.
+function printClosestWrongPairs() {
+  const closest = [];
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      if (aloneAt[i] || aloneAt[j] || labelOf(i, j) !== "different") continue;
+      closest.push({ sim: cosineSimilarity(vectors[i], vectors[j]), i, j });
+    }
+  }
+  closest.sort((a, b) => b.sim - a.sim);
+  console.log("closest different-story pairs:");
+  for (const { sim, i, j } of closest.slice(0, 8)) console.log(`  ${sim.toFixed(4)}${isTemplated(i, j) ? " [templated]" : ""}  ${keyOf(signals[i])}  //  ${keyOf(signals[j])}`);
+}
+
 /** One clustering pass over the whole sample at `joinThreshold`; returns each item's Narrative number. */
 async function cluster(joinThreshold) {
   const order = signals.map((s, i) => ({ s, i })).sort((a, b) => (a.s.publishedAt < b.s.publishedAt ? -1 : a.s.publishedAt > b.s.publishedAt ? 1 : a.s.id < b.s.id ? -1 : 1));
@@ -135,6 +150,8 @@ const isTemplated = (i, j) =>
   (signals[i].sourceId === "rss:hn-frontpage" && signals[j].sourceId === "rss:hn-frontpage") ||
   signals[i].title === signals[j].title ||
   (/^Tech (Life|Now)$/.test(signals[i].title) && /^Tech (Life|Now)$/.test(signals[j].title));
+
+printClosestWrongPairs();
 
 const header = ["threshold", "clusters", "largest", "over-merged (items)", "cross-story over-merged", "same pairs joined", "different pairs joined (templated + other)", "groups split of " + Object.keys(labels.groups).length];
 console.log("\n" + header.join("  |  "));

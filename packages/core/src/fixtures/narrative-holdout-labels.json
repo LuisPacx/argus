@@ -1,0 +1,147 @@
+{
+ "note": "Hand labels for narrative-holdout.json (a holdout sample, collected 2026-11-06, after JOIN_THRESHOLD was tuned), keyed by '<sourceId> | <title>'. Labelled from the headlines alone, before any similarity was computed. Rule: two headlines are the SAME story when they report the same specific event or development (same actors, same occurrence, same news cycle), from any outlet or angle, so that a reader would say 'that is the same news item'; an update to the same event (a live blog, a follow-up with a new figure of the same event) counts when it is clearly about that one occurrence. Not same: a different development of a shared subject (a market rebound versus the earlier rout, a different day's ETF flow figure), a reaction piece about a wider theme, or two events of one kind (two exchange hacks). Those wider-subject pairs are listed in topics (related, scored as neither same nor different). Every other pair is a different story. Identical titles from different feeds (BBC World and BBC Technology) are the same story. groups: one specific story each. topics: a shared wider subject. Item 'Judge halts construction of Trump's arch. And, Labor Department to release jobs report' is a two-story bulletin and sits in topics only.",
+ "groups": {
+  "cybertruck-ends": [
+   "rss:hn-frontpage | RIP Cybertruck",
+   "rss:techcrunch | Tesla will stop making the Cybertruck in 2027",
+   "rss:ars-technica | No more Cybertrucks; Musk moves on from the angular metallic flop",
+   "rss:wired | RIP Cybertruck. You Were Unloved, Unwanted, and Utterly Absurd",
+   "rss:bbc-world | Elon Musk appears to signal the end of the road for Cybertruck",
+   "rss:bbc-world | Watch: Is it the end of the road for Tesla's Cybertruck?",
+   "rss:bbc-technology | Elon Musk appears to signal the end of the road for Cybertruck",
+   "rss:guardian-world | Tesla to wind down Cybertruck production as Elon Musk focuses on robotics and AI",
+   "rss:decrypt | Tesla to Wind Down Cybertruck Production as Elon Musk Pivots to Robotaxis and AI"
+  ],
+  "fox-buys-roku": [
+   "rss:techcrunch | Fox completes its $22B acquisition of Roku",
+   "rss:verge | Fox bought Roku"
+  ],
+  "europe-bomb-threats": [
+   "rss:bbc-world | New wave of bomb threats hit European airlines",
+   "rss:bbc-world | Russian extremist group denies sending hoax bomb threats",
+   "rss:npr-news | European air traffic is targeted by new threats after a week of hoaxes",
+   "rss:guardian-world | Further bomb threats disrupt at least another 18 flights across Europe",
+   "rss:guardian-world | Bomb threats against European flights ‘likely a coordinated campaign of disruption’, Ireland says – as it happened"
+  ],
+  "kenya-cult-sentence": [
+   "rss:bbc-world | Kenyan doomsday cult leader given life sentence for murdering 191 people",
+   "rss:npr-news | The leader of a Kenyan doomsday cult is sentenced to 200 years in prison",
+   "rss:guardian-world | Kenyan doomsday sect leader jailed for 200 years for murder of 190 children"
+  ],
+  "macau-security-case": [
+   "rss:bbc-world | Macau jails pro-democracy campaigner in city's first national security case",
+   "rss:npr-news | Ex-lawmaker gets 12.5 years in Macao's first national security case"
+  ],
+  "us-october-jobs": [
+   "rss:npr-news | Hiring jumps: The economy added 165,000 jobs last month",
+   "rss:guardian-world | US job growth exceeds expectations in October despite economic uncertainty",
+   "rss:coindesk | U.S. added 165,000 jobs in October, blowing past 65,000 estimate"
+  ],
+  "trump-arch-halted": [
+   "rss:guardian-world | Federal judge temporarily halts building work on Trump’s triumphal arch"
+  ],
+  "ai-stocks-rebound": [
+   "rss:bbc-world | AI stocks climb after trillions wiped from market values",
+   "rss:bbc-technology | AI stocks climb after trillions wiped from market values"
+  ],
+  "etf-outflows-530m": [
+   "rss:cointelegraph | Bitcoin, Ether ETFs post $530M outflows as election gains evaporate",
+   "rss:the-block | Crypto ETFs see over half a billion dollars in outflows amid post-midterm market slide"
+  ],
+  "crypto-liquidations-1b": [
+   "rss:coindesk | Over $1 billion in bullish bets liquidated while ETF flows suggest no help in spot market",
+   "rss:decrypt | Crypto Liquidations Top $1 Billion as Bitcoin Tests 11-Week Low"
+  ],
+  "zcash-nu7": [
+   "rss:coindesk | Zcash’s landmark NU7 upgrade goes live, speeding up private payments",
+   "rss:cointelegraph | Zcash NU7 upgrade goes live, leaves 12,224 ZEC stranded in Sprout pool",
+   "rss:decrypt | Zcash's NU7 Upgrade Goes Live, Recycling 60% of Fees to Fund Future Block Rewards",
+   "rss:the-block | Zcash’s major network upgrade NU7 goes live on mainnet, cutting block time by threefold"
+  ],
+  "greece-crypto-tax": [
+   "rss:coindesk | Greece approves 10% tax on crypto gains and 15% levy on DeFi income",
+   "rss:cointelegraph | Greece approves 10% tax on crypto gains starting in 2027"
+  ],
+  "nigeria-stablecoin-rules": [
+   "rss:cointelegraph | Nigeria sets new crypto licensing rules, bans algorithmic stablecoins",
+   "rss:the-block | Nigeria’s central bank introduces stablecoin licensing rules, bans algorithmic versions"
+  ],
+  "binance-hack": [
+   "rss:cointelegraph | Binance hackers had 8 weeks of access before $6.3B exploit, Security Alliance estimates",
+   "rss:cointelegraph | Binance’s $6.3B hack leaves questions over hot wallet safeguards",
+   "rss:decrypt | $3.1B in Stolen Binance Crypto Has Yet to Be Laundered: Elliptic"
+  ]
+ },
+ "topics": {
+  "midterms": [
+   "rss:verge | Big Tech lost big in the 2026 election",
+   "rss:bbc-world | Dozens of Democrats eyeing 2028 presidential run, says former Obama aide",
+   "rss:bbc-world | Did a data centre revolt affect the US midterm election results?",
+   "rss:bbc-technology | Could the US midterms burst the AI bubble?",
+   "rss:npr-news | Fill in the blank in the quiz: Vance says they lost the midterms because of ____",
+   "rss:guardian-world | US midterm elections 2026 live: all eyes on last two razor-thin Senate races as Democrats vie to expand blue wave",
+   "rss:cointelegraph | What Democrats’ US midterm sweep means for the CLARITY Act"
+  ],
+  "ai-stock-rout": [
+   "rss:bbc-world | AI stocks climb after trillions wiped from market values",
+   "rss:bbc-technology | AI stocks climb after trillions wiped from market values",
+   "rss:guardian-world | Global stocks plunge amid AI slowdown fears after Democrats’ midterm triumph",
+   "rss:bbc-technology | Could the US midterms burst the AI bubble?",
+   "rss:bbc-world | Did a data centre revolt affect the US midterm election results?",
+   "rss:coindesk | Bitcoin steadies after AI-led selloff as eyes turn to latest U.S. jobs figures",
+   "rss:coindesk | Bitcoin recovers $76,000 level as ETFs shed $430 million after tech rout",
+   "rss:cointelegraph | Bitcoin holds $75K as AI regulation fears see KOSPI halted after 8% crash",
+   "rss:decrypt | Anthropic IPO Valuation Could Be Slashed in Half to $1T After AI Stock Rout: Report",
+   "rss:decrypt | Morning Minute: Bitcoin Erases Election Rally as AI Stocks Crater",
+   "rss:the-block | Ark Invest buys more Coinbase as shares plunge 10% in wider market rout"
+  ],
+  "crypto-selloff": [
+   "rss:coindesk | Over $1 billion in bullish bets liquidated while ETF flows suggest no help in spot market",
+   "rss:coindesk | Live updates: Bitcoin holds in narrow range, stocks bounce after strong October jobs report",
+   "rss:coindesk | Bitcoin steadies after AI-led selloff as eyes turn to latest U.S. jobs figures",
+   "rss:coindesk | Bitcoin recovers $76,000 level as ETFs shed $430 million after tech rout",
+   "rss:cointelegraph | Bitcoin holds $75K as AI regulation fears see KOSPI halted after 8% crash",
+   "rss:cointelegraph | Bitcoin, Ether ETFs post $530M outflows as election gains evaporate",
+   "rss:decrypt | Crypto Liquidations Top $1 Billion as Bitcoin Tests 11-Week Low",
+   "rss:decrypt | Morning Minute: Bitcoin Erases Election Rally as AI Stocks Crater",
+   "rss:the-block | Crypto ETFs see over half a billion dollars in outflows amid post-midterm market slide",
+   "rss:the-block | Ark Invest buys more Coinbase as shares plunge 10% in wider market rout"
+  ],
+  "jobs-day": [
+   "rss:npr-news | Hiring jumps: The economy added 165,000 jobs last month",
+   "rss:npr-news | Judge halts construction of Trump's arch. And, Labor Department to release jobs report",
+   "rss:guardian-world | US job growth exceeds expectations in October despite economic uncertainty",
+   "rss:coindesk | U.S. added 165,000 jobs in October, blowing past 65,000 estimate",
+   "rss:coindesk | Live updates: Bitcoin holds in narrow range, stocks bounce after strong October jobs report"
+  ],
+  "arch-and-jobs-bulletin": [
+   "rss:npr-news | Judge halts construction of Trump's arch. And, Labor Department to release jobs report",
+   "rss:guardian-world | Federal judge temporarily halts building work on Trump’s triumphal arch"
+  ],
+  "anthropic-ipo": [
+   "rss:techcrunch | Ramp data shows AI spending stalling just as Anthropic nears its IPO",
+   "rss:decrypt | Anthropic IPO Valuation Could Be Slashed in Half to $1T After AI Stock Rout: Report",
+   "rss:the-block | Hypercall to launch first Anthropic-linked pre-IPO options market"
+  ],
+  "exchange-security": [
+   "rss:cointelegraph | Binance hackers had 8 weeks of access before $6.3B exploit, Security Alliance estimates",
+   "rss:cointelegraph | GOPAX halts crypto trading, withdrawals to move all assets to cold storage",
+   "rss:cointelegraph | Binance’s $6.3B hack leaves questions over hot wallet safeguards",
+   "rss:cointelegraph | Chainalysis says breach exposed password hashes and live tokens",
+   "rss:cointelegraph | Crypto exchanges tout cold storage ratios after Binance attack",
+   "rss:decrypt | Crypto Card Provider Gnosis Pay Says Hackers Accessed Customer Data",
+   "rss:decrypt | $3.1B in Stolen Binance Crypto Has Yet to Be Laundered: Elliptic"
+  ],
+  "miner-earnings": [
+   "rss:the-block | Strive’s bitcoin gains drive $509 million Q3 profit as BTC buying ramps up",
+   "rss:the-block | TeraWulf’s bitcoin mining revenue falls 69% as HPC leasing surges amid Anthropic buildout",
+   "rss:the-block | IREN’s bitcoin mining revenue drops 58% as firm plans full exit by year-end"
+  ],
+  "african-politics": [
+   "rss:bbc-world | Tanzanian opposition leader found guilty of inciting unrest but acquitted of treason",
+   "rss:bbc-world | Somalia's top court rejects president's term extension amid political crisis",
+   "rss:bbc-world | Nigerian court rules opposition candidate cannot stand in elections",
+   "rss:guardian-world | ANC faces bruising defeat in South African local elections with 80% of ballots counted"
+  ]
+ }
+}

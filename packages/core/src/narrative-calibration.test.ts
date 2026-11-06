@@ -96,3 +96,60 @@ describe("Narrative threshold on the recorded sample", () => {
     expect(JOIN_THRESHOLD).toBeGreaterThan(0.88); // below it the closest different-story pair (0.88) can merge
   });
 });
+
+// A second sample, collected after the threshold was set and never used to choose it (ticket hardening/04; labelling rule
+// in narrative-holdout-labels.json). The same recorded-vector approach: 146 fresh headlines, 68 same-story pairs in 14 groups.
+describe("Narrative threshold on the holdout sample", () => {
+  const holdout = read<Array<{ sourceId: string; title: string; url: string }>>("narrative-holdout.json");
+  const holdoutLabels = read<{ groups: Record<string, string[]>; topics: Record<string, string[]> }>("narrative-holdout-labels.json");
+  const holdoutEmbeddings = read<{ embedder: string; dimension: number; count: number; data: string }>("narrative-holdout-embeddings.json");
+  const holdoutVectors = decodeVectors(holdoutEmbeddings);
+  const indexOf = new Map(holdout.map((s, i) => [key(s), i]));
+  const at = (k: string) => {
+    const i = indexOf.get(k);
+    if (i === undefined) throw new Error(`label for an unknown item: ${k}`);
+    return i;
+  };
+
+  it("joins at least 20 of the 68 same-story pairs, merges no two stories, and keeps the closest wrong pair under the threshold with a margin", async () => {
+    const holdoutSignals: Signal[] = holdout.map((s, i) => ({
+      id: `holdout:${i}`,
+      sourceId: s.sourceId,
+      sourceLabel: s.sourceId,
+      title: s.title,
+      summary: "",
+      url: s.url,
+      publishedAt: new Date(NOW.getTime() - (holdout.length - i) * 60_000).toISOString(),
+    }));
+    const embedder: Embedder = { id: holdoutEmbeddings.embedder, dimension: holdoutEmbeddings.dimension, embed: async (s) => holdoutVectors[Number((s as Signal).id.split(":")[1])]! };
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals(holdoutSignals);
+    await clusterNewSignals(ds, embedder, { now: NOW });
+    const narrativeOfId = new Map<string, number>();
+    for (const n of ds.listNarratives(holdout.length)) for (const s of ds.getNarrative(n.id)!.signals) narrativeOfId.set(s.id, n.id);
+    const narrative = (i: number) => narrativeOfId.get(`holdout:${i}`)!;
+
+    const storyOf = new Map<number, string>();
+    for (const [story, keys] of Object.entries(holdoutLabels.groups)) for (const k of keys) storyOf.set(at(k), story);
+    const topicSets = Object.values(holdoutLabels.topics).map((keys) => new Set(keys.map(at)));
+    const related = (i: number, j: number) => topicSets.some((t) => t.has(i) && t.has(j));
+
+    let sameJoined = 0;
+    let wrongJoined = 0;
+    let closestWrong = 0;
+    for (let i = 0; i < holdout.length; i++) {
+      for (let j = i + 1; j < holdout.length; j++) {
+        const same = storyOf.has(i) && storyOf.get(i) === storyOf.get(j);
+        if (same) {
+          if (narrative(i) === narrative(j)) sameJoined++;
+        } else if (!related(i, j)) {
+          if (narrative(i) === narrative(j)) wrongJoined++;
+          closestWrong = Math.max(closestWrong, holdoutVectors[i]!.reduce((sum, v, k) => sum + v * holdoutVectors[j]![k]!, 0));
+        }
+      }
+    }
+    expect(wrongJoined).toBe(0);
+    expect(sameJoined).toBeGreaterThanOrEqual(20); // 25 of the 68 when measured at 0.90
+    expect(closestWrong).toBeLessThan(JOIN_THRESHOLD - 0.03); // 0.859 when measured: a margin of 0.041, against 0.022 on the tuning sample
+  });
+});

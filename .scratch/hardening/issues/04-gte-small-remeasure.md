@@ -7,9 +7,17 @@
 
 **Blocked by:** none. No file overlap with tickets 01 to 03 unless `JOIN_THRESHOLD` changes (`narratives.ts`; ticket 01 edits `clusterNewSignals` in the same file).
 
-**Status:** open
+**Status:** done
 
-- [ ] A fresh holdout sample is collected and labelled, separate from the 320-headline tuning sample
-- [ ] Precision, recall and the best threshold on the holdout are recorded in ADR 0007
-- [ ] `JOIN_THRESHOLD` is kept or changed on that evidence, with the calibration test matching
-- [ ] `pnpm check` passes
+- [x] A fresh holdout sample is collected and labelled, separate from the 320-headline tuning sample
+- [x] Precision, recall and the best threshold on the holdout are recorded in ADR 0007
+- [x] `JOIN_THRESHOLD` is kept or changed on that evidence, with the calibration test matching
+- [x] `pnpm check` passes
+
+**Outcome:** 0.90 holds, unchanged. Holdout of 146 fresh headlines (339 collected on 2026-11-06, minus 193 already in the tuning sample): at 0.90, 25 of 68 same-story pairs joined (37%), 0 over-merges (precision 100%), closest wrong pair 0.859 (margin 0.041, against 0.022 on the tuning sample). Best threshold with zero over-merges on the holdout is 0.86 to 0.87 (60 of 68), with a margin of 0.001 to 0.011, so it is not clearly better. Numbers and reasoning are in ADR 0007, "Holdout check".
+
+**Notes:**
+- The worker embeds titles only (`semantic-embedder.ts`, ADR 0007), not summaries, so the holdout measures titles; the ticket's "include the summaries as the worker does" does not apply to the semantic embedder.
+- Added `--sample holdout` to `scripts/measure-narrative-threshold.mjs`, a printout of the eight closest different-story pairs, and a holdout run in `pnpm verify:semantic`.
+
+**Labelling rule** (also in `narrative-holdout-labels.json`, labelled from the headlines before any similarity was computed): two headlines are the same story when they report the same specific event or development (same actors, same occurrence, same news cycle), from any outlet or angle, so that a reader would say "that is the same news item". An update to the same event (a live blog, a follow-up with a new figure of the same event) counts when it is clearly about that one occurrence. Not same: a different development of a shared subject (a market rebound versus the earlier rout, another day's ETF figure), a reaction piece about a wider theme, or two events of one kind (two exchange hacks); those pairs are listed under `topics` as "related" and scored as neither. Every other pair is a different story. Identical titles from two feeds are the same story. Judgement calls to audit: the Binance hack group includes the "stolen crypto not yet laundered" piece; the Trump arch / jobs report bulletin is in topics only; the "AI stocks climb" pair is its own story, not the rout.

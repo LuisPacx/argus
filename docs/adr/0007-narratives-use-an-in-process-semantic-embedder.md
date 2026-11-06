@@ -54,6 +54,26 @@ For comparison the lexical embedder joins 41 of 112 at 0.40 but over-merges 18 N
 
 The threshold is specific to this model and quantization. Changing either means re-measuring (`node scripts/measure-narrative-threshold.mjs --embedder semantic`) and regenerating the committed vectors (`--write-embeddings`).
 
+## Holdout check (ticket hardening/04, 2026-11-06)
+
+0.90 was chosen and measured on the same 320 headlines. To test it on data it was not tuned on, `scripts/collect-narrative-sample.mjs` polled the 13 feeds once more a day later (339 items); the 193 already in the tuning sample (same Source and title, or same link) were dropped, leaving **146 fresh headlines** (`narrative-holdout.json`, vectors in `narrative-holdout-embeddings.json`, labels in `narrative-holdout-labels.json`). I labelled them from the headlines alone, before any similarity was computed, by the rule written in the labels file: same story means the same specific event from any outlet or angle; a different development of a shared subject (a market rebound versus the earlier rout, another day's ETF figure) is only "related" and scored as neither. That gave 14 stories and 68 same-story pairs. The embedder reads titles only (`semantic-embedder.ts`), so the holdout is titles only too. Reproduce with `node scripts/measure-narrative-threshold.mjs --sample holdout --embedder fixture`.
+
+At the shipped `JOIN_THRESHOLD` 0.90:
+
+| | Holdout (146 headlines) | Tuning sample (320) |
+|---|---|---|
+| Same-story pairs joined (recall) | 25 of 68 (37%) | 53 of 112 (47%) |
+| Different-story pairs joined / cross-story over-merges (precision) | 0 / 0 (100%) | 0 / 0 |
+| Groups split | 8 of 14 | 24 of 38 |
+| Closest different-story pair | 0.859 (margin 0.041) | 0.878 (margin 0.022) |
+| Median cosine of same-story pairs | 0.90 | 0.90 |
+
+Across thresholds on the holdout, over-merges appear at 0.85 and below (6 Narratives at 0.85, and the whole sample collapses into a few large Narratives below 0.83 as the running-mean centroid drifts) and are zero from 0.86 up. Recall at zero over-merges peaks at 0.86 and 0.87 (60 of 68), then falls to 34 at 0.88 and 25 at 0.90. The best threshold on this sample is therefore 0.86 to 0.87, but 0.86 sits 0.001 above the closest wrong pair, so it is on the edge; 0.87 has a margin of 0.011.
+
+**Decision: 0.90 holds, unchanged.** On data it was not tuned on it makes no wrong join, and its margin to the closest wrong pair (0.041) is wider than it was on the tuning sample (0.022). The holdout does not show 0.90 to be wrong; it shows it to be conservative: recall is lower (37%, against 47%) and a threshold near 0.87 would have joined about 2.4 times as many pairs here. That is not a reason to move it. The two samples put the first over-merge at different places (0.89 on the tuning sample, 0.85 on the holdout), so the safe zone differs by sample, and a lower value would be tuned to 146 headlines whose recall is dominated by one nine-headline story (Cybertruck, 36 of the 68 pairs). Precision, the property a wrong join costs most, is what 0.90 buys, and it is the property the holdout confirms.
+
+Caveats: the holdout is small, taken one day after the tuning sample from the same 13 feeds, so it shares the news cycle (AI-stock rout, midterms, crypto selloff) and is not independent in time; its labels are my judgement on the stated rule, kept in the fixture for audit. Re-run it, and collect a larger sample from a later week, before changing the feed set or the model.
+
 ## How it runs
 
 - **In process.** `apps/worker/src/semantic-embedder.ts` loads the model with `@huggingface/transformers` on the first clustering pass and embeds each Signal's title (pooling: mean, L2-normalized). Load takes about 0.5 s and the process then holds about 215 MB resident. Embedding costs about 9 ms per headline on this machine (2 intra-op threads), so a 5-minute ingest tick with a hundred new Signals spends about one second of CPU; a backlog of the 500-Signal batch takes about five seconds.
