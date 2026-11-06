@@ -196,6 +196,7 @@ export function migrate(db: DatabaseSync): void {
     last_signal_at TEXT NOT NULL,
     changed_materially_at TEXT NOT NULL
   )`);
+  db.exec("CREATE INDEX IF NOT EXISTS narratives_last_signal_at ON narratives (last_signal_at)");
   ensureColumn(db, "signals", "narrative_id", "INTEGER");
   db.exec("CREATE INDEX IF NOT EXISTS signals_narrative_id ON signals (narrative_id)");
 }

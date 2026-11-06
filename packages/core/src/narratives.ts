@@ -122,14 +122,20 @@ export async function clusterNewSignals(
   const now = opts.now ?? new Date();
   let created = 0;
   const signals = store.unclusteredSignals(config.batchSize);
+  // Loaded and parsed once per pass; kept current below as Signals join or start Narratives (all stay inside the window).
+  const since = new Date(now.getTime() - config.windowHours * 3_600_000).toISOString();
+  const candidates = store.recentNarratives(since);
   for (const signal of signals) {
     const embedding = await embedder.embed(signal);
-    const since = new Date(now.getTime() - config.windowHours * 3_600_000).toISOString();
-    const target = nearestNarrative(embedding, store.recentNarratives(since), config.joinThreshold);
+    const target = nearestNarrative(embedding, candidates, config.joinThreshold);
     if (target) {
-      store.joinNarrative(target.id, signal, incrementalMean(target.centroid, embedding, target.signalCount + 1), now.toISOString());
+      const centroid = incrementalMean(target.centroid, embedding, target.signalCount + 1);
+      store.joinNarrative(target.id, signal, centroid, now.toISOString());
+      target.centroid = centroid;
+      target.signalCount++;
     } else {
-      store.createNarrative(signal, embedding, now.toISOString());
+      const id = store.createNarrative(signal, embedding, now.toISOString());
+      candidates.push({ id, centroid: embedding, signalCount: 1 });
       created++;
     }
   }
