@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import type { CollisionChecker, CollisionCheck, CollisionResult } from "./collision.ts";
-import { Datastore, type NarrativeEmbedder, type Proposal } from "./datastore.ts";
+import { Datastore, MAX_NEW_PROPOSALS_PER_DAY, type NarrativeEmbedder, type Proposal } from "./datastore.ts";
 import { expireStaleProposals } from "./expiry.ts";
 import { proposePendingNarratives, type ProposeConfig } from "./propose.ts";
 import type { ResearchBudgetConfig } from "./research-budget.ts";
@@ -209,33 +209,34 @@ describe("each Narrative at most once", () => {
   });
 });
 
-describe("the daily cap of 10 new Proposals", () => {
-  it("stops at 10 in a rolling day without spawning for the 11th, and resumes when the day has passed", async () => {
+describe(`the daily cap of ${MAX_NEW_PROPOSALS_PER_DAY} new Proposals`, () => {
+  const cap = MAX_NEW_PROPOSALS_PER_DAY;
+  it("stops at the cap in a rolling day without spawning past it, and resumes when the day has passed", async () => {
     const { store, pass, calls, lines } = setup();
-    for (let i = 0; i < 12; i++) addScored(store, `Story ${i}`);
-    expect(await pass(wide)).toMatchObject({ proposed: 10, stoppedBy: "proposal-cap" });
-    expect(calls()).toHaveLength(10);
-    expect(store.listProposals()).toHaveLength(10);
-    expect(lines.join("\n")).toMatch(/daily cap of 10 new Proposals/);
+    for (let i = 0; i < cap + 2; i++) addScored(store, `Story ${i}`);
+    expect(await pass(wide)).toMatchObject({ proposed: cap, stoppedBy: "proposal-cap" });
+    expect(calls()).toHaveLength(cap);
+    expect(store.listProposals()).toHaveLength(cap);
+    expect(lines.join("\n")).toMatch(new RegExp(`daily cap of ${cap} new Proposals`));
     expect(await pass(wide, { now: hours(5) })).toMatchObject({ proposed: 0, stoppedBy: "proposal-cap" });
-    expect(calls()).toHaveLength(10);
+    expect(calls()).toHaveLength(cap);
     expect(await pass(wide, { now: hours(25) })).toMatchObject({ proposed: 2 });
-    expect(store.listProposals()).toHaveLength(12);
-  });
+    expect(store.listProposals()).toHaveLength(cap + 2);
+  }, 60_000);
 
-  it("config can lower the cap but not raise it above 10", async () => {
+  it("config can lower the cap but not raise it above the maximum", async () => {
     const low = setup();
     for (let i = 0; i < 4; i++) addScored(low.store, `Story ${i}`);
     expect(await low.pass({ ...wide, maxNewPerDay: 2 })).toMatchObject({ proposed: 2, stoppedBy: "proposal-cap" });
     const high = setup();
-    for (let i = 0; i < 12; i++) addScored(high.store, `Story ${i}`);
-    expect(await high.pass({ ...wide, maxNewPerDay: 500 })).toMatchObject({ proposed: 10, stoppedBy: "proposal-cap" });
-    expect(high.store.listProposals()).toHaveLength(10);
-  });
+    for (let i = 0; i < cap + 2; i++) addScored(high.store, `Story ${i}`);
+    expect(await high.pass({ ...wide, maxNewPerDay: 500 })).toMatchObject({ proposed: cap, stoppedBy: "proposal-cap" });
+    expect(high.store.listProposals()).toHaveLength(cap);
+  }, 60_000);
 
   it("hand-entered Proposals do not use up the research cap", async () => {
     const { store, pass } = setup();
-    for (let i = 0; i < 10; i++) store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: `Hand ${i}`, ticker: "HAND", description: "d", evidenceLinks: [] });
+    for (let i = 0; i < cap; i++) store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: `Hand ${i}`, ticker: "HAND", description: "d", evidenceLinks: [] });
     addScored(store, "A story");
     expect(await pass()).toMatchObject({ proposed: 1 });
   });
@@ -463,13 +464,13 @@ describe("the charge rule and the daily caps hold for the propose pass and its c
     expect(store.listProposals()[0]!.narrativeId).not.toBe(a);
   });
 
-  it("the new-Proposal cap holds after a restart: a fresh pass over the same store drafts no 11th Proposal", async () => {
+  it("the new-Proposal cap holds after a restart: a fresh pass over the same store drafts nothing past the cap", async () => {
     const { store, pass, calls } = setup();
-    for (let i = 0; i < 11; i++) addScored(store, `Story ${i}`);
-    expect((await pass(wide)).proposed).toBe(10);
+    for (let i = 0; i < MAX_NEW_PROPOSALS_PER_DAY + 1; i++) addScored(store, `Story ${i}`);
+    expect((await pass(wide)).proposed).toBe(MAX_NEW_PROPOSALS_PER_DAY);
     expect(await pass(wide, { now: minutes(30) })).toMatchObject({ proposed: 0, stoppedBy: "proposal-cap" });
-    expect(calls()).toHaveLength(10);
-  });
+    expect(calls()).toHaveLength(MAX_NEW_PROPOSALS_PER_DAY);
+  }, 60_000);
 });
 
 describe("the Proposal-created hook", () => {

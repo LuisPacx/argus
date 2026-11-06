@@ -137,7 +137,7 @@ export const DEFAULT_PROPOSE_CONFIG: ProposeConfig = { windowHours: 72, maxPerPa
 
 /**
  * The config with ARGUS_PROPOSE_MAX_PER_PASS, ARGUS_PROPOSE_MAX_NEW_PER_DAY and ARGUS_PROPOSE_MAX_RUNS_PER_DAY applied. A value that is not
- * a whole number of 1 or more is an error, not a fallback; the new-Proposal cap can be lowered but never raised above 10.
+ * a whole number of 1 or more is an error, not a fallback; the new-Proposal cap can be lowered but never raised above 30.
  */
 export function proposeConfigFromEnv(env: Record<string, string | undefined>): ProposeConfig {
   const read = (name: string, fallback: number, max = Infinity): number => {
@@ -173,7 +173,7 @@ export interface ProposeSummary {
  * One propose pass: for each Narrative whose latest Score passes the Rubric's buildability gate and that has no Proposal yet, best
  * Score first, asks the `propose` task for the Proposal fields and creates the Proposal. Every limit is checked before a run is
  * spawned, so no run is paid for that could not be used:
- * - at most `MAX_NEW_PROPOSALS_PER_DAY` (10) new research Proposals in a rolling 24 hours (also enforced by the datastore itself),
+ * - at most `MAX_NEW_PROPOSALS_PER_DAY` (30) new research Proposals in a rolling 24 hours (also enforced by the datastore itself),
  *   `maxRunsPerDay` propose runs, and the shared research budget (judge plus propose, see research-budget.ts);
  * - the same Brain guarantees as the judge and Spec drafting: an `in-flight` brain_runs row before the child is spawned, the run's cost
  *   recorded the moment `brain.run` returns (before the answer is parsed), `--dry-run` spawns nothing, a rate limit or shutdown ends the pass.

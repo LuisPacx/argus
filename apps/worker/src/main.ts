@@ -239,7 +239,7 @@ const judgeTick = reentrant(
   () => console.log("[worker] judge tick skipped: previous judge pass still running"),
 );
 // The propose pass turns Narratives whose Score passes the Rubric's buildability gate into Proposals (docs/architecture.md section 7), right
-// after each judge pass. At most 10 new Proposals a day; ARGUS_PROPOSE_* lower its other caps. A dry run logs the command and spawns nothing.
+// after each judge pass. At most 30 new Proposals a day; ARGUS_PROPOSE_* lower its other caps. A dry run logs the command and spawns nothing.
 // `onCreated` is the one hook for a new Proposal (ticket 11 attaches the Telegram notice there).
 const proposeConfig = proposeConfigFromEnv(process.env);
 // Each Proposal's name, ticker and repo name are checked against DexScreener and GitHub (keyless public APIs, 15 s bound, backoff after a

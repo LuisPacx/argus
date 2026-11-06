@@ -1,4 +1,4 @@
-import { Datastore } from "@argus/core";
+import { Datastore, MAX_NEW_PROPOSALS_PER_DAY } from "@argus/core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 /** Endpoint-level tests: the real route handlers the research panel and the Proposal card call, with only Nitro's auto-imported globals stubbed. */
@@ -45,7 +45,7 @@ it("GET /api/research reports the rolling 24 h research usage against the budget
   const { narrativeId, scoreId } = narrativeWithScore();
   store.createResearchProposal({ ...fields("Cat"), narrativeId, scoreId });
   const out = research();
-  expect(out).toMatchObject({ usedUsd: 3, runs: 2, quotaUsd: 20, share: 0.3, exhausted: false, newProposals: 1, newProposalsCap: 10, windowHours: 24 });
+  expect(out).toMatchObject({ usedUsd: 3, runs: 2, quotaUsd: 20, share: 0.3, exhausted: false, newProposals: 1, newProposalsCap: MAX_NEW_PROPOSALS_PER_DAY, windowHours: 24 });
   expect(out.budgetUsd).toBeCloseTo(6, 6);
   expect(out.usedShareOfQuota).toBeCloseTo(0.15, 6);
 });
@@ -96,15 +96,15 @@ it("GET /api/research follows the same ARGUS_* settings as the worker, and says 
   expect(() => research()).toThrow(/ARGUS_RESEARCH_SHARE/);
 });
 
-it("GET /api/research: a 10 USD quota at share 0.5 gives a 5 USD budget that 11 USD of runs exhausts, and the Proposal cap never exceeds 10", () => {
+it("GET /api/research: a 10 USD quota at share 0.5 gives a 5 USD budget that 11 USD of runs exhausts, and the Proposal cap never exceeds the maximum", () => {
   process.env.ARGUS_DAILY_QUOTA_USD = "10";
   process.env.ARGUS_RESEARCH_SHARE = "0.5";
   for (const [task, cost] of [["judge", 6], ["propose", 5]] as const) {
     store.finishBrainRun(store.startBrainRun({ proposalId: 0, task, backend: "claude-code", model: "m" }), { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
   }
-  expect(research()).toMatchObject({ usedUsd: 11, budgetUsd: 5, exhausted: true, newProposalsCap: 10 });
-  process.env.ARGUS_PROPOSE_MAX_NEW_PER_DAY = "50";
-  expect(() => research()).toThrow(/at most 10/); // a larger cap is refused, never passed through
+  expect(research()).toMatchObject({ usedUsd: 11, budgetUsd: 5, exhausted: true, newProposalsCap: MAX_NEW_PROPOSALS_PER_DAY });
+  process.env.ARGUS_PROPOSE_MAX_NEW_PER_DAY = String(MAX_NEW_PROPOSALS_PER_DAY + 1);
+  expect(() => research()).toThrow(new RegExp(`at most ${MAX_NEW_PROPOSALS_PER_DAY}`)); // a larger cap is refused, never passed through
 });
 
 it("GET /api/proposals gives a research Proposal its Narrative's latest Score and age, and a hand-entered one none", () => {

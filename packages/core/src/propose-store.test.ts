@@ -63,35 +63,36 @@ describe("createResearchProposal", () => {
     expect(store.listProposals().find((x) => x.name === "Hand 0")).toMatchObject({ narrativeId: null, scoreId: null, narrativeCreatedAt: null });
   });
 
-  it("refuses the 11th new Proposal in a rolling day, in the datastore itself", () => {
-    expect(MAX_NEW_PROPOSALS_PER_DAY).toBe(10);
+  it("refuses the Proposal past the cap in a rolling day, in the datastore itself", () => {
+    const cap = MAX_NEW_PROPOSALS_PER_DAY;
     const store = Datastore.open(":memory:");
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < cap; i++) {
       const nid = addNarrative(store);
-      store.createResearchProposal(research(nid, score(store, nid), `P${i}`), { now: hours(i) });
+      store.createResearchProposal(research(nid, score(store, nid), `P${i}`), { now: hours(i / 2) });
     }
     const nid = addNarrative(store);
     const sid = score(store, nid);
-    expect(() => store.createResearchProposal(research(nid, sid, "P10"), { now: hours(11) })).toThrow(ProposalCapReachedError);
-    expect(store.listProposals()).toHaveLength(10);
+    const extra = `P${cap}`;
+    expect(() => store.createResearchProposal(research(nid, sid, extra), { now: hours(cap / 2 + 1) })).toThrow(ProposalCapReachedError);
+    expect(store.listProposals()).toHaveLength(cap);
     // The count rolls: the first Proposal (hour 0) is more than 24 h old at hour 24.5.
-    expect(store.createResearchProposal(research(nid, sid, "P10"), { now: hours(24.5) })).toMatchObject({ name: "P10" });
-    expect(store.researchProposalsSince(hours(24.5 - 24).toISOString())).toBe(10);
+    expect(store.createResearchProposal(research(nid, sid, extra), { now: hours(24.5) })).toMatchObject({ name: extra });
+    expect(store.researchProposalsSince(hours(24.5 - 24).toISOString())).toBe(cap);
   });
 
-  it("a caller can lower the cap but never raise it above 10", () => {
+  it("a caller can lower the cap but never raise it above the maximum", () => {
     const store = Datastore.open(":memory:");
     const a = addNarrative(store);
     store.createResearchProposal(research(a, score(store, a), "A"), { now: NOW, maxPerDay: 1 });
     const b = addNarrative(store);
     expect(() => store.createResearchProposal(research(b, score(store, b), "B"), { now: NOW, maxPerDay: 1 })).toThrow(ProposalCapReachedError);
     const store2 = Datastore.open(":memory:");
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_NEW_PROPOSALS_PER_DAY; i++) {
       const nid = addNarrative(store2);
       store2.createResearchProposal(research(nid, score(store2, nid), `P${i}`), { now: NOW, maxPerDay: 500 });
     }
     const nid = addNarrative(store2);
-    expect(() => store2.createResearchProposal(research(nid, score(store2, nid), "P10"), { now: NOW, maxPerDay: 500 })).toThrow(ProposalCapReachedError);
+    expect(() => store2.createResearchProposal(research(nid, score(store2, nid), "Over"), { now: NOW, maxPerDay: 500 })).toThrow(ProposalCapReachedError);
   });
 });
 

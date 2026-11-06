@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { NarrativeDetail, Score } from "./datastore.ts";
+import { MAX_NEW_PROPOSALS_PER_DAY, type NarrativeDetail, type Score } from "./datastore.ts";
 import { DEFAULT_PROPOSE_CONFIG, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
 
 const LINKS = ["https://a.example/1", "https://b.example/2", "https://c.example/3"];
@@ -136,8 +136,8 @@ describe("proposePromptFor", () => {
 });
 
 describe("proposeConfigFromEnv", () => {
-  it("has defaults: 3 per pass, 10 new Proposals and 30 runs per rolling day", () => {
-    expect(DEFAULT_PROPOSE_CONFIG).toMatchObject({ maxPerPass: 3, maxNewPerDay: 10, maxRunsPerDay: 30 });
+  it("has defaults: 3 per pass, the daily Proposal maximum and 30 runs per rolling day", () => {
+    expect(DEFAULT_PROPOSE_CONFIG).toMatchObject({ maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: 30 });
     expect(proposeConfigFromEnv({})).toEqual(DEFAULT_PROPOSE_CONFIG);
   });
 
@@ -148,9 +148,10 @@ describe("proposeConfigFromEnv", () => {
     }
   });
 
-  it("can lower the 10 a day but never raise it", () => {
-    expect(() => proposeConfigFromEnv({ ARGUS_PROPOSE_MAX_NEW_PER_DAY: "11" })).toThrow(/ARGUS_PROPOSE_MAX_NEW_PER_DAY.*at most 10/);
-    expect(proposeConfigFromEnv({ ARGUS_PROPOSE_MAX_NEW_PER_DAY: "10" }).maxNewPerDay).toBe(10);
+  it("can lower the daily maximum but never raise it", () => {
+    const max = MAX_NEW_PROPOSALS_PER_DAY;
+    expect(() => proposeConfigFromEnv({ ARGUS_PROPOSE_MAX_NEW_PER_DAY: String(max + 1) })).toThrow(new RegExp(`ARGUS_PROPOSE_MAX_NEW_PER_DAY.*at most ${max}`));
+    expect(proposeConfigFromEnv({ ARGUS_PROPOSE_MAX_NEW_PER_DAY: String(max) }).maxNewPerDay).toBe(max);
   });
 });
 

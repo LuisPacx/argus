@@ -181,7 +181,7 @@ export interface NewResearchProposal extends NewProposal {
  * The hard cap on new research Proposals in any rolling 24 hours (architecture section 2). `createResearchProposal` enforces it
  * itself, so no caller can exceed it; config can only lower it.
  */
-export const MAX_NEW_PROPOSALS_PER_DAY = 10;
+export const MAX_NEW_PROPOSALS_PER_DAY = 30;
 
 export class ProposalCapReachedError extends DomainError {
   constructor(max: number) {

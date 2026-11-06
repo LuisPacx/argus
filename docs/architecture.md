@@ -16,7 +16,7 @@ flowchart TD
   ING["Ingestion worker, no LLM, every 5 min"]
   SIG[("Signals")]
   NAR["Narratives (clustering)"]
-  BRAIN["Brain pass, every 30 min, delta only, max 10 Proposals per day"]
+  BRAIN["Brain pass, every 30 min, delta only, max 30 Proposals per day"]
   PROP[("Proposals")]
   WR["War Room (localhost)"]
   TG["Telegram, notify only"]
@@ -46,7 +46,7 @@ flowchart TD
 Notes:
 
 - Ingestion is plain code (fetch, normalize, dedupe, embed, cluster). No LLM runs there.
-- The brain pass only looks at the delta since the last pass (new or materially changed Narratives) and is capped at 10 new Proposals per day.
+- The brain pass only looks at the delta since the last pass (new or materially changed Narratives) and is capped at 30 new Proposals per day.
 - The Spec is drafted when the Operator shortlists (not at Proposal creation), and the Operator edits it in the War Room before approving.
 - Launch itself is outside argus: the handoff only opens newpairspam with the form prefilled; the Operator launches there and returns to mark it.
 
@@ -241,7 +241,7 @@ Collision checks (`collision.ts`): before a Proposal is created, its name and ti
 
 Load limits, all in code and none raised silently:
 
-- **10 new Proposals per rolling 24 hours** (`MAX_NEW_PROPOSALS_PER_DAY`). `createResearchProposal` refuses the 11th inside its own transaction; `ARGUS_PROPOSE_MAX_NEW_PER_DAY` can only lower it (above 10 is an error). Hand-entered Proposals are not counted. The pass also stops before spawning when the cap is reached, so no run is paid for that cannot be used.
+- **30 new Proposals per rolling 24 hours** (`MAX_NEW_PROPOSALS_PER_DAY`; raised from 10 by the Operator on 2026-11-06). `createResearchProposal` refuses the 31st inside its own transaction; `ARGUS_PROPOSE_MAX_NEW_PER_DAY` can only lower it (above 30 is an error). Hand-entered Proposals are not counted. The pass also stops before spawning when the cap is reached, so no run is paid for that cannot be used.
 - **Per pass and per day**: 3 Narratives per pass and 30 propose runs per rolling 24 hours, refused and failed runs included (`ARGUS_PROPOSE_MAX_PER_PASS`, `ARGUS_PROPOSE_MAX_RUNS_PER_DAY`); per run, the route's `--max-budget-usd` of $1.
 - **Research share (judge plus propose): one rolling 24 hour budget of Est. usage**, `ARGUS_DAILY_QUOTA_USD` x `ARGUS_RESEARCH_SHARE` (defaults $20 x 0.3 = $6; the quota must be a positive number and the share in (0, 1], else an error). Both passes check it before every run, summing the `total_cost_usd` of every judge and propose run started in the last 24 hours; at or above the budget they stop (`research-cap`) and wait until older runs age out. A run that ends without printing a result (killed by its wall clock or a shutdown, or left in flight by a dead worker) reports $0, so for the budget it is charged at its route's per-run cap (judge $0.10, propose $1), a ceiling on what it can have used; the reported cost is kept separately (`brain_runs.total_cost_usd`), and a plain `failed` run, which is also what a claude that never started looks like, is charged only what it reported. A run in progress may overshoot by up to its own per-run cap. The judge's own $2 a day leaves the propose pass at least $4 of the default. This approximates "about 30% of the daily subscription quota" only as well as the quota figure does: the plan's real limits are not readable by argus (section 13), so `ARGUS_DAILY_QUOTA_USD` is the Operator's estimate of the Est. usage the plan allows per day and the $20 default is a placeholder to be replaced once real usage is measured. Builds are not counted in it and have no cap of this kind. The War Room's home page shows the usage, the budget, the share of the assumed quota and the new-Proposal count (`/api/research`).
 
@@ -321,8 +321,8 @@ Scope: monorepo skeleton and tooling; datastore with Proposal, Spec, brain-run a
 Definition of done: the Operator enters a Proposal by hand, shortlists it, edits the Spec, approves, and without further input ends with a private GitHub repo, a working `<slug>.workers.dev` preview, status `built`, and agent cost on the card; a forced failure produces one retry then `build-failed` with a resumable `session_id`; an on-chain Spec ends in `needs-human`; a dry-run mode exists; budget and wall-clock caps are tested.
 
 **Phase 2 - Research port.**
-Scope: Sources (RSS, Google Trends, PumpPortal, DexScreener, GitHub trending), Signal dedupe and clustering into Narratives, Rubric storage and War Room editor, brain `judge` and `propose` with the ApiBrain fallback and routing config, 30 min delta pass with the 10 per day cap, collision checks, Telegram new-Proposal notifications, expiry (48 h and 7 d), re-score with history, Launch handoff and mark launched.
-Definition of done: left running for 48 h unattended, argus produces at most 10 Proposals per day from live Sources, every card shows all fields from section 8, stale Proposals close on schedule, a forced subscription exhaustion switches judge/propose to the API and builds wait, and a Proposal can go from card to marked launched using only the War Room and newpairspam.
+Scope: Sources (RSS, Google Trends, PumpPortal, DexScreener, GitHub trending), Signal dedupe and clustering into Narratives, Rubric storage and War Room editor, brain `judge` and `propose` with the ApiBrain fallback and routing config, 30 min delta pass with the 30 per day cap, collision checks, Telegram new-Proposal notifications, expiry (48 h and 7 d), re-score with history, Launch handoff and mark launched.
+Definition of done: left running for 48 h unattended, argus produces at most 30 Proposals per day from live Sources, every card shows all fields from section 8, stale Proposals close on schedule, a forced subscription exhaustion switches judge/propose to the API and builds wait, and a Proposal can go from card to marked launched using only the War Room and newpairspam.
 
 **Phase 3 - Feedback and the auto-ladder.**
 Scope: Dismissal with reason feeding a Rubric review loop, outcome entry (price or holder snapshot after a Launch) to close Proposals, auto-spec for top-scored Proposals, auto-approve above a Score threshold through the same `approve()`.

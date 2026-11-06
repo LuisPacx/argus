@@ -7,7 +7,7 @@
 
 **Status:** in-progress
 
-- [ ] Over 48 hours unattended, argus produces at most 10 Proposals per day from live Sources
+- [ ] Over 48 hours unattended, argus produces at most 30 Proposals per day from live Sources
 - [ ] Every card shows all the fields listed in architecture §8
 - [ ] Stale Proposals close on schedule
 - [ ] A forced subscription exhaustion switches `judge` and `propose` to the API while Builds wait, and API spend stays under its daily cap
@@ -15,6 +15,8 @@
 - [ ] The evidence (logs, counts, Est. usage and API spend, screenshots) is recorded in this ticket
 
 ## Evidence
+
+Cap raised 10 -> 30 by the Operator on 2026-11-06 mid-run
 
 AC4 (forced subscription exhaustion) and AC5 (card to marked launched) stay open for this run; the Operator approved research only with API fallback off.
 
