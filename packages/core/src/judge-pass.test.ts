@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
 import { DEFAULT_JUDGE_CONFIG, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
+import type { ResearchBudgetConfig } from "./research-budget.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { tempDir } from "./testing/temp.ts";
 
@@ -26,8 +27,8 @@ function setup(env: Record<string, string> = {}, brainOpts: ConstructorParameter
   });
   const lines: string[] = [];
   const calls = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : []);
-  const pass = (config: Partial<JudgeConfig> = {}, over: { embedder?: NarrativeEmbedder; now?: Date; signal?: AbortSignal } = {}) =>
-    judgePendingNarratives(store, brain, over.embedder ?? CUR, { now: over.now ?? NOW, config, log: (l) => lines.push(l), signal: over.signal });
+  const pass = (config: Partial<JudgeConfig> = {}, over: { embedder?: NarrativeEmbedder; now?: Date; signal?: AbortSignal; research?: ResearchBudgetConfig } = {}) =>
+    judgePendingNarratives(store, brain, over.embedder ?? CUR, { now: over.now ?? NOW, config, log: (l) => lines.push(l), signal: over.signal, research: over.research });
   return { store, brain, pass, calls, lines, dir };
 }
 
@@ -402,6 +403,43 @@ describe("spend caps", () => {
     const { store, pass } = setup({ FAKE_CLAUDE_RESULT: "garbage" });
     for (let i = 0; i < 4; i++) addNarrative(store, `Story ${i}`);
     expect(await pass({ maxDailyUsd: 0.02 })).toMatchObject({ refused: 2, stoppedBy: "daily-cap" });
+  });
+});
+
+describe("the shared research budget (judge plus propose)", () => {
+  const budget = (usd: number): ResearchBudgetConfig => ({ dailyQuotaUsd: usd * 2, share: 0.5 });
+
+  it("stops when judge and propose together have used the budget, counting propose spend the judge never made", async () => {
+    const { store, pass, calls, lines } = setup();
+    for (let i = 0; i < 4; i++) addNarrative(store, `Story ${i}`);
+    const run = store.startBrainRun({ proposalId: 0, narrativeId: 1, task: "propose", backend: "claude-code", model: "sonnet" }, minutes(-60));
+    store.finishBrainRun(run, { sessionId: null, totalCostUsd: 0.04, exitStatus: "success" });
+    // budget $0.05: 0.04 already used by propose; one judge run (0.0123) brings it to 0.0523, over the budget
+    expect(await pass({}, { research: budget(0.05) })).toMatchObject({ judged: 1, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
+    expect(lines.join("\n")).toMatch(/research budget reached/);
+    // Still waiting later the same day; no spawn.
+    expect(await pass({}, { now: minutes(30), research: budget(0.05) })).toMatchObject({ judged: 0, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("waits for the next day: the spend ages out of the rolling 24 hours and judging resumes", async () => {
+    const { store, pass } = setup();
+    addNarrative(store, "Story");
+    const run = store.startBrainRun({ proposalId: 0, narrativeId: 1, task: "propose", backend: "claude-code", model: "sonnet" }, NOW);
+    store.finishBrainRun(run, { sessionId: null, totalCostUsd: 1, exitStatus: "success" });
+    expect(await pass({}, { research: budget(1) })).toMatchObject({ judged: 0, stoppedBy: "research-cap" });
+    const later = new Date(NOW.getTime() + 24 * 3_600_000 + 60_000);
+    addNarrative(store, "Fresh story", { at: later });
+    expect(await pass({}, { now: later, research: budget(1) })).toMatchObject({ judged: 2 }); // the waiting Narrative and the fresh one
+  });
+
+  it("applies the default budget ($6) when none is passed", async () => {
+    const { store, pass } = setup();
+    addNarrative(store, "Story");
+    const run = store.startBrainRun({ proposalId: 0, narrativeId: 1, task: "propose", backend: "claude-code", model: "sonnet" }, minutes(-5));
+    store.finishBrainRun(run, { sessionId: null, totalCostUsd: 6, exitStatus: "success" });
+    expect(await pass()).toMatchObject({ judged: 0, stoppedBy: "research-cap" });
   });
 });
 

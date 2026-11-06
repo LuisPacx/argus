@@ -15,9 +15,10 @@ const error = ref("");
 
 const { data: commands, refresh: refreshCommands } = await useFetch("/api/commands", { default: () => [] });
 const { data: signals, refresh: refreshSignals } = await useFetch("/api/signals", { default: () => [] });
+const { data: research, refresh: refreshResearch } = await useFetch("/api/research");
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  timer = setInterval(() => void Promise.all([refresh(), refreshCommands(), refreshSignals()]), 3000);
+  timer = setInterval(() => void Promise.all([refresh(), refreshCommands(), refreshSignals(), refreshResearch()]), 3000);
 });
 onBeforeUnmount(() => clearInterval(timer));
 
@@ -31,6 +32,14 @@ const timeLeft = (expiresAt: string) => {
   if (mins < 60) return `Expires in ${mins} min`;
   const hours = Math.floor(mins / 60);
   return hours < 48 ? `Expires in ${hours} h` : `Expires in ${Math.floor(hours / 24)} d ${hours % 24} h`;
+};
+
+// How long ago a Narrative started (the card's Narrative age).
+const narrativeAge = (since: string) => {
+  const mins = Math.max(0, Math.floor((nowMs.value - new Date(since).getTime()) / 60_000));
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  return hours < 48 ? `${hours} h` : `${Math.floor(hours / 24)} d ${hours % 24} h`;
 };
 
 const dismissing = ref<number | null>(null);
@@ -97,6 +106,18 @@ async function submit() {
       </form>
     </UCard>
 
+    <UCard v-if="research" data-test="research-usage">
+      <template #header>Research usage, last 24 hours</template>
+      <p class="text-sm">
+        <span title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</span>:
+        ${{ research.usedUsd.toFixed(2) }} of ${{ research.budgetUsd.toFixed(2) }} research budget
+        ({{ Math.round(research.usedShareOfQuota * 100) }}% of an assumed ${{ research.quotaUsd.toFixed(0) }} daily quota; the limit is {{ Math.round(research.share * 100) }}%)
+        over {{ research.runs }} judge and propose {{ research.runs === 1 ? "run" : "runs" }}.
+      </p>
+      <p v-if="research.exhausted" class="mt-1 text-sm text-amber-500">Research budget reached: judging and proposing wait until older runs leave the 24 hours.</p>
+      <p class="mt-1 text-sm">New Proposals: {{ research.newProposals }} of {{ research.newProposalsCap }} a day<template v-if="research.newProposals >= research.newProposalsCap"> (cap reached; the next waits for the day to roll over)</template>.</p>
+    </UCard>
+
     <UCard>
       <template #header>Latest Signals</template>
       <p v-if="!signals.length" class="text-sm text-muted">No Signals yet. The worker polls its Sources (RSS, Google Trends, DexScreener) every 5 minutes.</p>
@@ -117,9 +138,12 @@ async function submit() {
           <NuxtLink :to="`/proposals/${p.id}`" class="font-semibold">{{ p.name }} ({{ p.ticker }})</NuxtLink>
           <UBadge>{{ p.status }}</UBadge>
         </div>
-        <p class="mt-2 line-clamp-2">{{ p.narrativeSummary }}</p>
+        <p class="mt-2 line-clamp-2 whitespace-pre-line">{{ p.narrativeSummary }}</p>
         <p class="text-sm"><strong>Tech:</strong> {{ p.techOneLiner }}</p>
         <p class="text-sm"><strong>Why now:</strong> {{ p.whyNow }}</p>
+        <div v-if="p.score" class="mt-2">
+          <ScoreBars :scores="p.score.scores" :total="p.score.total" />
+        </div>
         <ul class="mt-2 text-sm">
           <li v-for="link in p.evidenceLinks" :key="link">
             <a :href="link" target="_blank" rel="noopener">{{ link }}</a>
@@ -171,7 +195,7 @@ async function submit() {
         </div>
         <p v-if="dismissing === p.id && actionError" class="text-sm text-red-500">{{ actionError }}</p>
         <p class="mt-2 text-sm text-muted">
-          <span title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): ${{ p.agentCostUsd.toFixed(2) }}</span> · Score: n/a · Collision checks: n/a · Narrative age: n/a
+          <span title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): ${{ p.agentCostUsd.toFixed(2) }}</span> · Score: {{ p.score ? `${p.score.total.toFixed(1)} / 10` : "n/a" }} · Collision checks: n/a · Narrative age: <span data-test="narrative-age">{{ p.narrativeCreatedAt ? narrativeAge(p.narrativeCreatedAt) : "n/a" }}</span>
         </p>
       </UCard>
     </section>

@@ -27,7 +27,10 @@ import {
   judgePendingNarratives,
   killLiveBrainChildren,
   loadRssSources,
+  proposeConfigFromEnv,
+  proposePendingNarratives,
   PumpPortalSource,
+  researchConfigFromEnv,
   revisePendingSpecs,
   runPendingBuilds,
   sweepStaleSeals,
@@ -184,13 +187,26 @@ const ingestTick = reentrant(
 // The judge pass scores new or materially changed Narratives of the current embedder (docs/architecture.md section 7), every 30 minutes.
 // Its caps (per pass, per rolling day) come from ARGUS_JUDGE_* (judgeConfigFromEnv). A dry run logs the command and spawns nothing.
 const judgeConfig = judgeConfigFromEnv(process.env);
+// Judge and propose share one rolling-24 h research budget (about 30% of the assumed daily quota, research-budget.ts), checked before every run.
+const researchBudget = researchConfigFromEnv(process.env);
 const judgeEmbedder = embedderChoice === "hashing" ? new HashingEmbedder() : { id: embedderIdOf(SEMANTIC_MODEL), dimension: SEMANTIC_MODEL.dimension };
 const judgeTick = reentrant(
   async () => {
-    const r = await judgePendingNarratives(store, brain, judgeEmbedder, { config: judgeConfig, log: console.log, signal: shutdown.signal });
+    const r = await judgePendingNarratives(store, brain, judgeEmbedder, { config: judgeConfig, research: researchBudget, log: console.log, signal: shutdown.signal });
     console.log(`[worker] judge tick: ${r.judged} scored, ${r.refused} refused, ${r.failed} failed${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
   },
   () => console.log("[worker] judge tick skipped: previous judge pass still running"),
+);
+// The propose pass turns Narratives whose Score passes the Rubric's buildability gate into Proposals (docs/architecture.md section 7), right
+// after each judge pass. At most 10 new Proposals a day; ARGUS_PROPOSE_* lower its other caps. A dry run logs the command and spawns nothing.
+// `onCreated` is the one hook for a new Proposal (ticket 11 attaches the Telegram notice there).
+const proposeConfig = proposeConfigFromEnv(process.env);
+const proposeTick = reentrant(
+  async () => {
+    const r = await proposePendingNarratives(store, brain, judgeEmbedder, { config: proposeConfig, research: researchBudget, log: console.log, signal: shutdown.signal });
+    console.log(`[worker] propose tick: ${r.proposed} proposed, ${r.refused} refused, ${r.failed} failed${r.withdrawn ? `, ${r.withdrawn} withdrawn` : ""}${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+  },
+  () => console.log("[worker] propose tick skipped: previous propose pass still running"),
 );
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
@@ -204,6 +220,12 @@ const runTick = () => track(tick, "tick");
 const runBuildTick = () => track(buildTick, "build pass");
 const runIngestTick = () => track(ingestTick, "ingest tick");
 const runJudgeTick = () => track(judgeTick, "judge tick");
+const runProposeTick = () => track(proposeTick, "propose tick");
+// Research is one sequence: score what changed, then propose from the Scores.
+const runResearchTick = async () => {
+  await runJudgeTick();
+  await runProposeTick();
+};
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
@@ -234,7 +256,7 @@ if (once) {
   await runTick();
   await runBuildTick();
   await runIngestTick();
-  await runJudgeTick();
+  await runResearchTick();
   await Promise.race([notifier.idle(), new Promise((r) => setTimeout(r, 10_000))]); // a one-shot run lets its notices go out first
   notifier.close();
   if (!stopping) store.close();
@@ -244,11 +266,11 @@ if (once) {
   void runTick();
   void runBuildTick();
   void runIngestTick();
-  void runJudgeTick();
+  void runResearchTick();
   timer = setInterval(() => {
     void runTick();
     void runBuildTick();
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
-  judgeTimer = setInterval(() => void runJudgeTick(), JUDGE_TICK_MS);
+  judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
 }

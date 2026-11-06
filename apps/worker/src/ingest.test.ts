@@ -9,6 +9,14 @@ import { tempDir } from "../../../packages/core/src/testing/temp.ts";
 import { expect, it } from "vitest";
 
 const JUDGE_ANSWER = JSON.stringify({ scores: { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 }, rationale: "fake answer" });
+const PROPOSE_ANSWER = JSON.stringify({
+  name: "Stock Paws",
+  ticker: "PAWS",
+  tech: "A page that pairs each tokenized stock with a cat verdict",
+  whyNow: "Tokenized stocks went live this week",
+  description: "A playful tracker.",
+  evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"],
+});
 const workerDir = join(import.meta.dirname, "..");
 const fixtures = join(workerDir, "../../packages/core/src/fixtures");
 const ARGUS_PODMAN_BIN = join(workerDir, "../../packages/core/src/testing/fake-podman.mjs");
@@ -27,9 +35,11 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   const resolved = (feeds as Array<{ id: string; path: string }>).map((f) => ({ id: f.id, label: f.id.toUpperCase(), url: `${base}${f.path}` }));
   writeFileSync(feedsPath, JSON.stringify(resolved));
   const db = join(dir, "argus.db");
-  // Always a fake: the one-shot worker also runs the judge pass, which spawns `claude` for every unjudged Narrative the ingest tick just made.
+  // Always a fake: the one-shot worker also runs the judge pass, which spawns `claude` for every unjudged Narrative the ingest tick just made,
+  // and then the propose pass. The fake answers the first five calls as the judge and every later one as the propose task.
   const claudeLog = join(dir, "claude-calls.jsonl");
-  const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: JUDGE_ANSWER, FAKE_CLAUDE_LOG: claudeLog });
+  const sequence = JSON.stringify([...Array.from({ length: 5 }, () => ({})), ...Array.from({ length: 10 }, () => ({ FAKE_CLAUDE_RESULT: PROPOSE_ANSWER }))]);
+  const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: JUDGE_ANSWER, FAKE_CLAUDE_LOG: claudeLog, FAKE_CLAUDE_SEQUENCE: sequence });
   try {
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
@@ -44,7 +54,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     try {
       const narratives = store.listNarratives();
       const claudeCalls = existsSync(claudeLog) ? readFileSync(claudeLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : [];
-      return { code, out, signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)) };
+      return { code, out, signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
     } finally {
       store.close();
     }
@@ -83,8 +93,9 @@ it("the same one-shot tick then judges the new Narratives with ARGUS_CLAUDE_BIN 
   const { code, out, narratives, claudeCalls, scores } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
   expect(code).toBe(0);
   expect(out).toContain("[worker] judge tick: 5 scored, 0 refused, 0 failed");
-  expect(claudeCalls).toHaveLength(5);
-  for (const c of claudeCalls) {
+  const judgeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/judge\n\n"));
+  expect(judgeCalls).toHaveLength(5);
+  for (const c of judgeCalls) {
     expect(c.argv[1]).toMatch(/^\/judge\n\n/);
     expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("haiku");
     expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("");
@@ -95,11 +106,28 @@ it("the same one-shot tick then judges the new Narratives with ARGUS_CLAUDE_BIN 
   expect(new Set(scores.map((s) => s.narrativeId))).toEqual(new Set(narratives.map((n) => n.id)));
 }, 60_000);
 
+it("the same one-shot tick then proposes from the Scores that pass the gate: Proposals through the system actor, within the per-pass cap", async () => {
+  const { code, out, claudeCalls, proposals } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
+  expect(code).toBe(0);
+  expect(out).toContain("[worker] propose tick: 3 proposed, 0 refused, 0 failed");
+  const proposeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/propose\n\n"));
+  expect(proposeCalls).toHaveLength(3);
+  for (const c of proposeCalls) {
+    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("sonnet");
+    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
+  }
+  expect(proposals).toHaveLength(3);
+  expect(proposals.every((p) => p.status === "new" && p.name === "Stock Paws" && p.narrativeId !== null && p.scoreId !== null)).toBe(true);
+  expect(new Set(proposals.map((p) => p.narrativeId)).size).toBe(3);
+}, 60_000);
+
 it("a dry run judges nothing and spawns no claude", async () => {
-  const { code, claudeCalls, scores } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_DRY_RUN: "1" });
+  const { code, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_DRY_RUN: "1" });
   expect(code).toBe(0);
   expect(claudeCalls).toEqual([]);
   expect(scores).toEqual([]);
+  expect(proposals).toEqual([]);
 }, 60_000);
 
 it("a failing feed is logged and the others are still stored", async () => {

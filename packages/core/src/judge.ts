@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { BrainError, type Brain } from "./brain.ts";
 import type { Datastore, NarrativeDetail, NarrativeEmbedder } from "./datastore.ts";
+import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchUsage, type ResearchBudgetConfig } from "./research-budget.ts";
 import { RUBRIC_MAX_SCORE, type DimensionScores, type Rubric, type RubricKey } from "./rubric.ts";
 
 /** Longest rationale accepted; over it the answer is refused, never cut. */
@@ -50,7 +51,7 @@ const TITLE_CHARS = 200;
 const SUMMARY_CHARS = 400;
 
 /** One line of at most `max` characters: whitespace (newlines included) collapsed and control characters dropped, so text cannot start a line of its own. */
-function oneLine(text: string, max: number): string {
+export function oneLine(text: string, max: number): string {
   // oxlint-disable-next-line no-control-regex
   const flat = text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
@@ -107,7 +108,8 @@ export interface JudgeConfig {
 /**
  * Defaults: a pass is 10 runs at most, and a rolling day 150 runs or $2, whichever is reached first. A haiku run of this prompt is
  * about a cent, so $2 is the binding cap only if runs get ten times dearer than expected. The share of the subscription that
- * research (judge plus propose) may use is the separate daily quota of ticket 08; these caps only keep the judge itself bounded.
+ * research (judge plus propose) may use is the shared budget in research-budget.ts, checked before every run; these caps only keep
+ * the judge itself bounded (and, at $2 of the default $6, leave the propose pass the rest).
  */
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2, maxConsecutiveFailures: 3 };
 
@@ -140,7 +142,7 @@ export interface JudgeSummary {
   /** Runs that failed (error, budget, timeout) or whose Score could not be stored. */
   failed: number;
   /** Why the pass ended early, when it did. */
-  stoppedBy?: "daily-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
+  stoppedBy?: "daily-cap" | "research-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
 }
 
 /**
@@ -159,9 +161,10 @@ export async function judgePendingNarratives(
   store: Datastore,
   brain: Brain,
   embedder: NarrativeEmbedder,
-  opts: { now?: Date; config?: Partial<JudgeConfig>; log?: (line: string) => void; signal?: AbortSignal } = {},
+  opts: { now?: Date; config?: Partial<JudgeConfig>; research?: ResearchBudgetConfig; log?: (line: string) => void; signal?: AbortSignal } = {},
 ): Promise<JudgeSummary> {
   const config = { ...DEFAULT_JUDGE_CONFIG, ...opts.config };
+  const research = opts.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG;
   const log = opts.log ?? console.log;
   const clock = () => opts.now ?? new Date();
   const out: JudgeSummary = { judged: 0, refused: 0, failed: 0 };
@@ -181,6 +184,12 @@ export async function judgePendingNarratives(
     if (spent.runs >= config.maxRunsPerDay || spent.costUsd >= config.maxDailyUsd) {
       log(`[worker] judge: daily cap reached (${spent.runs} runs, $${spent.costUsd.toFixed(4)} in 24 h); waiting`);
       return { ...out, stoppedBy: "daily-cap" };
+    }
+    // The shared research budget (judge plus propose, see research-budget.ts): when it is used up, research waits for older runs to age out.
+    const usage = researchUsage(store, clock(), research);
+    if (usage.exhausted) {
+      log(`[worker] judge: research budget reached ($${usage.usedUsd.toFixed(4)} of $${usage.budgetUsd.toFixed(2)} in 24 h, judge and propose together); waiting`);
+      return { ...out, stoppedBy: "research-cap" };
     }
     const narrative = store.getNarrative(candidate.id);
     if (!narrative) continue;

@@ -65,6 +65,12 @@ export interface Proposal {
   workerDeployed: boolean;
   /** When the Proposal goes stale and closes (ISO); null for a state that never expires. Counted from the last change (`updatedAt`). */
   expiresAt: string | null;
+  /** The Narrative the propose pass made this Proposal from; null for a hand-entered one. A Narrative has at most one Proposal. */
+  narrativeId: number | null;
+  /** The Score that passed the gate when it was proposed (the card shows the Narrative's latest, see `latestScore`). */
+  scoreId: number | null;
+  /** When that Narrative started: the card's Narrative age counts from it. */
+  narrativeCreatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -100,6 +106,32 @@ export interface NewProposal {
   ticker: string;
   description: string;
   evidenceLinks: string[];
+}
+
+/** A Proposal made by the propose pass: the fields plus the Narrative and Score it came from. */
+export interface NewResearchProposal extends NewProposal {
+  narrativeId: number;
+  scoreId: number;
+}
+
+/**
+ * The hard cap on new research Proposals in any rolling 24 hours (architecture section 2). `createResearchProposal` enforces it
+ * itself, so no caller can exceed it; config can only lower it.
+ */
+export const MAX_NEW_PROPOSALS_PER_DAY = 10;
+
+export class ProposalCapReachedError extends DomainError {
+  constructor(max: number) {
+    super(`The daily cap of ${max} new Proposals is reached`);
+    this.name = "ProposalCapReachedError";
+  }
+}
+
+export class NarrativeAlreadyProposedError extends DomainError {
+  constructor(narrativeId: number) {
+    super(`Narrative ${narrativeId} already has a Proposal`);
+    this.name = "NarrativeAlreadyProposedError";
+  }
 }
 
 /** Non-domain failures tolerated per command before it is marked `failed`. */
@@ -229,6 +261,11 @@ export function migrate(db: DatabaseSync): void {
   const hadAnnounced = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_announced'").get();
   db.exec("CREATE TABLE IF NOT EXISTS telegram_announced (proposal_id INTEGER PRIMARY KEY, at TEXT NOT NULL)");
   if (!hadAnnounced) db.prepare("INSERT OR IGNORE INTO telegram_announced (proposal_id, at) SELECT id, ? FROM proposals").run(new Date().toISOString());
+  // Proposals from the propose pass (ticket 08) name their Narrative and Score; hand-entered ones leave both null. The unique index is
+  // what makes "each Narrative at most once" true whatever the caller does.
+  ensureColumn(db, "proposals", "narrative_id", "INTEGER");
+  ensureColumn(db, "proposals", "score_id", "INTEGER");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL");
 }
 
 export function slugify(text: string): string {
@@ -261,11 +298,14 @@ interface Row {
   preview_url: string | null;
   build_session_id: string | null;
   worker_deployed: number;
+  narrative_id: number | null;
+  score_id: number | null;
+  narrative_created_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id) AS cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -292,6 +332,9 @@ function toProposal(r: Row): Proposal {
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
     expiresAt: expiresAtFor(r.status, r.updated_at),
+    narrativeId: r.narrative_id,
+    scoreId: r.score_id,
+    narrativeCreatedAt: r.narrative_created_at,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -315,6 +358,9 @@ export type WarRoomStore = Pick<
   | "getRubric"
   | "saveRubric"
   | "listRubricVersions"
+  | "latestScore"
+  | "researchSpendSince"
+  | "researchProposalsSince"
   | "latestSignals"
   | "listNarratives"
   | "getNarrative"
@@ -507,6 +553,30 @@ export class Datastore {
 
   /** Inserts a Proposal with status `new` and its first history row, atomically. Not a status transition. */
   createProposal(input: NewProposal): Proposal {
+    return this.insertProposal(input, new Date(), "Proposal created");
+  }
+
+  /**
+   * WORKER ONLY, and the one way the propose pass makes a Proposal (a notifier hooks in after it, see `proposePendingNarratives`).
+   * Same row and history entry as `createProposal` (status `new`, actor `system`, `updated_at` = now, which Proposal expiry counts
+   * from), linked to its Narrative and Score. The two limits are checked in the same transaction as the insert, so they hold under
+   * any caller: a Narrative gets one Proposal for good (even if it was dismissed), and at most `MAX_NEW_PROPOSALS_PER_DAY` research
+   * Proposals are created in any rolling 24 hours. `maxPerDay` can lower that cap, never raise it. Hand-entered Proposals are not counted.
+   */
+  createResearchProposal(input: NewResearchProposal, opts: { now?: Date; maxPerDay?: number; attachRunId?: number } = {}): Proposal {
+    const now = opts.now ?? new Date();
+    const max = Math.min(MAX_NEW_PROPOSALS_PER_DAY, opts.maxPerDay ?? MAX_NEW_PROPOSALS_PER_DAY);
+    return this.inTransaction(() => {
+      if (this.db.prepare("SELECT 1 FROM proposals WHERE narrative_id = ?").get(input.narrativeId)) throw new NarrativeAlreadyProposedError(input.narrativeId);
+      if (this.researchProposalsSince(new Date(now.getTime() - 24 * 3_600_000).toISOString()) >= max) throw new ProposalCapReachedError(max);
+      const p = this.insertProposal(input, now, `Proposed from Narrative ${input.narrativeId} (Score ${input.scoreId})`, input);
+      // The propose run that made it was recorded against no Proposal (it had none yet); from here its cost is the Proposal's.
+      if (opts.attachRunId !== undefined) this.db.prepare("UPDATE brain_runs SET proposal_id = ? WHERE id = ? AND proposal_id = 0").run(p.id, opts.attachRunId);
+      return this.getProposal(p.id)!;
+    });
+  }
+
+  private insertProposal(input: NewProposal, nowDate: Date, reason: string, link?: { narrativeId: number; scoreId: number }): Proposal {
     const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const base = slugify(input.name) || "proposal";
     const id = this.inTransaction(() => {
@@ -514,12 +584,12 @@ export class Datastore {
       for (let n = 2; this.db.prepare("SELECT 1 FROM proposals WHERE slug = ?").get(slug); n++) {
         slug = `${base}-${n}`;
       }
-      const now = new Date().toISOString();
+      const now = nowDate.toISOString();
       const res = this.db
         .prepare(
           `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
-             description, evidence_links, created_at, updated_at)
-           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             description, evidence_links, narrative_id, score_id, created_at, updated_at)
+           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           slug,
@@ -530,18 +600,24 @@ export class Datastore {
           input.ticker,
           input.description,
           JSON.stringify(evidenceLinks),
+          link?.narrativeId ?? null,
+          link?.scoreId ?? null,
           now,
           now,
         );
       const newId = Number(res.lastInsertRowid);
       this.db
-        .prepare(
-          "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', 'Proposal created', ?)",
-        )
-        .run(newId, now);
+        .prepare("INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', ?, ?)")
+        .run(newId, reason, now);
       return newId;
     });
     return this.getProposal(id)!;
+  }
+
+  /** How many research Proposals (made from a Narrative) were created at or after `since` (ISO), whatever became of them. */
+  researchProposalsSince(since: string): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM proposals WHERE narrative_id IS NOT NULL AND created_at >= ?").get(since) as unknown as { n: number };
+    return row.n;
   }
 
   getProposal(id: number): Proposal | undefined {
@@ -713,6 +789,43 @@ export class Datastore {
     return rows.map(toNarrative);
   }
 
+  /** A Narrative's latest Score (what its Proposal's card shows), or undefined before it has one. */
+  latestScore(narrativeId: number): Score | undefined {
+    const row = this.db.prepare("SELECT * FROM scores WHERE narrative_id = ? ORDER BY id DESC LIMIT 1").get(narrativeId) as unknown as ScoreRow | undefined;
+    return row && toScore(row);
+  }
+
+  /**
+   * WORKER ONLY. The propose delta: Narratives built by `embedder` that gained a Signal at or after `since` (ISO), whose latest Score
+   * has a buildability of at least `gateMin` (the Rubric's hard gate; the caller passes the gate as it is now), that have no Proposal
+   * yet (ever, dismissed ones included) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
+   * or over budget since its latest Score is left out until it is scored again; any other ending (claude missing, a timeout, a rate
+   * limit) leaves it eligible, bounded by the daily run and spend caps.
+   */
+  narrativesToPropose(embedder: NarrativeEmbedder, since: string, gateMin: number, limit: number): Array<{ narrative: Narrative; score: Score }> {
+    const rows = this.db
+      .prepare(
+        `SELECT n.id AS nid, n.title, n.summary, n.signal_count AS n_signal_count, n.created_at AS n_created_at, n.last_signal_at, n.changed_materially_at AS n_changed_materially_at, s.*
+         FROM narratives n
+         JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
+         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND json_extract(s.scores, '$.buildability') >= ?
+           AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)
+           AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
+           AND NOT EXISTS (
+             SELECT 1 FROM brain_runs b
+             WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.created_at >= s.created_at
+               AND b.exit_status IN ('invalid-output', 'budget-exceeded'))
+         ORDER BY s.total DESC, n.id
+         LIMIT ?`,
+      )
+      .all(embedder.id, embedder.dimension, since, gateMin, limit) as unknown as Array<ScoreRow & { nid: number; title: string; summary: string; n_signal_count: number; n_created_at: string; last_signal_at: string; n_changed_materially_at: string }>;
+    return rows.map((r) => ({
+      narrative: toNarrative({ id: r.nid, title: r.title, summary: r.summary, signal_count: r.n_signal_count, created_at: r.n_created_at, last_signal_at: r.last_signal_at, changed_materially_at: r.n_changed_materially_at }),
+      score: toScore(r),
+    }));
+  }
+
   /** WORKER ONLY. Stores a judge result. Scores are only ever added: this is the history. Touches no Proposal. */
   recordScore(score: NewScore): number {
     const res = this.db
@@ -843,9 +956,23 @@ export class Datastore {
 
   /** What the judge has spent since `since` (ISO): runs started and their cost. Refused and failed runs count too. */
   judgeSpendSince(since: string): { runs: number; costUsd: number } {
+    return this.spendSince(["judge"], since);
+  }
+
+  /** What the propose pass has spent since `since` (ISO): runs started and their cost. Refused and failed runs count too. */
+  proposeSpendSince(since: string): { runs: number; costUsd: number } {
+    return this.spendSince(["propose"], since);
+  }
+
+  /** What research (judge plus propose) has spent since `since` (ISO): the figure the shared research budget is held to. */
+  researchSpendSince(since: string): { runs: number; costUsd: number } {
+    return this.spendSince(["judge", "propose"], since);
+  }
+
+  private spendSince(tasks: readonly string[], since: string): { runs: number; costUsd: number } {
     const row = this.db
-      .prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost FROM brain_runs WHERE task = 'judge' AND created_at >= ?")
-      .get(since) as unknown as { runs: number; cost: number };
+      .prepare(`SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?`)
+      .get(...tasks, since) as unknown as { runs: number; cost: number };
     return { runs: row.runs, costUsd: row.cost };
   }
 

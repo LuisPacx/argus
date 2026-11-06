@@ -113,6 +113,17 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reaso
       <dd>{{ p.techOneLiner }}</dd>
       <dt class="font-semibold">Why now</dt>
       <dd>{{ p.whyNow }}</dd>
+      <template v-if="p.score">
+        <dt class="font-semibold">Score <span class="font-normal text-muted">(Rubric version {{ p.score.rubricVersion }})</span></dt>
+        <dd>
+          <ScoreBars :scores="p.score.scores" :total="p.score.total" />
+          <p class="mt-1 text-sm text-muted">{{ p.score.rationale }}</p>
+        </dd>
+      </template>
+      <template v-if="p.narrativeId !== null">
+        <dt class="font-semibold">Narrative</dt>
+        <dd><NuxtLink :to="`/narratives/${p.narrativeId}`">Narrative {{ p.narrativeId }}</NuxtLink> started {{ p.narrativeCreatedAt }}</dd>
+      </template>
       <dt class="font-semibold">Description</dt>
       <dd>{{ p.description }}</dd>
       <dt class="font-semibold">Evidence links</dt>
