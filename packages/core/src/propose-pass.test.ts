@@ -362,14 +362,14 @@ describe("caps", () => {
   });
 
   it("a timed-out run prints no cost but is charged at the propose route's cap, which then stops the pass", async () => {
-    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ propose: { timeoutMs: 300, maxBudgetUsd: 0.5 } }) });
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ propose: { timeoutMs: 3000, maxBudgetUsd: 0.5 } }) }); // 3 s, not 300 ms: the fake must have started (and logged) before the timeout, even under load
     for (let i = 0; i < 4; i++) addScored(store, `Story ${i}`);
     expect(await pass(wide, { research: { dailyQuotaUsd: 1, share: 0.5 } })).toMatchObject({ proposed: 0, failed: 1, stoppedBy: "research-cap" });
     expect(calls()).toHaveLength(1);
     expect(store.brainRunsFor(0)).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }]); // the reported cost stays 0
     expect(await pass(wide, { now: minutes(30), research: { dailyQuotaUsd: 1, share: 0.5 } })).toMatchObject({ stoppedBy: "research-cap" });
     expect(calls()).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("stops when the shared research budget is used up, counting judge spend, and waits for the next day", async () => {
     const { store, pass, calls, lines } = setup();
@@ -430,7 +430,7 @@ describe("the charge rule and the daily caps hold for the propose pass and its c
   it("a collision retry that times out is charged at the propose route's cap, and the research budget then holds the next Narrative", async () => {
     const { store, pass, calls } = setup(
       { FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_MODE: "hang" }]) },
-      { routing: resolveRouting({ propose: { timeoutMs: 300, maxBudgetUsd: 0.5 } }) },
+      { routing: resolveRouting({ propose: { timeoutMs: 3000, maxBudgetUsd: 0.5 } }) },
     );
     addScored(store, "One");
     addScored(store, "Two");
@@ -439,7 +439,7 @@ describe("the charge rule and the daily caps hold for the propose pass and its c
     expect(calls()).toHaveLength(2);
     expect(store.proposeSpendSince(hours(-24).toISOString(), { propose: 0.5 })).toMatchObject({ runs: 2 });
     expect(store.proposeSpendSince(hours(-24).toISOString(), { propose: 0.5 }).chargedUsd).toBeCloseTo(0.0123 + 0.5, 10);
-  });
+  }, 15_000);
 
   it("runs booked before a restart (finished, or left in flight by a crash) still count against the daily run cap", async () => {
     const { store, pass, calls } = setup();

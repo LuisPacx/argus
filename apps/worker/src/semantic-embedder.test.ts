@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Embedder } from "@argus/core";
 import { tempDir } from "../../../packages/core/src/testing/temp.ts";
-import { ModelUnavailableError, SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, fetchModel,missingFiles, modelCacheDir, type ModelSpec } from "./semantic-embedder.ts";
+import { ModelUnavailableError, SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, fetchModel, missingFiles, modelCacheDir, type ModelSpec } from "./semantic-embedder.ts";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const CONTENT: Record<string, string> = { "config.json": "{}", "onnx/model.onnx": "weights" };
@@ -139,6 +139,24 @@ describe("loading the embedder in the background (a cold start must not hold ing
     expect(lines.join("\n")).toContain("cannot reach huggingface.co");
     expect(bg.current()).toBeUndefined();
     expect(d.loads()).toBe(2);
+  });
+
+  it("peek reads the result without starting a load: after a failed load it starts no download nobody awaits", async () => {
+    const d = slowLoad();
+    const bg = backgroundEmbedder(d.load, () => {});
+    expect(bg.peek()).toBeUndefined();
+    expect(d.loads()).toBe(0); // peeking before anything started loads nothing
+    bg.current();
+    d.fail(new ModelUnavailableError("cannot reach huggingface.co"));
+    await bg.settled();
+    expect(bg.peek()).toBeUndefined();
+    expect(d.loads()).toBe(1);
+    const ok = slowLoad();
+    const bg2 = backgroundEmbedder(ok.load, () => {});
+    bg2.current();
+    ok.release(fake("m"));
+    await bg2.settled();
+    expect(bg2.peek()?.id).toBe("m");
   });
 
   it("does not hide a bug: any other error is thrown by the next call", async () => {

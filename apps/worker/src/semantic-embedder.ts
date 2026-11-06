@@ -141,9 +141,12 @@ export async function loadSemanticEmbedder({ dir, spec = SEMANTIC_MODEL, allowFe
  * `current()` never waits: it returns the embedder once it is ready, and otherwise undefined (the caller skips clustering that tick),
  * starting a load if none is running (so the download begins after the first ingest and a failed one is retried on the next call).
  * The skip is logged once. A missing or unreachable model is logged; any other error is a bug and is thrown by the next `current()`.
- * `settled()` resolves when the load in progress, if any, has ended (the one-shot `--once` run waits on it).
+ * `settled()` resolves when the load in progress, if any, has ended (the one-shot `--once` run waits on it, then reads `peek()`).
  */
-export function backgroundEmbedder(load: () => Promise<Embedder>, log: (line: string) => void): { current(): Embedder | undefined; settled(): Promise<void> } {
+export function backgroundEmbedder(
+  load: () => Promise<Embedder>,
+  log: (line: string) => void,
+): { current(): Embedder | undefined; peek(): Embedder | undefined; settled(): Promise<void> } {
   let ready: Embedder | undefined;
   let loading: Promise<void> | undefined;
   let bug: unknown;
@@ -176,6 +179,8 @@ export function backgroundEmbedder(load: () => Promise<Embedder>, log: (line: st
       }
       return undefined;
     },
+    /** The embedder if it is ready, else undefined; never starts a load and never throws (for `--once`, after `settled()`). */
+    peek: () => ready,
     settled: async () => {
       await loading;
     },

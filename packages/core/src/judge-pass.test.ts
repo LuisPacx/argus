@@ -435,14 +435,14 @@ describe("the shared research budget (judge plus propose)", () => {
   });
 
   it("a timed-out run prints no cost but is charged at the judge route's cap, which then stops the pass", async () => {
-    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ judge: { timeoutMs: 300, maxBudgetUsd: 0.2 } }) });
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ judge: { timeoutMs: 3000, maxBudgetUsd: 0.2 } }) }); // 3 s, not 300 ms: the fake must have started (and logged) before the timeout, even under load
     for (let i = 0; i < 4; i++) addNarrative(store, `Story ${i}`);
     expect(await pass({}, { research: budget(0.2) })).toMatchObject({ judged: 0, failed: 1, stoppedBy: "research-cap" });
     expect(calls()).toHaveLength(1);
     expect(store.judgeRunsFor(1)).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }]); // the reported cost stays 0
     expect(await pass({}, { now: minutes(30), research: budget(0.2) })).toMatchObject({ stoppedBy: "research-cap" });
     expect(calls()).toHaveLength(1);
-  });
+  }, 15_000);
 
   describe("a poison Narrative (its judge run always times out)", () => {
     const timeouts = (store: Datastore, narrativeId: number, count: number, at: Date) => {

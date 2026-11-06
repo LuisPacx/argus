@@ -210,7 +210,7 @@ const ingestTick = reentrant(
     if (!embedder && once) {
       // A one-shot run has no next tick: it waits for the model, but only after its ingest is done.
       await semantic?.settled();
-      embedder = semantic?.current();
+      embedder = semantic?.peek(); // not current(): after a failed load that would start a download nobody awaits
     }
     if (!embedder) return; // the model is not ready or unavailable: logged, retried next tick, Signals stay unclustered meanwhile
     const config = embedderChoice === "hashing" ? { joinThreshold: HASHING_JOIN_THRESHOLD } : undefined;
