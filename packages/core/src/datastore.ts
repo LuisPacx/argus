@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { CollisionResult } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
@@ -73,6 +74,8 @@ export interface Proposal {
   scoreId: number | null;
   /** When that Narrative started: the card's Narrative age counts from it. */
   narrativeCreatedAt: string | null;
+  /** The collision checks run when it was proposed (DexScreener, GitHub); null when it was never checked (a hand-entered Proposal). */
+  collisions: CollisionResult | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -124,6 +127,8 @@ export interface Spend {
 export interface NewResearchProposal extends NewProposal {
   narrativeId: number;
   scoreId: number;
+  /** What the collision checks found for its name, ticker and repo name; stored with the Proposal. */
+  collisions?: CollisionResult;
 }
 
 /**
@@ -280,6 +285,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "narrative_id", "INTEGER");
   ensureColumn(db, "proposals", "score_id", "INTEGER");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL");
+  // Collision results (ticket 09): JSON of { dex, github }, each with status, detail, source and check time; NULL means never checked.
+  ensureColumn(db, "proposals", "collision_checks", "TEXT");
 }
 
 export function slugify(text: string): string {
@@ -316,6 +323,7 @@ interface Row {
   narrative_id: number | null;
   score_id: number | null;
   narrative_created_at: string | null;
+  collision_checks: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -351,6 +359,7 @@ function toProposal(r: Row): Proposal {
     narrativeId: r.narrative_id,
     scoreId: r.score_id,
     narrativeCreatedAt: r.narrative_created_at,
+    collisions: r.collision_checks === null ? null : (JSON.parse(r.collision_checks) as CollisionResult),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -580,7 +589,7 @@ export class Datastore {
    * any caller: a Narrative gets one Proposal for good (even if it was dismissed), and at most `MAX_NEW_PROPOSALS_PER_DAY` research
    * Proposals are created in any rolling 24 hours. `maxPerDay` can lower that cap, never raise it. Hand-entered Proposals are not counted.
    */
-  createResearchProposal(input: NewResearchProposal, opts: { now?: Date; maxPerDay?: number; attachRunId?: number } = {}): Proposal {
+  createResearchProposal(input: NewResearchProposal, opts: { now?: Date; maxPerDay?: number; attachRunId?: number | number[] } = {}): Proposal {
     const now = opts.now ?? new Date();
     const max = Math.min(MAX_NEW_PROPOSALS_PER_DAY, opts.maxPerDay ?? MAX_NEW_PROPOSALS_PER_DAY);
     return this.inTransaction(() => {
@@ -588,12 +597,13 @@ export class Datastore {
       if (this.researchProposalsSince(new Date(now.getTime() - 24 * 3_600_000).toISOString()) >= max) throw new ProposalCapReachedError(max);
       const p = this.insertProposal(input, now, `Proposed from Narrative ${input.narrativeId} (Score ${input.scoreId})`, input);
       // The propose run that made it was recorded against no Proposal (it had none yet); from here its cost is the Proposal's.
-      if (opts.attachRunId !== undefined) this.db.prepare("UPDATE brain_runs SET proposal_id = ? WHERE id = ? AND proposal_id = 0").run(p.id, opts.attachRunId);
+      // A retried name has two (the first answer's and the retry's).
+      for (const runId of [opts.attachRunId ?? []].flat()) this.db.prepare("UPDATE brain_runs SET proposal_id = ? WHERE id = ? AND proposal_id = 0").run(p.id, runId);
       return this.getProposal(p.id)!;
     });
   }
 
-  private insertProposal(input: NewProposal, nowDate: Date, reason: string, link?: { narrativeId: number; scoreId: number }): Proposal {
+  private insertProposal(input: NewProposal, nowDate: Date, reason: string, link?: { narrativeId: number; scoreId: number; collisions?: CollisionResult }): Proposal {
     const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const base = slugify(input.name) || "proposal";
     const id = this.inTransaction(() => {
@@ -605,8 +615,8 @@ export class Datastore {
       const res = this.db
         .prepare(
           `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
-             description, evidence_links, narrative_id, score_id, created_at, updated_at)
-           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             description, evidence_links, narrative_id, score_id, collision_checks, created_at, updated_at)
+           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           slug,
@@ -619,6 +629,7 @@ export class Datastore {
           JSON.stringify(evidenceLinks),
           link?.narrativeId ?? null,
           link?.scoreId ?? null,
+          link?.collisions ? JSON.stringify(link.collisions) : null,
           now,
           now,
         );

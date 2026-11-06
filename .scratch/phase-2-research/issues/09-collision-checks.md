@@ -5,10 +5,10 @@
 
 **Blocked by:** 02, 08
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] DexScreener check by name and ticker, and GitHub check by repo name; results are stored and shown on the card
-- [ ] `propose` receives the collision results and retries a colliding name once; a name that still collides is flagged, not hidden
-- [ ] Checks are time-bounded; a failed check shows "unknown", never "clear"
-- [ ] Fixture-based tests; no network
-- [ ] `pnpm check` passes
+- [x] DexScreener check by name and ticker, and GitHub check by repo name; results are stored and shown on the card
+- [x] `propose` receives the collision results and retries a colliding name once; a name that still collides is flagged, not hidden
+- [x] Checks are time-bounded; a failed check shows "unknown", never "clear"
+- [x] Fixture-based tests; no network
+- [x] `pnpm check` passes

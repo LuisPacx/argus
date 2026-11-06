@@ -27,6 +27,7 @@ import {
   judgePendingNarratives,
   killLiveBrainChildren,
   loadRssSources,
+  createCollisionChecker,
   proposeConfigFromEnv,
   proposePendingNarratives,
   PumpPortalSource,
@@ -201,9 +202,16 @@ const judgeTick = reentrant(
 // after each judge pass. At most 10 new Proposals a day; ARGUS_PROPOSE_* lower its other caps. A dry run logs the command and spawns nothing.
 // `onCreated` is the one hook for a new Proposal (ticket 11 attaches the Telegram notice there).
 const proposeConfig = proposeConfigFromEnv(process.env);
+// Each Proposal's name, ticker and repo name are checked against DexScreener and GitHub (keyless public APIs, 15 s bound, backoff after a
+// failure; a check that fails is stored as "unknown"). One checker for the process, so its backoff lasts across passes.
+// ARGUS_DEXSCREENER_URL and ARGUS_GITHUB_SEARCH_URL exist for tests: the test run points both at a dead loopback port.
+const collisionChecker = createCollisionChecker({
+  dexBaseUrl: process.env.ARGUS_DEXSCREENER_URL || undefined,
+  githubUrl: process.env.ARGUS_GITHUB_SEARCH_URL || undefined,
+});
 const proposeTick = reentrant(
   async () => {
-    const r = await proposePendingNarratives(store, brain, judgeEmbedder, { config: proposeConfig, research: researchBudget, log: console.log, signal: shutdown.signal });
+    const r = await proposePendingNarratives(store, brain, judgeEmbedder, { config: proposeConfig, research: researchBudget, log: console.log, signal: shutdown.signal, collisions: collisionChecker });
     console.log(`[worker] propose tick: ${r.proposed} proposed, ${r.refused} refused, ${r.failed} failed${r.withdrawn ? `, ${r.withdrawn} withdrawn` : ""}${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
   },
   () => console.log("[worker] propose tick skipped: previous propose pass still running"),

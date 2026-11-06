@@ -120,6 +120,9 @@ it("the same one-shot tick then proposes from the Scores that pass the gate: Pro
   expect(proposals).toHaveLength(3);
   expect(proposals.every((p) => p.status === "new" && p.name === "Stock Paws" && p.narrativeId !== null && p.scoreId !== null)).toBe(true);
   expect(new Set(proposals.map((p) => p.narrativeId)).size).toBe(3);
+  // The test run points DexScreener and GitHub at a dead port: the checks failed, and a failed check is stored as unknown, never clear.
+  expect(proposals.every((p) => p.collisions?.dex.status === "unknown" && p.collisions.github.status === "unknown")).toBe(true);
+  expect(proposals.every((p) => p.collisions!.dex.source === "DexScreener" && p.collisions!.github.source === "GitHub")).toBe(true);
 }, 60_000);
 
 it("a dry run judges nothing and spawns no claude", async () => {

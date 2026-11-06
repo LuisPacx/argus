@@ -137,6 +137,8 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
           </li>
         </ul>
       </dd>
+      <dt class="font-semibold">Collision checks</dt>
+      <dd><CollisionChecks :collisions="p.collisions" /></dd>
       <dt class="font-semibold">Slug</dt>
       <dd>{{ p.slug }}</dd>
       <dt class="font-semibold" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt>

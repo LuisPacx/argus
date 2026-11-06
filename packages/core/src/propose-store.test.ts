@@ -206,3 +206,40 @@ describe("research spend", () => {
     expect(store.researchSpendSince(hours(-24).toISOString()).chargedUsd).toBeCloseTo(0.32, 10);
   });
 });
+
+describe("collision results on a Proposal", () => {
+  const checked = (status: "clear" | "collides" | "unknown", source: string) => ({ status, detail: `${source} says ${status}`, source, checkedAt: NOW.toISOString() });
+  const results = { dex: checked("collides", "DexScreener"), github: checked("unknown", "GitHub") };
+
+  it("are stored with the Proposal and read back whole, status, check time and source per result", () => {
+    const store = Datastore.open(":memory:");
+    const nid = addNarrative(store);
+    const p = store.createResearchProposal({ ...research(nid, score(store, nid)), collisions: results }, { now: NOW });
+    expect(p.collisions).toEqual(results);
+    expect(store.getProposal(p.id)!.collisions).toEqual(results);
+    expect(store.listProposals()[0]!.collisions).toEqual(results);
+  });
+
+  it("are null, meaning not checked, for a Proposal that was never checked", () => {
+    const store = Datastore.open(":memory:");
+    expect(store.createProposal(fields("Hand")).collisions).toBeNull();
+  });
+
+  it("an older database gains the column, and its Proposals read as not checked", () => {
+    const store = Datastore.open(":memory:");
+    const nid = addNarrative(store);
+    const p = store.createResearchProposal(research(nid, score(store, nid)), { now: NOW });
+    expect(p.collisions).toBeNull();
+  });
+
+  it("the propose runs of a retried name all become the Proposal's cost", () => {
+    const store = Datastore.open(":memory:");
+    const nid = addNarrative(store);
+    const run = () => store.startBrainRun({ proposalId: 0, narrativeId: nid, task: "propose", backend: "claude-code", model: "sonnet" }, NOW);
+    const [a, b] = [run(), run()];
+    store.finishBrainRun(a, { sessionId: null, totalCostUsd: 0.2, exitStatus: "success" });
+    store.finishBrainRun(b, { sessionId: null, totalCostUsd: 0.3, exitStatus: "success" });
+    const p = store.createResearchProposal(research(nid, score(store, nid)), { now: NOW, attachRunId: [a, b] });
+    expect(p.agentCostUsd).toBeCloseTo(0.5, 10);
+  });
+});

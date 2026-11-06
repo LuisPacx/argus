@@ -127,6 +127,26 @@ describe("GET /api/proposals and /api/proposals/:id, the resume command on a bui
   });
 });
 
+describe("GET /api/proposals and /api/proposals/:id, the collision checks on the card", () => {
+  const at = "2026-11-06T10:00:00.000Z";
+  const collisions = {
+    dex: { status: "collides" as const, detail: "ticker CAT is taken", source: "DexScreener", checkedAt: at },
+    github: { status: "unknown" as const, detail: "timed out", source: "GitHub", checkedAt: at },
+  };
+  it("carry every result with its status, source and check time, an unknown staying unknown", () => {
+    const nid = 1;
+    store.recordSignals([{ id: "s:1", sourceId: "rss:a", sourceLabel: "Feed", title: "t", summary: "", url: "https://a.example/1", publishedAt: at }]);
+    store.createNarrative(store.unclusteredSignals(5)[0]!, [1, 0], at, { id: "e", dimension: 2 });
+    const sid = store.recordScore({ narrativeId: nid, rubricVersion: 1, scores: { buildability: 8 }, total: 8, rationale: "r", signalCount: 1, changedMateriallyAt: at, createdAt: at });
+    const made = store.createResearchProposal({ ...proposal, evidenceLinks: ["https://e.example/1", "https://e.example/2", "https://e.example/3"], narrativeId: nid, scoreId: sid, collisions });
+    expect(one({ params: { id: String(made.id) }, body: undefined })).toMatchObject({ collisions });
+    expect(list({ params: {}, body: undefined }).find((p) => p.id === made.id)).toMatchObject({ collisions });
+  });
+  it("are null for a Proposal that was never checked, so the card says so instead of showing clear", () => {
+    expect(one({ params: { id: String(seed("new")) }, body: undefined })).toMatchObject({ collisions: null });
+  });
+});
+
 describe("PUT /api/proposals/:id/spec, UI payload { content, baseHash }", () => {
   it("saves and returns the new hash", async () => {
     const id = seed("spec-drafted");

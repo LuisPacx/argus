@@ -149,6 +149,7 @@ async function submit() {
             <a :href="link" target="_blank" rel="noopener">{{ link }}</a>
           </li>
         </ul>
+        <CollisionChecks class="mt-2" :collisions="p.collisions" />
         <p v-if="p.expiresAt" class="mt-2 text-sm text-muted" data-test="time-left">{{ timeLeft(p.expiresAt) }}</p>
         <p v-if="p.brainRunInFlightSince" class="mt-2 text-sm text-amber-500">
           Brain run in flight since {{ p.brainRunInFlightSince }}. If the worker is not running, it was interrupted and its spend is unknown; restart the worker to flag it.

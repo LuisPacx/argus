@@ -3,7 +3,10 @@ import { safeUrl, stripHtml } from "./rss.ts";
 import type { Signal, Source } from "./source.ts";
 
 /** GitHub's public search API, unauthenticated: 10 requests a minute per IP (ADR 0008). One poll is one request. */
-const API_BASE = "https://api.github.com/search/repositories";
+export const GITHUB_SEARCH_URL = "https://api.github.com/search/repositories";
+/** The headers GitHub requires of an unauthenticated request; shared with the collision checks. */
+export const GITHUB_API_HEADERS = { accept: "application/vnd.github+json", "user-agent": "argus-ingest", "x-github-api-version": "2022-11-28" };
+const API_BASE = GITHUB_SEARCH_URL;
 const API_TIMEOUT_MS = 10_000;
 const API_MAX_BYTES = 2 * 1024 * 1024;
 /** "Trending" is: created within this many days, most starred first. */
@@ -49,7 +52,7 @@ export class GitHubTrendingSource implements Source {
         what: "GitHub",
         timeoutMs: opts.timeoutMs ?? API_TIMEOUT_MS,
         maxBytes: API_MAX_BYTES,
-        headers: { accept: "application/vnd.github+json", "user-agent": "argus-ingest", "x-github-api-version": "2022-11-28" },
+        headers: GITHUB_API_HEADERS,
       });
   }
 

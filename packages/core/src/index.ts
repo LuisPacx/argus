@@ -10,6 +10,7 @@ export * from "./spec-drafting.ts";
 export * from "./judge.ts";
 export * from "./research-budget.ts";
 export * from "./propose.ts";
+export * from "./collision.ts";
 
 export * from "./disclosure.ts";
 export * from "./build-runner.ts";

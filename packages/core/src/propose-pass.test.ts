@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
+import type { CollisionChecker, CollisionCheck, CollisionResult } from "./collision.ts";
 import { Datastore, type NarrativeEmbedder, type Proposal } from "./datastore.ts";
 import { expireStaleProposals } from "./expiry.ts";
 import { proposePendingNarratives, type ProposeConfig } from "./propose.ts";
@@ -42,7 +43,7 @@ function setup(env: Record<string, string> = {}, brainOpts: ConstructorParameter
   const calls = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : []);
   const pass = (
     config: Partial<ProposeConfig> = {},
-    over: { now?: Date; signal?: AbortSignal; research?: ResearchBudgetConfig; onCreated?: (p: Proposal) => void; embedder?: NarrativeEmbedder } = {},
+    over: { now?: Date; signal?: AbortSignal; research?: ResearchBudgetConfig; onCreated?: (p: Proposal) => void; embedder?: NarrativeEmbedder; collisions?: CollisionChecker } = {},
   ) =>
     proposePendingNarratives(store, brain, over.embedder ?? CUR, {
       now: over.now ?? NOW,
@@ -51,6 +52,7 @@ function setup(env: Record<string, string> = {}, brainOpts: ConstructorParameter
       signal: over.signal,
       research: over.research,
       onCreated: over.onCreated ?? ((p) => created.push(p)),
+      collisions: over.collisions,
     });
   return { store, brain, pass, calls, lines, created };
 }
@@ -477,5 +479,129 @@ describe("only the current embedder's recent Narratives", () => {
     addScored(store, "Old", { at: hours(-100) });
     expect(await pass()).toMatchObject({ proposed: 0 });
     expect(calls()).toHaveLength(0);
+  });
+});
+
+describe("collision checks in the propose pass", () => {
+  const AT = NOW.toISOString();
+  const check = (status: CollisionCheck["status"], source: string): CollisionCheck => ({ status, detail: `${source} ${status}`, source, checkedAt: AT });
+  const result = (dex: CollisionCheck["status"], github: CollisionCheck["status"] = "clear"): CollisionResult => ({ dex: check(dex, "DexScreener"), github: check(github, "GitHub") });
+  /** A checker that answers by the name proposed and records what it was asked. */
+  const checker = (answer: (name: string) => CollisionResult | Error) => {
+    const asked: string[] = [];
+    const c: CollisionChecker = {
+      async check({ name }) {
+        asked.push(name);
+        const r = answer(name);
+        if (r instanceof Error) throw r;
+        return r;
+      },
+    };
+    return { c, asked };
+  };
+  const RETRY = JSON.stringify({ name: "Paw Street", ticker: "PAWST", tech: "t", whyNow: "w", description: "d", evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"] });
+  const retrySequence = { FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_RESULT: RETRY }]) };
+
+  it("stores the results with the Proposal, from a name that is clear, with one run", async () => {
+    const { store, pass, calls } = setup();
+    addScored(store, "One");
+    const { c, asked } = checker(() => result("clear"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(asked).toEqual(["Stock Paws"]);
+    expect(calls()).toHaveLength(1);
+    expect(store.listProposals()[0]!.collisions).toEqual(result("clear"));
+  });
+
+  it("retries a colliding name once, tells the model what was rejected, and stores the retry's name and results", async () => {
+    const { store, pass, calls } = setup(retrySequence);
+    addScored(store, "One");
+    const { c, asked } = checker((name) => (name === "Stock Paws" ? result("collides") : result("clear")));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1, refused: 0 });
+    expect(asked).toEqual(["Stock Paws", "Paw Street"]);
+    expect(calls()).toHaveLength(2);
+    expect(calls()[0]!.argv[1]).not.toContain("was rejected");
+    expect(calls()[1]!.argv[1]).toContain('name "Stock Paws" with ticker "PAWS", was rejected because');
+    const p = store.listProposals()[0]!;
+    expect(p).toMatchObject({ name: "Paw Street", ticker: "PAWST", collisions: result("clear") });
+    expect(store.brainRunsFor(p.id)).toHaveLength(2); // both runs are the Proposal's cost
+  });
+
+  it("flags a name that still collides after the retry, and never hides the Proposal", async () => {
+    const { store, pass, calls } = setup(retrySequence);
+    addScored(store, "One");
+    const { c } = checker(() => result("collides", "collides"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(2); // once, not again
+    expect(store.listProposals()[0]!).toMatchObject({ name: "Paw Street", collisions: result("collides", "collides") });
+  });
+
+  it("keeps the first answer, flagged, when the retry's answer is unusable", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_RESULT: "garbage" }]) });
+    addScored(store, "One");
+    const { c } = checker(() => result("collides"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(2);
+    expect(store.listProposals()[0]!).toMatchObject({ name: "Stock Paws", collisions: result("collides") });
+  });
+
+  it("keeps the first answer, flagged, when the retry run fails", async () => {
+    const { store, pass } = setup({ FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_MODE: "failure" }]) });
+    addScored(store, "One");
+    const { c } = checker(() => result("collides"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(store.listProposals()[0]!).toMatchObject({ name: "Stock Paws", collisions: result("collides") });
+  });
+
+  it("does not retry an unknown: it is stored as unknown, never clear", async () => {
+    const { store, pass, calls } = setup();
+    addScored(store, "One");
+    const { c } = checker(() => result("unknown", "unknown"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(1);
+    const stored = store.listProposals()[0]!.collisions!;
+    expect([stored.dex.status, stored.github.status]).toEqual(["unknown", "unknown"]);
+  });
+
+  it("a checker that throws leaves the Proposal unchecked (null), not clear", async () => {
+    const { store, pass, lines } = setup();
+    addScored(store, "One");
+    const { c } = checker(() => new Error("boom"));
+    expect(await pass({}, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(store.listProposals()[0]!.collisions).toBeNull();
+    expect(lines.join("\n")).toMatch(/collision check failed: boom/);
+  });
+
+  it("without a checker nothing is checked", async () => {
+    const { store, pass } = setup();
+    addScored(store, "One");
+    await pass();
+    expect(store.listProposals()[0]!.collisions).toBeNull();
+  });
+
+  it("the retry counts against the daily run cap: at the cap the first answer is kept, flagged", async () => {
+    const { store, pass, calls } = setup(retrySequence);
+    addScored(store, "One");
+    const { c } = checker(() => result("collides"));
+    expect(await pass({ maxRunsPerDay: 1 }, { collisions: c })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(1);
+    expect(store.listProposals()[0]!).toMatchObject({ name: "Stock Paws", collisions: result("collides") });
+  });
+
+  it("the retry counts against the research budget: when it is used up the first answer is kept, flagged", async () => {
+    const { store, pass, calls } = setup(retrySequence);
+    addScored(store, "One");
+    const { c } = checker(() => result("collides"));
+    // one propose run (0.0123) is over a $0.01 budget
+    expect(await pass({}, { collisions: c, research: { dailyQuotaUsd: 0.02, share: 0.5 } })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(1);
+    expect(store.listProposals()[0]!.collisions).toEqual(result("collides"));
+  });
+
+  it("a retry run is charged like any propose run: both show in the day's propose spend", async () => {
+    const { store, pass } = setup(retrySequence);
+    addScored(store, "One");
+    const { c } = checker((name) => (name === "Stock Paws" ? result("collides") : result("clear")));
+    await pass({}, { collisions: c });
+    expect(store.proposeSpendSince(hours(-24).toISOString()).runs).toBe(2);
   });
 });
