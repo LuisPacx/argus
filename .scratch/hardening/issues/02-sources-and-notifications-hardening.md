@@ -14,12 +14,14 @@
 
 **Blocked by:** none. Shares `apps/worker/src/main.ts` and `datastore.ts` with ticket 01 (different regions).
 
-**Status:** open
+**Status:** done
 
-- [ ] A 403 with `x-ratelimit-remaining: 0` and `x-ratelimit-reset` backs off until the reset (clamped); ADR 0008 says so
-- [ ] Collision GitHub search uses `per_page=100` and `fork:true`; the architecture doc is corrected
-- [ ] Atom with `<item` in CDATA parses as Atom; Atom `<id>` is trimmed; no-guid dedup done or skipped with a note
-- [ ] The `ARGUS_INGEST_STANDING` exact-`0` rule is documented
-- [ ] Proposal expiry derives from `status_history.at`; a Spec edit does not extend it
-- [ ] A spawn-level test proves `.env` is skipped under `ARGUS_NO_DOTENV`, without an explicit Telegram URL, via the startup log
-- [ ] `pnpm check` passes
+**Notes:** no-guid dedup done (identity is guid, else title, else link). Item 5: a Spec save only happens in `spec-drafted`, which never expires, so the test simulates the later write with a raw `updated_at` update. Item 6: `main.ts` reads an optional `ARGUS_ENV_FILE` (default the repo-root `.env`) so the spawn test can point the worker at a temp `.env` holding a token instead of writing into the repo root.
+
+- [x] A 403 with `x-ratelimit-remaining: 0` and `x-ratelimit-reset` backs off until the reset (clamped); ADR 0008 says so
+- [x] Collision GitHub search uses `per_page=100` and `fork:true`; the architecture doc is corrected
+- [x] Atom with `<item` in CDATA parses as Atom; Atom `<id>` is trimmed; no-guid dedup done or skipped with a note
+- [x] The `ARGUS_INGEST_STANDING` exact-`0` rule is documented
+- [x] Proposal expiry derives from `status_history.at`; a Spec edit does not extend it
+- [x] A spawn-level test proves `.env` is skipped under `ARGUS_NO_DOTENV`, without an explicit Telegram URL, via the startup log
+- [x] `pnpm check` passes

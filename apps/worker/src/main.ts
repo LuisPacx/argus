@@ -97,8 +97,11 @@ const sandbox = new PodmanSandbox({
 // those two names are taken from the file; a variable that is set, even empty, wins over it). Missing config turns notifications
 // off with one warning. Sending is queued and asynchronous, so Telegram being slow or down never holds up a tick or a Build.
 // ARGUS_TELEGRAM_URL and ARGUS_NO_DOTENV exist for tests: the test run sets both, so no test worker reads the Operator's .env.
+// ARGUS_ENV_FILE names another file than the repo-root .env (tests point it at a file holding a token, to prove ARGUS_NO_DOTENV skips it).
+const envFile = process.env.ARGUS_ENV_FILE || join(repoRoot, ".env");
+if (process.env.ARGUS_NO_DOTENV) console.log("[worker] .env skipped (ARGUS_NO_DOTENV)");
 const notifier = createNotifier({
-  env: telegramEnv(process.env, join(repoRoot, ".env")),
+  env: telegramEnv(process.env, envFile),
   dryRun,
   log: console.log,
   baseUrl: process.env.ARGUS_TELEGRAM_URL || undefined,
@@ -165,7 +168,8 @@ const buildTick = reentrant(
 // No brain or LLM is involved. The feed list is re-read each pass, so editing it needs no restart. A dry run polls nothing.
 const rssFeedsPath = process.env.ARGUS_RSS_FEEDS || join(repoRoot, "config", "rss-feeds.json");
 // Google Trends and DexScreener trending (the standing Sources) also run on this tick. They are built once so their backoff
-// outlives a pass. ARGUS_INGEST_STANDING=0 is the one switch that turns both off (tests do; nothing else disables them).
+// outlives a pass. ARGUS_INGEST_STANDING=0 is the one switch that turns both off (tests do; nothing else disables them), and only the
+// exact string "0" does: "false", "off", "no" and the empty string leave them on.
 // ARGUS_TRENDS_URL and ARGUS_DEXSCREENER_URL exist for tests and local mirrors; empty or unset means the real endpoint.
 const standingOn = process.env.ARGUS_INGEST_STANDING !== "0";
 const trendsUrl = process.env.ARGUS_TRENDS_URL || undefined;
@@ -182,7 +186,7 @@ const standingSources: Source[] = standingOn
 // ARGUS_PUMPPORTAL_URL exists for tests; empty or unset means the real endpoint.
 const pumpPortal = standingOn && !once && !dryRun ? new PumpPortalSource({ url: process.env.ARGUS_PUMPPORTAL_URL || undefined, log: console.error }) : undefined;
 if (pumpPortal) standingSources.push(pumpPortal);
-console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0)"}`);
+console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0; only the exact string 0 turns them off)"}`);
 // Narratives are clustered with a semantic model run in this process (docs/adr/0007), loaded in the background after the first ingest,
 // which downloads it from huggingface.co if `pnpm models:fetch` has not. Ingest never waits for it: until the model is ready (or if it
 // cannot be had) clustering is skipped (logged) and the Signals stay unclustered; it never falls back to the lexical embedder.

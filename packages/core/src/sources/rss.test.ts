@@ -66,6 +66,26 @@ describe("RssSource", () => {
     expect(a!.id).not.toBe(b!.id);
   });
 
+  it("parses an Atom feed as Atom even when CDATA holds a literal <item, and trims the Atom <id>", async () => {
+    const xml = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>f</title>
+      <entry><title>Atom One</title><link href="https://a.example/1"/><id>
+        urn:uuid:1
+      </id><summary><![CDATA[uses <item> tags <item>]]></summary><updated>2026-06-14T09:00:00Z</updated></entry></feed>`;
+    const signals = await source(xml).poll();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({ title: "Atom One", url: "https://a.example/1", summary: "uses  tags" });
+    const spaced = await source(xml.replace("urn:uuid:1", "  urn:uuid:1")).poll();
+    const tight = await source(xml.replace(/>\s*urn:uuid:1\s*</, ">urn:uuid:1<")).poll();
+    expect(spaced[0]!.id).toBe(tight[0]!.id);
+  });
+
+  it("an item without a guid dedupes on title and source, so a changing link is the same Signal", async () => {
+    const feed = (link: string) => `<rss><channel><item><title>Same story</title><link>${link}</link></item></channel></rss>`;
+    const [a] = await source(feed("https://n.example/a?utm=1")).poll();
+    const [b] = await source(feed("https://n.example/a?utm=2")).poll();
+    expect(a!.id).toBe(b!.id);
+  });
+
   it("returns no Signals for a feed with no items", async () => {
     expect(await source('<?xml version="1.0"?><rss version="2.0"><channel><title>x</title></channel></rss>').poll()).toEqual([]);
   });

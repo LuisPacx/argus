@@ -35,7 +35,7 @@ export const GITHUB_SOURCE = "GitHub";
 /** The whole of one check (every request in it) is cut off after this long. */
 export const COLLISION_TIMEOUT_MS = 15_000;
 const MAX_DETAIL_CHARS = 200;
-const GITHUB_PER_PAGE = 30;
+const GITHUB_PER_PAGE = 100;
 /** Above these the name (a model's answer is at most 40 and 10 characters) is not put in a search. GitHub repo names are at most 100. */
 const MAX_NAME_QUERY_CHARS = 100;
 const MAX_TICKER_QUERY_CHARS = 30;
@@ -151,7 +151,7 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
       const slug = slugify(name);
       if (!slug) return { status: "unknown" as const, detail: "the name has no letters or digits to make a repo name from" };
       if (slug.length > MAX_REPO_NAME_CHARS) return { status: "unknown" as const, detail: "the repo name is too long to search for" };
-      const q = new URLSearchParams({ q: `${slug} in:name`, per_page: String(GITHUB_PER_PAGE) });
+      const q = new URLSearchParams({ q: `${slug} in:name fork:true`, per_page: String(GITHUB_PER_PAGE) });
       const data = JSON.parse(await githubFetch(`${githubUrl}?${q}`)) as unknown;
       const items = typeof data === "object" && data !== null && "items" in data ? (data as { items: unknown }).items : undefined;
       if (!Array.isArray(items)) throw new Error("unexpected search response (no items array)");
@@ -162,7 +162,7 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
         if (repo.toLowerCase() === slug) return { status: "collides" as const, detail: oneLine(`a repo named ${slug} exists: ${full}`) };
       }
       // No match on page 1 is "clear" only when page 1 was the whole answer. Search matches names loosely and ranks by best match, so an
-      // exact-name repo can sit beyond the first 30, and `incomplete_results` says GitHub itself did not finish the search.
+      // exact-name repo can sit beyond the first page, and `incomplete_results` says GitHub itself did not finish the search.
       const total = (data as { total_count?: unknown }).total_count;
       if (typeof total !== "number" || !Number.isFinite(total)) throw new Error("unexpected search response (no total_count)");
       if ((data as { incomplete_results?: unknown }).incomplete_results !== false) return { status: "unknown" as const, detail: "GitHub reports incomplete search results and none matches" };

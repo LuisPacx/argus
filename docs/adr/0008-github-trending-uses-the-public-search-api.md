@@ -10,6 +10,6 @@ The Source is `GitHubTrendingSource` (`packages/core/src/sources/github-trending
 
 How it can break:
 - The response layout changes (no `items` array, or none of the returned entries has a readable `full_name`): the poll throws and logs `[github-trending] layout check failed`, and the ingest tick reports the Source as failed. It never silently yields zero Signals. An honestly empty result (no entries) is not an error.
-- Rate limiting or an outage: 403, 429 and 5xx are errors; backoff applies.
+- Rate limiting or an outage: 403, 429 and 5xx are errors; backoff applies. GitHub's primary limit answers 403 with `x-ratelimit-remaining: 0` and `x-ratelimit-reset` (epoch seconds) instead of Retry-After; `timedFetchText` turns that into `retryAfterMs` up to the reset, clamped to the same hour as Retry-After.
 - The search index lags, and `sort=stars` can show repositories with bought stars. Signals are evidence only; the judge decides.
 - Search returns at most 1,000 results and we read 30, which is enough for a first page.

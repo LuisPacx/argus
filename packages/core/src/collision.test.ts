@@ -101,7 +101,8 @@ describe("collision checks, GitHub by repo name", () => {
     await checker.check({ name: "Stock Paws!", ticker: "PAWS" });
     const gh = urls.filter((u) => u.includes("/search/repositories"));
     expect(gh).toHaveLength(1);
-    expect(new URL(gh[0]!).searchParams.get("q")).toBe("stock-paws in:name");
+    expect(new URL(gh[0]!).searchParams.get("q")).toBe("stock-paws in:name fork:true");
+    expect(new URL(gh[0]!).searchParams.get("per_page")).toBe("100");
   });
 
   it("is clear when no repository has exactly that name", async () => {

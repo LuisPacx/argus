@@ -327,11 +327,13 @@ interface Row {
   score_id: number | null;
   narrative_created_at: string | null;
   collision_checks: string | null;
+  /** When the latest transition into the current status happened; null only for a row with no history. */
+  status_since: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT MAX(at) FROM status_history h WHERE h.proposal_id = p.id AND h.to_status = p.status) AS status_since,(SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
 function toProposal(r: Row): Proposal {
   return {
@@ -359,7 +361,7 @@ function toProposal(r: Row): Proposal {
     mint: r.mint,
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
-    expiresAt: expiresAtFor(r.status, r.updated_at),
+    expiresAt: expiresAtFor(r.status, r.status_since ?? r.updated_at),
     narrativeId: r.narrative_id,
     scoreId: r.score_id,
     narrativeCreatedAt: r.narrative_created_at,

@@ -69,6 +69,43 @@ describe("timedFetchText", () => {
     });
   });
 
+  describe("GitHub's primary rate limit (403 with x-ratelimit-reset, epoch seconds)", () => {
+    const NOW = Date.parse("2026-11-05T12:00:00Z");
+    const limited = async (headers: Record<string, string>, status = 403) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      try {
+        let ms: number | undefined;
+        await withFetch(new Response("", { status, headers }), async () => {
+          ms = ((await get().catch((e: unknown) => e)) as HttpError).retryAfterMs;
+        });
+        return ms;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    const reset = (secondsFromNow: number) => String(NOW / 1_000 + secondsFromNow);
+
+    it("backs off until the reset", async () => {
+      expect(await limited({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset(300) })).toBe(300_000);
+    });
+
+    it("clamps a reset far in the future to an hour, and a past one to no wait", async () => {
+      expect(await limited({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset(86_400) })).toBe(60 * 60_000);
+      expect(await limited({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset(-30) })).toBe(0);
+    });
+
+    it("does not treat a 403 that still has quota, or a reset that is not a number, as a rate limit", async () => {
+      expect(await limited({ "x-ratelimit-remaining": "7", "x-ratelimit-reset": reset(300) })).toBeUndefined();
+      expect(await limited({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": "soon" })).toBeUndefined();
+      expect(await limited({ "x-ratelimit-reset": reset(300) })).toBeUndefined();
+    });
+
+    it("prefers Retry-After when both are sent", async () => {
+      expect(await limited({ "retry-after": "10", "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset(300) })).toBe(10_000);
+    });
+  });
+
   it("sends the given headers", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
     try {

@@ -181,7 +181,7 @@ it("the worker logs at boot which Sources are enabled", async () => {
   const on = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
   expect(on.out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending, github:trending");
   const off = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, {});
-  expect(off.out).toContain("[worker] ingest sources: RSS catalog (standing Sources off: ARGUS_INGEST_STANDING=0)");
+  expect(off.out).toContain("[worker] ingest sources: RSS catalog (standing Sources off: ARGUS_INGEST_STANDING=0; only the exact string 0 turns them off)");
   expect(off.signals.map((s) => s.sourceId)).toEqual(["rss:other"]);
 }, 60_000);
 

@@ -44,7 +44,8 @@ export class RssSource implements Source {
   }
 
   private normalize(item: RssItem): Signal {
-    const identity = item.guid || item.link || item.title;
+    // Without a guid the title (with the Source id in the Signal id) is the identity: links often carry changing tracking parameters.
+    const identity = item.guid || item.title || item.link;
     return {
       id: `${this.id}:${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
       sourceId: this.id,
@@ -72,8 +73,8 @@ export interface RssItem {
 /** Linear in the input: each `<item>` is found with indexOf, and an item with no close ends the scan. */
 export function parseRssItems(xml: string): RssItem[] {
   const items: RssItem[] = [];
-  // Atom is told by having <entry> and no <item>; both are bounded the same way.
-  const isAtom = findOpen(xml, "item", 0) === undefined && findOpen(xml, "entry", 0) !== undefined;
+  // Atom is told by the root element (<feed>, against <rss> or <rdf:RDF>), never by a substring: a CDATA body may hold a literal <item.
+  const isAtom = /^(?:[\w.-]+:)?feed$/i.test(rootName(xml));
   const el = isAtom ? "entry" : "item";
   let at = 0;
   while (items.length < FEED_MAX_ITEMS) {
@@ -91,7 +92,7 @@ export function parseRssItems(xml: string): RssItem[] {
         title,
         link,
         description: tag(block, "summary") || tag(block, "content"),
-        guid: tag(block, "id") || undefined,
+        guid: tag(block, "id").trim() || undefined,
         pubDate: tag(block, "published") || tag(block, "updated") || undefined,
         titleIsHtml: /^x?html$/i.test(attr(openTag(block, "title"), "type")),
         block,
@@ -104,6 +105,27 @@ export function parseRssItems(xml: string): RssItem[] {
     items.push({ title, link, description: tag(block, "description"), guid: tag(block, "guid") || undefined, pubDate: tag(block, "pubDate") || undefined, block });
   }
   return items;
+}
+
+/** The name of the first element, skipping the XML declaration, comments and the doctype. Linear. */
+function rootName(xml: string): string {
+  let i = 0;
+  for (;;) {
+    i = xml.indexOf("<", i);
+    if (i === -1) return "";
+    if (xml.startsWith("<!--", i)) {
+      const end = xml.indexOf("-->", i + 4);
+      if (end === -1) return "";
+      i = end + 3;
+    } else if (xml[i + 1] === "?" || xml[i + 1] === "!") {
+      const end = xml.indexOf(">", i);
+      if (end === -1) return "";
+      i = end + 1;
+    } else {
+      const m = /^[^\s/>]*/.exec(xml.slice(i + 1, i + 101));
+      return m ? m[0] : "";
+    }
+  }
 }
 
 /** Finds `<name ...>` (not `<names>`) at or after `from`; returns where the tag and its content start. */

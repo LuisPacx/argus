@@ -1,6 +1,9 @@
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Datastore } from "./datastore.ts";
 import { expireStaleProposals } from "./expiry.ts";
+import { tempDir } from "./testing/temp.ts";
 
 const HOUR = 3_600_000;
 const input = {
@@ -58,6 +61,23 @@ describe("expiry (architecture section 3)", () => {
     ds.finishBrainRun(runId, { sessionId: null, totalCostUsd: 0, exitStatus: "error" });
     expect(expireStaleProposals(ds, after(since, 24 * 30))).toBe(1);
     expect(ds.getProposal(p.id)!.status).toBe("closed");
+  });
+
+  it("counts from the latest transition into the current status: a later write (a Spec edit) does not extend a Proposal's life", () => {
+    const file = join(tempDir("argus-expiry-"), "argus.db");
+    const ds = Datastore.open(file);
+    const p = ds.createProposal(input);
+    ds.transition(p.id, "shortlisted", "operator");
+    const before = ds.getProposal(p.id)!;
+    // Any later write moves proposals.updated_at (the Spec save does); do the same from outside, a day on.
+    const later = after(before.updatedAt, 24).toISOString();
+    const raw = new DatabaseSync(file);
+    raw.prepare("UPDATE proposals SET updated_at = ? WHERE id = ?").run(later, p.id);
+    raw.close();
+    const edited = ds.getProposal(p.id)!;
+    expect(edited.updatedAt).toBe(later);
+    expect(edited.expiresAt).toBe(before.expiresAt);
+    expect(expireStaleProposals(ds, after(before.updatedAt, 168))).toBe(1);
   });
 
   it("exposes when each Proposal expires so the card can show the time left", () => {

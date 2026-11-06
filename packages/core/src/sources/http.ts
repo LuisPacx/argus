@@ -1,6 +1,6 @@
 export type FetchText = (url: string) => Promise<string>;
 
-/** A non-2xx answer. `retryAfterMs` is the server's Retry-After (whole seconds only) when it sent one. */
+/** A non-2xx answer. `retryAfterMs` is the server's Retry-After, or the wait until GitHub's `x-ratelimit-reset`, when it sent one. */
 export class HttpError extends Error {
   readonly status: number;
   readonly retryAfterMs?: number;
@@ -43,10 +43,18 @@ async function readLimited(res: Response, maxBytes: number, what: string): Promi
 /** A server's Retry-After is never trusted for longer than this. */
 export const MAX_RETRY_AFTER_MS = 60 * 60_000;
 
+/** GitHub's primary rate limit sends no Retry-After: it answers 403 with `x-ratelimit-remaining: 0` and `x-ratelimit-reset` (epoch seconds). Clamped like Retry-After. */
+function rateLimitResetMs(res: Response): number | undefined {
+  if (res.headers.get("x-ratelimit-remaining")?.trim() !== "0") return undefined;
+  const reset = res.headers.get("x-ratelimit-reset")?.trim();
+  if (!reset || !/^\d{1,12}$/.test(reset)) return undefined;
+  return Math.min(Math.max(Number(reset) * 1_000 - Date.now(), 0), MAX_RETRY_AFTER_MS);
+}
+
 /** Retry-After is whole seconds or an HTTP-date. Either way the result is within [0, MAX_RETRY_AFTER_MS]; anything else is ignored. */
 function retryAfterMs(res: Response): number | undefined {
   const raw = res.headers.get("retry-after")?.trim();
-  if (!raw) return undefined;
+  if (!raw) return rateLimitResetMs(res);
   let ms: number;
   if (/^\d{1,9}$/.test(raw)) ms = Number(raw) * 1_000;
   else {

@@ -9,7 +9,7 @@ export const EXPIRY_MS: Partial<Record<ProposalStatus, number>> = {
   shortlisted: 7 * 24 * HOUR_MS,
 };
 
-/** When a Proposal that entered `status` at `since` (ISO) goes stale, as an ISO time; null for a state that never expires. */
+/** When a Proposal that entered `status` at `since` (ISO, the `status_history.at` of that transition) goes stale, as an ISO time; null for a state that never expires. */
 export function expiresAtFor(status: ProposalStatus, since: string): string | null {
   const ttl = EXPIRY_MS[status];
   return ttl === undefined ? null : new Date(new Date(since).getTime() + ttl).toISOString();
