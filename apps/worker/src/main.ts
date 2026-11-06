@@ -21,10 +21,12 @@ import {
   ingestSources,
   killLiveBrainChildren,
   loadRssSources,
+  PumpPortalSource,
   revisePendingSpecs,
   runPendingBuilds,
   sweepStaleSeals,
   type BuildRunnerOptions,
+  type Source,
 } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
 import { lazyEmbedder, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
@@ -115,12 +117,17 @@ const rssFeedsPath = process.env.ARGUS_RSS_FEEDS || join(repoRoot, "config", "rs
 const standingOn = process.env.ARGUS_INGEST_STANDING !== "0";
 const trendsUrl = process.env.ARGUS_TRENDS_URL || undefined;
 const dexUrl = process.env.ARGUS_DEXSCREENER_URL || undefined;
-const standingSources = standingOn
+const standingSources: Source[] = standingOn
   ? [
       new BackoffSource(new GoogleTrendsSource({ baseUrl: trendsUrl })),
       new BackoffSource(new DexScreenerTrendingSource({ client: new DexScreenerClient({ baseUrl: dexUrl }) })),
     ]
   : [];
+// PumpPortal keeps a websocket open, so it exists only in the long-running daemon: never in a dry run or a one-shot `--once`,
+// where an open socket would keep the process alive. Its events wait in a buffer that each ingest pass drains.
+// ARGUS_PUMPPORTAL_URL exists for tests; empty or unset means the real endpoint.
+const pumpPortal = standingOn && !once && !dryRun ? new PumpPortalSource({ url: process.env.ARGUS_PUMPPORTAL_URL || undefined, log: console.error }) : undefined;
+if (pumpPortal) standingSources.push(pumpPortal);
 console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0)"}`);
 // Narratives are clustered with a semantic model run in this process (docs/adr/0007), loaded on the first clustering pass, which
 // downloads it from huggingface.co if `pnpm models:fetch` has not. If it cannot be had, clustering is skipped that tick (logged);
@@ -174,6 +181,7 @@ const stop = async () => {
   stopping = true;
   clearInterval(timer);
   clearInterval(ingestTimer);
+  pumpPortal?.close();
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
   // record the interrupted run, then exit.
   shutdown.abort();
@@ -194,6 +202,7 @@ if (once) {
   if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
+  pumpPortal?.start();
   void runTick();
   void runBuildTick();
   void runIngestTick();

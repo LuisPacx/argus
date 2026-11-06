@@ -5,10 +5,10 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] PumpPortal adapter ported from helios behind the `Source` interface
-- [ ] The websocket reconnects with backoff; a dropped connection never crashes the worker; shutdown closes it cleanly and `pnpm verify:boot` still passes
-- [ ] Events are deduplicated and labelled by Source
-- [ ] Tests use a fake websocket server or recorded events; no network
-- [ ] `pnpm check` passes
+- [x] PumpPortal adapter ported from helios behind the `Source` interface
+- [x] The websocket reconnects with backoff; a dropped connection never crashes the worker; shutdown closes it cleanly and `pnpm verify:boot` still passes
+- [x] Events are deduplicated and labelled by Source
+- [x] Tests use a fake websocket server or recorded events; no network
+- [x] `pnpm check` passes
