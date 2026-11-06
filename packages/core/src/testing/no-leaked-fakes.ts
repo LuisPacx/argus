@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registryDirFor, startTicks } from "./run-registry.mjs";
 
@@ -86,14 +86,58 @@ function isolateTmpdir(): () => void {
   };
 }
 
+const TRIPWIRE_PREFIX = "real-claude-";
+
+/** Writes the tripwire `claude` into `<dir>/bin` (calls are recorded in `dir`) and returns that bin directory. */
+export function writeClaudeTripwire(dir: string): string {
+  const bin = join(dir, "bin");
+  mkdirSync(bin, { recursive: true });
+  const script = `#!/bin/sh\nprintf '%s\\n' "$*" | tr '\\n' ' ' | cut -c1-300 >'${dir}/${TRIPWIRE_PREFIX}'$$\necho "claude: blocked by the test run's guard (no-leaked-fakes.ts): tests must use the fake claude" >&2\nexit 127\n`;
+  writeFileSync(join(bin, "claude"), script);
+  chmodSync(join(bin, "claude"), 0o755);
+  return bin;
+}
+
+/**
+ * A `claude` that is first on the run's PATH, so a worker or Brain started without a fake binary (ARGUS_CLAUDE_BIN, or `command` for a
+ * ClaudeCodeBrain) reaches this instead of the Operator's real one, which spends the subscription and needs the network. It runs
+ * nothing: it records the call in the run's registry directory (a file the teardown looks for) and exits 127, so the code under test sees
+ * a failed run and the run as a whole fails. Fakes are started by absolute path and never meet it.
+ */
+function installClaudeTripwire(dir: string): () => void {
+  const bin = writeClaudeTripwire(dir);
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${saved ?? ""}`;
+  return () => {
+    if (saved === undefined) delete process.env.PATH;
+    else process.env.PATH = saved;
+  };
+}
+
+/** Fails the run when anything reached the tripwire `claude`; names each call's arguments. */
+export function failOnRealClaude(dir: string): void {
+  let calls: string[] = [];
+  try {
+    calls = readdirSync(dir)
+      .filter((n) => n.startsWith(TRIPWIRE_PREFIX))
+      .map((n) => `  ${n.slice(TRIPWIRE_PREFIX.length)}: ${readFileSync(join(dir, n), "utf8").trim()}`);
+  } catch {
+    return;
+  }
+  if (calls.length > 0) throw new Error(`The test run tried to start the real \`claude\` ${calls.length} time(s) (blocked); tests must use the fake claude:\n${calls.join("\n")}`);
+}
+
 export default function setup(): () => Promise<void> {
   const restoreTmpdir = isolateTmpdir();
   if (process.platform !== "linux") return async () => restoreTmpdir();
   const dir = registryDirFor(process.pid); // on the home disk, found by the fakes without any env
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
   mkdirSync(dir, { recursive: true });
+  const restorePath = installClaudeTripwire(dir);
   return async () => {
     try {
+      restorePath();
+      failOnRealClaude(dir);
       await failOnLeakedFakes(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -9,6 +9,9 @@ export const RUBRIC_MAX_SCORE = 10;
 export const MAX_RUBRIC_DESCRIPTION_CHARS = 1000;
 export const MAX_RUBRIC_WEIGHT = 100;
 
+/** A Score's number for each dimension, 0 to RUBRIC_MAX_SCORE. */
+export type DimensionScores = Record<RubricKey, number>;
+
 export interface RubricDimension {
   key: RubricKey;
   description: string;

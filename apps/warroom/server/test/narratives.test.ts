@@ -64,6 +64,24 @@ it("GET /api/narratives/:id returns the Narrative with its Signals, newest first
   ]);
 });
 
+it("GET /api/narratives/:id returns the Score history [id].vue renders: every Score with its Rubric version, newest first", () => {
+  const detail = (one({ params: { id: "1" } }) as { scores: unknown[] });
+  expect(detail.scores).toEqual([]);
+  const dims = { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 };
+  store.recordScore({ narrativeId: 1, rubricVersion: 1, scores: dims, total: 7, rationale: "first", signalCount: 2, changedMateriallyAt: "2026-06-14T11:00:00.000Z", createdAt: "2026-06-14T12:00:00.000Z" });
+  const r = store.getRubric();
+  store.saveRubric({ baseVersion: r.version, gateMinScore: 6, dimensions: r.dimensions });
+  store.recordScore({ narrativeId: 1, rubricVersion: 2, scores: { ...dims, momentum: 9 }, total: 7.4, rationale: "second", signalCount: 3, changedMateriallyAt: "2026-06-14T13:00:00.000Z", createdAt: "2026-06-14T14:00:00.000Z" });
+  const out = one({ params: { id: "1" } }) as { scores: Array<Record<string, unknown>> };
+  expect(out.scores.map((s) => [s.rubricVersion, s.total, s.rationale, s.signalCount, s.createdAt])).toEqual([
+    [2, 7.4, "second", 3, "2026-06-14T14:00:00.000Z"],
+    [1, 7, "first", 2, "2026-06-14T12:00:00.000Z"],
+  ]);
+  expect(out.scores[0]!.scores).toEqual({ ...dims, momentum: 9 });
+  // The other Narrative has none.
+  expect((one({ params: { id: "2" } }) as { scores: unknown[] }).scores).toEqual([]);
+});
+
 it("GET /api/narratives/:id is 404 for an unknown or malformed id", () => {
   expect(() => one({ params: { id: "99" } })).toThrow("Narrative not found");
   expect(() => one({ params: { id: "abc" } })).toThrow("Narrative not found");

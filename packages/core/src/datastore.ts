@@ -7,6 +7,7 @@ import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { isMaterialJoin } from "./narratives.ts";
 import {
+  type DimensionScores,
   type Rubric,
   type RubricInput,
   type RubricRow,
@@ -70,7 +71,10 @@ export interface Proposal {
 
 export interface BrainRunRecord {
   id: number;
+  /** The Proposal the run was for; 0 for a judge run, which is for a Narrative (see `narrativeId`) and no Proposal yet. */
   proposalId: number;
+  /** The Narrative a judge run scored; null for every other task. */
+  narrativeId: number | null;
   task: string;
   backend: string;
   model: string;
@@ -82,7 +86,7 @@ export interface BrainRunRecord {
   heartbeatAt: string | null;
 }
 
-export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt">;
+export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId">;
 
 /** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
 export const BRAIN_RUN_IN_FLIGHT = "in-flight";
@@ -203,6 +207,23 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "narratives", "dimension", "INTEGER NOT NULL DEFAULT 256");
   ensureColumn(db, "signals", "narrative_id", "INTEGER");
   db.exec("CREATE INDEX IF NOT EXISTS signals_narrative_id ON signals (narrative_id)");
+  // Scores (ticket 07): one row per judge result, never updated or deleted, so a Narrative's Score history is complete. `rubric_version`
+  // names the immutable Rubric version it was computed with; `changed_materially_at` is the Narrative's value when the judge read it
+  // (the delta compares against it). A judge run has no Proposal: its brain_runs row has proposal_id 0 and this column.
+  ensureColumn(db, "brain_runs", "narrative_id", "INTEGER");
+  db.exec(`CREATE TABLE IF NOT EXISTS scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    narrative_id INTEGER NOT NULL,
+    rubric_version INTEGER NOT NULL,
+    scores TEXT NOT NULL,
+    total REAL NOT NULL,
+    rationale TEXT NOT NULL,
+    signal_count INTEGER NOT NULL,
+    changed_materially_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS scores_narrative_id ON scores (narrative_id, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS brain_runs_narrative_id ON brain_runs (narrative_id)");
 }
 
 export function slugify(text: string): string {
@@ -313,9 +334,30 @@ export interface Narrative {
   changedMateriallyAt: string;
 }
 
+/** One judge result for a Narrative (GLOSSARY: Score). Stored for every judge run that produced a valid answer. */
+export interface Score {
+  id: number;
+  narrativeId: number;
+  /** The Rubric version the Score was computed with (versions are immutable). */
+  rubricVersion: number;
+  scores: DimensionScores;
+  /** Weight-averaged under that Rubric version, 0 to 10. */
+  total: number;
+  rationale: string;
+  /** How many Signals the Narrative had when it was judged. */
+  signalCount: number;
+  /** The Narrative's `changedMateriallyAt` when it was judged: what the judge delta compares against. */
+  changedMateriallyAt: string;
+  createdAt: string;
+}
+
+export type NewScore = Omit<Score, "id">;
+
 export interface NarrativeDetail extends Narrative {
   /** Newest first. */
   signals: StoredSignal[];
+  /** Score history, newest first. */
+  scores: Score[];
 }
 
 /** Names the embedder and vector length that built a Narrative's centroid. */
@@ -360,6 +402,58 @@ const toStoredSignal = (r: SignalRow): StoredSignal => ({
   url: r.url,
   publishedAt: r.published_at,
   ingestedAt: r.ingested_at,
+});
+
+interface BrainRunRow {
+  id: number;
+  proposal_id: number;
+  narrative_id: number | null;
+  task: string;
+  backend: string;
+  model: string;
+  session_id: string | null;
+  total_cost_usd: number;
+  exit_status: string;
+  created_at: string;
+  heartbeat_at: string | null;
+}
+
+const toBrainRun = (r: BrainRunRow): BrainRunRecord => ({
+  id: r.id,
+  proposalId: r.proposal_id,
+  narrativeId: r.narrative_id,
+  task: r.task,
+  backend: r.backend,
+  model: r.model,
+  sessionId: r.session_id,
+  totalCostUsd: r.total_cost_usd,
+  exitStatus: r.exit_status,
+  createdAt: r.created_at,
+  heartbeatAt: r.heartbeat_at,
+});
+
+interface ScoreRow {
+  id: number;
+  narrative_id: number;
+  rubric_version: number;
+  scores: string;
+  total: number;
+  rationale: string;
+  signal_count: number;
+  changed_materially_at: string;
+  created_at: string;
+}
+
+const toScore = (r: ScoreRow): Score => ({
+  id: r.id,
+  narrativeId: r.narrative_id,
+  rubricVersion: r.rubric_version,
+  scores: JSON.parse(r.scores) as DimensionScores,
+  total: r.total,
+  rationale: r.rationale,
+  signalCount: r.signal_count,
+  changedMateriallyAt: r.changed_materially_at,
+  createdAt: r.created_at,
 });
 
 const NARRATIVE_SUMMARY_CHARS = 200;
@@ -566,7 +660,50 @@ export class Datastore {
     const signals = this.db
       .prepare("SELECT * FROM signals WHERE narrative_id = ? ORDER BY published_at DESC, ingested_at DESC, id")
       .all(id) as unknown as SignalRow[];
-    return { ...toNarrative(row), signals: signals.map(toStoredSignal) };
+    return { ...toNarrative(row), signals: signals.map(toStoredSignal), scores: this.scoresFor(id) };
+  }
+
+  /** A Narrative's Score history, newest first. */
+  scoresFor(narrativeId: number): Score[] {
+    const rows = this.db.prepare("SELECT * FROM scores WHERE narrative_id = ? ORDER BY id DESC").all(narrativeId) as unknown as ScoreRow[];
+    return rows.map(toScore);
+  }
+
+  /**
+   * WORKER ONLY. The judge delta: Narratives built by `embedder` (never another embedder's) that gained a Signal at or after `since`
+   * (ISO) and need a Score, busiest first. A Narrative needs one when it has none, or it changed materially after the one it has.
+   * Left out: a Narrative with a judge run open, and one whose last judge run failed, timed out, hit its budget or was refused
+   * after its last material change (it is tried again when it changes, never on a timer, so a bad Narrative cannot spend every tick).
+   * A rate-limited or interrupted run says nothing about the Narrative, so it stays eligible.
+   */
+  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number): Narrative[] {
+    const rows = this.db
+      .prepare(
+        `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
+         FROM narratives n
+         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
+           AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
+           AND NOT EXISTS (
+             SELECT 1 FROM brain_runs b
+             WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
+               AND b.exit_status IN ('failed', 'invalid-output', 'budget-exceeded', 'timed-out'))
+         ORDER BY n.signal_count DESC, n.id
+         LIMIT ?`,
+      )
+      .all(embedder.id, embedder.dimension, since, limit) as unknown as NarrativeRow[];
+    return rows.map(toNarrative);
+  }
+
+  /** WORKER ONLY. Stores a judge result. Scores are only ever added: this is the history. Touches no Proposal. */
+  recordScore(score: NewScore): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO scores (narrative_id, rubric_version, scores, total, rationale, signal_count, changed_materially_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(score.narrativeId, score.rubricVersion, JSON.stringify(score.scores), score.total, score.rationale, score.signalCount, score.changedMateriallyAt, score.createdAt);
+    return Number(res.lastInsertRowid);
   }
 
   /** War Room entry point: records a command row. Never touches status. */
@@ -676,45 +813,35 @@ export class Datastore {
   }
 
   brainRunsFor(proposalId: number): BrainRunRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM brain_runs WHERE proposal_id = ? ORDER BY id")
-      .all(proposalId) as unknown as {
-      id: number;
-      proposal_id: number;
-      task: string;
-      backend: string;
-      model: string;
-      session_id: string | null;
-      total_cost_usd: number;
-      exit_status: string;
-      created_at: string;
-      heartbeat_at: string | null;
-    }[];
-    return rows.map((r) => ({
-      id: r.id,
-      proposalId: r.proposal_id,
-      task: r.task,
-      backend: r.backend,
-      model: r.model,
-      sessionId: r.session_id,
-      totalCostUsd: r.total_cost_usd,
-      exitStatus: r.exit_status,
-      createdAt: r.created_at,
-      heartbeatAt: r.heartbeat_at,
-    }));
+    const rows = this.db.prepare("SELECT * FROM brain_runs WHERE proposal_id = ? ORDER BY id").all(proposalId) as unknown as BrainRunRow[];
+    return rows.map(toBrainRun);
+  }
+
+  /** The judge runs for one Narrative, oldest first. */
+  judgeRunsFor(narrativeId: number): BrainRunRecord[] {
+    const rows = this.db.prepare("SELECT * FROM brain_runs WHERE task = 'judge' AND narrative_id = ? ORDER BY id").all(narrativeId) as unknown as BrainRunRow[];
+    return rows.map(toBrainRun);
+  }
+
+  /** What the judge has spent since `since` (ISO): runs started and their cost. Refused and failed runs count too. */
+  judgeSpendSince(since: string): { runs: number; costUsd: number } {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost FROM brain_runs WHERE task = 'judge' AND created_at >= ?")
+      .get(since) as unknown as { runs: number; cost: number };
+    return { runs: row.runs, costUsd: row.cost };
   }
 
   /**
    * WORKER ONLY. Opens a brain run before the child is spawned, so a crash leaves a row behind instead of
    * unrecorded spend. Returns its id; close it with finishBrainRun (or discardBrainRun for a dry run).
    */
-  startBrainRun(run: Pick<NewBrainRun, "proposalId" | "task" | "backend" | "model">): number {
+  startBrainRun(run: Pick<NewBrainRun, "proposalId" | "task" | "backend" | "model"> & { narrativeId?: number }, now: Date = new Date()): number {
     const res = this.db
       .prepare(
-        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
-         VALUES (?, ?, ?, ?, NULL, 0, ?, ?)`,
+        `INSERT INTO brain_runs (proposal_id, narrative_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?)`,
       )
-      .run(run.proposalId, run.task, run.backend, run.model, BRAIN_RUN_IN_FLIGHT, new Date().toISOString());
+      .run(run.proposalId, run.narrativeId ?? null, run.task, run.backend, run.model, BRAIN_RUN_IN_FLIGHT, now.toISOString());
     return Number(res.lastInsertRowid);
   }
 

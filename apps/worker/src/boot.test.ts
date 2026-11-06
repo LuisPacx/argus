@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Datastore } from "@argus/core";
 import { expect, it } from "vitest";
+import { fakeClaudeBin } from "../../../packages/core/src/testing/fake-claude.ts";
 
 const workerDir = join(import.meta.dirname, "..");
 // A booting worker reconciles leftover Build containers with podman; here that is the fake, so the test never touches a real one.
@@ -16,7 +17,7 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   expect(cmd).toBe("node");
   const dir = mkdtempSync(join(tmpdir(), "argus-worker-"));
   const db = join(dir, "argus.db");
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS, ARGUS_INGEST_STANDING: "0" } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: fakeClaudeBin(dir), ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS, ARGUS_INGEST_STANDING: "0" } });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));

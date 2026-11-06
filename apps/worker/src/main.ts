@@ -20,6 +20,8 @@ import {
   HashingEmbedder,
   clusterNewSignals,
   ingestSources,
+  judgeConfigFromEnv,
+  judgePendingNarratives,
   killLiveBrainChildren,
   loadRssSources,
   PumpPortalSource,
@@ -30,10 +32,11 @@ import {
   type Source,
 } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
-import { lazyEmbedder, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
+import { SEMANTIC_MODEL, embedderIdOf, lazyEmbedder, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
 
 const TICK_MS = 5_000;
 const INGEST_TICK_MS = 5 * 60_000;
+const JUDGE_TICK_MS = 30 * 60_000;
 const once = process.argv.includes("--once");
 const dryRun = process.argv.includes("--dry-run") || process.env.ARGUS_DRY_RUN === "1";
 const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
@@ -163,6 +166,17 @@ const ingestTick = reentrant(
   },
   () => console.log("[worker] ingest tick skipped: previous ingest still running"),
 );
+// The judge pass scores new or materially changed Narratives of the current embedder (docs/architecture.md section 7), every 30 minutes.
+// Its caps (per pass, per rolling day) come from ARGUS_JUDGE_* (judgeConfigFromEnv). A dry run logs the command and spawns nothing.
+const judgeConfig = judgeConfigFromEnv(process.env);
+const judgeEmbedder = embedderChoice === "hashing" ? new HashingEmbedder() : { id: embedderIdOf(SEMANTIC_MODEL), dimension: SEMANTIC_MODEL.dimension };
+const judgeTick = reentrant(
+  async () => {
+    const r = await judgePendingNarratives(store, brain, judgeEmbedder, { config: judgeConfig, log: console.log, signal: shutdown.signal });
+    console.log(`[worker] judge tick: ${r.judged} scored, ${r.refused} refused, ${r.failed} failed${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+  },
+  () => console.log("[worker] judge tick skipped: previous judge pass still running"),
+);
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()
@@ -174,9 +188,11 @@ const track = (run: () => Promise<unknown>, what: string) => {
 const runTick = () => track(tick, "tick");
 const runBuildTick = () => track(buildTick, "build pass");
 const runIngestTick = () => track(ingestTick, "ingest tick");
+const runJudgeTick = () => track(judgeTick, "judge tick");
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
+let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -184,6 +200,7 @@ const stop = async () => {
   clearInterval(timer);
   clearInterval(ingestTimer);
   pumpPortal?.close();
+  clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
   // record the interrupted run, then exit.
   shutdown.abort();
@@ -201,6 +218,7 @@ if (once) {
   await runTick();
   await runBuildTick();
   await runIngestTick();
+  await runJudgeTick();
   if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
@@ -208,9 +226,11 @@ if (once) {
   void runTick();
   void runBuildTick();
   void runIngestTick();
+  void runJudgeTick();
   timer = setInterval(() => {
     void runTick();
     void runBuildTick();
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
+  judgeTimer = setInterval(() => void runJudgeTick(), JUDGE_TICK_MS);
 }

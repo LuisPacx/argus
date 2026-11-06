@@ -41,7 +41,7 @@ _Avoid_: Deploy, mint
 The editable dimensions (momentum, novelty, buildability, hook, legitimacy) by which a Narrative is scored before it becomes a Proposal; buildability is a hard gate. Owned by the Operator.
 
 **Score**:
-A Proposal's current Rubric result, re-computed when new Signals arrive; its history is kept.
+A Narrative's Rubric result (a Proposal carries its Narrative's latest), re-computed when the Narrative changes materially; each is stored with the Rubric version it used, and its history is kept.
 
 ## People
 

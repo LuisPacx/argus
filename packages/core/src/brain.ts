@@ -120,11 +120,12 @@ export const BUILD_ALLOWED_TOOLS: readonly string[] = [
 
 /**
  * Wall-clock caps: judge 5 min, propose 15 min, spec 10 min (a Spec is one short document, no tools), build 4 h
- * (architecture §4). Tools: judge and propose read the web, spec gets none (its input is untrusted Proposal text), build
- * gets the file and shell tools, with the shell scoped by BUILD_ALLOWED_TOOLS.
+ * (architecture §4). Tools: propose reads the web, judge and spec get none (their input is untrusted Signal and Proposal text), build
+ * gets the file and shell tools, with the shell scoped by BUILD_ALLOWED_TOOLS. A judge run reads one prompt and prints
+ * one short JSON object, so its budget is $0.10 (a haiku run of that size costs about a cent).
  */
 export const DEFAULT_ROUTING: Routing = {
-  judge: { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.25, timeoutMs: 5 * MINUTE, tools: ["WebFetch"] },
+  judge: { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.1, timeoutMs: 5 * MINUTE, tools: [] },
   propose: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 1, timeoutMs: 15 * MINUTE, tools: ["WebSearch", "WebFetch"] },
   spec: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 2, timeoutMs: 10 * MINUTE, tools: [] },
   build: {

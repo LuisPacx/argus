@@ -119,6 +119,8 @@ describe("ClaudeCodeBrain", () => {
       expect(Array.isArray(route.tools)).toBe(true);
     }
     expect(DEFAULT_ROUTING.spec.tools).toEqual([]);
+    // The judge reads untrusted Signal text and prints JSON: no tools, haiku, and a small per-run budget.
+    expect(DEFAULT_ROUTING.judge).toMatchObject({ model: "haiku", tools: [], maxBudgetUsd: 0.1 });
   });
 
   it("passes the tool restriction: --tools \"\" for none, --tools plus --allowedTools otherwise", async () => {

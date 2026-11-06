@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { Datastore } from "@argus/core";
+import { fakeClaudeBin } from "../../../packages/core/src/testing/fake-claude.ts";
 import { tempDir } from "../../../packages/core/src/testing/temp.ts";
 import { expect, it } from "vitest";
 
+const JUDGE_ANSWER = JSON.stringify({ scores: { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 }, rationale: "fake answer" });
 const workerDir = join(import.meta.dirname, "..");
 const fixtures = join(workerDir, "../../packages/core/src/fixtures");
 const ARGUS_PODMAN_BIN = join(workerDir, "../../packages/core/src/testing/fake-podman.mjs");
@@ -25,11 +27,14 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   const resolved = (feeds as Array<{ id: string; path: string }>).map((f) => ({ id: f.id, label: f.id.toUpperCase(), url: `${base}${f.path}` }));
   writeFileSync(feedsPath, JSON.stringify(resolved));
   const db = join(dir, "argus.db");
+  // Always a fake: the one-shot worker also runs the judge pass, which spawns `claude` for every unjudged Narrative the ingest tick just made.
+  const claudeLog = join(dir, "claude-calls.jsonl");
+  const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: JUDGE_ANSWER, FAKE_CLAUDE_LOG: claudeLog });
   try {
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
       // The standing Sources (Google Trends, DexScreener) are switched off unless a test turns them on against the loopback server.
-      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ...(await env(base)) },
+      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ...(await env(base)) },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -37,7 +42,9 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
     const store = Datastore.open(db);
     try {
-      return { code, out, signals: store.latestSignals(100), narratives: store.listNarratives() };
+      const narratives = store.listNarratives();
+      const claudeCalls = existsSync(claudeLog) ? readFileSync(claudeLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : [];
+      return { code, out, signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)) };
     } finally {
       store.close();
     }
@@ -70,6 +77,29 @@ it("the ingest tick clusters the new Signals into Narratives", async () => {
   expect(code).toBe(0);
   expect(out).toContain("[worker] cluster: 5 signal(s) clustered, 5 new narrative(s)");
   expect(narratives.map((n) => n.signalCount)).toEqual([1, 1, 1, 1, 1]);
+}, 60_000);
+
+it("the same one-shot tick then judges the new Narratives with ARGUS_CLAUDE_BIN (the fake): one run each, no tools, stored with the Rubric version", async () => {
+  const { code, out, narratives, claudeCalls, scores } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
+  expect(code).toBe(0);
+  expect(out).toContain("[worker] judge tick: 5 scored, 0 refused, 0 failed");
+  expect(claudeCalls).toHaveLength(5);
+  for (const c of claudeCalls) {
+    expect(c.argv[1]).toMatch(/^\/judge\n\n/);
+    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("");
+    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
+  }
+  expect(scores).toHaveLength(5);
+  expect(scores.every((s) => s.rubricVersion === 1 && s.total === 7 && s.rationale === "fake answer")).toBe(true);
+  expect(new Set(scores.map((s) => s.narrativeId))).toEqual(new Set(narratives.map((n) => n.id)));
+}, 60_000);
+
+it("a dry run judges nothing and spawns no claude", async () => {
+  const { code, claudeCalls, scores } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_DRY_RUN: "1" });
+  expect(code).toBe(0);
+  expect(claudeCalls).toEqual([]);
+  expect(scores).toEqual([]);
 }, 60_000);
 
 it("a failing feed is logged and the others are still stored", async () => {

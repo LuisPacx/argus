@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, killLiveBrainChildren } from "../brain.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
-import { leakedIn, sweepTempRoot } from "./no-leaked-fakes.ts";
+import { failOnRealClaude, leakedIn, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
 import { registryDirFor } from "./run-registry.mjs";
 import { tempDir } from "./temp.ts";
 import { untilExists } from "./wait.ts";
@@ -92,6 +92,21 @@ describe("the leak guard only claims fakes started under its own test run", () =
       await running;
       rmSync(mine, { recursive: true, force: true });
     }
+  });
+
+  it("a bare `claude` on PATH is the guard's tripwire, never the Operator's real one", () => {
+    const first = process.env.PATH!.split(delimiter)[0]!;
+    expect(readFileSync(join(first, "claude"), "utf8")).toContain("blocked by the test run's guard");
+  });
+
+  it("the tripwire runs nothing, exits 127, records the call, and the guard then fails the run naming its arguments", () => {
+    const dir = tempDir("argus-tripwire-");
+    expect(() => failOnRealClaude(dir)).not.toThrow(); // no call, no failure
+    const bin = writeClaudeTripwire(dir);
+    const r = spawnSync(join(bin, "claude"), ["-p", "/judge Score this", "--model", "haiku"], { encoding: "utf8" });
+    expect(r.status).toBe(127);
+    expect(r.stderr).toContain("blocked by the test run's guard");
+    expect(() => failOnRealClaude(dir)).toThrow(/tried to start the real `claude` 1 time[\s\S]*-p \/judge Score this --model haiku/);
   });
 
   it("the run fails when it leaves a temp entry behind, and the entry is removed", () => {

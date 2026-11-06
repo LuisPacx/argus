@@ -7,6 +7,7 @@ export * from "./expiry.ts";
 export * from "./github-repo.ts";
 export * from "./brain.ts";
 export * from "./spec-drafting.ts";
+export * from "./judge.ts";
 
 export * from "./disclosure.ts";
 export * from "./build-runner.ts";
