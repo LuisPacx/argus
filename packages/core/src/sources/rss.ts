@@ -49,7 +49,7 @@ export class RssSource implements Source {
       id: `${this.id}:${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
       sourceId: this.id,
       sourceLabel: this.label,
-      title: decodeEntities(item.title).trim().slice(0, MAX_TITLE_CHARS),
+      title: (item.titleIsHtml ? stripHtml(decodeEntities(item.title)) : decodeEntities(item.title)).trim().slice(0, MAX_TITLE_CHARS),
       summary: stripHtml(decodeEntities(item.description)).trim().slice(0, MAX_SUMMARY_CHARS),
       url: safeUrl(decodeEntities(item.link).trim()),
       publishedAt: normalizeDate(item.pubDate),
@@ -63,6 +63,8 @@ export interface RssItem {
   description: string;
   guid?: string;
   pubDate?: string;
+  /** Atom `<title type="html">`: the title is markup and its tags are stripped. */
+  titleIsHtml?: boolean;
   /** The raw text between `<item>` and `</item>`, for adapters that read extension tags with `tag`. */
   block: string;
 }
@@ -70,14 +72,32 @@ export interface RssItem {
 /** Linear in the input: each `<item>` is found with indexOf, and an item with no close ends the scan. */
 export function parseRssItems(xml: string): RssItem[] {
   const items: RssItem[] = [];
+  // Atom is told by having <entry> and no <item>; both are bounded the same way.
+  const isAtom = findOpen(xml, "item", 0) === undefined && findOpen(xml, "entry", 0) !== undefined;
+  const el = isAtom ? "entry" : "item";
   let at = 0;
   while (items.length < FEED_MAX_ITEMS) {
-    const open = findOpen(xml, "item", at);
+    const open = findOpen(xml, el, at);
     if (open === undefined) break;
-    const close = xml.indexOf("</item>", open.contentStart);
+    const close = xml.indexOf(`</${el}>`, open.contentStart);
     if (close === -1) break;
     const block = xml.slice(open.contentStart, close);
-    at = close + "</item>".length;
+    at = close + el.length + 3;
+    if (isAtom) {
+      const title = tag(block, "title");
+      const link = atomLink(block);
+      if (!title && !link) continue;
+      items.push({
+        title,
+        link,
+        description: tag(block, "summary") || tag(block, "content"),
+        guid: tag(block, "id") || undefined,
+        pubDate: tag(block, "published") || tag(block, "updated") || undefined,
+        titleIsHtml: /^x?html$/i.test(attr(openTag(block, "title"), "type")),
+        block,
+      });
+      continue;
+    }
     const title = tag(block, "title");
     const link = tag(block, "link");
     if (!title && !link) continue;
@@ -86,18 +106,46 @@ export function parseRssItems(xml: string): RssItem[] {
   return items;
 }
 
-/** Finds `<name ...>` (not `<names>`) at or after `from`; returns where its content starts. */
-function findOpen(s: string, name: string, from: number): { contentStart: number } | undefined {
+/** Finds `<name ...>` (not `<names>`) at or after `from`; returns where the tag and its content start. */
+function findOpen(s: string, name: string, from: number): { tagStart: number; contentStart: number } | undefined {
   let i = from;
   for (;;) {
-    i = s.indexOf(`<${name}`, i);
-    if (i === -1) return undefined;
-    const after = s[i + name.length + 1];
-    i += name.length + 1;
+    const tagStart = s.indexOf(`<${name}`, i);
+    if (tagStart === -1) return undefined;
+    const after = s[tagStart + name.length + 1];
+    i = tagStart + name.length + 1;
     if (after === ">" || after === " " || after === "\t" || after === "\n" || after === "\r" || after === "/") {
       const end = s.indexOf(">", i);
       if (end === -1) return undefined;
-      return { contentStart: end + 1 };
+      return { tagStart, contentStart: end + 1 };
+    }
+  }
+}
+
+/** The raw `<name ...>` open tag of the first `<name>` in `block`, or empty. */
+function openTag(block: string, name: string): string {
+  const open = findOpen(block, name, 0);
+  return open ? block.slice(open.tagStart, open.contentStart) : "";
+}
+
+/** One attribute's value from an open tag, or empty. The tag is already cut at its `>`. */
+function attr(openTagText: string, name: string): string {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(openTagText);
+  return m ? (m[1] ?? m[2] ?? "") : "";
+}
+
+/** The href of the first `<link>` that is rel="alternate" or has no rel. */
+function atomLink(block: string): string {
+  let at = 0;
+  for (;;) {
+    const open = findOpen(block, "link", at);
+    if (!open) return "";
+    const text = block.slice(open.tagStart, open.contentStart);
+    at = open.contentStart;
+    const rel = attr(text, "rel");
+    if (rel === "" || rel.toLowerCase() === "alternate") {
+      const href = attr(text, "href");
+      if (href) return href;
     }
   }
 }
