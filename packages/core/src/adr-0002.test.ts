@@ -101,7 +101,7 @@ export function violations(file: string, text: string): string[] {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SKIP_DIRS = new Set(["node_modules", ".git", ".data", ".scratch", ".claude", ".nuxt", ".output", "dist", "fixtures"]);
 const SOURCE_EXT = /\.(ts|mts|cts|tsx|mjs|cjs|js|jsx|vue)$/;
-const SELF =join("packages", "core", "src", "adr-0002.test.ts");
+const SELF = join("packages", "core", "src", "adr-0002.test.ts");
 
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
