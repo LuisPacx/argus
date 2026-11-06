@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_NEW_PROPOSALS_PER_DAY, type NarrativeDetail, type Score } from "./datastore.ts";
-import { DEFAULT_PROPOSE_CONFIG, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
+import { DEFAULT_PROPOSE_CONFIG, DEFAULT_PROPOSE_RUNS_PER_DAY, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
 
 const LINKS = ["https://a.example/1", "https://b.example/2", "https://c.example/3"];
 const GOOD = { name: "Stock Paws", ticker: "PAWS", tech: "A launchpad that pairs each token with a stock", whyNow: "Tokenized stocks launched in Europe this week", description: "A cat-themed tracker of tokenized stocks.", evidence: LINKS };
@@ -136,8 +136,9 @@ describe("proposePromptFor", () => {
 });
 
 describe("proposeConfigFromEnv", () => {
-  it("has defaults: 3 per pass, the daily Proposal maximum and 30 runs per rolling day", () => {
-    expect(DEFAULT_PROPOSE_CONFIG).toMatchObject({ maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: 30 });
+  it("has defaults: 3 per pass, the daily Proposal maximum and 45 runs per rolling day", () => {
+    expect(DEFAULT_PROPOSE_CONFIG).toMatchObject({ maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: DEFAULT_PROPOSE_RUNS_PER_DAY });
+    expect(DEFAULT_PROPOSE_RUNS_PER_DAY).toBeGreaterThan(MAX_NEW_PROPOSALS_PER_DAY);
     expect(proposeConfigFromEnv({})).toEqual(DEFAULT_PROPOSE_CONFIG);
   });
 

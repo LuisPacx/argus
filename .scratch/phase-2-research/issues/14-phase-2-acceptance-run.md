@@ -81,3 +81,5 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
   1. `[worker] judge tick: N scored, N refused, N failed` (4 summary lines, all 0 failed).
   2. `[worker] propose tick: N proposed, N refused, N failed` (4 summary lines; one tick had 1 refused).
   3. `[ingest] rss:hn-frontpage failed: This operation was aborted` (1; same fetch-timeout as before). Also: `propose: narrative 189 refused: \`evidence\` must be an array of 3 to 5 links`` (1).
+
+- Propose run cap raised 30 -> 45 by the Operator on 2026-11-06 mid-run

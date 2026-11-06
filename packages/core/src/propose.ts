@@ -133,7 +133,10 @@ export interface ProposeConfig {
   maxConsecutiveTimeouts: number;
 }
 
-export const DEFAULT_PROPOSE_CONFIG: ProposeConfig = { windowHours: 72, maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: 30, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
+/** Default propose runs per rolling 24 hours: above the 30 new-Proposal maximum so it stays reachable when some runs are refused or fail. */
+export const DEFAULT_PROPOSE_RUNS_PER_DAY = 45;
+
+export const DEFAULT_PROPOSE_CONFIG: ProposeConfig = { windowHours: 72, maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: DEFAULT_PROPOSE_RUNS_PER_DAY, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
 
 /**
  * The config with ARGUS_PROPOSE_MAX_PER_PASS, ARGUS_PROPOSE_MAX_NEW_PER_DAY and ARGUS_PROPOSE_MAX_RUNS_PER_DAY applied. A value that is not
