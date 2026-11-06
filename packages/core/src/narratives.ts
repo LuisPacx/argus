@@ -81,7 +81,17 @@ export interface ClusterConfig {
   batchSize: number;
 }
 
-export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = { joinThreshold: 0.4, windowHours: 72, batchSize: 500 };
+/**
+ * Cosine similarity to a Narrative's centroid at which a Signal joins it. Measured on 320 real headlines from the 13 configured
+ * feeds (docs/adr/0006, scripts/measure-narrative-threshold.mjs). At 0.60 no two different news stories merge (the only wrong
+ * joins are templated pages: Hacker News summaries, coupon pages, identical titles) and the largest Narrative is 4 Signals, but
+ * only 16 of 112 same-story pairs join, so Narratives mostly fragment. Below it different stories merge (0.40 over-merges 15
+ * clusters); above it almost nothing joins (0.65 joins 6 of 112). Provisional and precision-first: no value is good for this
+ * embedder (ticket 05b is needs-decision).
+ */
+export const JOIN_THRESHOLD = 0.6;
+
+export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = { joinThreshold: JOIN_THRESHOLD, windowHours: 72, batchSize: 500 };
 
 /** The Narrative a Signal is nearest to, when it is close enough to join it. */
 export function nearestNarrative<T extends { centroid: Embedding }>(

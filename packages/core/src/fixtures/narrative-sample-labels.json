@@ -1,0 +1,595 @@
+{
+ "note": "Hand labels for narrative-sample.json, keyed by '<sourceId> | <title>'. groups: items about one specific story (same story). topics: items about a shared wider subject (related; counted as neither same nor different). Any other pair is a different story. pairs: a stratified sample of pairs across the similarity range, labelled by hand and used to check the group labels.",
+ "groups": {
+  "tech-stocks-rout": [
+   "rss:bbc-world | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "rss:bbc-technology | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "rss:npr-news | Fears of an AI crackdown after midterms spark $2 trillion rout in tech stocks",
+   "rss:decrypt | S&#038;P 500 Plunges, Wall Street Fears Circuit Breaker, Just One Day After Trump Celebrated Record Highs"
+  ],
+  "btc-falls-with-stocks": [
+   "rss:coindesk | Bitcoin tumbles to $76,000 as collapsing AI trade drags stocks sharply lower",
+   "rss:coindesk | Live updates: Bitcoin drops more than 5% as stocks close out worst day since April 2025",
+   "rss:cointelegraph | Bitcoin crashes 6% to 7-week low as US stocks erase election gains",
+   "rss:decrypt | Bitcoin Erases Election Rally as AI Stocks Plunge, $428 Million in Crypto Longs Get Wiped Out",
+   "rss:the-block | Bitcoin erases post-election gains as Wall Street selloff triggers over $1 billion in crypto liquidations"
+  ],
+  "btc-rebounds-80k": [
+   "rss:coindesk | Bitcoin holds above $80,000 after Wednesday’s jump as injective rallies on staked ETF listing",
+   "rss:coindesk | Bitcoin holds above $80,000 as Zcash jumps 12% in post-election crypto rebound",
+   "rss:cointelegraph | Bitcoin hits $80.5K as US stocks rally on midterm election results",
+   "rss:the-block | Bitcoin rebounds past $80,000 as markets shrug off midterms and Binance hack"
+  ],
+  "american-bitcoin-profit": [
+   "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "rss:cointelegraph | American Bitcoin’s $126M profit masks mining pressure as rivals turn to AI",
+   "rss:decrypt | Trump-Backed American Bitcoin Turns a Profit as Bitcoin Rise Lifts Books",
+   "rss:the-block | Eric Trump’s American Bitcoin swings to $126 million profit in Q3 on digital asset gains"
+  ],
+  "paraguay-president": [
+   "rss:bbc-world | Paraguay President Santiago Peña resigns after bank collapse",
+   "rss:npr-news | Paraguay's president is impeached minutes after resigning following a bank collapse",
+   "rss:guardian-world | Paraguay’s president quits after millions of people’s savings frozen in bank crisis",
+   "rss:cointelegraph | Paraguay president resigns after collapse of Ueno digital bank",
+   "rss:decrypt | Bitcoin Fixes This? Paraguay President Resigns After Bank Lockout Hits 60% of Country"
+  ],
+  "europe-bomb-hoaxes": [
+   "rss:bbc-world | Hoax bomb threats target European airlines and airports for second time in a week",
+   "rss:bbc-world | Who could be behind hoax bomb threats to European air travel?",
+   "rss:bbc-world | Bomb hoaxes: Messages reveal how threat was passed on by air traffic control",
+   "rss:guardian-world | Bomb threats disrupt at least 25 flights across Europe, raising hybrid war fears",
+   "rss:guardian-world | Multiple planes diverted as bomb threats to commercial flights reported across Europe – as it happened"
+  ],
+  "samsung-wallet-usdc": [
+   "rss:decrypt | Stablecoins Go Mainstream as Samsung Wallet Adds USDC on Solana",
+   "rss:the-block | Samsung Wallet launches USDC accounts on Solana for US Galaxy users"
+  ],
+  "coinbase-cold-storage": [
+   "rss:decrypt | Coinbase Says 99% of Customer Crypto Is Offline and Out of Hackers’ Reach",
+   "rss:the-block | Coinbase says 99% of customer assets sit in cold storage after Binance’s $6.3 billion breach"
+  ],
+  "arkea-cyberattack": [
+   "rss:cointelegraph | Crédit Mutuel Arkéa resumes operations after attack, assesses losses",
+   "rss:decrypt | Crédit Mutuel Arkéa Confirms Cyberattack After ZachXBT Ties It to $133M Crypto Theft",
+   "rss:the-block | Crédit Mutuel Arkéa confirms cyberattack after ZachXBT flags $133M in suspected losses"
+  ],
+  "kalshi-arkansas": [
+   "rss:coindesk | The pile of lawsuits against Kalshi just grew by one",
+   "rss:decrypt | Arkansas Sues Kalshi, Joining a Growing List of States Targeting Prediction Markets",
+   "rss:the-block | Arkansas sues Kalshi, says its alleged illegal gambling operations cause mental harm"
+  ],
+  "oval-office-order": [
+   "rss:bbc-world | Trump signs order preventing future presidents from changing Oval Office",
+   "rss:guardian-world | Trump signs proclamation to try to prevent changes to gold-covered Oval Office"
+  ],
+  "grizzly-attack": [
+   "rss:guardian-world | Mother and daughter killed in grizzly bear attack, Canadian authorities confirm",
+   "rss:guardian-world | One dead and another missing in suspected grizzly bear attack in Canada"
+  ],
+  "ebola-evacuation": [
+   "rss:guardian-world | British healthcare worker with Ebola evacuated from DR Congo to UK",
+   "rss:guardian-world | British Ebola patient evacuated from DR Congo arrives at London hospital"
+  ],
+  "lamarre-condon-trial": [
+   "rss:guardian-world | Beau Lamarre-Condon trial live updates: prosecution begins cross-examination of double murder accused",
+   "rss:guardian-world | Beau Lamarre-Condon tells double murder trial shooting of Jesse Baird wasn’t intentional but ‘it was my fault’"
+  ],
+  "binance-hack": [
+   "rss:bbc-technology | Binance says fake job interviews used as part of $6.3bn crypto hack",
+   "rss:bbc-technology | North Korea denies being behind record $6.3bn Binance hack",
+   "rss:bbc-technology | Binance users withdraw $3.6bn after largest-ever crypto hack",
+   "rss:bbc-technology | Why North Korea's 'elite' hackers are the prime suspect in major Binance hack",
+   "rss:coindesk | What is TraderTraitor, the hacking squad behind the $6.3 billion Binance heist?"
+  ],
+  "signalplus-api-keys": [
+   "rss:coindesk | Binance cuts SignalPlus access after security warning, urges users to check accounts",
+   "rss:cointelegraph | Binance, Deribit revoke SignalPlus API keys after fake Teams invite attack",
+   "rss:decrypt | Binance Cuts Off SignalPlus API Keys Over 'Potential Security Issue' at Trading Platform"
+  ],
+  "musk-midterm-money": [
+   "rss:wired | How Elon Musk and Big Tech Poured Millions Into the Midterms, and Lost",
+   "rss:wired | Voters Set $400 Million of Elon Musk’s Money on Fire",
+   "rss:bbc-technology | Elon Musk's millions failed to deliver Republican wins in fierce midterms"
+  ],
+  "voter-datacenter-backlash": [
+   "rss:techcrunch | Meta warns that election backlash against data centers could make AI expansion harder",
+   "rss:wired | The Results Are In: Voters Hate Data Centers",
+   "rss:decrypt | US Voters Back AI Data Center Restrictions in At Least 29 Communities"
+  ],
+  "openai-power-pledge": [
+   "rss:decrypt | OpenAI Promises to Foot AI’s Power Bill After Voter Revolt. Who Enforces It?",
+   "rss:decrypt | OpenAI Wants to Rebrand AI Data Centers, Use Them to 'Protect the Grid'"
+  ],
+  "google-schools-ai": [
+   "rss:ars-technica | Google: Schools can keep search while skipping Gemini, but AI search is non-negotiable",
+   "rss:wired | Google Is Forcing AI Overviews in Classrooms. Schools Are Searching for a Way Out",
+   "rss:decrypt | Google Tells Schools They Can Reject AI—But They'll Lose Search, Too"
+  ],
+  "motorola-signature-27": [
+   "rss:hn-frontpage | Motorola Signature 27 with GrapheneOS support",
+   "rss:ars-technica | Motorola's new Signature 27 has it all if you can stomach the $1,600 price tag",
+   "rss:wired | Motorola Signature 27: Specs, Price, Features, Release Date"
+  ],
+  "openai-linux-flaws": [
+   "rss:coindesk | OpenAI says its AI can break into Linux at scale. Here's what it means for crypto",
+   "rss:decrypt | OpenAI Found 948 Linux Security Flaws—And Figured Out How to Exploit Them"
+  ],
+  "claude-personal-finance": [
+   "rss:techcrunch | Claude can now analyze your spending with its new Personal Finance tool",
+   "rss:decrypt | Claude Gets Personal Finance—Anthony Pompliano Accuses Anthropic of Copying His Startup"
+  ],
+  "riot-anthropic-lease": [
+   "rss:coindesk | Bitcoin miner Riot could pay Anthropic 12% interest under $28 billion AI deal",
+   "rss:cointelegraph | Riot shares surge on $28B AI lease as Hut 8 sinks on revenue miss"
+  ],
+  "supermarket-freezer-hacks": [
+   "rss:techcrunch | US government warns of ‘ongoing cyber threat’ amid mass hacks of industrial retail and military freezers",
+   "rss:bbc-technology | French blood storage impacted by freezer hacks as theories swirl about culprits",
+   "rss:bbc-technology | UK meat industry hit by cyber-attack which targeted European supermarket freezers",
+   "rss:bbc-technology | If hackers can take control of a supermarket freezer, how vulnerable is other tech?"
+  ],
+  "mercado-bitcoin-hack": [
+   "rss:coindesk | Mercado Bitcoin hack continued hours after exchange said attack was contained, report finds",
+   "rss:cointelegraph | Mercado Bitcoin says phased reopening to begin Monday, will cover losses",
+   "rss:decrypt | Mercado Bitcoin Said Its Hack Was Contained, But Blockchain Data Tells a Different Story"
+  ],
+  "zcash-freeze": [
+   "rss:coindesk | Zcash is about to freeze $16 million in its oldest privacy pool",
+   "rss:decrypt | Zcash Upgrade Could Lock $16 Million in Crypto Forever"
+  ],
+  "circle-q3-earnings": [
+   "rss:cointelegraph | Circle’s ARC token sale lifts earnings as lower yields weigh on USDC income",
+   "rss:decrypt | USDC Issuer Circle Quietly Cuts 5% of Staff in Profitable Quarter",
+   "rss:the-block | Circle reports $865 million in Q3 revenue and reserve income, discloses 5% workforce reduction"
+  ],
+  "hyperliquid-futures": [
+   "rss:coindesk | Hyperliquid treasury firm seeking U.S. regulatory nod as a domestic futures platform",
+   "rss:the-block | Hyperliquid Strategies files to become CFTC-registered FCM, posts $13.3 million in quaterly revenue"
+  ],
+  "aave-payward": [
+   "rss:coindesk | Kraken parent Payward and its clients buy AAVE tokens in DeFi investment push",
+   "rss:the-block | Payward-affiliated fund and clients buy AAVE token stake on secondary market"
+  ],
+  "morgan-stanley-tokenization": [
+   "rss:decrypt | Wall Street’s Plumbing Goes Onchain as Morgan Stanley Tokenizes Securities",
+   "rss:the-block | Morgan Stanley among first banks to tokenize US equities, Treasurys through DTCC’s service"
+  ],
+  "french-hill-race": [
+   "rss:cointelegraph | Crypto ally French Hill wins reelection but set to lose House chair",
+   "rss:the-block | French Hill’s race still too close to call as House flips, changing the direction of crypto legislation"
+  ],
+  "dems-crypto-bill": [
+   "rss:decrypt | Democrats to Push Broader Crypto Market Structure Bill After Sweeping US Midterms: Report",
+   "rss:the-block | Democratic sweep of Congress forces crypto industry to rethink Washington strategy"
+  ],
+  "france-strikes": [
+   "rss:bbc-world | French protests see numbers surge as unions join strikes over high cost of living",
+   "rss:guardian-world | Protesters march in cities across France as unions stage general strike"
+  ],
+  "melania-ukraine-truce": [
+   "rss:bbc-world | Melania Trump calls for lasting Ukraine truce as she hosts Russian and Ukrainian officials",
+   "rss:npr-news | Melania Trump touts rare agreement she brokered between Russia and Ukraine"
+  ],
+  "russell-brand": [
+   "rss:npr-news | Russell Brand is convicted of rape, and judge says he'll get a prison term",
+   "rss:guardian-world | Police investigating two further rape allegations against Russell Brand"
+  ],
+  "salon-shutdown": [
+   "rss:hn-frontpage | Goodbye from Salon",
+   "rss:guardian-world | Salon, internet’s oldest general interest publication, shuts down after 31 years"
+  ],
+  "doj-ai-taskforce": [
+   "rss:coindesk | U.S. Justice Department assembles force to shield against foreign AI threats",
+   "rss:decrypt | DOJ Creates 'Super Intelligence' Task Force to Guard Against AI Abuse"
+  ]
+ },
+ "topics": {
+  "market-reaction": [
+   "rss:bbc-world | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "rss:bbc-technology | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "rss:npr-news | Fears of an AI crackdown after midterms spark $2 trillion rout in tech stocks",
+   "rss:decrypt | S&#038;P 500 Plunges, Wall Street Fears Circuit Breaker, Just One Day After Trump Celebrated Record Highs",
+   "rss:decrypt | Tech, AI Stocks Split After Democratic Sweep: Microsoft Jumps, Tesla and Nvidia Tank",
+   "rss:bbc-technology | These firms you've never heard of are feeding fears the AI bubble could burst",
+   "rss:coindesk | Bitcoin tumbles to $76,000 as collapsing AI trade drags stocks sharply lower",
+   "rss:coindesk | Live updates: Bitcoin drops more than 5% as stocks close out worst day since April 2025",
+   "rss:cointelegraph | Bitcoin crashes 6% to 7-week low as US stocks erase election gains",
+   "rss:decrypt | Bitcoin Erases Election Rally as AI Stocks Plunge, $428 Million in Crypto Longs Get Wiped Out",
+   "rss:the-block | Bitcoin erases post-election gains as Wall Street selloff triggers over $1 billion in crypto liquidations",
+   "rss:coindesk | Bitcoin holds above $80,000 after Wednesday’s jump as injective rallies on staked ETF listing",
+   "rss:coindesk | Bitcoin holds above $80,000 as Zcash jumps 12% in post-election crypto rebound",
+   "rss:cointelegraph | Bitcoin hits $80.5K as US stocks rally on midterm election results",
+   "rss:the-block | Bitcoin rebounds past $80,000 as markets shrug off midterms and Binance hack",
+   "rss:decrypt | Bitcoin Rebounds After Democratic Midterm Sweep, But Crypto Faces Tougher Fight in Washington",
+   "rss:decrypt | Bitcoin Shrugs Off Midterms as Experts Say Democratic Sweep Was 'Priced In'",
+   "rss:cointelegraph | Bitcoin, Ether ETFs draw $128M as crypto rebounds after midterms",
+   "rss:cointelegraph | Bitcoin win rate vs. S&P 500 recovers as post-midterm history favors stocks"
+  ],
+  "midterm-politics": [
+   "rss:ars-technica | MAHA lost bigly in the midterms—is it at death's door?",
+   "rss:ars-technica | Statehouse wins give Democrats new power to push clean energy",
+   "rss:wired | The Blue Tsunami Swept Doctors and Scientists Into Office",
+   "rss:wired | The Biggest Pro-AI Super PAC Network Didn’t Really Impact the Midterms",
+   "rss:wired | Knives Are Out in the White House",
+   "rss:wired | Election Deniers Aren’t Contesting Their Massive Losses",
+   "rss:wired | ‘Musk’ Director Alex Gibney Wants to Know if Democrats Can Now Hold Elon Musk Accountable",
+   "rss:wired | ‘I’m 100 Percent at War With Trump’: MAGA Revolts After Midterms Wipeout",
+   "rss:bbc-world | White House denies Hegseth and Rubio to leave jobs after Republican election losses",
+   "rss:bbc-world | Democratic socialist defeats incumbent Karen Bass in Los Angeles mayor's race",
+   "rss:bbc-world | Vance walks Trump tightrope with scathing election critique blaming Iran war",
+   "rss:npr-news | These are the races in the House and Senate that haven't been called yet",
+   "rss:npr-news | How North Carolina Democrats flipped several House seats in historically GOP districts",
+   "rss:guardian-world | The midterms were a thumping rebuke of the US-Israel relationship",
+   "rss:guardian-world | US elections 2026 live: Democrats exceed 250 House seats as blue wave sweeping Congress grows",
+   "rss:guardian-world | Fox News suffers ratings drop on bleak election night for Republicans",
+   "rss:wired | How Elon Musk and Big Tech Poured Millions Into the Midterms, and Lost",
+   "rss:wired | Voters Set $400 Million of Elon Musk’s Money on Fire",
+   "rss:bbc-technology | Elon Musk's millions failed to deliver Republican wins in fierce midterms",
+   "rss:cointelegraph | Crypto ally French Hill wins reelection but set to lose House chair",
+   "rss:the-block | French Hill’s race still too close to call as House flips, changing the direction of crypto legislation"
+  ],
+  "crypto-politics": [
+   "rss:decrypt | Democrats to Push Broader Crypto Market Structure Bill After Sweeping US Midterms: Report",
+   "rss:the-block | Democratic sweep of Congress forces crypto industry to rethink Washington strategy",
+   "rss:cointelegraph | Crypto PACs eye 2028 ‘new map’ as Democrats take Congress",
+   "rss:decrypt | Morning Minute: Democrat Sweep Pumps Crypto as Clarity Act Resurfaces",
+   "rss:cointelegraph | ‘Lawyer up’: Democrats target Trump, Big Tech after midterm sweep",
+   "rss:cointelegraph | Trump-linked tokens lead crypto losses after Democrats sweep in the US midterms",
+   "rss:cointelegraph | Trump’s memecoin ventures derailed CLARITY Act, Scaramucci says",
+   "rss:the-block | The Digital Chamber calls Sherrod Brown’s win ‘most consequential unfavorable result’ for crypto",
+   "rss:cointelegraph | Crypto ally French Hill wins reelection but set to lose House chair",
+   "rss:the-block | French Hill’s race still too close to call as House flips, changing the direction of crypto legislation",
+   "rss:decrypt | Bitcoin Rebounds After Democratic Midterm Sweep, But Crypto Faces Tougher Fight in Washington"
+  ],
+  "datacenters": [
+   "rss:wired | The Results Are In: Voters Hate Data Centers",
+   "rss:decrypt | US Voters Back AI Data Center Restrictions in At Least 29 Communities",
+   "rss:techcrunch | Meta warns that election backlash against data centers could make AI expansion harder",
+   "rss:decrypt | OpenAI Promises to Foot AI’s Power Bill After Voter Revolt. Who Enforces It?",
+   "rss:decrypt | OpenAI Wants to Rebrand AI Data Centers, Use Them to 'Protect the Grid'",
+   "rss:wired | The Blue Wave Has Tech Bros Scrambling for Data Centers in Space"
+  ],
+  "crypto-hacks": [
+   "rss:bbc-technology | Binance says fake job interviews used as part of $6.3bn crypto hack",
+   "rss:bbc-technology | North Korea denies being behind record $6.3bn Binance hack",
+   "rss:bbc-technology | Binance users withdraw $3.6bn after largest-ever crypto hack",
+   "rss:bbc-technology | Why North Korea's 'elite' hackers are the prime suspect in major Binance hack",
+   "rss:coindesk | What is TraderTraitor, the hacking squad behind the $6.3 billion Binance heist?",
+   "rss:coindesk | Gate CEO says crypto exchanges must prove they can survive a hack like Binance’s",
+   "rss:cointelegraph | Fed, OCC check US banks after Binance hack as experts flag security risks",
+   "rss:decrypt | Coinbase Says 99% of Customer Crypto Is Offline and Out of Hackers’ Reach",
+   "rss:the-block | Coinbase says 99% of customer assets sit in cold storage after Binance’s $6.3 billion breach",
+   "rss:coindesk | Binance cuts SignalPlus access after security warning, urges users to check accounts",
+   "rss:cointelegraph | Binance, Deribit revoke SignalPlus API keys after fake Teams invite attack",
+   "rss:decrypt | Binance Cuts Off SignalPlus API Keys Over 'Potential Security Issue' at Trading Platform",
+   "rss:coindesk | Mercado Bitcoin hack continued hours after exchange said attack was contained, report finds",
+   "rss:cointelegraph | Mercado Bitcoin says phased reopening to begin Monday, will cover losses",
+   "rss:decrypt | Mercado Bitcoin Said Its Hack Was Contained, But Blockchain Data Tells a Different Story",
+   "rss:decrypt | Crédit Mutuel Arkéa Confirms Cyberattack After ZachXBT Ties It to $133M Crypto Theft",
+   "rss:the-block | Crédit Mutuel Arkéa confirms cyberattack after ZachXBT flags $133M in suspected losses",
+   "rss:cointelegraph | Crédit Mutuel Arkéa resumes operations after attack, assesses losses",
+   "rss:cointelegraph | Binance, Polymarket seek Polygon hard fork to recover $6.8M in stolen crypto",
+   "rss:cointelegraph | BitMart founder says security team ‘severely understaffed’ after new hack",
+   "rss:cointelegraph | India warns AI-powered hackers targeting crypto exchanges at ‘machine speed’",
+   "rss:cointelegraph | Asian crypto exchanges batten down the hatches as hacks surge: Asia Express"
+  ],
+  "miners-ai-pivot": [
+   "rss:coindesk | Google could take stake in bitcoin miner TeraWulf’s $19 billion AI project if Anthropic defaults",
+   "rss:coindesk | Bitcoin miner Riot could pay Anthropic 12% interest under $28 billion AI deal",
+   "rss:cointelegraph | Riot shares surge on $28B AI lease as Hut 8 sinks on revenue miss",
+   "rss:cointelegraph | Core Scientific to quit Bitcoin mining by year-end as AI business surges",
+   "rss:cointelegraph | American Bitcoin’s $126M profit masks mining pressure as rivals turn to AI",
+   "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "rss:decrypt | Trump-Backed American Bitcoin Turns a Profit as Bitcoin Rise Lifts Books",
+   "rss:the-block | Eric Trump’s American Bitcoin swings to $126 million profit in Q3 on digital asset gains"
+  ],
+  "kalshi-prediction-markets": [
+   "rss:ars-technica | Kalshi court losses pile up as judges refuse to block state gambling laws",
+   "rss:coindesk | The pile of lawsuits against Kalshi just grew by one",
+   "rss:decrypt | Arkansas Sues Kalshi, Joining a Growing List of States Targeting Prediction Markets",
+   "rss:the-block | Arkansas sues Kalshi, says its alleged illegal gambling operations cause mental harm",
+   "rss:decrypt | Hollywood Studios Quietly Ban Staff From Betting on Prediction Markets: Report",
+   "rss:decrypt | Midterms Blue Wave Makes $917K for One Polymarket Trader, If Alaska Doesn’t Flip"
+  ],
+  "tokenization": [
+   "rss:cointelegraph | Europe’s largest asset manager Amundi tokenizes equity index fund on Ethereum",
+   "rss:decrypt | Canton Coin Gets SEC Nod as Wall Street Tokenization Heats Up",
+   "rss:decrypt | Wall Street’s Plumbing Goes Onchain as Morgan Stanley Tokenizes Securities",
+   "rss:the-block | Schroders launches tokenized emerging markets debt fund on Solana with Centrifuge",
+   "rss:the-block | Morgan Stanley among first banks to tokenize US equities, Treasurys through DTCC’s service",
+   "rss:decrypt | Solana Labs’ Leap Launches Mobile App for Trading Tokenized Stocks and Crypto"
+  ],
+  "openai-cyber": [
+   "rss:techcrunch | OpenAI released a new cybersecurity model. Is that enough?",
+   "rss:coindesk | OpenAI says its AI can break into Linux at scale. Here's what it means for crypto",
+   "rss:decrypt | OpenAI Found 948 Linux Security Flaws—And Figured Out How to Exploit Them",
+   "rss:coindesk | U.S. Justice Department assembles force to shield against foreign AI threats",
+   "rss:decrypt | DOJ Creates 'Super Intelligence' Task Force to Guard Against AI Abuse"
+  ],
+  "iran": [
+   "rss:bbc-world | Vance walks Trump tightrope with scathing election critique blaming Iran war",
+   "rss:guardian-world | South Korea says it will expand naval operations closer to strait of Hormuz",
+   "rss:guardian-world | Iran unveils ‘We will kill Trump’ banner – but US president may now be tempted to resume bombing"
+  ],
+  "ssh-vuln": [
+   "rss:ars-technica | Meet *sshole, the vulnerability that lets hackers SSH into Linux devices",
+   "rss:hn-frontpage | Alpine Linux Security Advisory: OpenSSH-server password authentication bypass"
+  ],
+  "black-friday-deals": [
+   "rss:wired | The 7 Best Early Black Friday TV Deals (2026)",
+   "rss:wired | 13 Best Early Black Friday Deals at Best Buy on Hot Tech (2026)"
+  ],
+  "ai-ipo": [
+   "rss:hn-frontpage | Major Investors Are Skeptical Anthropic IPO Can Achieve $1.5T Valuation",
+   "rss:techcrunch | OpenAI president Greg Brockman says company could be IPO ready in 2027"
+  ],
+  "tax-crypto": [
+   "rss:coindesk | Hong Kong passes law requiring crypto exchanges to report customer transactions to tax authorities",
+   "rss:cointelegraph | South Korea seeks 4th crypto tax delay, targets 2029 start"
+  ],
+  "freezer-hacks-wider": [
+   "rss:techcrunch | US government warns of ‘ongoing cyber threat’ amid mass hacks of industrial retail and military freezers",
+   "rss:bbc-technology | French blood storage impacted by freezer hacks as theories swirl about culprits",
+   "rss:bbc-technology | UK meat industry hit by cyber-attack which targeted European supermarket freezers",
+   "rss:bbc-technology | If hackers can take control of a supermarket freezer, how vulnerable is other tech?",
+   "rss:techcrunch | The ex-Secret Service agent who flipped a hacker is now raising a second $250M cybersecurity fund"
+  ],
+  "anthropic-openai-products": [
+   "rss:techcrunch | Claude can now analyze your spending with its new Personal Finance tool",
+   "rss:decrypt | Claude Gets Personal Finance—Anthony Pompliano Accuses Anthropic of Copying His Startup",
+   "rss:techcrunch | OpenAI released a new cybersecurity model. Is that enough?"
+  ]
+ },
+ "pairs": [
+  {
+   "a": "rss:hn-frontpage | Goodbye from Salon",
+   "b": "rss:guardian-world | Salon, internet’s oldest general interest publication, shuts down after 31 years",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-technology | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "b": "rss:decrypt | S&#038;P 500 Plunges, Wall Street Fears Circuit Breaker, Just One Day After Trump Celebrated Record Highs",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-technology | North Korea denies being behind record $6.3bn Binance hack",
+   "b": "rss:bbc-technology | Binance users withdraw $3.6bn after largest-ever crypto hack",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Bitcoin tumbles to $76,000 as collapsing AI trade drags stocks sharply lower",
+   "b": "rss:the-block | Bitcoin erases post-election gains as Wall Street selloff triggers over $1 billion in crypto liquidations",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Mercado Bitcoin hack continued hours after exchange said attack was contained, report finds",
+   "b": "rss:cointelegraph | Mercado Bitcoin says phased reopening to begin Monday, will cover losses",
+   "label": "same"
+  },
+  {
+   "a": "rss:hn-frontpage | MoofTCP – A modern replacement for MacTCP on 68k Macs",
+   "b": "rss:techcrunch | The New York Times reportedly in talks to buy Letterboxd for $330 million",
+   "label": "different"
+  },
+  {
+   "a": "rss:techcrunch | Instagram brings Edits to desktop to take on CapCut",
+   "b": "rss:bbc-world | French protests see numbers surge as unions join strikes over high cost of living",
+   "label": "different"
+  },
+  {
+   "a": "rss:wired | Zoro Coupon Codes: 20% Off November 2026",
+   "b": "rss:bbc-technology | Tech Now",
+   "label": "different"
+  },
+  {
+   "a": "rss:bbc-technology | North Korea denies being behind record $6.3bn Binance hack",
+   "b": "rss:the-block | Morgan Stanley among first banks to tokenize US equities, Treasurys through DTCC’s service",
+   "label": "different"
+  },
+  {
+   "a": "rss:guardian-world | The midterms were a thumping rebuke of the US-Israel relationship",
+   "b": "rss:the-block | Eric Trump’s American Bitcoin swings to $126 million profit in Q3 on digital asset gains",
+   "label": "different"
+  },
+  {
+   "a": "rss:hn-frontpage | MoofTCP – A modern replacement for MacTCP on 68k Macs",
+   "b": "rss:hn-frontpage | Hungary: Communist-era files released, up to 60k former agents revealed",
+   "label": "different"
+  },
+  {
+   "a": "rss:hn-frontpage | Motorola Signature 27 with GrapheneOS support",
+   "b": "rss:ars-technica | Motorola's new Signature 27 has it all if you can stomach the $1,600 price tag",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-world | Who could be behind hoax bomb threats to European air travel?",
+   "b": "rss:guardian-world | Bomb threats disrupt at least 25 flights across Europe, raising hybrid war fears",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Bitcoin tumbles to $76,000 as collapsing AI trade drags stocks sharply lower",
+   "b": "rss:cointelegraph | Bitcoin crashes 6% to 7-week low as US stocks erase election gains",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | The pile of lawsuits against Kalshi just grew by one",
+   "b": "rss:decrypt | Arkansas Sues Kalshi, Joining a Growing List of States Targeting Prediction Markets",
+   "label": "same"
+  },
+  {
+   "a": "rss:cointelegraph | Circle’s ARC token sale lifts earnings as lower yields weigh on USDC income",
+   "b": "rss:decrypt | USDC Issuer Circle Quietly Cuts 5% of Staff in Profitable Quarter",
+   "label": "same"
+  },
+  {
+   "a": "rss:hn-frontpage | Inkling 2 Small",
+   "b": "rss:bbc-world | Who could be behind hoax bomb threats to European air travel?",
+   "label": "different"
+  },
+  {
+   "a": "rss:wired | 6 Best VPN Services (2026), Tested and Reviewed",
+   "b": "rss:npr-news | How North Carolina Democrats flipped several House seats in historically GOP districts",
+   "label": "different"
+  },
+  {
+   "a": "rss:bbc-world | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "b": "rss:bbc-technology | Tech Life",
+   "label": "different"
+  },
+  {
+   "a": "rss:npr-news | These are the races in the House and Senate that haven't been called yet",
+   "b": "rss:the-block | French Hill’s race still too close to call as House flips, changing the direction of crypto legislation",
+   "label": "related"
+  },
+  {
+   "a": "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "b": "rss:the-block | Circle reports $865 million in Q3 revenue and reserve income, discloses 5% workforce reduction",
+   "label": "different"
+  },
+  {
+   "a": "rss:hn-frontpage | MoofTCP – A modern replacement for MacTCP on 68k Macs",
+   "b": "rss:hn-frontpage | Major Investors Are Skeptical Anthropic IPO Can Achieve $1.5T Valuation",
+   "label": "different"
+  },
+  {
+   "a": "rss:hn-frontpage | Motorola Signature 27 with GrapheneOS support",
+   "b": "rss:wired | Motorola Signature 27: Specs, Price, Features, Release Date",
+   "label": "same"
+  },
+  {
+   "a": "rss:wired | Google Is Forcing AI Overviews in Classrooms. Schools Are Searching for a Way Out",
+   "b": "rss:decrypt | Google Tells Schools They Can Reject AI—But They'll Lose Search, Too",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-world | Paraguay President Santiago Peña resigns after bank collapse",
+   "b": "rss:decrypt | Bitcoin Fixes This? Paraguay President Resigns After Bank Lockout Hits 60% of Country",
+   "label": "same"
+  },
+  {
+   "a": "rss:npr-news | Paraguay's president is impeached minutes after resigning following a bank collapse",
+   "b": "rss:decrypt | Bitcoin Fixes This? Paraguay President Resigns After Bank Lockout Hits 60% of Country",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "b": "rss:cointelegraph | American Bitcoin’s $126M profit masks mining pressure as rivals turn to AI",
+   "label": "same"
+  },
+  {
+   "a": "rss:hn-frontpage | Brazilian Credit Guarantor Fund Data Breach Affecting PII and Payout Data",
+   "b": "rss:wired | The Results Are In: Voters Hate Data Centers",
+   "label": "different"
+  },
+  {
+   "a": "rss:wired | 13 Best Early Black Friday Deals at Best Buy on Hot Tech (2026)",
+   "b": "rss:wired | The Best Smart Ring for Discreet Fitness Tracking in 2026",
+   "label": "different"
+  },
+  {
+   "a": "rss:bbc-world | Major tech stocks plunge as US midterms add to fears of AI slowdown",
+   "b": "rss:cointelegraph | Bitcoin hits $80.5K as US stocks rally on midterm election results",
+   "label": "related"
+  },
+  {
+   "a": "rss:bbc-technology | Tech Now",
+   "b": "rss:npr-news | Fears of an AI crackdown after midterms spark $2 trillion rout in tech stocks",
+   "label": "different"
+  },
+  {
+   "a": "rss:cointelegraph | Europe’s largest asset manager Amundi tokenizes equity index fund on Ethereum",
+   "b": "rss:the-block | Schroders launches tokenized emerging markets debt fund on Solana with Centrifuge",
+   "label": "related"
+  },
+  {
+   "a": "rss:hn-frontpage | MoofTCP – A modern replacement for MacTCP on 68k Macs",
+   "b": "rss:hn-frontpage | Inkling 2 Small",
+   "label": "different"
+  },
+  {
+   "a": "rss:ars-technica | Google: Schools can keep search while skipping Gemini, but AI search is non-negotiable",
+   "b": "rss:decrypt | Google Tells Schools They Can Reject AI—But They'll Lose Search, Too",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-world | Hoax bomb threats target European airlines and airports for second time in a week",
+   "b": "rss:bbc-world | Bomb hoaxes: Messages reveal how threat was passed on by air traffic control",
+   "label": "same"
+  },
+  {
+   "a": "rss:npr-news | Paraguay's president is impeached minutes after resigning following a bank collapse",
+   "b": "rss:guardian-world | Paraguay’s president quits after millions of people’s savings frozen in bank crisis",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "b": "rss:decrypt | Trump-Backed American Bitcoin Turns a Profit as Bitcoin Rise Lifts Books",
+   "label": "same"
+  },
+  {
+   "a": "rss:cointelegraph | Paraguay president resigns after collapse of Ueno digital bank",
+   "b": "rss:decrypt | Bitcoin Fixes This? Paraguay President Resigns After Bank Lockout Hits 60% of Country",
+   "label": "same"
+  },
+  {
+   "a": "rss:wired | How Elon Musk and Big Tech Poured Millions Into the Midterms, and Lost",
+   "b": "rss:cointelegraph | ‘Lawyer up’: Democrats target Trump, Big Tech after midterm sweep",
+   "label": "different"
+  },
+  {
+   "a": "rss:wired | ‘Musk’ Director Alex Gibney Wants to Know if Democrats Can Now Hold Elon Musk Accountable",
+   "b": "rss:bbc-technology | Elon Musk's millions failed to deliver Republican wins in fierce midterms",
+   "label": "related"
+  },
+  {
+   "a": "rss:cointelegraph | Bitcoin win rate vs. S&P 500 recovers as post-midterm history favors stocks",
+   "b": "rss:cointelegraph | Bitcoin hits $80.5K as US stocks rally on midterm election results",
+   "label": "related"
+  },
+  {
+   "a": "rss:hn-frontpage | Inkling 2 Small",
+   "b": "rss:hn-frontpage | Search for everyone",
+   "label": "different"
+  },
+  {
+   "a": "rss:bbc-world | Trump signs order preventing future presidents from changing Oval Office",
+   "b": "rss:guardian-world | Trump signs proclamation to try to prevent changes to gold-covered Oval Office",
+   "label": "same"
+  },
+  {
+   "a": "rss:bbc-world | Paraguay President Santiago Peña resigns after bank collapse",
+   "b": "rss:cointelegraph | Paraguay president resigns after collapse of Ueno digital bank",
+   "label": "same"
+  },
+  {
+   "a": "rss:npr-news | Paraguay's president is impeached minutes after resigning following a bank collapse",
+   "b": "rss:cointelegraph | Paraguay president resigns after collapse of Ueno digital bank",
+   "label": "same"
+  },
+  {
+   "a": "rss:coindesk | Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+   "b": "rss:the-block | Eric Trump’s American Bitcoin swings to $126 million profit in Q3 on digital asset gains",
+   "label": "same"
+  },
+  {
+   "a": "rss:decrypt | Stablecoins Go Mainstream as Samsung Wallet Adds USDC on Solana",
+   "b": "rss:the-block | Samsung Wallet launches USDC accounts on Solana for US Galaxy users",
+   "label": "same"
+  },
+  {
+   "a": "rss:wired | The 7 Best Early Black Friday TV Deals (2026)",
+   "b": "rss:wired | 13 Best Early Black Friday Deals at Best Buy on Hot Tech (2026)",
+   "label": "related"
+  },
+  {
+   "a": "rss:cointelegraph | Bitcoin hits $80.5K as US stocks rally on midterm election results",
+   "b": "rss:decrypt | Bitcoin Erases Election Rally as AI Stocks Plunge, $428 Million in Crypto Longs Get Wiped Out",
+   "label": "related"
+  },
+  {
+   "a": "rss:hn-frontpage | Brazilian Credit Guarantor Fund Data Breach Affecting PII and Payout Data",
+   "b": "rss:hn-frontpage | Search for everyone",
+   "label": "different"
+  }
+ ]
+}

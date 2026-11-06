@@ -3,7 +3,7 @@
 
 **What to build:** On a 30-minute brain tick, the `judge` task scores only new or materially changed Narratives against the current Rubric (haiku, per the routing table). Every Score is stored, new Signals on a Narrative trigger a re-score, and the details view shows Score history.
 
-**Blocked by:** 05, 06
+**Blocked by:** 05, 05b, 06
 
 **Status:** ready-for-agent
 

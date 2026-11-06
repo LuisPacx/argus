@@ -1,0 +1,1602 @@
+[
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "MoofTCP – A modern replacement for MacTCP on 68k Macs",
+  "url": "https://github.com/matthewmrichter/mooftcp"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Major Investors Are Skeptical Anthropic IPO Can Achieve $1.5T Valuation",
+  "url": "https://www.wsj.com/finance/major-investors-are-skeptical-anthropic-ipo-can-achieve-1-5-trillion-valuation-ca965d8b’"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Inkling 2 Small",
+  "url": "https://thinkingmachines.ai/news/inkling-2-small/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Brazilian Credit Guarantor Fund Data Breach Affecting PII and Payout Data",
+  "url": "https://www.fgc.org.br/comunicado"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Cuban: Facebook knowingly runs AI deepfake scam ads; docs say $16B fraud revenue",
+  "url": "https://finance.yahoo.com/technology/ai/articles/mark-cuban-says-facebook-knowingly-213000020.html"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Claude Code sends your email address to websites",
+  "url": "https://github.com/anthropics/claude-code/issues/107757"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "MS Paint Remote Code Execution Vulnerability",
+  "url": "https://www.cve.org/CVERecord?id=CVE-2026-83844"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Tencent Launches Hy4, One of the Leading Open-Source AI Models",
+  "url": "https://www.tencent.com/tencent-launches-hy4-joining-the-ranks-of-the-worlds-leading-open-source-ai-models/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Search for everyone",
+  "url": "https://kagi.com/changelog#11820"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Goodbye from Salon",
+  "url": "https://www.salon.com/2026/11/05/goodbye-from-salon/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Introducing Pangram Image 1.0",
+  "url": "https://www.pangram.com/blog/introducing-pangram-image-1-0"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Hungary: Communist-era files released, up to 60k former agents revealed",
+  "url": "https://www.euronews.com/2026/11/04/hungary-communist-era-files-opened-up-to-60000-former-agents-revealed"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "The Hackintosh Reborn",
+  "url": "https://www.naut.ca/blog/2026/11/05/the-hackintosh-reborn-with-ai/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Launch HN: Rivet (YC W23) – Scale and Orchestrate Agents on S3",
+  "url": "https://github.com/rivet-dev/rivet"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Bild AI (YC W25) Is Hiring Founding Product Engineers",
+  "url": "https://www.ycombinator.com/companies/bild-ai/jobs"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Window Sweaters",
+  "url": "https://github.com/saragordic/window-sweaters"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "My psychophysics as a bilateral cochlear implant user",
+  "url": "https://claude.ai/artifact/L8qsMc3SorytGW3LA81nYf"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "The Stacks Project, Formalized in Lean",
+  "url": "https://axiommath.ai/research/the-stacks-project-formalized/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Motorola Signature 27 with GrapheneOS support",
+  "url": "https://motorolanews.com/motorola-signature-27-2/"
+ },
+ {
+  "sourceId": "rss:hn-frontpage",
+  "title": "Alpine Linux Security Advisory: OpenSSH-server password authentication bypass",
+  "url": "https://alpinelinux.org/posts/2026-11-05-openssh-password-authentication-bypass/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "The New York Times reportedly in talks to buy Letterboxd for $330 million",
+  "url": "https://techcrunch.com/2026/11/05/the-new-york-times-reportedly-in-talks-to-buy-letterboxd-for-330-million/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Meta, Google, and TikTok sue California AG over teen social media law",
+  "url": "https://techcrunch.com/2026/11/05/meta-google-and-tiktok-sue-california-ag-over-teen-social-media-law/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Airbnb says it’s launching an AI travel agent in the first half of 2027",
+  "url": "https://techcrunch.com/2026/11/05/airbnb-says-its-launching-an-ai-travel-agent-in-the-first-half-of-2027/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Serve Robotics launches new business to become the AWS for robots",
+  "url": "https://techcrunch.com/2026/11/05/serve-robotics-launches-new-business-to-become-the-aws-for-robots/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Meta says US users can now video chat with their Muse AI avatar",
+  "url": "https://techcrunch.com/2026/11/05/meta-says-us-users-can-now-video-chat-with-their-muse-ai-avatar/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Meta warns that election backlash against data centers could make AI expansion harder",
+  "url": "https://techcrunch.com/2026/11/05/metas-warns-that-election-backlash-against-data-centers-could-make-ai-expansion-harder/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "OpenAI released a new cybersecurity model. Is that enough?",
+  "url": "https://techcrunch.com/2026/11/05/openai-released-a-new-cybersecurity-model-is-that-enough/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "US government warns of ‘ongoing cyber threat’ amid mass hacks of industrial retail and military freezers",
+  "url": "https://techcrunch.com/2026/11/05/u-s-government-warns-of-ongoing-cyber-threat-amid-mass-hacks-of-industrial-retail-and-military-freezers/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "OpenAI president Greg Brockman says company could be IPO ready in 2027",
+  "url": "https://techcrunch.com/2026/11/05/openai-president-greg-brockman-says-company-could-be-ipo-ready-in-2027/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "The ex-Secret Service agent who flipped a hacker is now raising a second $250M cybersecurity fund",
+  "url": "https://techcrunch.com/2026/11/05/the-ex-secret-service-agent-who-flipped-a-hacker-is-now-raising-a-second-250m-cybersecurity-fund/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Claude can now analyze your spending with its new Personal Finance tool",
+  "url": "https://techcrunch.com/2026/11/05/claude-can-now-analyze-your-spending-with-its-new-personal-finance-tool/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Harbinger raises $240M after expanding into defense",
+  "url": "https://techcrunch.com/2026/11/05/harbinger-raises-240m-after-expanding-into-defense/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Food delivery startup Wonder files for IPO as it explores its next big bite",
+  "url": "https://techcrunch.com/2026/11/05/food-delivery-startup-wonder-files-for-ipo-as-it-explores-its-next-big-bite/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Axiom Math wants to keep AI slop out of mathematics",
+  "url": "https://techcrunch.com/2026/11/05/axiom-math-wants-to-keep-ai-slop-out-of-mathematics/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Bluesky hit peak usage for the year on election night",
+  "url": "https://techcrunch.com/2026/11/05/bluesky-hit-peak-usage-for-the-year-on-election-night/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Zipline hits $21.5B valuation as Walmart expands bet on drone delivery",
+  "url": "https://techcrunch.com/2026/11/05/zipline-hits-21-5b-valuation-as-walmart-expands-bet-on-drone-delivery/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "TikTok quietly launches a stand-alone TikTok Shop app",
+  "url": "https://techcrunch.com/2026/11/05/tiktok-quietly-launches-a-standalone-tiktok-shop-app/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Dropbox acquires Tigris Data for $350M to bolster its AI infrastructure",
+  "url": "https://techcrunch.com/2026/11/05/dropbox-acquires-tigris-data-for-350m-to-bolster-its-ai-iinfrastructure/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "Instagram brings Edits to desktop to take on CapCut",
+  "url": "https://techcrunch.com/2026/11/05/instagram-brings-edits-to-desktop-to-take-on-capcut/"
+ },
+ {
+  "sourceId": "rss:techcrunch",
+  "title": "ElevenLabs now lets users publish AI-generated music directly on SoundCloud",
+  "url": "https://techcrunch.com/2026/11/05/elevenlabs-now-lets-users-publish-ai-generated-music-directly-on-soundcloud/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Blue Origin says it is building a higher-performing rocket engine at 1/4 the cost",
+  "url": "https://arstechnica.com/space/2026/11/blue-origin-announces-rocket-upgrades-aimed-at-lower-costs-more-performance/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Meet *sshole, the vulnerability that lets hackers SSH into Linux devices",
+  "url": "https://arstechnica.com/security/2026/11/vulnerability-allows-attackers-to-log-into-some-linux-devices-sans-password/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "NASA unveils mysterious X-70 experimental aircraft using AI-generated image",
+  "url": "https://arstechnica.com/gadgets/2026/11/nasas-experimental-x-70-aircraft-is-a-big-question-mark/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Sony revives the original Walkman headphones, adds USB-C",
+  "url": "https://arstechnica.com/gadgets/2026/11/sony-adds-usb-c-to-its-70s-era-mdr-3-walkman-headphones/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Google: Schools can keep search while skipping Gemini, but AI search is non-negotiable",
+  "url": "https://arstechnica.com/ai/2026/11/google-schools-can-keep-search-while-skipping-gemini-but-ai-search-is-non-negotiable/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Lawsuit: Man introduced his wife to ChatGPT. She used it to plan his murder.",
+  "url": "https://arstechnica.com/tech-policy/2026/11/lawsuit-man-introduced-his-wife-to-chatgpt-she-used-it-to-plan-his-murder/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "BMW bumps battery for the better: The 2027 i7 60 xDrive, driven",
+  "url": "https://arstechnica.com/cars/2026/11/bmw-bumps-battery-for-the-better-the-2027-i7-60-xdrive-driven/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Software squeezes more data out of Webb Telescope for imaging exoplanets",
+  "url": "https://arstechnica.com/science/2026/11/getting-software-to-help-block-out-a-star-so-we-can-see-exoplanets/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Kalshi court losses pile up as judges refuse to block state gambling laws",
+  "url": "https://arstechnica.com/tech-policy/2026/11/kalshi-court-losses-pile-up-as-judges-refuse-to-block-state-gambling-laws/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "MAHA lost bigly in the midterms—is it at death's door?",
+  "url": "https://arstechnica.com/health/2026/11/is-maha-dying-or-will-it-be-reborn-whats-next-after-crushing-midterm-losses/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Gamers go to ridiculous lengths to \"improve\" GTA VI with Nvidia's DLSS 5",
+  "url": "https://arstechnica.com/gaming/2026/11/gamers-go-to-ridiculous-lengths-to-improve-gta-vi-with-nvidias-dlss-5/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Statehouse wins give Democrats new power to push clean energy",
+  "url": "https://arstechnica.com/science/2026/11/statehouse-wins-give-democrats-new-power-to-push-clean-energy/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Motorola's new Signature 27 has it all if you can stomach the $1,600 price tag",
+  "url": "https://arstechnica.com/gadgets/2026/11/motorolas-new-signature-27-has-it-all-if-you-can-stomach-the-1600-price-tag/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Agility Robotics' Nasdaq debut invites scrutiny of humanoid robot market",
+  "url": "https://arstechnica.com/ai/2026/11/agility-robotics-nasdaq-debut-invites-scrutiny-of-humanoid-robot-market/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "2026 iPad mini review: Maximizing the mini",
+  "url": "https://arstechnica.com/gadgets/2026/11/ipad-mini-2026-review-maximizing-the-mini/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Mercedes-AMG GT 4-Door Coupe first drive: Where tech and fun collide",
+  "url": "https://arstechnica.com/cars/2026/11/mercedes-amg-gt-4-door-coupe-first-drive-where-tech-and-fun-collide/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Nintendo's biggest ROM chip supplier is bowing out of the business",
+  "url": "https://arstechnica.com/gaming/2026/11/the-tech-memory-shortage-comes-for-nintendos-cartridge-supply-chain/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Hackers exploited iOS and Android flaws to infect phones",
+  "url": "https://arstechnica.com/security/2026/11/hackers-exploited-ios-and-android-flaws-to-infect-phones/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "Uranium cubes reveal why the German nuclear project failed",
+  "url": "https://arstechnica.com/science/2026/11/uranium-cubes-reveal-why-the-german-nuclear-project-failed/"
+ },
+ {
+  "sourceId": "rss:ars-technica",
+  "title": "VMware releases vSphere Express for virtualization on up to 128 cores",
+  "url": "https://arstechnica.com/information-technology/2026/11/vmware-releases-vsphere-express-for-virtualization-on-up-to-128-cores/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "6 Best VPN Services (2026), Tested and Reviewed",
+  "url": "https://www.wired.com/gallery/best-vpn/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The 7 Best Early Black Friday TV Deals (2026)",
+  "url": "https://www.wired.com/story/early-black-friday-tv-deals-11-5-26/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "How Elon Musk and Big Tech Poured Millions Into the Midterms, and Lost",
+  "url": "https://www.wired.com/story/uncanny-valley-podcast-how-elon-musk-and-big-tech-poured-millions-into-the-midterms-and-lost/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Ads in Chatbots Have Arrived. Here’s What’s Working—and What’s Not",
+  "url": "https://www.wired.com/story/ads-in-chatbots-have-arrived-heres-whats-working-and-whats-not/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "13 Best Early Black Friday Deals at Best Buy on Hot Tech (2026)",
+  "url": "https://www.wired.com/story/early-black-friday-best-buy-deals-11-5-26/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Blue Tsunami Swept Doctors and Scientists Into Office",
+  "url": "https://www.wired.com/story/the-blue-tsunami-swept-doctors-and-scientists-into-office/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Reddit Founder Says Building Social Media Apps Is ‘Not Cool Anymore’",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-alexis-ohanian/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Area Man Feels Joy Online for First Time in Years",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-ben-collins-the-onion/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Exclusive: Aina’s Smart Ring Wants to Be a Remote Control for Your AI Agent",
+  "url": "https://www.wired.com/story/aina-smart-ring/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Apple MacBook Pro OLED (2026) Review: The Best Comes at a Cost",
+  "url": "https://www.wired.com/review/apple-macbook-pro-oled-2026/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Finding New Drugs Is Laborious. This AI Startup Is Skipping The Lab Work",
+  "url": "https://www.wired.com/story/finding-new-drugs-is-laborious-this-ai-startup-is-skipping-the-lab-work/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Motorola Signature 27: Specs, Price, Features, Release Date",
+  "url": "https://www.wired.com/story/motorola-wants-to-sell-you-a-1600-phone-that-doesnt-fold/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "AI’s Next Trick? Speaking Dolphin",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-denise-herzing-wild-dolphin/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Best Wireless Chargers (2026): My Picks After Testing 100+",
+  "url": "https://www.wired.com/gallery/best-wireless-chargers/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "He Trolls AI Labs for a Living. Now They All Want to Work With Him",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-evan-ratliff-and-husk/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The ‘Ocarina of Time’ Remake Is Finally Here, but Why Does Link Look so Yassified?",
+  "url": "https://www.wired.com/story/the-legend-of-zelda-ocarina-of-time-remake-yassified-link/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Particle Physicists Are Getting a First Glimpse Into the ‘Zeptoverse’",
+  "url": "https://www.wired.com/story/particle-physicists-are-getting-a-first-glimpse-into-the-zeptoverse/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Best Smart Ring for Discreet Fitness Tracking in 2026",
+  "url": "https://www.wired.com/story/best-smart-ring/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Israel Is Destroying the Machinery South Lebanon Needs to Rebuild",
+  "url": "https://www.wired.com/story/israel-is-destroying-the-machinery-south-lebanon-needs-to-rebuild/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "A New UK Porn Ban Sparks Fears of Unprecedented Sex Censorship",
+  "url": "https://www.wired.com/story/a-new-uk-ban-sparks-fears-of-unprecedented-sex-censorship/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Ray-Ban Promo Codes: Save 50% in November 2026",
+  "url": "https://www.wired.com/story/ray-ban-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Meta Quest Promo Codes and Coupons for November 2026",
+  "url": "https://www.wired.com/story/meta-quest-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Nomad Goods Promo Codes: Get 25% Off in November 2026",
+  "url": "https://www.wired.com/story/nomad-discount-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "B&H Photo Promo Codes and Deals This November 2026",
+  "url": "https://www.wired.com/story/bh-photo-coupon/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Booking.com Promo Codes: 20% Off | November 2026",
+  "url": "https://www.wired.com/story/booking-com-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Corsair Discount Code: Up to 50% Off for November 2026",
+  "url": "https://www.wired.com/story/corsair-coupon/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Udemy Coupon Codes: 20% Off November 2026",
+  "url": "https://www.wired.com/story/udemy-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Zoro Coupon Codes: 20% Off November 2026",
+  "url": "https://www.wired.com/story/zoro-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Herman Miller Promo Codes: 40% Off November 2026",
+  "url": "https://www.wired.com/story/herman-miller-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "HP Coupon Codes and Deals November 2026",
+  "url": "https://www.wired.com/story/hp-coupon-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Altra Running Promo Codes: 10% Off November 2026",
+  "url": "https://www.wired.com/story/altra-promo-code/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "HostGator Coupon Codes: 76% Off Hosting in November 2026",
+  "url": "https://www.wired.com/story/hostgator-coupon/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Blue Wave Has Tech Bros Scrambling for Data Centers in Space",
+  "url": "https://www.wired.com/story/the-blue-wave-has-tech-bros-scrambling-for-data-centers-in-space/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "‘We Have No Shared Reality’: Two Political Influencers on the Future of Politics Online",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-cj-pearson-and-kat-abughazaleh/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Biggest Pro-AI Super PAC Network Didn’t Really Impact the Midterms",
+  "url": "https://www.wired.com/story/the-biggest-pro-ai-super-pac-network-didnt-really-impact-the-midterms/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "‘Blade Runner 2099’ Shows the ‘Silver Linings’ of a Replicant Takeover",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-blade-runner-2099/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Google Is Forcing AI Overviews in Classrooms. Schools Are Searching for a Way Out",
+  "url": "https://www.wired.com/story/google-is-forcing-ai-overviews-in-classrooms-schools-are-searching-for-a-way-out/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Knives Are Out in the White House",
+  "url": "https://www.wired.com/story/knives-are-out-in-the-white-house/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Hugging Face’s CEO Says His P(Doom) Is ‘Close to Zero’",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-clement-delangue-hugging-face/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Google Pixel 11, 11 Pro, and 11 Pro XL Sale: Save Up to $350",
+  "url": "https://www.wired.com/story/google-pixel-11-deal-november-2026/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Lawyer Holding Big Tech Accountable by ‘Beating the Tar Out of Them’ in Court",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-mark-lanier/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Small Phones Have Vanished. Enough Phone Wants to Bring Them Back",
+  "url": "https://www.wired.com/story/big-tech-abandoned-the-small-phone-the-enough-phone-wants-to-save-it/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "The Results Are In: Voters Hate Data Centers",
+  "url": "https://www.wired.com/story/the-results-are-in-voters-hate-data-centers/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "‘You Don’t Put Your Head in the Sand for 4 Years’: Colossal CEO Ben Lamm on Working With Trump",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-ben-lamm-colossal-biosciences/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Voters Set $400 Million of Elon Musk’s Money on Fire",
+  "url": "https://www.wired.com/story/voters-set-dollar400-million-of-elon-musks-money-on-fire/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "Election Deniers Aren’t Contesting Their Massive Losses",
+  "url": "https://www.wired.com/story/election-deniers-not-contesting-their-massive-losses/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "‘Musk’ Director Alex Gibney Wants to Know if Democrats Can Now Hold Elon Musk Accountable",
+  "url": "https://www.wired.com/story/wired-world-fair-2026-alex-gibney-musk/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "UK Officials Said AI Would Add £400 Billion to the Economy. That Figure Mainly Came From Google",
+  "url": "https://www.wired.com/story/uk-officials-said-ai-would-add-400-billion-to-the-economy-that-figure-mainly-came-from-google/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "‘I’m 100 Percent at War With Trump’: MAGA Revolts After Midterms Wipeout",
+  "url": "https://www.wired.com/story/im-100-percent-at-war-with-trump-maga-revolts-after-midterms-wipeout/"
+ },
+ {
+  "sourceId": "rss:wired",
+  "title": "I Tried Amazon’s New Kindles. Buy This Accessory Instead (2026)",
+  "url": "https://www.wired.com/story/finally-a-kindle-page-turner/"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Major tech stocks plunge as US midterms add to fears of AI slowdown",
+  "url": "https://www.bbc.co.uk/news/articles/cmn04705rd8jo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Trump signs order preventing future presidents from changing Oval Office",
+  "url": "https://www.bbc.co.uk/news/articles/cmy0eeg101djo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "White House denies Hegseth and Rubio to leave jobs after Republican election losses",
+  "url": "https://www.bbc.co.uk/news/articles/cqg7xxg4jdv5o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Pope begins lengthy trip to Latin America weeks after lung cancer surgery",
+  "url": "https://www.bbc.co.uk/news/articles/cqn06j0y61k6o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Hoax bomb threats target European airlines and airports for second time in a week",
+  "url": "https://www.bbc.co.uk/news/articles/cmpqg08nz3pqo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "California governor commutes sentences for state's 548 death row inmates",
+  "url": "https://www.bbc.co.uk/news/articles/cqrkyyd2j8mvo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Paraguay President Santiago Peña resigns after bank collapse",
+  "url": "https://www.bbc.co.uk/news/articles/c6p9g39vln3yo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "French protests see numbers surge as unions join strikes over high cost of living",
+  "url": "https://www.bbc.co.uk/news/articles/ckx2qzv835pgo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Democratic socialist defeats incumbent Karen Bass in Los Angeles mayor's race",
+  "url": "https://www.bbc.co.uk/news/articles/c6e3xxwk3k11o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Eight killed in series of shootings in western Turkey",
+  "url": "https://www.bbc.co.uk/news/articles/cvj6jj21pd2ko?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Who could be behind hoax bomb threats to European air travel?",
+  "url": "https://www.bbc.co.uk/news/articles/cx8dzzjg3g9zo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Melania Trump calls for lasting Ukraine truce as she hosts Russian and Ukrainian officials",
+  "url": "https://www.bbc.co.uk/news/articles/c9p8g085mz07o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Bomb hoaxes: Messages reveal how threat was passed on by air traffic control",
+  "url": "https://www.bbc.co.uk/news/videos/cq398m8w41lyo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Chris vs Chris: Who's running and what's at stake this New Zealand election",
+  "url": "https://www.bbc.co.uk/news/videos/cr86zxe1q5j3o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Was an Italian chef really fired over refusal to put pineapple on pizza?",
+  "url": "https://www.bbc.co.uk/news/videos/cmvg9yy8wpweo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "'I'm not a quitter': Kim Kardashian on retaking the bar exam",
+  "url": "https://www.bbc.co.uk/news/videos/cmy4x59kdknwo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Film star Ranbir Kapoor on AI, movies and fatherhood",
+  "url": "https://www.bbc.co.uk/news/videos/cmvg9w5w2p1no?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Delhi's toxic winter air is back - is the Indian capital prepared for pollution?",
+  "url": "https://www.bbc.co.uk/news/articles/cm78p0n09q3xo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Vance walks Trump tightrope with scathing election critique blaming Iran war",
+  "url": "https://www.bbc.co.uk/news/articles/crz98zqkz7z0o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Would you take a test to see if your life will be cut short? I did - and it changed me",
+  "url": "https://www.bbc.co.uk/news/articles/cw62yq9vp7yyo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "A bitter end for Ronaldo - the icon who transformed Portugal",
+  "url": "https://www.bbc.co.uk/sport/football/articles/ckn9rwr2zzpvo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-world",
+  "title": "Why a US-funded vaccine trial on babies was cancelled in Guinea-Bissau",
+  "url": "https://www.bbc.co.uk/news/articles/cm0rlxq08ejko?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Major tech stocks plunge as US midterms add to fears of AI slowdown",
+  "url": "https://www.bbc.co.uk/news/articles/cmn04705rd8jo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "The engine parts that 'fight the laws of the universe'",
+  "url": "https://www.bbc.co.uk/news/articles/cwe9lmp1pyyxo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Elon Musk's millions failed to deliver Republican wins in fierce midterms",
+  "url": "https://www.bbc.co.uk/news/articles/cv8ez3p3ge5ko?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "French blood storage impacted by freezer hacks as theories swirl about culprits",
+  "url": "https://www.bbc.co.uk/news/articles/c8vgxyvz6y9ro?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Graduates are managing AI - but are they learning much else?",
+  "url": "https://www.bbc.co.uk/news/articles/c820vz6wyp65o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Binance says fake job interviews used as part of $6.3bn crypto hack",
+  "url": "https://www.bbc.co.uk/news/articles/ck5ynwz9gy67o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "UK meat industry hit by cyber-attack which targeted European supermarket freezers",
+  "url": "https://www.bbc.co.uk/news/articles/ckq6ndq8l6v0o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Apple unsure when it will get more foldable iPhones ahead of Christmas",
+  "url": "https://www.bbc.co.uk/news/articles/c6n8dn457ypko?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "North Korea denies being behind record $6.3bn Binance hack",
+  "url": "https://www.bbc.co.uk/news/articles/c6rey4v53exgo?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "If hackers can take control of a supermarket freezer, how vulnerable is other tech?",
+  "url": "https://www.bbc.co.uk/news/articles/ckpqg8lve73go?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Binance users withdraw $3.6bn after largest-ever crypto hack",
+  "url": "https://www.bbc.co.uk/news/articles/cwj34gdmnly4o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "These firms you've never heard of are feeding fears the AI bubble could burst",
+  "url": "https://www.bbc.co.uk/news/articles/cje36degrgv5o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Why North Korea's 'elite' hackers are the prime suspect in major Binance hack",
+  "url": "https://www.bbc.co.uk/news/articles/ck9dz3v7z7v3o?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Life",
+  "url": "https://www.bbc.co.uk/sounds/play/live:bbc_world_service?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Life",
+  "url": "https://www.bbc.co.uk/sounds/play/w3ct8jys?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Life",
+  "url": "https://www.bbc.co.uk/sounds/play/w3ct8jyl?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Life",
+  "url": "https://www.bbc.co.uk/sounds/play/w3ct8jyk?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Now",
+  "url": "https://www.bbc.co.uk/iplayer/episode/m0032yng?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Now",
+  "url": "https://www.bbc.co.uk/iplayer/episode/m0032n6v?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Now",
+  "url": "https://www.bbc.co.uk/iplayer/episode/m0032d9k?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:bbc-technology",
+  "title": "Tech Now",
+  "url": "https://www.bbc.co.uk/iplayer/episode/m0032301?at_medium=RSS&at_campaign=rss"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Fears of an AI crackdown after midterms spark $2 trillion rout in tech stocks",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6031987/stock-markets-ai-midterm-elections"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "These are the races in the House and Senate that haven't been called yet",
+  "url": "https://www.npr.org/2026/11/05/g-s1-152127/house-senate-uncalled-races"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Melania Trump touts rare agreement she brokered between Russia and Ukraine",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6030662/melania-trump-touts-rare-agreement-she-brokered-between-russia-and-ukraine"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "How North Carolina Democrats flipped several House seats in historically GOP districts",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6031719/north-carolina-democrats-flip-house-seats-republican-districts"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Paraguay's president is impeached minutes after resigning following a bank collapse",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6030842/paraguay-president-impeached-bank-collapse"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Head of Justice Department office on Civil Rights resigns",
+  "url": "https://www.npr.org/2026/11/05/g-s1-152080/head-of-justice-department-office-on-civil-rights-resigns"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Discursive Verses: Is 'Spend Dat' the best financial indicator of America's grift economy?",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6029747/the-week-in-hip-hop-yung-miami-spend-dat"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Russell Brand is convicted of rape, and judge says he'll get a prison term",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6030720/russell-brand-rape-sexual-assault-prison"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "First-time homebuyers remain scarce, but a record share of them pay all cash",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6022491/real-estate-all-cash-offer"
+ },
+ {
+  "sourceId": "rss:npr-news",
+  "title": "Teens worldwide aren't getting enough exercise -- especially girls",
+  "url": "https://www.npr.org/2026/11/05/nx-s1-6027635/exercise-workout-teenagers-adolescents-gender-gap"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "British healthcare worker with Ebola evacuated from DR Congo to UK",
+  "url": "https://www.theguardian.com/world/2026/nov/04/british-healthcare-worker-ebola-evacuated-drc-to-uk-document-shows"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "ANC faces anger over poor services as South Africans vote in local elections",
+  "url": "https://www.theguardian.com/world/2026/nov/04/anc-south-africa-local-elections-water-outages-power-cuts"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Sinkholes, scarred land and scapegoats: the scourge of illegal gold mining in Johannesburg",
+  "url": "https://www.theguardian.com/business/2026/oct/30/sinkholes-scarred-land-scapegoats-illegal-gold-mining-johannesburg"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Sudanese diaspora and human rights groups denounce UAE nominee for UN top job",
+  "url": "https://www.theguardian.com/world/2026/oct/30/sudanese-diaspora-human-rights-groups-denounce-uae-nominee-un-top-job"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Egypt fines prominent editor Lina Attalah and shuts independent news outlet Mada Masr",
+  "url": "https://www.theguardian.com/world/2026/oct/28/egypt-lina-attalah-mada-masr-press-freedom-clampdown"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Peru airport officials discover 3,000 tarantulas smuggled inside dirty socks",
+  "url": "https://www.theguardian.com/world/2026/nov/06/3000-tarantulas-smuggled-inside-dirty-socks-peru"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Paraguay’s president quits after millions of people’s savings frozen in bank crisis",
+  "url": "https://www.theguardian.com/world/2026/nov/05/paraguay-president-santiago-pena-resigns"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "How elderly ‘unsung heroes’ powered Lula’s historic fightback in Brazil",
+  "url": "https://www.theguardian.com/world/2026/nov/05/unsung-heroes-behind-lula-surprise-election-triumph-brazil-runoff-bolsonaro"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Mother and daughter killed in grizzly bear attack, Canadian authorities confirm",
+  "url": "https://www.theguardian.com/world/2026/nov/04/canada-bear-attack-mother-daughter-killed"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "One dead and another missing in suspected grizzly bear attack in Canada",
+  "url": "https://www.theguardian.com/world/2026/nov/03/grizzly-bear-attack-canada"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Duchess of Sussex’s estranged half-brother ‘person of interest’ in child sexual abuse inquiry",
+  "url": "https://www.theguardian.com/world/2026/nov/05/meghan-sussex-thomas-markle-jr-philippines-child-sexual-abuse-inquiry"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "K-pop group NewJeans’s contract omitted rights to ‘sleep and free choice’ – report",
+  "url": "https://www.theguardian.com/music/2026/nov/05/k-pop-group-newjeans-contract"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Hong Kong pro-democracy activist Joshua Wong sentenced to 10 years in prison in national security case",
+  "url": "https://www.theguardian.com/world/2026/nov/05/hong-kong-joshua-wong-sentenced-national-security-case"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "UK found to be ‘dangerously’ reliant on China for critical minerals needed for defence and AI",
+  "url": "https://www.theguardian.com/world/2026/nov/05/uk-dangerously-reliant-on-china-critical-minerals-military-ai-renewable-energy"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "South Korea says it will expand naval operations closer to strait of Hormuz",
+  "url": "https://www.theguardian.com/world/2026/nov/05/south-korea-to-expand-anti-piracy-unit-strait-of-hormuz"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Beau Lamarre-Condon trial live updates: prosecution begins cross-examination of double murder accused",
+  "url": "https://www.theguardian.com/australia-news/live/2026/nov/06/beau-lamarre-condon-trial-former-police-accused-murder-case-jesse-baird-luke-davies-ntwnfb"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Liberal bus crashes into shop awning on its first outing of Victorian election campaign",
+  "url": "https://www.theguardian.com/australia-news/2026/nov/06/liberal-jess-wilson-campaign-bus-crashes-into-shop-first-day-victorian-election"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Beau Lamarre-Condon tells double murder trial shooting of Jesse Baird wasn’t intentional but ‘it was my fault’",
+  "url": "https://www.theguardian.com/australia-news/2026/nov/06/beau-lamarre-condon-trial-witness-box-evidence-case-ntwnfb"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Powerhouse Parramatta opens this weekend – and it’s dazzling inside and out",
+  "url": "https://www.theguardian.com/culture/ng-interactive/2026/nov/06/powerhouse-parramatta-opening-festival"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "One Nation asks donors at $3,000-a-head Sydney fundraiser to accept ‘non-disclosure agreement’",
+  "url": "https://www.theguardian.com/australia-news/2026/nov/06/one-nation-sydney-fundraiser-pauline-hanson-nda-ntwnfb"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Bomb threats disrupt at least 25 flights across Europe, raising hybrid war fears",
+  "url": "https://www.theguardian.com/world/2026/nov/05/bomb-threats-disrupt-flights-across-europe-and-renew-hybrid-warfare-fears"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Multiple planes diverted as bomb threats to commercial flights reported across Europe – as it happened",
+  "url": "https://www.theguardian.com/world/live/2026/nov/05/aer-lingus-plane-bomb-threat-europe-latest-news-updates"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Protesters march in cities across France as unions stage general strike",
+  "url": "https://www.theguardian.com/world/2026/nov/05/protesters-france-march-strikes-education-cost-of-living"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Beware ‘sun, sea and surgery’ cosmetic tourism packages, experts advise",
+  "url": "https://www.theguardian.com/society/2026/nov/05/beware-cosmetic-surgery-tourism-packages-experts-advise"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "EU presses UK to guarantee discounted university tuition fees for European students",
+  "url": "https://www.theguardian.com/world/2026/nov/05/eu-seeks-firmer-pledge-from-uk-discounted-university-tuition-fees"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Israel’s Herzog yet to decide on who should form government as Eisenkot secures significant backing",
+  "url": "https://www.theguardian.com/world/2026/nov/05/herzog-netanyahu-eisenkot-israel-election-decision"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Yemen’s president sacks ministers and officers in attempt to turn tide of war",
+  "url": "https://www.theguardian.com/world/2026/nov/05/yemen-president-sacks-ministers-and-officers-houthis"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Food grown in illegal West Bank settlements being sold in Australia as ‘produce of Israel’",
+  "url": "https://www.theguardian.com/australia-news/2026/nov/04/food-grown-in-settlements-west-bank-sold-in-australia-produce-of-israel-ntwnfb"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "The midterms were a thumping rebuke of the US-Israel relationship",
+  "url": "https://www.theguardian.com/us-news/2026/nov/04/israel-relationship-midterm-elections"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Iran unveils ‘We will kill Trump’ banner – but US president may now be tempted to resume bombing",
+  "url": "https://www.theguardian.com/us-news/2026/nov/04/joy-iran-trump-defeat-us-midterm-elections-war"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "The private creative world of Rabindranath Tagore, the man Yeats called ‘greater than any of us’",
+  "url": "https://www.theguardian.com/world/2026/nov/03/rabindranath-tagore-yeats-nobel-prize-india"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "UK ministers told not to engage formally with Indian mega-zoo after lobbying",
+  "url": "https://www.theguardian.com/environment/2026/nov/03/uk-ministers-anant-ambani-indian-zoo-vantara-freedom-information-endangered-animals-cites"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Tens of thousands protest against Narendra Modi regime in Delhi",
+  "url": "https://www.theguardian.com/world/2026/nov/01/india-opposition-protest-rally-delhi"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "What Marco Rubio’s sidestepping of New Delhi says about the US’s stance on India",
+  "url": "https://www.theguardian.com/world/2026/oct/26/marco-rubio-us-secretary-of-state-india-visit-mumbai"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Myanmar’s Aung San Suu Kyi ‘sounds strong’ but is isolated, son says",
+  "url": "https://www.theguardian.com/world/2026/oct/25/myanmar-aung-san-suu-kyi-speaks-son-pr-move"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Slashing number of police forces in England and Wales is only option, says Met chief",
+  "url": "https://www.theguardian.com/uk-news/2026/nov/05/cut-number-of-police-forces-england-hogan-howe-review"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "British Ebola patient evacuated from DR Congo arrives at London hospital",
+  "url": "https://www.theguardian.com/world/2026/nov/05/british-ebola-patient-evacuated-drc-arrives-london-hospital"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Police investigating two further rape allegations against Russell Brand",
+  "url": "https://www.theguardian.com/culture/2026/nov/05/russell-brand-detective-other-potential-victims"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Cancer diagnoses in England hit record high of more than 1,000 people a day",
+  "url": "https://www.theguardian.com/society/2026/nov/05/nhs-england-cancer-diagnoses-record-high-1000-people-diagnosed-every-day"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Bank of England raises interest rates to 4%, the first increase for more than three years",
+  "url": "https://www.theguardian.com/business/2026/nov/05/bank-of-england-raises-interest-rates-first-increase-for-more-than-three-years"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "US elections 2026 live: Democrats exceed 250 House seats as blue wave sweeping Congress grows",
+  "url": "https://www.theguardian.com/us-news/live/2026/nov/05/midterm-elections-live-latest-updates-mississippi-senate-race"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Trump signs proclamation to try to prevent changes to gold-covered Oval Office",
+  "url": "https://www.theguardian.com/us-news/2026/nov/05/trump-oval-office-design-proclamation"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Alabama, Florida and Indiana carry out executions on same day",
+  "url": "https://www.theguardian.com/us-news/2026/nov/05/executions-florida-alabama-indiana"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Fox News suffers ratings drop on bleak election night for Republicans",
+  "url": "https://www.theguardian.com/media/2026/nov/04/fox-news-midterm-ratings"
+ },
+ {
+  "sourceId": "rss:guardian-world",
+  "title": "Salon, internet’s oldest general interest publication, shuts down after 31 years",
+  "url": "https://www.theguardian.com/media/2026/nov/05/salon-website-shuts-down"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Hyperliquid treasury firm seeking U.S. regulatory nod as a domestic futures platform",
+  "url": "https://www.coindesk.com/policy/2026/11/05/hyperliquid-treasury-firm-seeking-u-s-regulatory-nod-as-a-domestic-futures-platform"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin developer proposes ‘landmines’ to make quantum thieves lose their own BTC",
+  "url": "https://www.coindesk.com/tech/2026/11/05/bitcoin-developer-proposes-landmines-to-make-quantum-thieves-lose-their-own-btc"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "U.S. Justice Department assembles force to shield against foreign AI threats",
+  "url": "https://www.coindesk.com/policy/2026/11/05/u-s-justice-department-assembles-force-to-shield-against-foreign-ai-threats"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin tumbles to $76,000 as collapsing AI trade drags stocks sharply lower",
+  "url": "https://www.coindesk.com/markets/2026/11/05/bitcoin-crypto-stocks-caught-in-ai-trade-meltdown-but-wintermute-trader-sees-glass-half-full"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "What is TraderTraitor, the hacking squad behind the $6.3 billion Binance heist?",
+  "url": "https://www.coindesk.com/business/2026/11/05/what-is-tradertraitor-the-hacking-squad-behind-the-usd6-3-billion-binance-heist"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Standard Chartered and SBI back crypto insurer Soter as funding reaches $23.5 million",
+  "url": "https://www.coindesk.com/business/2026/11/05/soter-raises-usd23-5m-plus-btc-and-eth-as-banks-demand-theft-protection"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Crypto for Advisors: Where investors stake crypto shapes how much of the reward they keep",
+  "url": "https://www.coindesk.com/coindesk-indices/2026/11/05/crypto-for-advisors-where-investors-stake-crypto-shapes-how-much-of-the-reward-they-keep"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Gate CEO says crypto exchanges must prove they can survive a hack like Binance’s",
+  "url": "https://www.coindesk.com/business/2026/11/05/gate-ceo-says-crypto-exchanges-must-prove-they-can-survive-a-hack-like-binance-s"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Kraken parent Payward and its clients buy AAVE tokens in DeFi investment push",
+  "url": "https://www.coindesk.com/business/2026/11/05/kraken-parent-payward-and-its-clients-buy-aave-tokens-in-defi-investment-push"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Google could take stake in bitcoin miner TeraWulf’s $19 billion AI project if Anthropic defaults",
+  "url": "https://www.coindesk.com/tech/2026/11/05/google-could-take-ownership-stake-in-bitcoin-miner-terawulf-s-ai-project-if-anthropic-defaults"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Binance cuts SignalPlus access after security warning, urges users to check accounts",
+  "url": "https://www.coindesk.com/tech/2026/11/05/binance-cuts-signalplus-access-after-security-warning-urges-users-to-check-accounts"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Ukraine’s central bank opposes crypto bill, citing monetary sovereignty concerns",
+  "url": "https://www.coindesk.com/business/2026/11/05/ukraine-s-central-bank-opposes-crypto-bill-citing-monetary-sovereignty-concerns"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin is resilient, but leverage is missing and demand still tepid",
+  "url": "https://www.coindesk.com/daybook-us/2026/11/05/bitcoin-is-resilient-but-leverage-is-missing-and-demand-still-tepid"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin miners are oversold following 35% October rout, VanEck says",
+  "url": "https://www.coindesk.com/markets/2026/11/05/bitcoin-miners-are-oversold-following-35-october-rout-says-vaneck"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Trump-linked American Bitcoin swings to $126 million profit but misses revenue estimates",
+  "url": "https://www.coindesk.com/business/2026/11/05/trump-linked-american-bitcoin-swings-to-usd126-million-profit-in-q3-2026"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin holds above $80,000 after Wednesday’s jump as injective rallies on staked ETF listing",
+  "url": "https://www.coindesk.com/markets/2026/11/05/bitcoin-holds-above-usd80-000-after-wednesday-s-jump-as-injective-rallies-on-staked-etf-listing"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Live updates: Bitcoin drops more than 5% as stocks close out worst day since April 2025",
+  "url": "https://www.coindesk.com/business/2026/11/05/live-updates-bitcoin-steady-around-usd80-000-as-markets-rally-after-democratic-sweep"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Mercado Bitcoin hack continued hours after exchange said attack was contained, report finds",
+  "url": "https://www.coindesk.com/business/2026/11/05/mercado-bitcoin-hack-continued-hours-after-exchange-said-attack-was-contained-report-finds"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin miner Riot could pay Anthropic 12% interest under $28 billion AI deal",
+  "url": "https://www.coindesk.com/tech/2026/11/05/bitcoin-miner-riot-could-pay-anthropic-12-interest-under-usd28-billion-ai-deal"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Hong Kong passes law requiring crypto exchanges to report customer transactions to tax authorities",
+  "url": "https://www.coindesk.com/policy/2026/11/04/hong-kong-passes-law-requiring-crypto-exchanges-to-report-customer-transactions-to-tax-authorities"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "OpenAI says its AI can break into Linux at scale. Here's what it means for crypto",
+  "url": "https://www.coindesk.com/tech/2026/11/05/openai-says-its-ai-can-break-into-linux-at-scale-here-s-what-it-means-for-crypto"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Zcash is about to freeze $16 million in its oldest privacy pool",
+  "url": "https://www.coindesk.com/tech/2026/11/05/zcash-is-about-to-freeze-usd16-million-in-its-oldest-privacy-pool"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "The pile of lawsuits against Kalshi just grew by one",
+  "url": "https://www.coindesk.com/policy/2026/11/05/the-pile-of-lawsuits-against-kalshi-just-grew-by-one"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "XRP Ledger fixes a disclosed bug that could have led to the creation of new tokens",
+  "url": "https://www.coindesk.com/markets/2026/11/05/xrp-ledger-closes-bug-that-let-approved-token-burners-create-new-tokens"
+ },
+ {
+  "sourceId": "rss:coindesk",
+  "title": "Bitcoin holds above $80,000 as Zcash jumps 12% in post-election crypto rebound",
+  "url": "https://www.coindesk.com/markets/2026/11/05/bitcoin-holds-above-usd80-000-as-zcash-jumps-12-in-post-election-crypto-rebound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Core Scientific to quit Bitcoin mining by year-end as AI business surges",
+  "url": "https://cointelegraph.com/news/core-scientific-to-quit-bitcoin-mining-by-year-end-as-ai-business-surges?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Here’s what happened in crypto today",
+  "url": "https://cointelegraph.com/news/what-happened-in-crypto-today?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "American Bitcoin’s $126M profit masks mining pressure as rivals turn to AI",
+  "url": "https://cointelegraph.com/news/american-bitcoins-126m-profit-masks-mining-pressure-ai?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Asian crypto exchanges batten down the hatches as hacks surge: Asia Express",
+  "url": "https://cointelegraph.com/magazine/asian-crypto-exchanges-bunker-down-as-hacks-surge-asia-express?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Crypto ally French Hill wins reelection but set to lose House chair",
+  "url": "https://cointelegraph.com/news/crypto-ally-french-hill-wins-reelection-arkansas?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Binance, Deribit revoke SignalPlus API keys after fake Teams invite attack",
+  "url": "https://cointelegraph.com/news/binance-deribit-revoke-signalplus-api-fake-teams-attack?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Fed, OCC check US banks after Binance hack as experts flag security risks",
+  "url": "https://cointelegraph.com/news/fed-occ-check-us-banks-binance-hack-security-risks?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Europe’s largest asset manager Amundi tokenizes equity index fund on Ethereum",
+  "url": "https://cointelegraph.com/news/amundi-tokenizes-european-equity-index-fund-ethereum?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Paraguay president resigns after collapse of Ueno digital bank",
+  "url": "https://cointelegraph.com/news/paraguay-president-resigns-after-collapse-ueno-digital-bank?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Bitcoin crashes 6% to 7-week low as US stocks erase election gains",
+  "url": "https://cointelegraph.com/markets/bitcoin-price-crashes-7-week-low-stocks-election-gains?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Blockchain is ‘perfect solution’ for AI agent trust, VeChain CEO says",
+  "url": "https://cointelegraph.com/news/blockchain-is-perfect-solution-for-ai-agent-trust-vechain-ceo-says?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Can decentralized phone networks power the AI revolution?",
+  "url": "https://cointelegraph.com/magazine/can-decentralized-phone-networks-power-the-ai-revolution?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Trump’s memecoin ventures derailed CLARITY Act, Scaramucci says",
+  "url": "https://cointelegraph.com/news/scaramucci-trump-memecoins-clarity-act-failure?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Thailand to block Bitget in December over unlicensed crypto trading",
+  "url": "https://cointelegraph.com/news/thailand-block-bitget-december-unlicensed-crypto-trading?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Bitcoin win rate vs. S&P 500 recovers as post-midterm history favors stocks",
+  "url": "https://cointelegraph.com/markets/bitcoin-win-rate-sp-500-us-midterms-stocks-gains?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "South Korea seeks 4th crypto tax delay, targets 2029 start",
+  "url": "https://cointelegraph.com/news/south-korea-crypto-tax-fourth-delay-2029?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "France budget rejection sidelines stablecoin tax, wallet reporting",
+  "url": "https://cointelegraph.com/news/france-rejects-budget-revenue-sidelines-crypto-amendments?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Bitcoin, Ether ETFs draw $128M as crypto rebounds after midterms",
+  "url": "https://cointelegraph.com/markets/bitcoin-ether-etfs-turn-green-post-election-rebound?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Crédit Mutuel Arkéa resumes operations after attack, assesses losses",
+  "url": "https://cointelegraph.com/news/credit-mutuel-arkea-resumes-operations-133m-crypto-theft?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Binance, Polymarket seek Polygon hard fork to recover $6.8M in stolen crypto",
+  "url": "https://cointelegraph.com/news/polygon-hard-fork-binance-polymarket-6-8m-hack-recovery?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "‘Lawyer up’: Democrats target Trump, Big Tech after midterm sweep",
+  "url": "https://cointelegraph.com/news/lawyer-up-democrats-target-trump-big-tech-after-midterm-sweep?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "India warns AI-powered hackers targeting crypto exchanges at ‘machine speed’",
+  "url": "https://cointelegraph.com/news/india-warns-ai-powered-hackers-targeting-crypto-exchanges-at-machine-speed?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Mercado Bitcoin says phased reopening to begin Monday, will cover losses",
+  "url": "https://cointelegraph.com/news/mercado-bitcoin-phased-reopening-to-begin-monday-pledges-to-cover-losses?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "BitMart founder says security team ‘severely understaffed’ after new hack",
+  "url": "https://cointelegraph.com/news/bitmart-hack-security-staffing-crypto-exchange-restructuring?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Crypto PACs eye 2028 ‘new map’ as Democrats take Congress",
+  "url": "https://cointelegraph.com/news/crypto-superpac-midterms?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "How Aussie Bitcoiners can avoid 2027’s shock CGT hike",
+  "url": "https://cointelegraph.com/magazine/how-aussie-bitcoiners-can-avoid-2027s-shock-cgt-increase-part-1?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Trump-linked tokens lead crypto losses after Democrats sweep in the US midterms",
+  "url": "https://cointelegraph.com/news/trump-linked-tokens-lead-crypto-losses-after-democrats-sweep-in-the-us-midterms?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Riot shares surge on $28B AI lease as Hut 8 sinks on revenue miss",
+  "url": "https://cointelegraph.com/news/riots-28b-ai-deal-lifts-shares-as-hut-8-faces-transition-costs?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Circle’s ARC token sale lifts earnings as lower yields weigh on USDC income",
+  "url": "https://cointelegraph.com/news/circles-arc-token-sale-earnings-yields-usdc-income?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:cointelegraph",
+  "title": "Bitcoin hits $80.5K as US stocks rally on midterm election results",
+  "url": "https://cointelegraph.com/markets/bitcoin-price-us-stocks-rally-midterm-election-result?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Claude Gets Personal Finance—Anthony Pompliano Accuses Anthropic of Copying His Startup",
+  "url": "https://decrypt.co/382689/claude-personal-finance-anthony-pompliano-anthropic"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Bitcoin Fixes This? Paraguay President Resigns After Bank Lockout Hits 60% of Country",
+  "url": "https://decrypt.co/382676/paraguay-president-resigns-bank-lockout-bitcoin-fixes-this"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "OpenAI Promises to Foot AI’s Power Bill After Voter Revolt. Who Enforces It?",
+  "url": "https://decrypt.co/382674/openai-promises-foot-ai-power-bill-after-voter-revolt"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "DOJ Creates 'Super Intelligence' Task Force to Guard Against AI Abuse",
+  "url": "https://decrypt.co/382672/doj-creates-super-intelligence-task-force-to-guard-against-ai-abuse"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Mercado Bitcoin Said Its Hack Was Contained, But Blockchain Data Tells a Different Story",
+  "url": "https://decrypt.co/382670/mercado-bitcoin-hack-contained-blockchain-data"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Zcash Upgrade Could Lock $16 Million in Crypto Forever",
+  "url": "https://decrypt.co/382663/zcash-upgrade-could-lock-16-million-crypto"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "OpenAI Found 948 Linux Security Flaws—And Figured Out How to Exploit Them",
+  "url": "https://decrypt.co/382632/openai-linux-security-flaws-exploit"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Trump-Backed American Bitcoin Turns a Profit as Bitcoin Rise Lifts Books",
+  "url": "https://decrypt.co/382633/trump-american-bitcoin-q3-profit-bitcoin-lifts-books"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "S&#038;P 500 Plunges, Wall Street Fears Circuit Breaker, Just One Day After Trump Celebrated Record Highs",
+  "url": "https://decrypt.co/382637/sp-500-plunges-wall-street-circuit-breaker-trump-record-highs"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Hollywood Studios Quietly Ban Staff From Betting on Prediction Markets: Report",
+  "url": "https://decrypt.co/382626/hollywood-studios-quietly-ban-staff-from-betting-on-prediction-markets-report"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Solana Labs’ Leap Launches Mobile App for Trading Tokenized Stocks and Crypto",
+  "url": "https://decrypt.co/382609/solana-labs-leap-launches-mobile-app-tokenized-stocks-crypto"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Democrats to Push Broader Crypto Market Structure Bill After Sweeping US Midterms: Report",
+  "url": "https://decrypt.co/382602/democrats-to-push-broader-crypto-market-structure-bill-after-sweeping-us-midterms-report"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Bitcoin Erases Election Rally as AI Stocks Plunge, $428 Million in Crypto Longs Get Wiped Out",
+  "url": "https://decrypt.co/382612/bitcoin-erases-election-rally-ai-stocks-plunge-428-million-crypto-longs"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Sam Altman Says It's 'Fucking Annoying' His RAM Comments Were Taken Out of Context",
+  "url": "https://decrypt.co/382606/sam-altman-says-its-fucking-annoying-his-ram-comments-were-taken-out-of-context"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Morning Minute: Democrat Sweep Pumps Crypto as Clarity Act Resurfaces",
+  "url": "https://decrypt.co/382603/morning-minute-democrat-sweep-pumps-crypto-as-clarity-act-resurfaces"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Stablecoins Go Mainstream as Samsung Wallet Adds USDC on Solana",
+  "url": "https://decrypt.co/382586/stablecoins-samsung-wallet-adds-usdc-solana"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Binance Cuts Off SignalPlus API Keys Over 'Potential Security Issue' at Trading Platform",
+  "url": "https://decrypt.co/382599/binance-cuts-off-signalplus-api-keys-over-potential-security-issue-at-trading-platform"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Canadian Man Extradited to US Over Plot to Hijack University Supercomputers for Crypto",
+  "url": "https://decrypt.co/382590/canadian-man-extradited-to-us-over-plot-to-hijack-university-supercomputers-for-crypto"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Arkansas Sues Kalshi, Joining a Growing List of States Targeting Prediction Markets",
+  "url": "https://decrypt.co/382588/arkansas-sues-kalshi-joining-a-growing-list-of-states-targeting-prediction-markets"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Why Bitcoin's Next Soft Fork Could Feel Like a Practice Run",
+  "url": "https://decrypt.co/382568/why-bitcoin-next-soft-fork-could-feel-like-practice-run"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "ChatGPT Is Getting a GIF Maker Powered by OpenAI's Unannounced Images 2.6 Model",
+  "url": "https://decrypt.co/382574/chatgpt-gif-maker-openai-unannounced-images-2-6-model"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Google Tells Schools They Can Reject AI—But They'll Lose Search, Too",
+  "url": "https://decrypt.co/382572/google-schools-reject-ai-but-lose-search"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Coinbase Says 99% of Customer Crypto Is Offline and Out of Hackers’ Reach",
+  "url": "https://decrypt.co/382570/coinbase-99-percent-customer-crypto-offline-binance-hack"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "US Bank Regulator Issues First AI Framework as Banks Battle Rogue Agents",
+  "url": "https://decrypt.co/382560/us-bank-regulator-issues-first-ai-framework-banks-battle-rogue-agents"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "US Voters Back AI Data Center Restrictions in At Least 29 Communities",
+  "url": "https://decrypt.co/382556/us-voters-back-ai-data-center-restrictions"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Canton Coin Gets SEC Nod as Wall Street Tokenization Heats Up",
+  "url": "https://decrypt.co/382554/canton-coin-sec-no-action-wall-street-tokenization"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "What Is x402? How AI Agents Pay With Crypto",
+  "url": "https://decrypt.co/resources/what-is-x402-how-ai-agents-pay-with-crypto"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Tech, AI Stocks Split After Democratic Sweep: Microsoft Jumps, Tesla and Nvidia Tank",
+  "url": "https://decrypt.co/382528/tech-ai-stocks-split-democratic-microsoft-jumps-tesla-nvidia-tank"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Bitcoin Rebounds After Democratic Midterm Sweep, But Crypto Faces Tougher Fight in Washington",
+  "url": "https://decrypt.co/382515/bitcoin-rebounds-democratic-midterm-sweep-crypto-washington"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Wall Street’s Plumbing Goes Onchain as Morgan Stanley Tokenizes Securities",
+  "url": "https://decrypt.co/382513/wall-streets-plumbing-onchain-morgan-stanley-tokenizes-securities"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Crédit Mutuel Arkéa Confirms Cyberattack After ZachXBT Ties It to $133M Crypto Theft",
+  "url": "https://decrypt.co/382486/zachxbt-names-french-bank-credit-mutuel-arkea-as-alleged-victim-of-133m-crypto-theft"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Morning Minute: CFTC Clears Stock Perps, Gets Sued the Same Day",
+  "url": "https://decrypt.co/382497/morning-minute-cftc-clears-stock-perps-gets-sued-the-same-day"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Bitcoin Shrugs Off Midterms as Experts Say Democratic Sweep Was 'Priced In'",
+  "url": "https://decrypt.co/382492/bitcoin-shrugs-off-midterms-as-experts-say-democratic-sweep-was-priced-in"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "USDC Issuer Circle Quietly Cuts 5% of Staff in Profitable Quarter",
+  "url": "https://decrypt.co/382493/usdc-issuer-circle-quietly-cuts-5-of-staff-in-profitable-quarter"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Midterms Blue Wave Makes $917K for One Polymarket Trader, If Alaska Doesn’t Flip",
+  "url": "https://decrypt.co/382489/midterms-blue-wave-makes-917k-for-one-polymarket-trader-if-alaska-doesnt-flip"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "Judge Orders Bitcoin Wallet Returned to Family of Convicted Canadian Killer",
+  "url": "https://decrypt.co/382484/judge-orders-bitcoin-wallet-returned-to-family-of-convicted-canadian-killer"
+ },
+ {
+  "sourceId": "rss:decrypt",
+  "title": "OpenAI Wants to Rebrand AI Data Centers, Use Them to 'Protect the Grid'",
+  "url": "https://decrypt.co/382476/openai-ai-data-centers-rebrand-protect-power-grid"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Hyperliquid Strategies files to become CFTC-registered FCM, posts $13.3 million in quaterly revenue",
+  "url": "https://www.theblock.co/news/markets/2026-11-05-hyperliquid-strategies-files-become-cftc-registered-fcm-posts-13-3-million-quaterly-revenue-435455"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Bitcoin erases post-election gains as Wall Street selloff triggers over $1 billion in crypto liquidations",
+  "url": "https://www.theblock.co/news/markets/2026-11-05-bitcoin-erases-post-election-gains-wall-street-selloff-liquidations-435434"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Base deploys Denim upgrade on mainnet, replacing Flashblocks with 200ms block times",
+  "url": "https://www.theblock.co/news/ecosystems/2026-11-05-base-deploys-denim-upgrade-on-mainnet-replacing-flashblocks-with-200ms-block-times-434433"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Canary’s Injective ETF debuts on Nasdaq with exposure to staking rewards",
+  "url": "https://www.theblock.co/news/markets/2026-11-05-canary-staked-inj-etf-launches-nasdaq-injc-435115"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Anchorage Digital seeks CFTC swap dealer registration for crypto options business",
+  "url": "https://www.theblock.co/news/business/2026-11-05-anchorage-digital-seeks-cftc-swap-dealer-registration-for-crypto-options-business-434437"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Payward-affiliated fund and clients buy AAVE token stake on secondary market",
+  "url": "https://www.theblock.co/news/business/2026-11-05-payward-affiliated-fund-clients-buy-aave-token-stake-secondary-market-aave-says-434798"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Samsung Wallet launches USDC accounts on Solana for US Galaxy users",
+  "url": "https://www.theblock.co/news/business/2026-11-05-samsung-wallet-launches-usdc-accounts-solana-us-galaxy-users-434523"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Eric Trump’s American Bitcoin swings to $126 million profit in Q3 on digital asset gains",
+  "url": "https://www.theblock.co/news/business/2026-11-05-american-bitcoin-swings-to-profit-434413"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Arkansas sues Kalshi, says its alleged illegal gambling operations cause mental harm",
+  "url": "https://www.theblock.co/news/regulation/2026-11-05-arkansas-sues-kalshi-434407"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "The Digital Chamber calls Sherrod Brown’s win ‘most consequential unfavorable result’ for crypto",
+  "url": "https://www.theblock.co/news/regulation/2026-11-04-digital-chamber-sherrod-brown-win-434371"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Crédit Mutuel Arkéa confirms cyberattack after ZachXBT flags $133M in suspected losses",
+  "url": "https://www.theblock.co/news/business/2026-11-04-french-bank-confirms-cyberattack-434372"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Democratic sweep of Congress forces crypto industry to rethink Washington strategy",
+  "url": "https://www.theblock.co/news/regulation/2026-11-04-democratic-sweep-congress-forces-crypto-industry-rethink-washington-strategy-434362"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Bitcoin rebounds past $80,000 as markets shrug off midterms and Binance hack",
+  "url": "https://www.theblock.co/news/markets/2026-11-04-bitcoin-price-midterm-elections-binance-hack-recovery-433030"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "French Hill’s race still too close to call as House flips, changing the direction of crypto legislation",
+  "url": "https://www.theblock.co/news/regulation/2026-11-04-french-hill-too-close-to-call-house-flips-changing-crypto-legislation-432572"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Coinbase says 99% of customer assets sit in cold storage after Binance’s $6.3 billion breach",
+  "url": "https://www.theblock.co/news/ecosystems/2026-11-04-coinbase-security-cold-storage-binance-hack-432880"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Schroders launches tokenized emerging markets debt fund on Solana with Centrifuge",
+  "url": "https://www.theblock.co/news/business/2026-11-04-schroders-centrifuge-tokenized-emerging-markets-debt-fund-solana-432878"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Circle reports $865 million in Q3 revenue and reserve income, discloses 5% workforce reduction",
+  "url": "https://www.theblock.co/news/business/2026-11-04-circle-reports-865-million-in-q3-revenue-and-reserve-income-discloses-5-workforce-reduction-432671"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "BitGo launches institutional trading and financial solutions business led by former NYDIG executive",
+  "url": "https://www.theblock.co/news/business/2026-11-04-bitgo-launches-institutional-trading-and-financial-solutions-business-led-by-former-nydig-executive-432646"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "DeFi Explained",
+  "url": "https://www.theblock.co/learn/defi/defi-explained-432391"
+ },
+ {
+  "sourceId": "rss:the-block",
+  "title": "Morgan Stanley among first banks to tokenize US equities, Treasurys through DTCC’s service",
+  "url": "https://www.theblock.co/news/markets/2026-11-04-morgan-stanley-among-first-banks-to-tokenize-us-equities-treasurys-through-dtccs-service-432633"
+ }
+]
