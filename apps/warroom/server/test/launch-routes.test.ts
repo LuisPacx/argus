@@ -60,6 +60,19 @@ describe("GET /api/proposals/:id, the Launch link", () => {
     expect(u.searchParams.get("imageUrl")).toBe("https://cdn.example/l.png");
   });
 
+  it("a base URL that is not http(s) gives a null launchUrl (no 500, no javascript: href) and is logged once", () => {
+    process.env.ARGUS_NEWPAIRSPAM_URL = "javascript:alert(1)";
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const id = seed("built");
+      expect(get(id)).toMatchObject({ status: "built", launchUrl: null });
+      expect(get(id).launchUrl).toBeNull();
+      expect(spy.mock.calls.filter((c) => String(c[0]).includes("ARGUS_NEWPAIRSPAM_URL"))).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("is null once launched or dismissed", () => {
     const id = seed("built");
     store.markLaunched(id, MINT);
@@ -82,5 +95,21 @@ describe("POST /api/proposals/:id/commands, the Mark launched button", () => {
     expect(await status(post(seed("new"), { type: "mark-launched", reason: MINT }))).toBe(409);
     expect(await status(post(999, { type: "mark-launched", reason: MINT }))).toBe(404);
     expect(store.pendingCommands()).toEqual([]);
+  });
+
+  it("409 with a clear message when the mint is already recorded on another Proposal, and the worker refuses it too", async () => {
+    const first = seed("built");
+    store.markLaunched(first, MINT);
+    const second = seed("built");
+    const err = (await post(second, { type: "mark-launched", reason: MINT }).catch((e: unknown) => e)) as { statusCode: number; statusMessage: string };
+    expect(err.statusCode).toBe(409);
+    expect(err.statusMessage).toContain(`Proposal ${first}`);
+    // A command queued before the first one applied is still refused by the worker.
+    store.enqueueCommand(second, "mark-launched", MINT);
+    const errors: unknown[] = [];
+    applyPending(store, (_c, e) => errors.push(e));
+    expect(store.getProposal(second)).toMatchObject({ status: "built", mint: null });
+    expect(store.listCommands().at(-1)).toMatchObject({ status: "rejected" });
+    expect(store.getProposal(first)!.mint).toBe(MINT);
   });
 });

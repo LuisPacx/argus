@@ -21,6 +21,10 @@ export default defineEventHandler(async (event) => {
     if (proposal.status !== "built" && proposal.status !== "launched") {
       throw createError({ statusCode: 409, statusMessage: `Mark launched needs a built Proposal (it is ${proposal.status})` });
     }
+    const other = useStore().proposalIdWithMint(reason);
+    if (other !== null && other !== id) {
+      throw createError({ statusCode: 409, statusMessage: `That mint is already recorded on Proposal ${other}; each token belongs to one Proposal` });
+    }
   }
   // Fast feedback only; the worker re-checks when it applies the command.
   if (type === "revise" && proposal.brainRunInFlightSince) {

@@ -40,15 +40,22 @@ const BANNED_HOSTS = [
   /(^|\.)solana\.org$/,
   /(^|\.)helius(-rpc)?\.(com|xyz|dev)$/,
   /(^|\.)quiknode\.pro$/,
+  /(^|\.)quicknode\.(com|pro)$/,
   /(^|\.)alchemy\.com$/,
   /(^|\.)ankr\.com$/,
+  /(^|\.)rpcpool\.com$/,
+  /(^|\.)chainstack\.com$/,
+  /(^|\.)getblock\.(io|us)$/,
+  /(^|\.)infura\.io$/,
+  /(^|\.)helius-rpc\.com$/,
+  /^(localhost|127\.0\.0\.1|\[::1\]):(8899|8900)$/, // a local validator's RPC and websocket (matched against host:port)
   /(^|\.)triton\.one$/,
   /(^|\.)jup\.ag$/,
   /(^|\.)jito\.wtf$/,
   /(^|\.)raydium\.io$/,
-  /^frontend-api[\w-]*\.pump\.fun$/,
-  /^pumpportal\.fun$/, // narrowed below: only /api/data
-  /^pump\.fun$/, // narrowed below: only /coin/ links
+  // Any host at or under these, narrowed below to the two allowed uses: PumpPortal's /api/data stream and pump.fun/coin/ links.
+  /(^|\.)pumpportal\.fun$/,
+  /(^|\.)pump\.fun$/,
 ];
 
 const RPC_METHODS = [
@@ -79,7 +86,7 @@ export function violations(file: string, text: string): string[] {
     } catch {
       continue;
     }
-    if (!BANNED_HOSTS.some((r) => r.test(u.hostname))) continue;
+    if (!BANNED_HOSTS.some((r) => r.test(u.hostname) || r.test(u.host))) continue;
     const ok = (u.hostname === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (u.hostname === "pump.fun" && u.pathname.startsWith("/coin/"));
     if (!ok) out.push(`${file}: endpoint ${u.href}`);
   }
@@ -93,13 +100,14 @@ export function violations(file: string, text: string): string[] {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SKIP_DIRS = new Set(["node_modules", ".git", ".data", ".scratch", ".claude", ".nuxt", ".output", "dist", "fixtures"]);
-const SELF = join("packages", "core", "src", "adr-0002.test.ts");
+const SOURCE_EXT = /\.(ts|mts|cts|tsx|mjs|cjs|js|jsx|vue)$/;
+const SELF =join("packages", "core", "src", "adr-0002.test.ts");
 
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (e.isDirectory()) {
       if (!SKIP_DIRS.has(e.name)) sourceFiles(join(dir, e.name), acc);
-    } else if (/\.(ts|mjs|js|vue)$/.test(e.name) || e.name === "package.json") acc.push(join(dir, e.name));
+    } else if (SOURCE_EXT.test(e.name) || e.name === "package.json") acc.push(join(dir, e.name));
   }
   return acc;
 }
@@ -147,6 +155,50 @@ describe("ADR 0002: argus never touches a chain", () => {
         "https://quote-api.jup.ag/v6/swap",
         "wss://api.mainnet-beta.solana.com",
       ]) expect(violations("e.ts", `fetch("${url}")`), url).toHaveLength(1);
+    });
+
+    it("flags any other pump.fun or pumpportal.fun host, and the RPC providers", () => {
+      for (const url of [
+        "https://api.pump.fun/trade",
+        "https://swap-api.pump.fun/v1/quote",
+        "https://www.pumpportal.fun/api/trade",
+        "https://pumpportal.fun/api/create-wallet",
+        "https://pumpportal.fun/api/datax",
+        "https://x.rpcpool.com/abc",
+        "https://solana-mainnet.core.chainstack.com/abc",
+        "https://go.getblock.io/abc",
+        "https://mainnet.infura.io/v3/abc",
+        "https://abc.solana-mainnet.quiknode.pro/abc",
+        "https://abc.solana-mainnet.quicknode.com/abc",
+        "https://solana-mainnet.g.alchemy.com/v2/abc",
+        "http://localhost:8899",
+        "ws://127.0.0.1:8900",
+      ]) expect(violations("e.ts", `const u = "${url}";`), url).toHaveLength(1);
+      expect(violations("ok.ts", 'const u = "http://localhost:3000"; const v = "http://localhost:3100";')).toEqual([]);
+    });
+
+    it("scans .mts, .cts, .tsx, .cjs and .jsx files too", () => {
+      for (const name of ["a.mts", "a.cts", "a.tsx", "a.cjs", "a.mjs", "a.jsx", "a.vue", "a.ts", "a.js"]) expect(SOURCE_EXT.test(name), name).toBe(true);
+      expect(SOURCE_EXT.test("a.md")).toBe(false);
+    });
+
+    it("catches synthetic offending files", () => {
+      const sendTx = [
+        'import { Connection, Keypair } from "@solana/web3.js";',
+        'const c = new Connection("https://api.mainnet-beta.solana.com");',
+        "const kp = Keypair.fromSecretKey(secretKey);",
+        'await c.sendTransaction(tx);',
+        'await fetch(c.url, { body: JSON.stringify({ method: "sendTransaction", params: [] }) });',
+      ].join("\n");
+      const found = violations("bad/send.mts", sendTx);
+      expect(found.some((v) => v.includes("import @solana/web3.js"))).toBe(true);
+      expect(found.some((v) => v.includes("endpoint https://api.mainnet-beta.solana.com"))).toBe(true);
+      expect(found.some((v) => v.includes('RPC method "sendTransaction"'))).toBe(true);
+      expect(found.some((v) => v.includes("key handling"))).toBe(true);
+      const trade = 'const r = await fetch("https://pumpportal.fun/api/trade?api-key=" + k, { method: "POST", body: JSON.stringify({ action: "buy" }) });';
+      expect(violations("bad/trade.cjs", trade)).toHaveLength(1);
+      const sdk = 'const { PumpSdk } = require("@pump-fun/pump-sdk");\nmodule.exports = PumpSdk;';
+      expect(violations("bad/sdk.cjs", sdk)).toHaveLength(1);
     });
 
     it("flags chain RPC methods and key handling", () => {

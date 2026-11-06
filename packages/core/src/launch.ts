@@ -32,9 +32,23 @@ export interface LaunchLinkOptions {
   logoUrl?: string;
 }
 
-/** `<base>/?name=&symbol=&description=&website=[&imageUrl=]`, the contract of newpairspam's `parseLaunchPrefill`. */
-export function buildLaunchLink(p: LaunchLinkInput, opts: LaunchLinkOptions = {}): string {
-  const url = new URL(opts.baseUrl?.trim() || DEFAULT_NEWPAIRSPAM_URL);
+/** The base as an http(s) URL, the default when empty or unset, null when it is anything else (`javascript:`, garbage). */
+export function parseNewpairspamBase(raw: string | undefined): URL | null {
+  try {
+    const url = new URL(raw?.trim() || DEFAULT_NEWPAIRSPAM_URL);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `<base>/?name=&symbol=&description=&website=[&imageUrl=]`, the contract of newpairspam's `parseLaunchPrefill`.
+ * Null when the base URL is not http(s): the caller shows no Launch link rather than a bad href.
+ */
+export function buildLaunchLink(p: LaunchLinkInput, opts: LaunchLinkOptions = {}): string | null {
+  const url = parseNewpairspamBase(opts.baseUrl);
+  if (!url) return null;
   url.pathname = "/";
   url.search = "";
   const q = url.searchParams;

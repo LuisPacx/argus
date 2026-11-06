@@ -220,6 +220,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "preview_url", "TEXT");
   ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "proposals", "mint", "TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_mint ON proposals(mint) WHERE mint IS NOT NULL");
   migrateRubric(db);
   // Signals (phase 2 ticket 01): additive and idempotent. `id` is the Source's stable per-item id, so a re-poll cannot duplicate.
   db.exec(`CREATE TABLE IF NOT EXISTS signals (
@@ -362,6 +363,7 @@ function toProposal(r: Row): Proposal {
 export type WarRoomStore = Pick<
   Datastore,
   | "getProposal"
+  | "proposalIdWithMint"
   | "listProposals"
   | "getCommand"
   | "listCommands"
@@ -1177,9 +1179,17 @@ export class Datastore {
     });
   }
 
+  /** The Proposal a mint is recorded on, or null. One mint belongs to one Proposal. */
+  proposalIdWithMint(mint: string): number | null {
+    const row = this.db.prepare("SELECT id FROM proposals WHERE mint = ?").get(mint) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
+
   /** WORKER ONLY. Moves `built` -> `launched` and records the mint the Operator reported, atomically. The caller has validated the format. */
   markLaunched(proposalId: number, mint: string): void {
     this.inTransaction(() => {
+      const other = this.proposalIdWithMint(mint);
+      if (other !== null && other !== proposalId) throw new DomainError(`Mint ${mint} is already recorded on Proposal ${other}`);
       this.transition(proposalId, "launched", "operator", `Operator marked launched: ${mint}`);
       this.db.prepare("UPDATE proposals SET mint = ? WHERE id = ?").run(mint, proposalId);
     });
