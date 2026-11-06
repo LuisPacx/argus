@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { registryDirFor, startTicks } from "./run-registry.mjs";
 
 /**
@@ -51,8 +52,12 @@ export function leakedIn(dir: string): Found[] {
   return found;
 }
 
-const COMPILE_CACHE = "node-compile-cache"; // Node's own cache for the run's child processes; swept with the run, not a leak
-const TOOL_CACHES = [COMPILE_CACHE, "update-check"]; // update-check: wrangler's version-check cache, written by the real-wrangler tests
+// Node's compile cache for the run's processes. It must NOT live in the run's private temp dir: vitest's fork workers (and the
+// node children tests spawn) write it as they exit, which can be after this teardown has started, so removing the dir raced
+// those writes (ENOTEMPTY on rmdir, exit 1 after all tests passed). It sits on the home disk under the gitignored
+// node_modules/.cache, found from this file's own location, and is shared by runs: Node writes cache entries atomically.
+const COMPILE_CACHE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".cache", "node-compile-cache");
+const TOOL_CACHES = ["update-check"]; // update-check: wrangler's version-check cache, written by the real-wrangler tests
 
 /** Removes the run's private temp dir; throws, naming what was left in it, when the run did not clean up after itself. */
 export function sweepTempRoot(root: string): void {
@@ -62,7 +67,8 @@ export function sweepTempRoot(root: string): void {
   } catch {
     // never created
   }
-  rmSync(root, { recursive: true, force: true });
+  // Backstop only: a tool child killed at the end of a test may still be finishing a write; the retries ride that out.
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   if (left.length > 0) throw new Error(`The test run left ${left.length} temp entr${left.length === 1 ? "y" : "ies"} behind (removed now):\n${left.map((e) => `  ${e}`).join("\n")}`);
 }
 
@@ -70,7 +76,7 @@ function isolateTmpdir(): () => void {
   const saved = { NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE };
   const root = mkdtempSync(join(tmpdir(), "argus-test-run-"));
   process.env.TMPDIR = root;
-  process.env.NODE_COMPILE_CACHE = join(root, COMPILE_CACHE);
+  process.env.NODE_COMPILE_CACHE = COMPILE_CACHE_DIR; // configures Node in the run's processes; nothing in a test looks for state through it
   return () => {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];

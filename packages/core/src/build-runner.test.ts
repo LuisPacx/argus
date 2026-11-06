@@ -193,7 +193,7 @@ describe("Build Runner: temp dirs", { timeout: 60_000 }, () => {
       h.seedApproved("Cat Coin");
       const outcome = await run(h);
       const harnessRoot = h.root.slice(tmp.length + 1).split("/")[0];
-      return { outcome, left: readdirSync(tmp).filter((n) => n !== harnessRoot && n !== "node-compile-cache") };
+      return { outcome, left: readdirSync(tmp).filter((n) => n !== harnessRoot) };
     } finally {
       if (saved === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = saved;

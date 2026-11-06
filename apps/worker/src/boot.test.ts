@@ -78,6 +78,7 @@ it("SIGTERM kills a live claude child before the worker exits", async () => {
     after.close();
   } finally {
     child.kill("SIGKILL");
+    await exited; // the worker may still be writing its db into `dir` until it is gone
     rmSync(dir, { recursive: true, force: true });
   }
 }, 30_000);
@@ -120,6 +121,7 @@ it("SIGTERM during one Spec draft leaves the next shortlisted Proposal undrafted
     after.close();
   } finally {
     child.kill("SIGKILL");
+    await exited; // the worker may still be writing its db into `dir` until it is gone
     rmSync(dir, { recursive: true, force: true });
   }
 }, 30_000);

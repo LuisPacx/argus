@@ -96,8 +96,8 @@ describe("the leak guard only claims fakes started under its own test run", () =
 
   it("the run fails when it leaves a temp entry behind, and the entry is removed", () => {
     const root = tempDir("argus-test-run-");
-    mkdirSync(join(root, "node-compile-cache"));
-    expect(() => sweepTempRoot(root)).not.toThrow(); // the compile cache alone is not a leak
+    mkdirSync(join(root, "update-check"));
+    expect(() => sweepTempRoot(root)).not.toThrow(); // a tool's own cache alone is not a leak
     const leaky = tempDir("argus-test-run-");
     mkdirSync(join(leaky, "argus-leftover-abc"));
     expect(() => sweepTempRoot(leaky)).toThrow(/left 1 temp entry behind[\s\S]*argus-leftover-abc/);
