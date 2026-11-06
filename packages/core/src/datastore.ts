@@ -378,7 +378,9 @@ export class Datastore {
     return this.inTransaction(() => {
       let added = 0;
       for (const s of signals) {
-        added += Number(insert.run(s.id, s.sourceId, s.sourceLabel, s.title, s.summary, s.url, s.publishedAt, now).changes);
+        // A feed's clock is untrusted: a publish time in the future would pin the item to the top of the list for good.
+        const publishedAt = s.publishedAt > now ? now : s.publishedAt;
+        added += Number(insert.run(s.id, s.sourceId, s.sourceLabel, s.title, s.summary, s.url, publishedAt, now).changes);
       }
       return added;
     });

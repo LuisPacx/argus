@@ -71,7 +71,95 @@ describe("RssSource", () => {
   });
 });
 
+describe("RssSource decoding", () => {
+  const one = async (item: string) => (await new RssSource({ id: "rss:d", label: "D", url: "https://d.example/f", fetchText: async () => `<rss><channel>${item}</channel></rss>` }).poll())[0]!;
+
+  it("decodes numeric entities (decimal and hex) in titles and summaries", async () => {
+    const s = await one("<item><title>It&#8217;s &#x2019;fine&#x1F600;</title><link>https://d.example/1</link><description>a&#160;b &#xZZ; &#99999999;</description></item>");
+    expect(s.title).toBe("It’s ’fine\u{1F600}");
+    expect(s.summary).toBe("a b &#xZZ; &#99999999;");
+  });
+
+  it("decodes entities in the link before checking it", async () => {
+    expect((await one("<item><title>t</title><link>https://d.example/a?b=1&amp;c=2</link></item>")).url).toBe("https://d.example/a?b=1&c=2");
+    expect((await one("<item><title>t</title><link>&#106;avascript:alert(1)</link></item>")).url).toBe("");
+    expect((await one("<item><title>t</title><link>&#x6A;avascript:alert(1)</link></item>")).url).toBe("");
+    expect((await one("<item><title>t</title><link>&amp;#106;avascript:alert(1)</link></item>")).url).toBe("");
+  });
+});
+
+describe("RssSource against hostile feeds", () => {
+  const poll = (xml: string) => new RssSource({ id: "rss:h", label: "H", url: "https://h.example/f", fetchText: async () => xml }).poll();
+
+  it("takes only the first 100 items of an endless item list", async () => {
+    const xml = `<rss><channel>${Array.from({ length: 10_000 }, (_, i) => `<item><title>t${i}</title><link>https://h.example/${i}</link></item>`).join("")}</channel></rss>`;
+    const signals = await poll(xml);
+    expect(signals).toHaveLength(100);
+    expect(signals[0]!.title).toBe("t0");
+    expect(signals[99]!.title).toBe("t99");
+  });
+
+  it("truncates oversized title, summary and url", async () => {
+    const [s] = await poll(`<rss><item><title>${"T".repeat(5_000)}</title><link>https://h.example/${"u".repeat(5_000)}</link><description>${"S".repeat(50_000)}</description></item></rss>`);
+    expect(s!.title).toHaveLength(300);
+    expect(s!.summary).toHaveLength(1_000);
+    expect(s!.url).toHaveLength(0); // an over-long link is dropped, not cut into a different URL
+  });
+
+  it("keeps a link at the limit", async () => {
+    const link = `https://h.example/${"u".repeat(1_900)}`;
+    expect((await poll(`<rss><item><title>t</title><link>${link}</link></item></rss>`))[0]!.url).toBe(link);
+  });
+
+  it("parses unclosed items and tags in linear time", async () => {
+    const t0 = Date.now();
+    expect(await poll(`<rss>${"<item><title>x".repeat(40_000)}`)).toEqual([]);
+    expect(await poll(`<rss><item>${"<title>x".repeat(60_000)}</item></rss>`)).toEqual([]);
+    expect(Date.now() - t0).toBeLessThan(2_000);
+  });
+});
+
 describe("RssSource default fetch", () => {
+  const streamOf = (chunks: () => Generator<Uint8Array>) => {
+    let cancelled = false;
+    const it = chunks();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const n = it.next();
+        if (n.done) controller.close();
+        else controller.enqueue(n.value);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return { body, wasCancelled: () => cancelled };
+  };
+
+  it("aborts an endless body once it passes the byte cap", async () => {
+    const { body, wasCancelled } = streamOf(function* () {
+      const chunk = new Uint8Array(64 * 1024).fill(97);
+      while (true) yield chunk;
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(body));
+    try {
+      await expect(new RssSource({ id: "rss:big", label: "Big", url: "https://big.example/f" }).poll()).rejects.toThrow(/too large/);
+      expect(wasCancelled()).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("reads a body under the cap", async () => {
+    const xml = readFileSync(join(import.meta.dirname, "../fixtures", "other-feed.rss.xml"), "utf8");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(xml));
+    try {
+      expect(await new RssSource({ id: "rss:ok", label: "Ok", url: "https://ok.example/f" }).poll()).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("is time-bounded: a feed that never answers fails the poll instead of hanging", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(

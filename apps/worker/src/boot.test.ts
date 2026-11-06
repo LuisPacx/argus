@@ -41,7 +41,7 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
 // An empty feed list: the booting worker's ingest tick must not reach the network in tests.
 const ARGUS_RSS_FEEDS = join(workerDir, "../../packages/core/src/fixtures/no-feeds.json");
 
-const FAKE_CLAUDE =join(workerDir, "../../packages/core/src/testing/fake-claude.mjs");
+const FAKE_CLAUDE = join(workerDir, "../../packages/core/src/testing/fake-claude.mjs");
 
 /** A hung claude child must not outlive the worker: SIGTERM to the worker kills it before exit. */
 it("SIGTERM kills a live claude child before the worker exits", async () => {

@@ -44,6 +44,17 @@ describe("Signals in the Datastore", () => {
     expect(ds.latestSignals().map((s) => s.title)).toEqual(["t1"]);
   });
 
+  it("clamps a publishedAt in the future to the ingest time, so it cannot pin the top of the list", () => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals([sig(1), sig(2, { publishedAt: "2099-01-01T00:00:00.000Z" })]);
+    const [first] = ds.latestSignals();
+    expect(first!.title).toBe("t2");
+    expect(first!.publishedAt).toBe(first!.ingestedAt);
+    expect(Date.parse(first!.publishedAt)).toBeLessThanOrEqual(Date.now());
+    ds.recordSignals([sig(3, { publishedAt: new Date(Date.now() + 1000).toISOString() })]);
+    expect(ds.latestSignals().filter((s) => s.publishedAt > new Date().toISOString())).toEqual([]);
+  });
+
   it("limits the list", () => {
     const ds = Datastore.open(":memory:");
     ds.recordSignals([sig(1), sig(2), sig(3)]);
