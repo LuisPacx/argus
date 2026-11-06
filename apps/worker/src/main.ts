@@ -2,8 +2,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BackoffSource,
   ClaudeCodeBrain,
   Datastore,
+  DexScreenerClient,
+  DexScreenerTrendingSource,
+  GoogleTrendsSource,
   PodmanSandbox,
   applyPendingCommands,
   capsFromEnv,
@@ -103,15 +107,23 @@ const buildTick = reentrant(
 // Ingestion runs on its own guarded loop, every 5 minutes: polling feeds is slow and must not hold up commands or Spec drafts.
 // No brain or LLM is involved. The feed list is re-read each pass, so editing it needs no restart. A dry run polls nothing.
 const rssFeedsPath = process.env.ARGUS_RSS_FEEDS || join(repoRoot, "config", "rss-feeds.json");
+// Google Trends and DexScreener trending also run on this tick. They are built once so their backoff outlives a pass; an empty
+// ARGUS_TRENDS_URL or ARGUS_DEXSCREENER_URL turns that Source off (tests point them at a loopback server).
+const trendsUrl = process.env.ARGUS_TRENDS_URL ?? undefined;
+const dexUrl = process.env.ARGUS_DEXSCREENER_URL ?? undefined;
+const standingSources = [
+  ...(trendsUrl === "" ? [] : [new BackoffSource(new GoogleTrendsSource({ baseUrl: trendsUrl }))]),
+  ...(dexUrl === "" ? [] : [new BackoffSource(new DexScreenerTrendingSource({ client: new DexScreenerClient({ baseUrl: dexUrl }) }))]),
+];
 const ingestTick = reentrant(
   async () => {
     if (dryRun) {
-      console.log(`[worker] ingest tick: dry-run, would poll the RSS catalog at ${rssFeedsPath}`);
+      console.log(`[worker] ingest tick: dry-run, would poll the RSS catalog at ${rssFeedsPath} and ${standingSources.length} other source(s)`);
       return;
     }
-    const sources = loadRssSources(rssFeedsPath);
+    const sources = [...loadRssSources(rssFeedsPath), ...standingSources];
     const { stored, failed } = await ingestSources(store, sources, console.error);
-    console.log(`[worker] ingest tick: ${sources.length} feed(s), ${stored} new signal(s)${failed > 0 ? `, ${failed} feed(s) failed` : ""}`);
+    console.log(`[worker] ingest tick: ${sources.length} source(s), ${stored} new signal(s)${failed > 0 ? `, ${failed} source(s) failed` : ""}`);
     // Then cluster whatever is not in a Narrative yet (also leftovers of an earlier pass). Plain code, no brain.
     const { clustered, created } = await clusterNewSignals(store, new HashingEmbedder());
     console.log(`[worker] cluster: ${clustered} signal(s) clustered, ${created} new narrative(s)`);

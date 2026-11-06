@@ -12,7 +12,8 @@ const fixtures = join(workerDir, "../../packages/core/src/fixtures");
 const ARGUS_PODMAN_BIN = join(workerDir, "../../packages/core/src/testing/fake-podman.mjs");
 
 /** Runs the real worker once (plain node, `--once`) against feeds served from loopback fixtures; no external network. */
-async function runOnce(feeds: unknown, routes: Record<string, { status: number; body: string }>, env: Record<string, string> = {}) {
+async function runOnce(feeds: unknown, routes: Record<string, { status: number; body: string }>, envFor: Record<string, string> | ((base: string) => Record<string, string>) = {}) {
+  const env = async (base: string) => (typeof envFor === "function" ? envFor(base) : envFor);
   const dir = tempDir("argus-ingest-");
   const server = createServer((req, res) => {
     const r = routes[req.url ?? ""] ?? { status: 404, body: "" };
@@ -27,7 +28,8 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   try {
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
-      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ...env },
+      // The trends and DexScreener Sources are off unless a test points them at the loopback server (empty = off).
+      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_TRENDS_URL: "", ARGUS_DEXSCREENER_URL: "", ...(await env(base)) },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -53,7 +55,7 @@ const routes = {
 it("the worker's ingest tick stores Signals from the feed list", async () => {
   const { code, out, signals } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
   expect(code).toBe(0);
-  expect(out).toContain("[worker] ingest tick: 2 feed(s), 5 new signal(s)");
+  expect(out).toContain("[worker] ingest tick: 2 source(s), 5 new signal(s)");
   expect(signals.map((s) => s.title)).toEqual([
     "Memecoin season rumours",
     "Unsafe link item",
@@ -75,7 +77,7 @@ it("a failing feed is logged and the others are still stored", async () => {
   expect(code).toBe(0);
   expect(out).toContain("[ingest] rss:down failed");
   expect(out).toContain("503");
-  expect(out).toContain("1 new signal(s), 1 feed(s) failed");
+  expect(out).toContain("1 new signal(s), 1 source(s) failed");
   expect(signals.map((s) => s.sourceId)).toEqual(["rss:other"]);
 }, 60_000);
 
@@ -83,6 +85,34 @@ it("a malformed feed list is reported and does not stop the worker", async () =>
   const { code, out } = await runOnce([{ id: "rss:x", path: "/tech" }], routes, { ARGUS_RSS_FEEDS: join(fixtures, "tech-news.rss.xml") });
   expect(code).toBe(0);
   expect(out).toContain("[worker] ingest tick failed");
+}, 60_000);
+
+const MOON = "MoonCatMint1111111111111111111111111111111";
+const BOT = "RocketBotMint22222222222222222222222222222";
+const extraRoutes = {
+  ...routes,
+  "/trends?geo=US": { status: 200, body: readFileSync(join(fixtures, "google-trends.rss.xml"), "utf8") },
+  "/token-boosts/top/v1": { status: 200, body: readFileSync(join(fixtures, "dexscreener-boosts.json"), "utf8") },
+  [`/tokens/v1/solana/${MOON},${BOT}`]: { status: 200, body: readFileSync(join(fixtures, "dexscreener-pairs.json"), "utf8") },
+};
+const extraEnv = (base: string) => ({ ARGUS_TRENDS_URL: `${base}/trends`, ARGUS_DEXSCREENER_URL: base });
+
+it("Google Trends and DexScreener are polled on the same tick, stored, and labelled by Source", async () => {
+  const { code, out, signals } = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
+  expect(code).toBe(0);
+  expect(out).toContain("ingest tick: 3 source(s), 6 new signal(s)");
+  expect(signals.map((s) => s.sourceLabel).sort()).toEqual(["DexScreener trending", "DexScreener trending", "Google Trends", "Google Trends", "Google Trends", "RSS:OTHER"]);
+  expect(signals.map((s) => s.title)).toEqual(expect.arrayContaining(["moon cat", "Moon Cat ($MCAT)"]));
+}, 60_000);
+
+it("a rate-limited DexScreener does not stop the other Sources", async () => {
+  const limited = { ...extraRoutes, "/token-boosts/top/v1": { status: 429, body: "" } };
+  const { code, out, signals } = await runOnce([{ id: "rss:other", path: "/other" }], limited, extraEnv);
+  expect(code).toBe(0);
+  expect(out).toContain("[ingest] dexscreener:trending failed");
+  expect(out).toContain("429");
+  expect(out).toContain("1 source(s) failed");
+  expect(signals.map((s) => s.sourceId).sort()).toEqual(["rss:other", "trends:google", "trends:google", "trends:google"]);
 }, 60_000);
 
 it("a dry run polls nothing", async () => {

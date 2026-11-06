@@ -215,9 +215,9 @@ All v1 Sources are unauthenticated and sit behind the `Source` interface (`id`, 
 | Source | Kind | Notes |
 |---|---|---|
 | RSS catalog | news feeds | Ported from helios `sources/rss.ts`. Feed list is data. |
-| Google Trends RSS | trends | Helios `trends-feeds.ts` pattern. |
+| Google Trends RSS | trends | Helios `trends-feeds.ts` pattern; `sources/google-trends.ts`, `trends.google.com/trending/rss?geo=US`. |
 | PumpPortal events | launchpad | Ported from helios `sources/pumpportal-bonding.ts`; shows what already has a token. |
-| DexScreener trending | launchpad/market | New. Also used for collision checks. |
+| DexScreener trending | launchpad/market | New; `sources/dexscreener.ts`: top boosts for Solana, named through the token lookup. `DexScreenerClient` (with `search`) is the client the collision checks reuse. Google Trends and DexScreener are wrapped in `BackoffSource` (doubling wait, honours Retry-After). |
 | GitHub trending | tech | New; access method open (section 13). |
 
 No X in v1. The helios cookie scraper is not ported. X returns later through the official API as another `Source` implementation; nothing downstream changes.

@@ -1,0 +1,34 @@
+[
+  {
+    "url": "https://dexscreener.com/solana/MoonCatMint1111111111111111111111111111111",
+    "chainId": "solana",
+    "tokenAddress": "MoonCatMint1111111111111111111111111111111",
+    "description": "The cat that went to the moon.",
+    "icon": "https://cdn.dexscreener.com/cms/images/moon.png",
+    "links": [{ "type": "twitter", "url": "https://x.com/mooncat" }],
+    "totalAmount": 500,
+    "amount": 100
+  },
+  {
+    "url": "https://dexscreener.com/solana/RocketBotMint22222222222222222222222222222",
+    "chainId": "solana",
+    "tokenAddress": "RocketBotMint22222222222222222222222222222",
+    "totalAmount": 300,
+    "amount": 50
+  },
+  {
+    "url": "https://dexscreener.com/ethereum/0x0000000000000000000000000000000000000001",
+    "chainId": "ethereum",
+    "tokenAddress": "0x0000000000000000000000000000000000000001",
+    "totalAmount": 900,
+    "amount": 90
+  },
+  {
+    "chainId": "solana",
+    "tokenAddress": "../../etc/passwd",
+    "totalAmount": 10,
+    "amount": 1
+  },
+  "not an object",
+  null
+]

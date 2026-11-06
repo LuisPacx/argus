@@ -1,0 +1,36 @@
+[
+  {
+    "chainId": "solana",
+    "dexId": "raydium",
+    "url": "https://dexscreener.com/solana/PairSmall",
+    "pairAddress": "PairSmall",
+    "baseToken": { "address": "MoonCatMint1111111111111111111111111111111", "name": "Moon Cat", "symbol": "MCAT" },
+    "quoteToken": { "address": "So11111111111111111111111111111111111111112", "name": "Wrapped SOL", "symbol": "SOL" },
+    "priceUsd": "0.0012",
+    "volume": { "h24": 1000 },
+    "priceChange": { "h24": 5 },
+    "liquidity": { "usd": 2000 },
+    "pairCreatedAt": 1793800000000
+  },
+  {
+    "chainId": "solana",
+    "dexId": "pumpswap",
+    "url": "https://dexscreener.com/solana/PairBig",
+    "pairAddress": "PairBig",
+    "baseToken": { "address": "MoonCatMint1111111111111111111111111111111", "name": "Moon Cat", "symbol": "MCAT" },
+    "quoteToken": { "address": "So11111111111111111111111111111111111111112", "name": "Wrapped SOL", "symbol": "SOL" },
+    "priceUsd": "0.0013",
+    "volume": { "h24": 1234567.8 },
+    "priceChange": { "h24": -12.5 },
+    "liquidity": { "usd": 98765 },
+    "pairCreatedAt": 1793800000000
+  },
+  {
+    "chainId": "solana",
+    "dexId": "raydium",
+    "url": "javascript:alert(1)",
+    "pairAddress": "PairBot",
+    "baseToken": { "address": "RocketBotMint22222222222222222222222222222", "name": "<b>Rocket</b> Bot", "symbol": "RBOT" },
+    "quoteToken": { "address": "So11111111111111111111111111111111111111112", "name": "Wrapped SOL", "symbol": "SOL" }
+  }
+]

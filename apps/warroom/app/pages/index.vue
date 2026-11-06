@@ -99,7 +99,7 @@ async function submit() {
 
     <UCard>
       <template #header>Latest Signals</template>
-      <p v-if="!signals.length" class="text-sm text-muted">No Signals yet. The worker polls the RSS catalog every 5 minutes.</p>
+      <p v-if="!signals.length" class="text-sm text-muted">No Signals yet. The worker polls its Sources (RSS, Google Trends, DexScreener) every 5 minutes.</p>
       <ul class="grid gap-1 text-sm">
         <li v-for="s in signals" :key="s.id" class="flex flex-wrap items-baseline gap-x-2">
           <UBadge variant="subtle" size="sm">{{ s.sourceLabel }}</UBadge>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:ht="https://trends.google.com/trending/rss" version="2.0">
+  <channel>
+    <title>Daily Search Trends</title>
+    <link>https://trends.google.com/trending?geo=US</link>
+    <item>
+      <title>moon cat</title>
+      <ht:approx_traffic>500,000+</ht:approx_traffic>
+      <description></description>
+      <link>https://trends.google.com/trending/rss?geo=US</link>
+      <pubDate>Thu, 05 Nov 2026 14:00:00 -0800</pubDate>
+      <ht:picture>https://t0.gstatic.com/images?q=moon</ht:picture>
+      <ht:news_item>
+        <ht:news_item_title>Moon Cat video goes &amp; viral</ht:news_item_title>
+        <ht:news_item_snippet>A cat on a lunar-themed set won hearts.</ht:news_item_snippet>
+        <ht:news_item_url>https://news.example.com/moon-cat</ht:news_item_url>
+        <ht:news_item_source>Example News</ht:news_item_source>
+      </ht:news_item>
+    </item>
+    <item>
+      <title>Rocket &amp; Robots</title>
+      <ht:approx_traffic>20K+</ht:approx_traffic>
+      <description></description>
+      <link>https://trends.google.com/trending/rss?geo=US</link>
+      <pubDate>Thu, 05 Nov 2026 12:30:00 -0800</pubDate>
+    </item>
+    <item>
+      <title>unsafe news link</title>
+      <ht:approx_traffic>1K+</ht:approx_traffic>
+      <link>javascript:alert(1)</link>
+      <pubDate>Thu, 05 Nov 2026 12:00:00 -0800</pubDate>
+      <ht:news_item>
+        <ht:news_item_title>t</ht:news_item_title>
+        <ht:news_item_url>javascript:alert(2)</ht:news_item_url>
+      </ht:news_item>
+    </item>
+  </channel>
+</rss>

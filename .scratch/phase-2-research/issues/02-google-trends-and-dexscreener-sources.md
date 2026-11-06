@@ -5,11 +5,11 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Google Trends RSS Source following the helios `trends-feeds` pattern
-- [ ] DexScreener trending Source; its client is reusable for the collision checks in ticket 09
-- [ ] Both are polled on the ingest tick, deduplicated like RSS, and labelled by Source in the War Room
-- [ ] Rate limits and errors back off without stopping other Sources
-- [ ] Fixture-based tests; no network
-- [ ] `pnpm check` passes
+- [x] Google Trends RSS Source following the helios `trends-feeds` pattern
+- [x] DexScreener trending Source; its client is reusable for the collision checks in ticket 09
+- [x] Both are polled on the ingest tick, deduplicated like RSS, and labelled by Source in the War Room
+- [x] Rate limits and errors back off without stopping other Sources
+- [x] Fixture-based tests; no network
+- [x] `pnpm check` passes
