@@ -1,5 +1,5 @@
 import { isAbsolute, posix } from "node:path";
-import { TMPFS_DIRS, containerEnv } from "./sandbox.ts";
+import { TMPFS_DIRS, TMPFS_MEMORY_SHARE, containerEnv } from "./sandbox.ts";
 
 /**
  * The pure halves of the two containment checks (`pnpm verify:boot` reads the dry run, `pnpm verify:contain` runs the real
@@ -175,6 +175,17 @@ export function checkRunTokens(t: readonly string[], o: PolicyOptions): string[]
       const opts = values(t, "--tmpfs").find((v) => v.startsWith(`${dir}:`))?.split(":")[1]?.split(",") ?? [];
       for (const opt of ["noexec", "nosuid", "nodev"]) need(opts.includes(opt), `--tmpfs ${dir} with ${opt}`);
     }
+    // A tmpfs is memory: all of them together must leave the processes their share of the cap, or a full /tmp gets the Build OOM-killed.
+    const memory = /^--memory=(.*)$/.exec(t.find((a) => a.startsWith("--memory=")) ?? "")?.[1] ?? "";
+    if (memoryOk(memory)) {
+      const m = /^([0-9]+(?:\.[0-9]+)?)([mg])$/.exec(memory)!;
+      const cap = Number(m[1]) * (m[2] === "g" ? GIB : 2 ** 20);
+      const tmpfs = values(t, "--tmpfs").reduce((sum, v) => {
+        const s = /,size=([0-9]+)([gm])$/.exec(v);
+        return sum + (s ? Number(s[1]) * (s[2] === "g" ? GIB : 2 ** 20) : 0);
+      }, 0);
+      if (tmpfs > cap * TMPFS_MEMORY_SHARE) problems.push(`${role}: the tmpfs dirs together (${(tmpfs / GIB).toFixed(2)} GiB) can take more than half of --memory=${memory}`);
+    }
     const want = role === "bundle" ? "none" : "argus-build-net";
     need(networks.length === 1 && networks[0] === want, `--network ${want} (and no other)`);
     need(values(t, "-v").some((v) => v.includes(":/home/agent:")), "the per-Build home at /home/agent");
@@ -251,6 +262,8 @@ export interface ProbeReport {
   cgroup: { memoryMax?: string; pidsMax?: string; cpuMax?: string };
   /** target -> true when a direct TCP connect (ignoring the proxy) or name lookup succeeded */
   direct: Record<string, boolean>;
+  /** tmpfs mount point -> its size limit in KiB (the `size=` of its mount's super options); absent when it has none */
+  tmpfsKiB: Record<string, number>;
   /** CONNECT/GET target -> first status line the proxy answered, or "closed" */
   proxy: Record<string, string>;
   /** program -> true when it is on PATH */
@@ -338,6 +351,13 @@ export function judgeProbe(r: ProbeReport, e: ProbeExpect): Check[] {
     ...(r.cgroup.pidsMax === String(e.caps.pids) ? [] : [`pids.max ${r.cgroup.pidsMax}`]),
     ...(r.cgroup.cpuMax?.startsWith(`${e.caps.cpus * 100000} `) ? [] : [`cpu.max ${r.cgroup.cpuMax}`]),
   ], `memory ${r.cgroup.memoryMax}, pids ${r.cgroup.pidsMax}, cpu ${r.cgroup.cpuMax}`);
+  const memory = Number(r.cgroup.memoryMax);
+  const sized = TMPFS_DIRS.map((d) => [d, r.tmpfsKiB?.[d]] as const);
+  const tmpfsBytes = sized.reduce((sum, [, kib]) => sum + (kib ?? 0) * 1024, 0);
+  add("HIGH2", "the tmpfs dirs fit under the memory cap (a tmpfs is memory too)", [
+    ...sized.filter(([, kib]) => kib === undefined).map(([d]) => `${d} has no size limit`),
+    ...(Number.isFinite(memory) ? (tmpfsBytes > memory * TMPFS_MEMORY_SHARE ? [`the tmpfs dirs can take ${(tmpfsBytes / GIB).toFixed(2)} GiB of a ${(memory / GIB).toFixed(2)} GiB memory cap`] : []) : ["the memory cap is unknown"]),
+  ], `${(tmpfsBytes / GIB).toFixed(2)} GiB of tmpfs under a ${(memory / GIB).toFixed(2)} GiB memory cap`);
   add("HIGH2", "the image has no gh, ssh, curl, wget or wrangler", SYSTEM_TOOLS.filter((k) => r.tools[k]).map((k) => `${k} is in the image`), "none present");
   return out;
 }

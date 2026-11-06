@@ -56,6 +56,16 @@ describe("checkDryRunOutput", () => {
     expect(checkDryRunOutput(edit("argus-build", (l) => l.replace(/ --memory=\S+/, "")), { operatorHome: HOME }).join()).toContain("--memory=");
   });
 
+  it("fails when the tmpfs of a container could fill its memory cap (they are memory, and an OOM kill would leave nothing for the processes)", () => {
+    const opts = { operatorHome: HOME };
+    expect(checkDryRunOutput(edit("argus-build", (l) => l.replace("/tmp:rw,noexec,nosuid,nodev,size=2g", "/tmp:rw,noexec,nosuid,nodev,size=6g")), opts).join()).toMatch(/build: the tmpfs dirs together \(6\.\d+ GiB\) can take more than half of --memory=8g/);
+    expect(checkDryRunOutput(edit("argus-install", (l) => l.replace("--memory=8g", "--memory=2g")), opts).join()).toMatch(/install: the tmpfs dirs together/);
+    expect(checkDryRunOutput(edit("argus-bundle", (l) => l.replace("--memory=8g", "--memory=4g")), opts).join()).toMatch(/bundle: the tmpfs dirs together/); // 2.31 GiB > 4 / 2
+    expect(checkDryRunOutput(edit("argus-bundle", (l) => l.replace("--memory=8g", "--memory=5g")), opts)).toEqual([]); // 2.31 GiB <= 5 / 2
+    // The sidecar has no tmpfs of its own to count.
+    expect(checkDryRunOutput(dryRun(), opts)).toEqual([]);
+  });
+
   it.each(["--privileged", "--device /dev/fuse", "--env-host", "--cap-add SYS_ADMIN", "--pid=host", "--network host", "--security-opt seccomp=unconfined"])("fails when the agent container adds %s", (extra) => {
     const problems = checkDryRunOutput(edit("argus-build", (l) => l.replace("podman run", `podman run ${extra}`)), { operatorHome: HOME });
     expect(problems.length).toBeGreaterThan(0);
@@ -200,6 +210,7 @@ const GOOD: ProbeReport = {
   writes: { "/work/repo": true, "/work/home": true, "/": false, "/usr": false, "/etc": false, "/tmp/x": true, "/work": false },
   execFrom: { "/tmp": { copied: true, ran: false }, "/var/tmp": { copied: true, ran: false }, "/run": { copied: true, ran: false } },
   mounts: { "/": "ro,relatime", "/tmp": "rw,nosuid,nodev,noexec", "/var/tmp": "rw,nosuid,nodev,noexec", "/run": "rw,nosuid,nodev,noexec", "/work/repo": "rw", "/home/agent": "rw", "/proc": "rw", "/dev/shm": "rw", "/etc/hosts": "ro", "/run/.containerenv": "ro", "/run/podman-init": "ro" },
+  tmpfsKiB: { "/tmp": 2 * 1024 * 1024, "/var/tmp": 256 * 1024, "/run": 64 * 1024 },
   cgroup: { memoryMax: String(8 * 2 ** 30), pidsMax: "1024", cpuMax: "400000 100000" },
   direct: { "1.1.1.1:443": false, "example.com (dns)": false },
   proxy: { "api.anthropic.com:443": "HTTP/1.1 200 Connection Established", "registry.npmjs.org:443": "HTTP/1.1 200 OK", "example.com:443": "HTTP/1.1 403 Forbidden", "GET http://api.anthropic.com/": "closed" },
@@ -251,6 +262,9 @@ describe("judgeProbe", () => {
     ["the proxy allows another host", { proxy: { ...GOOD.proxy, "github.com:443": "HTTP/1.1 200 OK" } }, /proxy tunnels/],
     ["the proxy refuses the npm registry", { proxy: { ...GOOD.proxy, "registry.npmjs.org:443": "HTTP/1.1 403 Forbidden" } }, /proxy tunnels/],
     ["the memory cap is missing", { cgroup: { ...GOOD.cgroup, memoryMax: "max" } }, /caps/],
+    ["the tmpfs dirs could fill the memory cap", { tmpfsKiB: { ...GOOD.tmpfsKiB, "/tmp": 6 * 1024 * 1024 } }, /tmpfs.*memory cap/],
+    ["a tmpfs has no size limit", { tmpfsKiB: { "/tmp": 2 * 1024 * 1024, "/var/tmp": 256 * 1024 } }, /tmpfs.*memory cap/],
+    ["the memory cap is unknown, so the tmpfs cannot be compared with it", { cgroup: { ...GOOD.cgroup, memoryMax: "max" } }, /tmpfs.*memory cap/],
     ["wrangler in the image", { tools: { ...GOOD.tools, wrangler: true } }, /no gh/],
   ])("fails when %s", (_what, over, pattern) => {
     const names = failing({ ...GOOD, ...over });

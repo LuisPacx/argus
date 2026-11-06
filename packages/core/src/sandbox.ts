@@ -47,6 +47,36 @@ export interface SandboxCaps {
 /** The Operator's decision (design section 13, Q6). */
 export const DEFAULT_CAPS: SandboxCaps = { memoryGiB: 8, cpus: 4, pids: 1024, tmpGiB: 2 };
 
+/**
+ * A tmpfs is memory: what is written to /tmp counts against the container's `--memory` cap like its processes do. So the tmpfs of
+ * all three dirs together may take at most this share of the cap, and the agent always keeps the rest for its processes (at the
+ * defaults: 2 GiB /tmp + 256 MiB /var/tmp + 64 MiB /run = 2.31 GiB of the 8 GiB, leaving 5.7 GiB). A configuration beyond it is an error.
+ */
+export const TMPFS_MEMORY_SHARE = 0.5;
+const GIB = 2 ** 30;
+const MIB = 2 ** 20;
+
+/** Directories that are writable tmpfs in every Build container, and so must never allow execution. */
+export const TMPFS_DIRS = ["/tmp", "/var/tmp", "/run"] as const;
+/** Size of each tmpfs, in MiB: /tmp is the one the Operator sizes (`tmpGiB`); the other two are small and fixed. */
+function tmpfsSizesMiB(caps: Pick<SandboxCaps, "tmpGiB">): Record<(typeof TMPFS_DIRS)[number], number> {
+  return { "/tmp": Math.round(caps.tmpGiB * 1024), "/var/tmp": 256, "/run": 64 };
+}
+const tmpfsTotalBytes = (caps: Pick<SandboxCaps, "tmpGiB">): number => Object.values(tmpfsSizesMiB(caps)).reduce((a, b) => a + b, 0) * MIB;
+
+/** Can the tmpfs dirs of a container with these caps fill without taking more than `TMPFS_MEMORY_SHARE` of its memory cap? */
+export function tmpfsFitsMemory(caps: Pick<SandboxCaps, "memoryGiB" | "tmpGiB">): boolean {
+  return tmpfsTotalBytes(caps) <= caps.memoryGiB * GIB * TMPFS_MEMORY_SHARE;
+}
+
+function assertTmpfsFits(caps: SandboxCaps): void {
+  if (!tmpfsFitsMemory(caps)) {
+    throw new Error(
+      `the tmpfs of a Build container (/tmp ${caps.tmpGiB} GiB, /var/tmp 256 MiB, /run 64 MiB: ${(tmpfsTotalBytes(caps) / GIB).toFixed(2)} GiB) could take more than ${TMPFS_MEMORY_SHARE * 100}% of its memory cap of ${caps.memoryGiB} GiB; lower ARGUS_BUILD_TMP_GIB or raise ARGUS_BUILD_MEMORY_GIB`,
+    );
+  }
+}
+
 /** Caps from `ARGUS_BUILD_MEMORY_GIB`, `ARGUS_BUILD_CPUS`, `ARGUS_BUILD_PIDS`, `ARGUS_BUILD_TMP_GIB`; a value that is not a positive number is an error, never a silent default. */
 export function capsFromEnv(env: NodeJS.ProcessEnv): SandboxCaps {
   const read = (name: string, fallback: number): number => {
@@ -56,12 +86,14 @@ export function capsFromEnv(env: NodeJS.ProcessEnv): SandboxCaps {
     if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number, got ${JSON.stringify(raw.slice(0, 40))}`);
     return n;
   };
-  return {
+  const caps = {
     memoryGiB: read("ARGUS_BUILD_MEMORY_GIB", DEFAULT_CAPS.memoryGiB),
     cpus: read("ARGUS_BUILD_CPUS", DEFAULT_CAPS.cpus),
     pids: Math.floor(read("ARGUS_BUILD_PIDS", DEFAULT_CAPS.pids)),
     tmpGiB: read("ARGUS_BUILD_TMP_GIB", DEFAULT_CAPS.tmpGiB),
   };
+  assertTmpfsFits(caps);
+  return caps;
 }
 
 /** One container run, as the callers describe it. */
@@ -213,12 +245,11 @@ export interface Ownership {
 }
 const ownershipLabels = (o: Ownership): string[] => ["--label", `argus.data=${o.dataId}`, "--label", `argus.owner=${o.owner}`];
 
-/** Directories that are writable tmpfs in every Build container, and so must never allow execution. */
-export const TMPFS_DIRS = ["/tmp", "/var/tmp", "/run"] as const;
 /** The `--tmpfs` flags of a Build container. `--read-only` makes podman add its own tmpfs on /var/tmp and /run without `noexec`; naming them here replaces those. */
 function tmpfsFlags(caps: SandboxCaps): string[] {
-  const size: Record<(typeof TMPFS_DIRS)[number], string> = { "/tmp": `${caps.tmpGiB}g`, "/var/tmp": `${caps.tmpGiB}g`, "/run": "64m" };
-  return TMPFS_DIRS.flatMap((d) => ["--tmpfs", `${d}:rw,noexec,nosuid,nodev,size=${size[d]}`]);
+  const sizes = tmpfsSizesMiB(caps);
+  const size = (mib: number) => (mib % 1024 === 0 ? `${mib / 1024}g` : `${mib}m`);
+  return TMPFS_DIRS.flatMap((d) => ["--tmpfs", `${d}:rw,noexec,nosuid,nodev,size=${size(sizes[d])}`]);
 }
 
 export interface RunSpec {
@@ -239,6 +270,7 @@ export function buildPodmanRunArgs({ job, name, image, caps, ownership }: RunSpe
   const { role } = job;
   if (!NAME_RE.test(name)) throw new Error(`bad container name ${JSON.stringify(name)}`);
   if (!Number.isInteger(job.buildId) || job.buildId < 0) throw new Error("bad build id");
+  assertTmpfsFits(caps);
   const mounts = job.mounts.map(checkMountPath);
   const flags = [
     "run", "--rm", "--name", name,
@@ -311,16 +343,33 @@ export interface PodmanSandboxOptions {
   stopTimeoutSec?: number;
   /** How long to wait for the egress sidecar's "listening" line. Default 20 s. */
   egressWaitMs?: number;
+  /** The bound, past the stop's own grace, on each podman call that ends a container (`stop`, `rm -f`). Default 30 s. A hung podman is killed and the teardown goes on. */
+  teardownTimeoutMs?: number;
 }
 
 interface Podman {
   code: number | null;
   stdout: string;
   stderr: string;
+  /** The call did not return within its bound and was killed. */
+  timedOut?: boolean;
 }
 
+/** After this long past a call's bound, a podman client that has still not exited (a hung one, or one whose grandchild holds its pipes) is given up on. */
+const HARD_KILL_GRACE_MS = 2000;
+
 const show = (args: readonly string[]) => args.map((a) => (/[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Resolves after `ms`, or as soon as `signal` aborts. */
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
 
 export class PodmanSandbox implements SandboxRunner {
   readonly image: string;
@@ -338,6 +387,7 @@ export class PodmanSandbox implements SandboxRunner {
     this.opts = opts;
     this.podmanBin = opts.podmanBin ?? "podman";
     this.caps = opts.caps ?? DEFAULT_CAPS;
+    assertTmpfsFits(this.caps);
   }
 
   /** The podman client's own environment: what it needs to find its rootless store and runtime dir, and nothing else. */
@@ -348,12 +398,27 @@ export class PodmanSandbox implements SandboxRunner {
     return { ...env, ...extra };
   }
 
-  private podman(args: string[], timeoutMs = 30_000): Promise<Podman> {
+  /**
+   * One podman call, bounded: after `timeoutMs`, or when `signal` aborts, the client is sent SIGKILL (a hung client may ignore
+   * SIGTERM), and a client that still has not exited a moment later is given up on. Never rejects and always returns.
+   */
+  private podman(args: string[], timeoutMs = 30_000, signal?: AbortSignal): Promise<Podman> {
     return new Promise((res) => {
-      execFile(this.podmanBin, args, { env: this.clientEnv(), timeout: timeoutMs, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+      const watchdog = setTimeout(() => {
+        child.kill("SIGKILL");
+        res({ code: null, stdout: "", stderr: `podman ${args[0] ?? ""} did not return within ${timeoutMs} ms`, timedOut: true });
+      }, timeoutMs + HARD_KILL_GRACE_MS);
+      // Not execFile's own `signal` option: it ends the client with SIGTERM, which a hung client may ignore.
+      const onAbort = () => void child.kill("SIGKILL");
+      const child = execFile(this.podmanBin, args, { env: this.clientEnv(), timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+        clearTimeout(watchdog);
+        signal?.removeEventListener("abort", onAbort);
         const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : null) : 0;
-        res({ code, stdout: String(stdout), stderr: String(stderr || (err ? err.message : "")) });
+        const timedOut = err !== null && (err as { killed?: boolean }).killed === true && !signal?.aborted;
+        res({ code, stdout: String(stdout), stderr: String(stderr || (err ? err.message : "")), timedOut });
       });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     });
   }
 
@@ -396,18 +461,29 @@ export class PodmanSandbox implements SandboxRunner {
       const state = ownerState(owner, readStat);
       if (state === "unknown") log(`[worker] left alone Build container ${name}: could not tell whether its owner ${owner} is running`);
       if (state !== "dead") continue;
-      await this.endContainer(name);
+      await this.endContainer(name, log);
       removed.push(name);
       log(`[worker] removed leftover Build container ${name}`);
     }
     return removed;
   }
 
-  /** `podman stop`, then `rm -f`, of one container. Either failing is not an error (the container may be gone already: `--rm`). */
-  private async endContainer(name: string): Promise<void> {
+  /**
+   * `podman stop`, then `rm -f`, of one container. Either failing is not an error (the container may be gone already: `--rm`). Each
+   * is bounded (the stop by its own grace plus `teardownTimeoutMs`), so a hung podman cannot hold the teardown up: the call is
+   * killed, `say` is told, and the teardown carries on (to the rm, then to whatever the caller does next, such as the group kill).
+   */
+  private async endContainer(name: string, say?: (line: string) => void): Promise<void> {
     const stopSec = this.opts.stopTimeoutSec ?? 5;
-    await this.podman(["stop", "--ignore", "-t", String(stopSec), name], (stopSec + 25) * 1000);
-    await this.podman(["rm", "-f", "--ignore", name]);
+    const bound = this.opts.teardownTimeoutMs ?? 30_000;
+    const steps: Array<[string[], number]> = [
+      [["stop", "--ignore", "-t", String(stopSec), name], stopSec * 1000 + bound],
+      [["rm", "-f", "--ignore", name], bound],
+    ];
+    for (const [args, ms] of steps) {
+      const r = await this.podman(args, ms);
+      if (r.timedOut) say?.(`argus-sandbox: teardown of ${name} timed out (podman ${args[0]} did not return in ${ms} ms); carrying on, and the process group is killed regardless`);
+    }
   }
 
   private names(job: SandboxJob): { container: string; egress: string } {
@@ -445,7 +521,7 @@ export class PodmanSandbox implements SandboxRunner {
               denialsNoted = true;
               await this.noteDenials(name, job);
             }
-            await this.endContainer(name);
+            await this.endContainer(name, job.note);
           }
         } finally {
           ending = undefined;
@@ -474,23 +550,28 @@ export class PodmanSandbox implements SandboxRunner {
   }
 
   private async startEgress(name: string, job: SandboxJob): Promise<void> {
-    const r = await this.podman(egressRunArgs({ name, buildId: job.buildId, image: this.image, ownership: this.ownership }), 60_000);
+    // The signal goes to every podman call here, so an abort ends the call in progress (and the wait between polls) at once instead
+    // of being seen when the call returns. The caller's `stop` then removes whatever the interrupted call had made.
+    const interrupted = () => new Error("interrupted while starting the egress proxy sidecar");
+    const r = await this.podman(egressRunArgs({ name, buildId: job.buildId, image: this.image, ownership: this.ownership }), 60_000, job.signal);
+    if (job.signal?.aborted) throw interrupted();
     if (r.code !== 0) throw new Error(`the egress proxy sidecar could not be started: ${r.stderr.trim().slice(0, 200)}`);
     const deadline = Date.now() + (this.opts.egressWaitMs ?? 20_000);
     for (;;) {
-      if (job.signal?.aborted) throw new Error("interrupted while starting the egress proxy sidecar");
-      const logs = await this.podman(["logs", name], 15_000);
+      if (job.signal?.aborted) throw interrupted();
+      const logs = await this.podman(["logs", name], 15_000, job.signal);
+      if (job.signal?.aborted) throw interrupted();
       if (logs.code !== 0) throw new Error(`the egress proxy sidecar exited before it was listening: ${logs.stderr.trim().slice(0, 200)}`);
       if (/"event":"listening"/.test(logs.stdout)) return;
       if (Date.now() > deadline) throw new Error("the egress proxy sidecar did not report listening in time");
-      await sleep(100);
+      await sleep(100, job.signal);
     }
   }
 
   /** The sidecar's refusals, as lines in the Build log: what a Build tried to reach and was not allowed to. */
   private async noteDenials(name: string, job: SandboxJob): Promise<void> {
     if (!job.note) return;
-    const logs = await this.podman(["logs", name], 15_000);
+    const logs = await this.podman(["logs", name], Math.min(15_000, this.opts.teardownTimeoutMs ?? 30_000));
     if (logs.code !== 0) return;
     let shown = 0;
     for (const line of logs.stdout.split("\n")) {

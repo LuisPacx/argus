@@ -14,6 +14,16 @@ export const PNPM_VERSION = "11.2.2";
 export const IMAGE_REPO = "localhost/argus-build";
 export const BUILD_NETWORK = { name: "argus-build-net", subnet: "10.89.77.0/24", gateway: "10.89.77.1" };
 
+/**
+ * The podman binary the scripts use: `ARGUS_PODMAN_BIN`, the one variable the worker and `verify:contain` read too. The older `PODMAN`
+ * of `image:build` is still accepted when that is unset, with a warning to print. An empty value counts as unset.
+ */
+export function podmanBinFromEnv(env: NodeJS.ProcessEnv): { bin: string; warning?: string } {
+  if (env.ARGUS_PODMAN_BIN) return { bin: env.ARGUS_PODMAN_BIN };
+  if (env.PODMAN) return { bin: env.PODMAN, warning: "PODMAN is deprecated: set ARGUS_PODMAN_BIN instead (the worker and the verify scripts read only that)" };
+  return { bin: "podman" };
+}
+
 /** Tag from the pinned versions and a content hash of the Containerfile and the proxy files. Never `latest`. */
 export function imageTag(contents: readonly string[]): string {
   const hash = createHash("sha256");

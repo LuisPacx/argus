@@ -16,6 +16,7 @@
 //   - when the container's main process exits, everything left in its group is killed (the PID namespace is torn down).
 //   `run -d` of a sidecar only records state. FAKE_PODMAN_EGRESS_FAIL=1 makes starting a sidecar fail; FAKE_PODMAN_EGRESS_SILENT=1 makes
 //   it never log "listening"; FAKE_PODMAN_EGRESS_LOG is extra text `logs` prints (denial lines).
+//   FAKE_PODMAN_HANG=stop,rm,logs,run-d makes those subcommands hang, ignoring SIGTERM (see below).
 //   In the container: `pnpm install` writes FAKE_PODMAN_INSTALL_FILES (a JSON object of cwd-relative path -> text), or fails with
 //   FAKE_PODMAN_INSTALL_FAIL, or hangs (after writing its pid to FAKE_PODMAN_INSTALL_STARTED) with FAKE_PODMAN_INSTALL_HANG; FAKE_PODMAN_INSTALL_LOCKED leaves a mode-000 directory in the cwd; `wrangler` runs FAKE_PODMAN_WRANGLER (default: the fake wrangler beside this file).
 import { spawn } from "node:child_process";
@@ -66,6 +67,15 @@ const killGroup = (pgid, signal) => {
   }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// FAKE_PODMAN_HANG: comma-separated subcommands that hang for good, deaf to SIGTERM (only SIGKILL ends them); "run-d" is `run -d`, the
+// sidecar's start. Each hung call appends its pid to FAKE_PODMAN_HANG_PIDS, so a test can show none outlived the run.
+if ((process.env.FAKE_PODMAN_HANG ?? "").split(",").includes(a === "run" && argv.includes("-d") ? "run-d" : a)) {
+  if (process.env.FAKE_PODMAN_HANG_PIDS) appendFileSync(process.env.FAKE_PODMAN_HANG_PIDS, `${process.pid}\n`);
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 
 if (a === "--version" || a === "version") {
   console.log("podman version 0.0.0-fake");

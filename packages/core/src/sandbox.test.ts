@@ -13,6 +13,7 @@ import {
   egressRunArgs,
   readBuildToken,
   resumeCommand,
+  tmpfsFitsMemory,
   type ContainerRole,
   type SandboxJob,
 } from "./sandbox.ts";
@@ -76,7 +77,7 @@ describe("buildPodmanRunArgs: the container's policy", () => {
     expect(flagValues(argv, "--security-opt")).toEqual(["no-new-privileges"]);
     // Every place a container can write besides the repo and home is a tmpfs that cannot execute: the engine's own writable
     // tmpfs dirs (/var/tmp, /run) would otherwise be rw without noexec.
-    expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=2g", "/var/tmp:rw,noexec,nosuid,nodev,size=2g", "/run:rw,noexec,nosuid,nodev,size=64m"]);
+    expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=2g", "/var/tmp:rw,noexec,nosuid,nodev,size=256m", "/run:rw,noexec,nosuid,nodev,size=64m"]);
     // The conmon backstop: the caller's cap plus a minute.
     expect(argv).toContain("--timeout=660");
     expect(flagValues(argv, "--label")).toEqual(["argus.build=7", `argus.role=${role}`, "argus.data=0123456789ab", "argus.owner=4242.99"]);
@@ -130,9 +131,38 @@ describe("buildPodmanRunArgs: the container's policy", () => {
   });
 
   it("applies the caps it is given", () => {
-    const argv = buildPodmanRunArgs({ job: job("agent"), name: NAME, image: TEST_IMAGE, caps: { memoryGiB: 2, cpus: 1.5, pids: 99, tmpGiB: 1 }, ownership: OWNERSHIP });
-    expect(argv).toEqual(expect.arrayContaining(["--pids-limit=99", "--memory=2g", "--cpus=1.5"]));
-    expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=1g", "/var/tmp:rw,noexec,nosuid,nodev,size=1g", "/run:rw,noexec,nosuid,nodev,size=64m"]);
+    const argv = buildPodmanRunArgs({ job: job("agent"), name: NAME, image: TEST_IMAGE, caps: { memoryGiB: 4, cpus: 1.5, pids: 99, tmpGiB: 1 }, ownership: OWNERSHIP });
+    expect(argv).toEqual(expect.arrayContaining(["--pids-limit=99", "--memory=4g", "--cpus=1.5"]));
+    expect(flagValues(argv, "--tmpfs")).toEqual(["/tmp:rw,noexec,nosuid,nodev,size=1g", "/var/tmp:rw,noexec,nosuid,nodev,size=256m", "/run:rw,noexec,nosuid,nodev,size=64m"]);
+  });
+
+  // A tmpfs is memory: a full tmpfs counts against the container's --memory cap like the processes do. If the tmpfs could fill the cap, a
+  // Build that fills /tmp would be OOM-killed with nothing left for its processes. The tmpfs of all three dirs together may take at most
+  // half the cap, so the agent always has the other half (4 GiB at the default).
+  describe("the tmpfs sizes fit under the memory cap", () => {
+    const MIB = 2 ** 20;
+    const sizeMiB = (v: string) => {
+      const m = /size=(\d+)([gm])$/.exec(v)!;
+      return Number(m[1]) * (m[2] === "g" ? 1024 : 1);
+    };
+    const tmpfsMiB = (argv: string[]) => flagValues(argv, "--tmpfs").map(sizeMiB).reduce((a, b) => a + b, 0);
+
+    it("the defaults: every tmpfs together is at most half the memory cap", () => {
+      const argv = argvFor("agent");
+      expect(tmpfsMiB(argv)).toBe(2048 + 256 + 64);
+      expect(tmpfsMiB(argv) * MIB).toBeLessThanOrEqual((DEFAULT_CAPS.memoryGiB * 2 ** 30) / 2);
+      expect(tmpfsFitsMemory(DEFAULT_CAPS)).toBe(true);
+    });
+
+    it("a configuration whose tmpfs could fill the cap is refused, by the env reader and by the argv builder", () => {
+      expect(() => capsFromEnv({ ARGUS_BUILD_TMP_GIB: "4" })).toThrow(/ARGUS_BUILD_TMP_GIB.*ARGUS_BUILD_MEMORY_GIB/s); // 4 + 0.31 > 8 / 2
+      expect(() => capsFromEnv({ ARGUS_BUILD_MEMORY_GIB: "2" })).toThrow(/ARGUS_BUILD_TMP_GIB/); // 2 + 0.31 > 2 / 2
+      expect(capsFromEnv({ ARGUS_BUILD_MEMORY_GIB: "16", ARGUS_BUILD_TMP_GIB: "6" })).toMatchObject({ memoryGiB: 16, tmpGiB: 6 });
+      const caps = { memoryGiB: 8, cpus: 4, pids: 1024, tmpGiB: 8 };
+      expect(tmpfsFitsMemory(caps)).toBe(false);
+      expect(() => buildPodmanRunArgs({ job: job("agent"), name: NAME, image: TEST_IMAGE, caps, ownership: OWNERSHIP })).toThrow(/tmpfs/);
+      expect(() => new PodmanSandbox({ image: TEST_IMAGE, tokenPath: "/nowhere", dataDir: "/nowhere", caps })).toThrow(/tmpfs/);
+    });
   });
 
   it("refuses a container name that is not argus's", () => {
@@ -168,7 +198,7 @@ describe("small pieces", () => {
 
   it("capsFromEnv defaults to the Operator's caps and rejects a value that is not a positive number", () => {
     expect(capsFromEnv({})).toEqual({ memoryGiB: 8, cpus: 4, pids: 1024, tmpGiB: 2 });
-    expect(capsFromEnv({ ARGUS_BUILD_MEMORY_GIB: "4", ARGUS_BUILD_PIDS: "512" })).toMatchObject({ memoryGiB: 4, pids: 512 });
+    expect(capsFromEnv({ ARGUS_BUILD_MEMORY_GIB: "6", ARGUS_BUILD_PIDS: "512" })).toMatchObject({ memoryGiB: 6, pids: 512 });
     for (const bad of ["0", "-1", "lots", "NaN"]) expect(() => capsFromEnv({ ARGUS_BUILD_CPUS: bad })).toThrow(/ARGUS_BUILD_CPUS/);
   });
 

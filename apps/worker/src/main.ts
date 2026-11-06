@@ -39,6 +39,7 @@ import {
   researchConfigFromEnv,
   revisePendingSpecs,
   runPendingBuilds,
+  sweepDismissedHomes,
   sweepStaleSeals,
   type BuildRunnerOptions,
   type Source,
@@ -128,6 +129,7 @@ sweepStaleRuns();
 if (!dryRun) {
   await sandbox.reconcile(console.log);
   sweepStaleSeals(dataDir, console.log);
+  sweepDismissedHomes(store, dataDir, console.log);
 }
 
 const shutdown = new AbortController();

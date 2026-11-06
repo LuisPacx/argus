@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { buildHomeFor, removeTree } from "./build-runner.ts";
+import { buildHomeFor, removeTree } from "./build-home.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { isMintAddress } from "./launch.ts";
 

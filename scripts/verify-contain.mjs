@@ -128,7 +128,7 @@ function hostSleeps(durations) {
 const probeScript = (cfg) => `
 const fs=require('fs'),net=require('net'),dns=require('dns'),cp=require('child_process');
 const CFG=${JSON.stringify(cfg)};
-const R={uid:process.getuid(),home:process.env.HOME,envNames:Object.keys(process.env),paths:{},writes:{},mounts:{},cgroup:{},direct:{},proxy:{},tools:{}};
+const R={uid:process.getuid(),home:process.env.HOME,envNames:Object.keys(process.env),paths:{},writes:{},mounts:{},tmpfsKiB:{},cgroup:{},direct:{},proxy:{},tools:{}};
 const st=fs.readFileSync('/proc/self/status','utf8');
 for(const f of ['CapEff','CapBnd','CapPrm','CapInh'])R['cap'+f.slice(3)]=new RegExp(f+':\\\\s*(\\\\S+)').exec(st)[1];R.noNewPrivs=/NoNewPrivs:\\s*(\\S+)/.exec(st)[1];
 for(const p of CFG.hostPaths)R.paths[p]=fs.existsSync(p);
@@ -139,7 +139,7 @@ for(const d of CFG.execDirs){const o={copied:false,ran:false};
   try{if(kind==='binary')fs.copyFileSync('/bin/true',f);else fs.writeFileSync(f,'#!/bin/sh\\nexit 0\\n');fs.chmodSync(f,0o755);o.copied=true;cp.execFileSync(f);o.ran=true}catch{}
   try{fs.unlinkSync(f)}catch{}}
  R.execFrom[d]=o}
-for(const l of fs.readFileSync('/proc/self/mountinfo','utf8').split('\\n')){const f=l.split(' ');if(f.length>5)R.mounts[f[4]]=f[5]}
+for(const l of fs.readFileSync('/proc/self/mountinfo','utf8').split('\\n')){const f=l.split(' ');if(f.length>5){R.mounts[f[4]]=f[5];const i=f.indexOf('-');const m=i>0&&/(?:^|,)size=(\\d+)k(?:,|$)/.exec(f[i+3]||'');if(m)R.tmpfsKiB[f[4]]=Number(m[1])}}
 for(const [k,f] of [['memoryMax','memory.max'],['pidsMax','pids.max'],['cpuMax','cpu.max']]){try{R.cgroup[k]=fs.readFileSync('/sys/fs/cgroup/'+f,'utf8').trim()}catch{}}
 for(const t of ['gh','ssh','curl','wget','wrangler','git','node','pnpm','claude'])R.tools[t]=process.env.PATH.split(':').some((d)=>fs.existsSync(d+'/'+t));
 const conn=(host,port)=>new Promise((res)=>{const s=net.connect({host,port,timeout:4000});s.on('connect',()=>{s.destroy();res(true)});s.on('timeout',()=>{s.destroy();res(false)});s.on('error',()=>res(false))});

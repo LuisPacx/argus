@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
+import { buildHomeFor, removeTree } from "./build-home.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
 import { needsHumanSpecReason } from "./spec-drafting.ts";
 import { buildDoneText, buildFailedText, buildStartText, type Notifier } from "./telegram.ts";
 import { ownerState, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
+
+// The home helpers live in build-home.ts (the lifecycle uses them too); callers keep importing them from here or from the package.
+export { buildHomeFor, removeTree, sweepDismissedHomes } from "./build-home.ts";
 
 /** Where the Build's stream-json lines (and the runner's own `# argus:` notes) go; the War Room tails it. */
 export function buildLogPathFor(dataDir: string, proposalId: number): string {
@@ -302,11 +306,6 @@ export function bundleArgs(slug: string, work: string): string[] {
 
 /** The last preflight refusal logged for a runner's options, so a missing image is one log line, not one per tick. */
 const lastRefusal = new WeakMap<BuildRunnerOptions, string>();
-
-/** The per-Build home (claude config and session transcripts, package store, caches): kept for a failed Build so it can be resumed. */
-export function buildHomeFor(dataDir: string, proposalId: number): string {
-  return join(resolve(dataDir), "proposals", String(proposalId), "home");
-}
 
 /** The next Proposal to build: oldest approval first (ties by id); none while a Build is running. */
 export function nextBuildable(store: Datastore): Proposal | undefined {
@@ -884,42 +883,6 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
         closeRun();
       }
     }
-  }
-}
-
-/**
- * Removes a directory tree that a container wrote to: directories the agent's install scripts left unreadable or unwritable
- * (mode 000, say) are made enterable first, as `chmod -R u+rwX` would, without following a symlink. Never throws; returns the
- * reason it could not remove the tree, or undefined when it is gone.
- */
-export function removeTree(path: string): string | undefined {
-  const open = (p: string): void => {
-    let st;
-    try {
-      st = lstatSync(p);
-    } catch {
-      return;
-    }
-    if (!st.isDirectory()) return;
-    try {
-      chmodSync(p, st.mode | 0o700);
-    } catch {
-      // not ours to change, or gone: rmSync below says what is left
-    }
-    let names: string[] = [];
-    try {
-      names = readdirSync(p);
-    } catch {
-      return;
-    }
-    for (const n of names) open(join(p, n));
-  };
-  try {
-    open(path);
-    rmSync(path, { recursive: true, force: true });
-    return undefined;
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
   }
 }
 

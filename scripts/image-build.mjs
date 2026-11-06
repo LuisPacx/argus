@@ -5,9 +5,11 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { CLAUDE_CODE_VERSION, PNPM_VERSION, ensureBuildNetwork, imageReady, imageTag } from "../packages/core/src/build-image.ts";
+import { CLAUDE_CODE_VERSION, PNPM_VERSION, ensureBuildNetwork, imageReady, imageTag, podmanBinFromEnv } from "../packages/core/src/build-image.ts";
 
-const podman = process.env.PODMAN ?? "podman";
+// ARGUS_PODMAN_BIN, like the worker and verify:contain; the old PODMAN still works, with a warning.
+const { bin: podman, warning } = podmanBinFromEnv(process.env);
+if (warning) console.warn(`warning: ${warning}`);
 const root = join(import.meta.dirname, "..");
 const files = [
   join(root, "containers/build/Containerfile"),

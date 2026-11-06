@@ -3,12 +3,31 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUILD_NETWORK, currentImageTag, ensureBuildNetwork, imageReady, imageTag } from "./build-image.ts";
+import { BUILD_NETWORK, currentImageTag, ensureBuildNetwork, imageReady, imageTag, podmanBinFromEnv } from "./build-image.ts";
 
 const FAKE_PODMAN = join(import.meta.dirname, "testing", "fake-podman.mjs");
 const sources = ["../../../containers/build/Containerfile", "egress-proxy.mjs", "egress-proxy.ts"].map((p) =>
   readFileSync(join(import.meta.dirname, p), "utf8"),
 );
+
+describe("podmanBinFromEnv: one variable for the worker and the scripts", () => {
+  it("ARGUS_PODMAN_BIN wins, silently, whatever PODMAN says", () => {
+    expect(podmanBinFromEnv({ ARGUS_PODMAN_BIN: "/opt/podman" })).toEqual({ bin: "/opt/podman" });
+    expect(podmanBinFromEnv({ ARGUS_PODMAN_BIN: "/opt/podman", PODMAN: "/old/podman" })).toEqual({ bin: "/opt/podman" });
+  });
+
+  it("the deprecated PODMAN is still honoured, with a warning that names the new variable", () => {
+    const r = podmanBinFromEnv({ PODMAN: "/old/podman" });
+    expect(r.bin).toBe("/old/podman");
+    expect(r.warning).toMatch(/PODMAN is deprecated.*ARGUS_PODMAN_BIN/);
+  });
+
+  it("an empty value counts as unset (as .env.example's blank ARGUS_PODMAN_BIN= does), and the default is podman", () => {
+    expect(podmanBinFromEnv({ ARGUS_PODMAN_BIN: "", PODMAN: "" })).toEqual({ bin: "podman" });
+    expect(podmanBinFromEnv({ ARGUS_PODMAN_BIN: "", PODMAN: "/old/podman" }).bin).toBe("/old/podman");
+    expect(podmanBinFromEnv({})).toEqual({ bin: "podman" });
+  });
+});
 
 describe("imageTag", () => {
   it("derives from the pinned versions and a content hash, never latest", () => {

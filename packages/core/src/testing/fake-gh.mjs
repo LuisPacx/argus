@@ -34,7 +34,19 @@ if (argv[0] === "repo" && argv[1] === "view") {
     process.exit(0);
   }
   console.error(`GraphQL: Could not resolve to a Repository with the name 'fake-owner/${argv[2]}'. (repository)`);
-  process.exit(1);
+  // FAKE_GH_VIEW_EXIT: the not-found text with another exit code (gh uses 4 for an authentication problem, 2 for a cancel).
+  process.exit(Number(process.env.FAKE_GH_VIEW_EXIT ?? 1));
+}
+if (argv[0] === "api" && argv.includes("-i") && argv.includes("user")) {
+  // What GitHub's X-OAuth-Scopes header says of the token. FAKE_GH_SCOPES: the scopes ("repo, read:org" by default), or "none" for a
+  // token that has no such header (a fine-grained one). FAKE_GH_API_FAIL=1 fails the call.
+  if (process.env.FAKE_GH_API_FAIL) {
+    console.error("error connecting to api.github.com");
+    process.exit(1);
+  }
+  const scopes = process.env.FAKE_GH_SCOPES ?? "repo, read:org";
+  console.log(`HTTP/2.0 200 OK\nContent-Type: application/json; charset=utf-8${scopes === "none" ? "" : `\nX-Oauth-Scopes: ${scopes}`}\nX-Ratelimit-Limit: 5000\n\n{"login":"fake-owner"}`);
+  process.exit(0);
 }
 console.error(`fake gh: unsupported ${argv.join(" ")}`);
 process.exit(2);
