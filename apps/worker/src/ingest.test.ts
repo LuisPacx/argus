@@ -28,8 +28,8 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   try {
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
-      // The trends and DexScreener Sources are off unless a test points them at the loopback server (empty = off).
-      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_TRENDS_URL: "", ARGUS_DEXSCREENER_URL: "", ...(await env(base)) },
+      // The standing Sources (Google Trends, DexScreener) are switched off unless a test turns them on against the loopback server.
+      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ...(await env(base)) },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -95,7 +95,7 @@ const extraRoutes = {
   "/token-boosts/top/v1": { status: 200, body: readFileSync(join(fixtures, "dexscreener-boosts.json"), "utf8") },
   [`/tokens/v1/solana/${MOON},${BOT}`]: { status: 200, body: readFileSync(join(fixtures, "dexscreener-pairs.json"), "utf8") },
 };
-const extraEnv = (base: string) => ({ ARGUS_TRENDS_URL: `${base}/trends`, ARGUS_DEXSCREENER_URL: base });
+const extraEnv = (base: string) => ({ ARGUS_INGEST_STANDING: "1", ARGUS_TRENDS_URL: `${base}/trends`, ARGUS_DEXSCREENER_URL: base });
 
 it("Google Trends and DexScreener are polled on the same tick, stored, and labelled by Source", async () => {
   const { code, out, signals } = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
@@ -113,6 +113,21 @@ it("a rate-limited DexScreener does not stop the other Sources", async () => {
   expect(out).toContain("429");
   expect(out).toContain("1 source(s) failed");
   expect(signals.map((s) => s.sourceId).sort()).toEqual(["rss:other", "trends:google", "trends:google", "trends:google"]);
+}, 60_000);
+
+it("the worker logs at boot which Sources are enabled", async () => {
+  const on = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv);
+  expect(on.out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending");
+  const off = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, {});
+  expect(off.out).toContain("[worker] ingest sources: RSS catalog (standing Sources off: ARGUS_INGEST_STANDING=0)");
+  expect(off.signals.map((s) => s.sourceId)).toEqual(["rss:other"]);
+}, 60_000);
+
+it("an empty URL override falls back to the default, it does not switch the Source off", async () => {
+  const { code, out, signals } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, { ARGUS_INGEST_STANDING: "", ARGUS_TRENDS_URL: "", ARGUS_DEXSCREENER_URL: "", ARGUS_DRY_RUN: "1" });
+  expect(code).toBe(0);
+  expect(out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending");
+  expect(signals).toEqual([]);
 }, 60_000);
 
 it("a dry run polls nothing", async () => {

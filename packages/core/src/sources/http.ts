@@ -40,9 +40,20 @@ async function readLimited(res: Response, maxBytes: number, what: string): Promi
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** A server's Retry-After is never trusted for longer than this. */
+export const MAX_RETRY_AFTER_MS = 60 * 60_000;
+
+/** Retry-After is whole seconds or an HTTP-date. Either way the result is within [0, MAX_RETRY_AFTER_MS]; anything else is ignored. */
 function retryAfterMs(res: Response): number | undefined {
-  const raw = res.headers.get("retry-after");
-  return raw !== null && /^\d{1,7}$/.test(raw.trim()) ? Number(raw.trim()) * 1_000 : undefined;
+  const raw = res.headers.get("retry-after")?.trim();
+  if (!raw) return undefined;
+  let ms: number;
+  if (/^\d{1,9}$/.test(raw)) ms = Number(raw) * 1_000;
+  else {
+    ms = Date.parse(raw) - Date.now();
+    if (Number.isNaN(ms) || !/[a-z]/i.test(raw)) return undefined;
+  }
+  return Math.min(Math.max(ms, 0), MAX_RETRY_AFTER_MS);
 }
 
 /** Fetches with a timer that stays armed until the body is read, so a trickled body is bounded too. Remote bodies are untrusted. */

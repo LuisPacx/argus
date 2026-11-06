@@ -107,14 +107,19 @@ const buildTick = reentrant(
 // Ingestion runs on its own guarded loop, every 5 minutes: polling feeds is slow and must not hold up commands or Spec drafts.
 // No brain or LLM is involved. The feed list is re-read each pass, so editing it needs no restart. A dry run polls nothing.
 const rssFeedsPath = process.env.ARGUS_RSS_FEEDS || join(repoRoot, "config", "rss-feeds.json");
-// Google Trends and DexScreener trending also run on this tick. They are built once so their backoff outlives a pass; an empty
-// ARGUS_TRENDS_URL or ARGUS_DEXSCREENER_URL turns that Source off (tests point them at a loopback server).
-const trendsUrl = process.env.ARGUS_TRENDS_URL ?? undefined;
-const dexUrl = process.env.ARGUS_DEXSCREENER_URL ?? undefined;
-const standingSources = [
-  ...(trendsUrl === "" ? [] : [new BackoffSource(new GoogleTrendsSource({ baseUrl: trendsUrl }))]),
-  ...(dexUrl === "" ? [] : [new BackoffSource(new DexScreenerTrendingSource({ client: new DexScreenerClient({ baseUrl: dexUrl }) }))]),
-];
+// Google Trends and DexScreener trending (the standing Sources) also run on this tick. They are built once so their backoff
+// outlives a pass. ARGUS_INGEST_STANDING=0 is the one switch that turns both off (tests do; nothing else disables them).
+// ARGUS_TRENDS_URL and ARGUS_DEXSCREENER_URL exist for tests and local mirrors; empty or unset means the real endpoint.
+const standingOn = process.env.ARGUS_INGEST_STANDING !== "0";
+const trendsUrl = process.env.ARGUS_TRENDS_URL || undefined;
+const dexUrl = process.env.ARGUS_DEXSCREENER_URL || undefined;
+const standingSources = standingOn
+  ? [
+      new BackoffSource(new GoogleTrendsSource({ baseUrl: trendsUrl })),
+      new BackoffSource(new DexScreenerTrendingSource({ client: new DexScreenerClient({ baseUrl: dexUrl }) })),
+    ]
+  : [];
+console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0)"}`);
 const ingestTick = reentrant(
   async () => {
     if (dryRun) {

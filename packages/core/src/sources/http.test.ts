@@ -31,9 +31,41 @@ describe("timedFetchText", () => {
     });
   });
 
-  it("ignores a Retry-After that is not a number of seconds", async () => {
-    await withFetch(new Response("", { status: 503, headers: { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" } }), async () => {
-      expect(((await get().catch((e: unknown) => e)) as HttpError).retryAfterMs).toBeUndefined();
+  describe("Retry-After as an HTTP-date", () => {
+    const NOW = Date.parse("2026-11-05T12:00:00Z");
+    const retryAfter = async (header: string) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      try {
+        let ms: number | undefined;
+        await withFetch(new Response("", { status: 503, headers: { "retry-after": header } }), async () => {
+          ms = ((await get().catch((e: unknown) => e)) as HttpError).retryAfterMs;
+        });
+        return ms;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    it("waits until a date in the future", async () => {
+      expect(await retryAfter("Thu, 05 Nov 2026 12:05:00 GMT")).toBe(5 * 60_000);
+    });
+
+    it("clamps a date far in the future to an hour", async () => {
+      expect(await retryAfter("Fri, 06 Nov 2026 12:00:00 GMT")).toBe(60 * 60_000);
+    });
+
+    it("treats a date in the past as no wait", async () => {
+      expect(await retryAfter("Wed, 21 Oct 2026 07:28:00 GMT")).toBe(0);
+    });
+
+    it("ignores garbage", async () => {
+      expect(await retryAfter("soon")).toBeUndefined();
+      expect(await retryAfter("-5")).toBeUndefined();
+    });
+
+    it("clamps a huge number of seconds to an hour", async () => {
+      expect(await retryAfter("9999999")).toBe(60 * 60_000);
     });
   });
 

@@ -15,7 +15,7 @@ export interface GoogleTrendsOptions {
   geo?: string;
   /** Replaces the network fetch (tests pass recorded feed XML). */
   fetchText?: FetchText;
-  /** Overrides the feed address (tests point it at a loopback server). The country is appended as `?geo=`. */
+  /** Overrides the feed address (for tests and local mirrors). The country is appended as `?geo=`. */
   baseUrl?: string;
   timeoutMs?: number;
 }
