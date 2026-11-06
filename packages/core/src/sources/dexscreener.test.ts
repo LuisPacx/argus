@@ -58,7 +58,23 @@ describe("DexScreenerClient", () => {
   it("fails on a body that is not JSON of the expected shape", async () => {
     await expect(new DexScreenerClient({ fetchText: async () => "<html>" }).topBoosts()).rejects.toThrow();
     await expect(new DexScreenerClient({ fetchText: async () => '{"x":1}' }).topBoosts()).rejects.toThrow(/unexpected/);
-    expect(await new DexScreenerClient({ fetchText: async () => '{"pairs":null}' }).search("q")).toEqual([]);
+  });
+
+  it("search answers an empty list only for a real no-match answer (`pairs: []`); a missing, null or non-array `pairs` is an error", async () => {
+    expect(await new DexScreenerClient({ fetchText: async () => '{"schemaVersion":"1.0.0","pairs":[]}' }).search("q")).toEqual([]);
+    for (const body of ['{"schemaVersion":"1.0.0"}', '{"pairs":null}', '{"pairs":{"a":1}}', '{"pairs":"none"}']) {
+      await expect(new DexScreenerClient({ fetchText: async () => body }).search("q")).rejects.toThrow(/unexpected/);
+    }
+  });
+
+  it("search keeps pairs whose chain or token address is not a Solana/EVM-style token (SUI, TON), so a name or ticker still matches; token lookups stay strict", async () => {
+    const odd = [
+      { chainId: "sui", url: "https://dexscreener.com/sui/x", baseToken: { address: "0x2::cat::CAT", name: "Sui Cat", symbol: "SCAT" } },
+      { chainId: "ton", url: "https://dexscreener.com/ton/y", baseToken: { address: "EQ-short", name: "Ton Cat", symbol: "TCAT" } },
+    ];
+    const client = new DexScreenerClient({ fetchText: async () => JSON.stringify({ pairs: odd }) });
+    expect((await client.search("cat")).map((p) => [p.chainId, p.symbol])).toEqual([["sui", "SCAT"], ["ton", "TCAT"]]);
+    expect(await new DexScreenerClient({ fetchText: async () => JSON.stringify(odd) }).tokenPairs("solana", [MOON])).toEqual([]);
   });
 
   it("caps hostile responses: item count and field lengths", async () => {

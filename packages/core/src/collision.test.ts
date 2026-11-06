@@ -10,7 +10,10 @@ const pair = (name: string, symbol: string) => ({
   baseToken: { address: MINT, name, symbol },
 });
 const dexBody = (...pairs: ReturnType<typeof pair>[]) => JSON.stringify({ pairs });
-const ghBody = (...names: string[]) => JSON.stringify({ items: names.map((n) => ({ full_name: `someone/${n}`, name: n, html_url: `https://github.com/someone/${n}` })) });
+const ghBody = (...names: string[]) => ghPage(names, {});
+/** A GitHub search answer: `total_count` and `incomplete_results` default to an honest, complete first page. */
+const ghPage = (names: string[], over: { total_count?: number; incomplete_results?: boolean }) =>
+  JSON.stringify({ total_count: names.length, incomplete_results: false, ...over, items: names.map((n) => ({ full_name: `someone/${n}`, name: n, html_url: `https://github.com/someone/${n}` })) });
 
 type Handler = (url: string) => string | Promise<string>;
 /** Fake DexScreener and GitHub: each answers by handler, and every requested URL is recorded. */
@@ -122,6 +125,37 @@ describe("collision checks, GitHub by repo name", () => {
     expect((await changed.checker.check({ name: "Stock Paws", ticker: "PAWS" })).github.status).toBe("unknown");
   });
 
+  it("is unknown, not clear, when GitHub says the results are incomplete and none matches", async () => {
+    const { checker } = setup({ github: () => ghPage(["stock-paws-extra"], { incomplete_results: true }) });
+    const r = await checker.check({ name: "Stock Paws", ticker: "PAWS" });
+    expect(r.github.status).toBe("unknown");
+    expect(r.github.detail).toMatch(/incomplete/i);
+  });
+
+  it("is unknown, not clear, when only the first page was read and more results exist with no match on it", async () => {
+    const { checker } = setup({ github: () => ghPage(["stock-paws-extra"], { total_count: 412 }) });
+    const r = await checker.check({ name: "Stock Paws", ticker: "PAWS" });
+    expect(r.github.status).toBe("unknown");
+    expect(r.github.detail).toMatch(/412/);
+  });
+
+  it("still reports a collision found on the first page of an incomplete or longer result", async () => {
+    const { checker } = setup({ github: () => ghPage(["stock-paws"], { total_count: 412, incomplete_results: true }) });
+    expect((await checker.check({ name: "Stock Paws", ticker: "PAWS" })).github.status).toBe("collides");
+  });
+
+  it("is unknown when the answer has no usable total_count", async () => {
+    const { checker } = setup({ github: () => JSON.stringify({ items: [] }) });
+    expect((await checker.check({ name: "Stock Paws", ticker: "PAWS" })).github.status).toBe("unknown");
+  });
+
+  it("a name or ticker too long to search is unknown and sends nothing, rather than a shortened query that could miss the match", async () => {
+    const { checker, urls } = setup();
+    const r = await checker.check({ name: "N".repeat(101), ticker: "T".repeat(31) });
+    expect([r.dex.status, r.github.status]).toEqual(["unknown", "unknown"]);
+    expect(urls).toEqual([]);
+  });
+
   it("an unnamed repo (a name with no letters or digits) cannot be checked, so it is unknown", async () => {
     const { checker, urls } = setup();
     expect((await checker.check({ name: "!!!", ticker: "PAWS" })).github.status).toBe("unknown");
@@ -151,8 +185,8 @@ describe("collision checks, GitHub by repo name", () => {
 });
 
 describe("the test run", () => {
-  it("points DexScreener and GitHub at a dead loopback port, so no worker a test spawns reaches the network", () => {
-    expect(process.env.ARGUS_DEXSCREENER_URL).toBe("http://127.0.0.1:1");
+  it("points the collision checks' DexScreener and GitHub at a dead loopback port, so no worker a test spawns reaches the network", () => {
+    expect(process.env.ARGUS_DEXSCREENER_SEARCH_URL).toBe("http://127.0.0.1:1");
     expect(process.env.ARGUS_GITHUB_SEARCH_URL).toBe("http://127.0.0.1:1");
   });
 });

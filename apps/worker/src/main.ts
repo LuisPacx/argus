@@ -204,9 +204,10 @@ const judgeTick = reentrant(
 const proposeConfig = proposeConfigFromEnv(process.env);
 // Each Proposal's name, ticker and repo name are checked against DexScreener and GitHub (keyless public APIs, 15 s bound, backoff after a
 // failure; a check that fails is stored as "unknown"). One checker for the process, so its backoff lasts across passes.
-// ARGUS_DEXSCREENER_URL and ARGUS_GITHUB_SEARCH_URL exist for tests: the test run points both at a dead loopback port.
+// ARGUS_DEXSCREENER_SEARCH_URL and ARGUS_GITHUB_SEARCH_URL exist for tests: the test run points both at a dead loopback port. They are
+// separate from the ingest Source's ARGUS_DEXSCREENER_URL, so a test that mirrors the ingest APIs never mirrors the collision checks.
 const collisionChecker = createCollisionChecker({
-  dexBaseUrl: process.env.ARGUS_DEXSCREENER_URL || undefined,
+  dexBaseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined,
   githubUrl: process.env.ARGUS_GITHUB_SEARCH_URL || undefined,
 });
 const proposeTick = reentrant(

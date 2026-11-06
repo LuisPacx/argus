@@ -87,14 +87,19 @@ export class DexScreenerClient {
     return this.pairs(await this.json(`/tokens/v1/${chainId}/${safe.join(",")}`));
   }
 
-  /** Pairs matching a name or ticker, best first. */
+  /**
+   * Pairs matching a name or ticker, best first, for the collision checks. A real no-match answer carries `pairs: []`; a missing,
+   * null or non-array `pairs` is an error, so a changed or broken answer can never read as "nothing found". Unlike the lookups the
+   * Trending Source makes, entries are kept whatever their chain id or token address looks like (SUI and TON addresses are not
+   * Solana- or EVM-shaped): only the name and ticker matter here, and nothing from the entry goes into a URL.
+   */
   async search(query: string): Promise<DexPair[]> {
     const data = await this.json(`/latest/dex/search?q=${encodeURIComponent(query)}`);
-    if (!isRecord(data)) throw new Error("DexScreener: unexpected search response");
-    return this.pairs(data.pairs ?? []);
+    if (!isRecord(data) || !Array.isArray(data.pairs)) throw new Error("DexScreener: unexpected search response (no pairs array)");
+    return this.pairs(data.pairs, false);
   }
 
-  private pairs(data: unknown): DexPair[] {
+  private pairs(data: unknown, strictIds = true): DexPair[] {
     if (!Array.isArray(data)) throw new Error("DexScreener: unexpected pairs response");
     const out: DexPair[] = [];
     for (const entry of data.slice(0, MAX_ENTRIES)) {
@@ -102,7 +107,7 @@ export class DexScreenerClient {
       const base = entry.baseToken;
       const chainId = str(entry.chainId, 32);
       const tokenAddress = str(base.address, 80);
-      if (!CHAIN_RE.test(chainId) || !ADDRESS_RE.test(tokenAddress)) continue;
+      if (strictIds && (!CHAIN_RE.test(chainId) || !ADDRESS_RE.test(tokenAddress))) continue;
       const createdAt = num(entry.pairCreatedAt);
       out.push({
         chainId,

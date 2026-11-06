@@ -36,6 +36,10 @@ export const GITHUB_SOURCE = "GitHub";
 export const COLLISION_TIMEOUT_MS = 15_000;
 const MAX_DETAIL_CHARS = 200;
 const GITHUB_PER_PAGE = 30;
+/** Above these the name (a model's answer is at most 40 and 10 characters) is not put in a search. GitHub repo names are at most 100. */
+const MAX_NAME_QUERY_CHARS = 100;
+const MAX_TICKER_QUERY_CHARS = 30;
+const MAX_REPO_NAME_CHARS = 100;
 
 export interface CollisionCheckerOptions {
   /** Replace the network (tests pass recorded JSON). */
@@ -108,7 +112,7 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
   const githubWait = new Cooldown(60_000, 60 * 60_000);
 
   /** Runs `lookup` unless the side is backing off; whatever it throws becomes `unknown`. */
-  async function guarded(source: string, wait: Cooldown, lookup: () => Promise<{ status: "clear" | "collides"; detail: string } | { failed: unknown }>): Promise<CollisionCheck> {
+  async function guarded(source: string, wait: Cooldown, lookup: () => Promise<{ status: CollisionStatus; detail: string } | { failed: unknown }>): Promise<CollisionCheck> {
     const at = now();
     const base = { source, checkedAt: at.toISOString() };
     const left = wait.remaining(at.getTime());
@@ -129,6 +133,8 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
 
   const dexCheck = (name: string, ticker: string) =>
     guarded(DEX_SOURCE, dexWait, async () => {
+      // A shortened query could return unrelated pairs and read as clear, so an over-long name or ticker is not searched at all.
+      if (name.length > MAX_NAME_QUERY_CHARS || ticker.length > MAX_TICKER_QUERY_CHARS) return { status: "unknown" as const, detail: "the name or ticker is too long to search for" };
       const searches = await Promise.allSettled([dex.search(name), dex.search(ticker)]);
       const pairs: DexPair[] = searches.flatMap((s) => (s.status === "fulfilled" ? s.value : []));
       const sameTicker = pairs.find((p) => p.symbol.toLowerCase() === ticker.toLowerCase());
@@ -143,7 +149,8 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
   const githubCheck = (name: string) =>
     guarded(GITHUB_SOURCE, githubWait, async () => {
       const slug = slugify(name);
-      if (!slug) throw new Error("the name has no letters or digits to make a repo name from");
+      if (!slug) return { status: "unknown" as const, detail: "the name has no letters or digits to make a repo name from" };
+      if (slug.length > MAX_REPO_NAME_CHARS) return { status: "unknown" as const, detail: "the repo name is too long to search for" };
       const q = new URLSearchParams({ q: `${slug} in:name`, per_page: String(GITHUB_PER_PAGE) });
       const data = JSON.parse(await githubFetch(`${githubUrl}?${q}`)) as unknown;
       const items = typeof data === "object" && data !== null && "items" in data ? (data as { items: unknown }).items : undefined;
@@ -154,6 +161,12 @@ export function createCollisionChecker(opts: CollisionCheckerOptions = {}): Coll
         const repo = full.split("/")[1] ?? "";
         if (repo.toLowerCase() === slug) return { status: "collides" as const, detail: oneLine(`a repo named ${slug} exists: ${full}`) };
       }
+      // No match on page 1 is "clear" only when page 1 was the whole answer. Search matches names loosely and ranks by best match, so an
+      // exact-name repo can sit beyond the first 30, and `incomplete_results` says GitHub itself did not finish the search.
+      const total = (data as { total_count?: unknown }).total_count;
+      if (typeof total !== "number" || !Number.isFinite(total)) throw new Error("unexpected search response (no total_count)");
+      if ((data as { incomplete_results?: unknown }).incomplete_results !== false) return { status: "unknown" as const, detail: "GitHub reports incomplete search results and none matches" };
+      if (total > items.length) return { status: "unknown" as const, detail: `no exact match on the first page, but ${total} repos have the name in them; not checked past the first page` };
       return { status: "clear" as const, detail: `no repo named ${slug} found` };
     });
 

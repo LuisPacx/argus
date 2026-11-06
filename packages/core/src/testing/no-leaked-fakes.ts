@@ -128,7 +128,7 @@ export function failOnRealClaude(dir: string): void {
 }
 
 /**
- * Keeps the run off the network (collision checks, ARGUS_DEXSCREENER_URL and ARGUS_GITHUB_SEARCH_URL, are dead loopback ports too) and away from the Operator's Telegram chat: ARGUS_NO_DOTENV makes a worker skip the repo-root .env (where the bot token
+ * Keeps the run off the network (collision checks, ARGUS_DEXSCREENER_SEARCH_URL and ARGUS_GITHUB_SEARCH_URL, are dead loopback ports too) and away from the Operator's Telegram chat: ARGUS_NO_DOTENV makes a worker skip the repo-root .env (where the bot token
  * lives), and ARGUS_TELEGRAM_URL points the Bot API at a loopback port nothing listens on. Every worker a test spawns inherits both;
  * a test that wants a Telegram sets its own URL and token explicitly (a fake on loopback).
  */
@@ -136,13 +136,13 @@ function blockTelegram(): () => void {
   const saved = {
     ARGUS_NO_DOTENV: process.env.ARGUS_NO_DOTENV,
     ARGUS_TELEGRAM_URL: process.env.ARGUS_TELEGRAM_URL,
-    ARGUS_DEXSCREENER_URL: process.env.ARGUS_DEXSCREENER_URL,
+    ARGUS_DEXSCREENER_SEARCH_URL: process.env.ARGUS_DEXSCREENER_SEARCH_URL,
     ARGUS_GITHUB_SEARCH_URL: process.env.ARGUS_GITHUB_SEARCH_URL,
   };
   process.env.ARGUS_NO_DOTENV = "1";
   process.env.ARGUS_TELEGRAM_URL = "http://127.0.0.1:1";
   // The collision checks of a worker a test spawns reach DexScreener and GitHub through these: dead too, so a check there is "unknown".
-  process.env.ARGUS_DEXSCREENER_URL = "http://127.0.0.1:1";
+  process.env.ARGUS_DEXSCREENER_SEARCH_URL = "http://127.0.0.1:1";
   process.env.ARGUS_GITHUB_SEARCH_URL = "http://127.0.0.1:1";
   return () => {
     for (const [k, v] of Object.entries(saved)) {
