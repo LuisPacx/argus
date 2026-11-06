@@ -6,13 +6,17 @@
 // the Operator's home, ...). The policy is packages/core/src/containment-policy.ts, shared with `pnpm verify:contain`.
 // Step 2: long-running dry run ticks, gets SIGTERM, and exits 0 within 10s.
 // Step 3: no process from step 2's process group survives.
+// Step 4: the real War Room dev server (own temp DB, port ARGUS_VERIFY_WARROOM_PORT, default 3150) answers 2xx with no Nuxt
+// error payload on every page route under apps/warroom/app/pages (`/`, `/narratives`, `/narratives/<id>`, `/proposals/<id>`, ...),
+// and no process from its process group survives.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Datastore } from '../packages/core/src/index.ts';
+import { Datastore, clusterNewSignals } from '../packages/core/src/index.ts';
 import { checkDryRunOutput } from '../packages/core/src/containment-policy.ts';
+import { pageProblem, pageRoutes } from './warroom-pages.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORKER_MAIN = path.join(ROOT, 'apps', 'worker', 'src', 'main.ts');
@@ -20,6 +24,10 @@ const TICK_TIMEOUT_MS = 15_000;
 const EXIT_TIMEOUT_MS = 10_000;
 const GROUP_GRACE_MS = 2_000;
 const RUN_ONCE_TIMEOUT_MS = 60_000;
+const WARROOM_PORT = Number.parseInt(process.env.ARGUS_VERIFY_WARROOM_PORT ?? '3150', 10);
+const WARROOM_PAGES = path.join(ROOT, 'apps', 'warroom', 'app', 'pages');
+const WARROOM_READY_TIMEOUT_MS = 120_000;
+const PAGE_TIMEOUT_MS = 90_000;
 const POLL_MS = 50;
 const REQUIRED_FLAGS = ['--strict-mcp-config', '--setting-sources project', '--tools'];
 const REQUIRED_BUILD_LINES = ['dry-run: git clone', 'repo create boot-build --private', 'dry-run: claude (cwd', '--permission-mode acceptEdits', 'dry-run: wrangler deploy --name boot-build'];
@@ -37,7 +45,8 @@ function workerEnv(dir) {
 }
 
 // Seeds one shortlisted Proposal through the core Datastore API, the same path the War Room takes.
-function seed(db) {
+// Returns the ids the dynamic War Room pages need.
+async function seed(db) {
   const store = Datastore.open(db);
   const p = store.createProposal({
     narrativeSummary: 'n',
@@ -62,7 +71,12 @@ function seed(db) {
   store.transition(b.id, 'shortlisted', 'operator');
   store.completeSpec(b.id, { path: path.join(path.dirname(db), 'spec.md'), hash: 'h' });
   store.transition(b.id, 'approved', 'operator');
+  // One Narrative, for /narratives/<id>.
+  store.recordSignals([{ id: 's:1', sourceId: 'rss:a', sourceLabel: 'Feed A', title: 'Boot signal', summary: 's', url: 'https://a.example/1', publishedAt: new Date().toISOString() }]);
+  await clusterNewSignals(store, { id: 'boot', dimension: 1, embed: async () => [1] });
+  const narrativeId = store.listNarratives()[0]?.id;
   store.close();
+  return { proposals: p.id, narratives: narrativeId };
 }
 
 // Signal 0 probes existence of the whole group. EPERM still means something is alive.
@@ -179,13 +193,84 @@ async function stepNoSurvivors(pgid) {
   report('step 3 no survivors', false, `process group ${pgid} still alive; SIGKILLed`);
 }
 
+async function get(url, timeoutMs) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return { status: res.status, body: await res.text() };
+  } catch (err) {
+    return { status: 0, body: String(err.message ?? err) };
+  }
+}
+
+// Starts the real War Room dev server on its own DB, GETs every page route, then stops it and checks nothing survives.
+async function stepWarroom(dir, ids) {
+  const base = `http://localhost:${WARROOM_PORT}`;
+  if ((await get(`${base}/`, 2_000)).status !== 0) {
+    report('step 4 War Room pages', false, `port ${WARROOM_PORT} already answers; set ARGUS_VERIFY_WARROOM_PORT to a free port`);
+    return;
+  }
+  const logFile = path.join(dir, 'warroom.log');
+  const logFd = fs.openSync(logFile, 'a');
+  const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(WARROOM_PORT)], {
+    cwd: ROOT,
+    env: { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir },
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  });
+  fs.closeSync(logFd);
+  const pgid = child.pid;
+  let exited = false;
+  child.on('exit', () => (exited = true));
+  try {
+    // Nuxt answers 503 while it loads the app; anything else means the server is up.
+    const readyDeadline = Date.now() + WARROOM_READY_TIMEOUT_MS;
+    let up = false;
+    while (!up && !exited && Date.now() < readyDeadline) {
+      const { status } = await get(`${base}/_nuxt/`, 2_000);
+      up = status !== 0 && status !== 503;
+      if (!up) await sleep(500);
+    }
+    if (!up) {
+      const tail = fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
+      report('step 4 War Room pages', false, `dev server not up within ${WARROOM_READY_TIMEOUT_MS / 1000}s; log tail: ${tail}`);
+      return;
+    }
+    const routes = pageRoutes(WARROOM_PAGES, ids);
+    const problems = [];
+    for (const route of routes) {
+      const { status, body } = await get(`${base}${route}`, PAGE_TIMEOUT_MS);
+      const problem = status === 0 ? `no answer (${body})` : pageProblem(status, body);
+      if (problem) problems.push(`GET ${route}: ${problem}`);
+    }
+    if (problems.length > 0) report('step 4 War Room pages', false, problems.join(' | '));
+    else report('step 4 War Room pages', true, `${routes.join(', ')} all answered 2xx with no Nuxt error payload`);
+  } finally {
+    try {
+      process.kill(-pgid, 'SIGTERM');
+    } catch {
+      // Already gone.
+    }
+    const deadline = Date.now() + GROUP_GRACE_MS * 3;
+    while (groupAlive(pgid) && Date.now() < deadline) await sleep(POLL_MS);
+    if (groupAlive(pgid)) {
+      try {
+        process.kill(-pgid, 'SIGKILL');
+      } catch {
+        // Exited between the check and the kill.
+      }
+      report('step 4 War Room stop', false, `process group ${pgid} ignored SIGTERM; SIGKILLed`);
+    }
+  }
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-verify-boot-'));
 let pgid = null;
 try {
-  seed(path.join(dir, 'argus.db'));
+  const ids = await seed(path.join(dir, 'argus.db'));
   await stepOnce(dir);
   pgid = await stepLongRunning(dir);
   await stepNoSurvivors(pgid);
+  await stepWarroom(dir, ids);
 } catch (err) {
   report('setup', false, err.message);
 } finally {
@@ -199,6 +284,6 @@ try {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-const ok = results.length === 3 && results.every(Boolean);
+const ok = results.length === 4 && results.every(Boolean);
 console.log(`${ok ? 'PASS' : 'FAIL'} verify:boot overall`);
 process.exit(ok ? 0 : 1);

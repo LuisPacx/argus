@@ -7,7 +7,10 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(timer));
 
 const nowMs = ref(Date.now());
-const clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+let clock: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+});
 onBeforeUnmount(() => clearInterval(clock));
 const age = (createdAt: string) => {
   const mins = Math.max(0, Math.floor((nowMs.value - new Date(createdAt).getTime()) / 60_000));

@@ -23,7 +23,10 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(timer));
 
 const nowMs = ref(Date.now());
-const clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+let clock: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+});
 onBeforeUnmount(() => clearInterval(clock));
 // Time left before a stale Proposal closes itself (the worker closes it; a Brain run in flight holds it off).
 const timeLeft = (expiresAt: string) => {
