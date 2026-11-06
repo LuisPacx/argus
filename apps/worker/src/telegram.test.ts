@@ -58,6 +58,15 @@ it("without config the worker warns once, sends nothing and carries on", async (
   expect(r.out.split("\n").filter((l) => l.includes("[telegram] notifications are off"))).toHaveLength(1);
 }, 60_000);
 
+it("tripwire: a worker spawned the way the tests spawn it inherits the dead Telegram URL and the no-.env marker, so it reaches no real chat", async () => {
+  expect(process.env.ARGUS_NO_DOTENV).toBe("1");
+  // Even with a token in its environment, the inherited URL is a dead loopback port: the fake sees nothing, the token is not printed.
+  const r = await runOnce({ TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: "-100777", ARGUS_TELEGRAM_URL: process.env.ARGUS_TELEGRAM_URL! });
+  expect(r.code).toBe(0);
+  expect(r.received).toHaveLength(0);
+  expect(r.out).not.toContain(TOKEN);
+}, 90_000);
+
 it("a dry run logs the card instead of sending it", async () => {
   const r = await runOnce({ TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: "-100777" }, ["--dry-run"]);
   expect(r.code).toBe(0);

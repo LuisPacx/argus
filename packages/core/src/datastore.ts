@@ -225,7 +225,10 @@ export function migrate(db: DatabaseSync): void {
   db.exec("CREATE INDEX IF NOT EXISTS scores_narrative_id ON scores (narrative_id, id)");
   db.exec("CREATE INDEX IF NOT EXISTS brain_runs_narrative_id ON brain_runs (narrative_id)");
   // Proposals whose Telegram card has been queued (phase 2 ticket 11): one row each, so a restart never announces twice.
+  // Proposals that exist when the table is first created count as announced, so turning notifications on does not flood the chat.
+  const hadAnnounced = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_announced'").get();
   db.exec("CREATE TABLE IF NOT EXISTS telegram_announced (proposal_id INTEGER PRIMARY KEY, at TEXT NOT NULL)");
+  if (!hadAnnounced) db.prepare("INSERT OR IGNORE INTO telegram_announced (proposal_id, at) SELECT id, ? FROM proposals").run(new Date().toISOString());
 }
 
 export function slugify(text: string): string {

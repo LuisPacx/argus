@@ -1,12 +1,11 @@
-import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseEnv } from "node:util";
 import {
   BackoffSource,
   announceNewProposals,
   createNotifier,
+  telegramEnv,
   ClaudeCodeBrain,
   Datastore,
   DexScreenerClient,
@@ -63,19 +62,15 @@ const sandbox = new PodmanSandbox({
   caps: capsFromEnv(process.env),
 });
 // Telegram (notify only): TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the environment or the git-ignored .env at the repo root (only
-// those two names are taken from the file). Missing config turns notifications off with one warning. Sending is queued and
-// asynchronous, so Telegram being slow or down never holds up a tick or a Build. ARGUS_TELEGRAM_URL exists for tests.
-const envFile = join(repoRoot, ".env");
-const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile, "utf8")) : {};
+// those two names are taken from the file; a variable that is set, even empty, wins over it). Missing config turns notifications
+// off with one warning. Sending is queued and asynchronous, so Telegram being slow or down never holds up a tick or a Build.
+// ARGUS_TELEGRAM_URL and ARGUS_NO_DOTENV exist for tests: the test run sets both, so no test worker reads the Operator's .env.
 const notifier = createNotifier({
-  env: { TELEGRAM_BOT_TOKEN: fileEnv.TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: fileEnv.TELEGRAM_CHAT_ID, ...stripEmpty(process.env) },
+  env: telegramEnv(process.env, join(repoRoot, ".env")),
   dryRun,
   log: console.log,
   baseUrl: process.env.ARGUS_TELEGRAM_URL || undefined,
 });
-function stripEmpty(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith("TELEGRAM_") && v));
-}
 const buildOptions: BuildRunnerOptions = {
   notifier,
   buildRoot,

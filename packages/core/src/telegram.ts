@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import type { Datastore, Proposal } from "./datastore.ts";
 
 /**
@@ -22,6 +24,24 @@ export function telegramConfigFromEnv(env: NodeJS.ProcessEnv): TelegramConfig | 
   const token = env.TELEGRAM_BOT_TOKEN?.trim();
   const chatId = env.TELEGRAM_CHAT_ID?.trim();
   return token && chatId ? { token, chatId } : undefined;
+}
+
+const TELEGRAM_ENV_NAMES = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] as const;
+
+/**
+ * The two Telegram variables: from `env`, else from the .env file at `envFile`. A variable that is set, even to the empty
+ * string, wins over the file (so a test can mask the file with ""). With `ARGUS_NO_DOTENV` set the file is never read: the test
+ * run sets it, so a test never reads the Operator's .env (CODING_STANDARDS 16).
+ */
+export function telegramEnv(env: NodeJS.ProcessEnv, envFile: string): NodeJS.ProcessEnv {
+  let file: Record<string, string | undefined> = {};
+  if (!env.ARGUS_NO_DOTENV && existsSync(envFile)) file = parseEnv(readFileSync(envFile, "utf8"));
+  const out: NodeJS.ProcessEnv = {};
+  for (const name of TELEGRAM_ENV_NAMES) {
+    const v = env[name] !== undefined ? env[name] : file[name];
+    if (v !== undefined) out[name] = v;
+  }
+  return out;
 }
 
 /** `text` with the token (raw or URL-encoded) and any `/bot<token>` path segment replaced. */
@@ -164,8 +184,12 @@ export class TelegramNotifier implements Notifier {
   }
 
   private clean(e: unknown): string {
-    const text = e instanceof Error ? `${e.name}: ${e.message}${e.cause instanceof Error ? ` (${e.cause.message})` : ""}` : String(e);
-    return redactToken(text, this.o.token);
+    const parts: string[] = [];
+    let err: unknown = e;
+    for (let depth = 0; err instanceof Error && depth < 10; depth++, err = err.cause) parts.push(depth === 0 ? `${err.name}: ${err.message}` : err.message);
+    if (err !== undefined && !(err instanceof Error)) parts.push(String(err)); // a non-Error value, as the thrown value or as a cause
+    if (parts.length === 0) parts.push(String(e));
+    return redactToken(parts[0]! + (parts.length > 1 ? ` (${parts.slice(1).join(" <- ")})` : ""), this.o.token);
   }
 }
 

@@ -13,3 +13,5 @@
 - [x] Dry-run logs the message instead of sending it
 - [x] Tests use a fake Telegram API; no network
 - [x] `pnpm check` passes
+
+**Notes:** the send queue keeps the newest 50 messages (the oldest waiting one is dropped when full). Proposals that exist when the `telegram_announced` table is first created count as announced, so enabling notifications does not flood the chat. Tests never read the operator's `.env` (`ARGUS_NO_DOTENV`) and point Telegram at a dead loopback port.

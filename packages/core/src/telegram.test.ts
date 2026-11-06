@@ -1,7 +1,9 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { TelegramNotifier, createNotifier, telegramConfigFromEnv } from "./telegram.ts";
+import { writeFileSync } from "node:fs";
+import { TelegramNotifier, createNotifier, telegramConfigFromEnv, telegramEnv } from "./telegram.ts";
+import { tempPath } from "./testing/temp.ts";
 
 const TOKEN = "123456:SECRET-token_abc";
 const CHAT = "-1001234";
@@ -65,6 +67,39 @@ describe("telegramConfigFromEnv", () => {
     expect(telegramConfigFromEnv({ TELEGRAM_BOT_TOKEN: "t" })).toBeUndefined();
     expect(telegramConfigFromEnv({ TELEGRAM_CHAT_ID: " " , TELEGRAM_BOT_TOKEN: "t" })).toBeUndefined();
     expect(telegramConfigFromEnv({})).toBeUndefined();
+  });
+});
+
+describe("telegramEnv (the operator's .env)", () => {
+  const withEnvFile = (content: string) => {
+    const path = tempPath("dotenv", ".env");
+    writeFileSync(path, content);
+    return path;
+  };
+  const FILE = "TELEGRAM_BOT_TOKEN=file-token\nTELEGRAM_CHAT_ID=file-chat\nOTHER=1\n";
+
+  it("takes only the two Telegram names from the file", () => {
+    expect(telegramEnv({}, withEnvFile(FILE))).toEqual({ TELEGRAM_BOT_TOKEN: "file-token", TELEGRAM_CHAT_ID: "file-chat" });
+  });
+
+  it("a variable that is set wins over the file, and a set-but-empty one masks it", () => {
+    const path = withEnvFile(FILE);
+    expect(telegramEnv({ TELEGRAM_BOT_TOKEN: "env-token" }, path)).toEqual({ TELEGRAM_BOT_TOKEN: "env-token", TELEGRAM_CHAT_ID: "file-chat" });
+    const masked = telegramEnv({ TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "" }, path);
+    expect(telegramConfigFromEnv(masked)).toBeUndefined();
+  });
+
+  it("tripwire: with ARGUS_NO_DOTENV set the file is never read, even when it holds a token", () => {
+    const path = withEnvFile(FILE);
+    expect(telegramEnv({ ARGUS_NO_DOTENV: "1" }, path)).toEqual({});
+    expect(telegramConfigFromEnv(telegramEnv({ ARGUS_NO_DOTENV: "1" }, path))).toBeUndefined();
+    // a missing file is no error either
+    expect(telegramEnv({}, tempPath("absent", ".env"))).toEqual({});
+  });
+
+  it("the test run itself sets the marker and points Telegram at a dead loopback port, so every spawned worker inherits both", () => {
+    expect(process.env.ARGUS_NO_DOTENV).toBe("1");
+    expect(process.env.ARGUS_TELEGRAM_URL).toBe("http://127.0.0.1:1");
   });
 });
 
@@ -195,6 +230,26 @@ describe("TelegramNotifier", () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.join("\n")).not.toContain(TOKEN);
     expect(lines.join("\n")).not.toContain("SECRET");
+  });
+
+  it("redacts the token from the whole cause chain, however deep", async () => {
+    const lines: string[] = [];
+    const n = new TelegramNotifier({
+      token: TOKEN,
+      chatId: CHAT,
+      log: (l) => lines.push(l),
+      backoffMs: [],
+      fetch: (async () => {
+        const deepest = new Error(`connect failed for /bot${TOKEN}/sendMessage`);
+        const middle = new Error("socket error", { cause: new Error("dns", { cause: deepest }) });
+        throw new Error("fetch failed", { cause: middle });
+      }) as unknown as typeof fetch,
+    });
+    notifiers.push(n);
+    n.notify("hi");
+    await n.idle();
+    expect(lines.join("\n")).not.toContain("SECRET");
+    expect(lines.join("\n")).toContain("connect failed for /bot[redacted]");
   });
 
   it("redacts the token from a failing fetch that echoes the URL, and from Telegram's own error text", async () => {

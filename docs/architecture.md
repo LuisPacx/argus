@@ -137,10 +137,10 @@ sequenceDiagram
     W->>CF: wrangler deploy to slug.workers.dev
     CF-->>W: preview URL
     W->>W: status built, record cost per Proposal
-    W-->>WR: build done notice (Phase 2: also Telegram; Phase 1 = War Room log only)
+    W-->>WR: build done notice (also Telegram, with the preview link)
   else Retry also fails
     W->>W: status build-failed, store session_id for claude --resume in tmux
-    W-->>WR: build failed notice (Phase 2: also Telegram; Phase 1 = War Room log only)
+    W-->>WR: build failed notice (also Telegram)
   end
 ```
 
@@ -155,7 +155,7 @@ Mechanics:
 - The retry is the same command with the failure report (the error plus the last 25 lines of the Build log, each cut to 300 characters) appended to the prompt, run once. It follows any failure after the setup (the clone, the private repo and the Spec commit): a non-zero exit, the `--max-budget-usd` cap, the 4 h wall clock, an `ARGUS_BUILD_FAILED` last line (its summary is in the report), a failed check, bundle, deploy or preview crawl. It does not follow a setup failure, a worker shutdown, `needs-human`, a Proposal dismissed meanwhile, or a Worker name that someone else holds (checked again just before the deploy, after the claude run; no second claude run is spent on it). A failure after this Build's own `wrangler deploy` (the preview crawl, say) is retried, and the retry redeploys over the Worker the Build deployed: the Build's state records that attempt 1 deployed, and only then does the name check let an existing Worker of that name pass. Each attempt has its own brain run (the first is closed and the second opened in one transaction), so the cap and the cost are per attempt: a Proposal can use up to twice the build budget. Before the retry the runner discards uncommitted work: from a git directory of its own that borrows only the repo's objects (so the agent's `.git/config`, hooks and attributes are never read) it resets the work tree to the repo's last commit and removes untracked files (`git clean -ffd`; ignored files such as `node_modules` stay), then replaces the repo's index with the one that produced. The retry starts from a clean tree. After the retry fails the Proposal is `build-failed` with the session of its latest run that has one (a run killed by a cap prints no result, so its session is taken from the stream's `system`/`init` message, and only a UUID is stored), and the Operator can attach in tmux on the host with `cd ~/code/<slug> && CLAUDE_CONFIG_DIR=<argus>/.data/proposals/<id>/home/.claude claude --resume <session_id>` (the session lives in the per-Build home, not in `~/.claude`). The War Room computes that text with `resumeCommand` (`sandbox.ts`) and shows it on the card of a `build-failed` Proposal. A run killed by the wall clock or a shutdown prints no result, so it records $0: the per-Proposal cost undercounts for Builds that hit the cap (up to the $25 build budget per attempt). Recovery after the retry fails is in section 3.
 - The `/implement-spec` skill lives in `argus-build-template` (`.claude/skills/`) so every Build gets the same instructions, lint, CI and disclosure footer.
 - A Build that is killed by budget or time cap counts as failed, and enters the retry like any other failure.
-- Notifications: Telegram build notices are Phase 2; in Phase 1 (Phase 2; Phase 1 = War Room log only) the Build Runner reports only to the War Room log.
+- Notifications: the Build Runner reports to the War Room log and to Telegram (`notifier` in `BuildRunnerOptions`, `packages/core/src/telegram.ts`): build start, build done with the preview link, and the final build failed (not a retried first attempt). Messages are plain text, queued (bounded, oldest dropped) and sent in the background with backoff, so Telegram being slow or down never holds up a Build; the bot token is redacted from every logged error. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` come from the environment or the repo-root `.env`; without them notifications are off with one warning, and a dry run logs the message instead of sending it.
 - Builds never fall back to the API backend; if the subscription window is exhausted they wait (section 5).
 
 ### Operator setup for Builds

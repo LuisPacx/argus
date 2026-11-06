@@ -1,4 +1,7 @@
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { tempDir } from "./testing/temp.ts";
 import { runNextBuild } from "./build-runner.ts";
 import { Datastore } from "./datastore.ts";
 import { TelegramNotifier, announceNewProposals, newProposalText, type Notifier } from "./telegram.ts";
@@ -93,6 +96,29 @@ describe("new Proposal cards", () => {
     store.createProposal(input("Moon Cat"));
     expect(announceNewProposals(store, { enabled: false, notify: () => {} })).toBe(0);
     expect(announceNewProposals(store, recorder())).toBe(1);
+  });
+
+  it("does not announce Proposals that existed before the announcements did (no flood on first enable)", () => {
+    const path = join(tempDir("argus-announce-"), "argus.db"); // a directory, so SQLite's -wal and -shm files go with it
+    const before = Datastore.open(path);
+    before.createProposal(input("Old One"));
+    before.createProposal(input("Old Two"));
+    before.close();
+    // A database from before ticket 11 has no telegram_announced table.
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE telegram_announced");
+    raw.close();
+
+    const store = Datastore.open(path); // migrating creates the table and marks the existing Proposals
+    const n = recorder();
+    expect(announceNewProposals(store, n)).toBe(0);
+    store.createProposal(input("Fresh"));
+    expect(announceNewProposals(store, n)).toBe(1);
+    expect(n.sent[0]).toContain("New Proposal: Fresh");
+    store.close();
+    const again = Datastore.open(path); // reopening marks nothing new
+    expect(again.unannouncedNewProposals()).toEqual([]);
+    again.close();
   });
 
   it("keeps untrusted text on one plain line", () => {
