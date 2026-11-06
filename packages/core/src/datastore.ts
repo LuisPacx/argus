@@ -4,6 +4,15 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import {
+  type Rubric,
+  type RubricInput,
+  type RubricRow,
+  RubricConflictError,
+  migrateRubric,
+  toRubric,
+  validateRubricInput,
+} from "./rubric.ts";
+import {
   DomainError,
   ProposalNotFoundError,
   assertTransition,
@@ -157,6 +166,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "proposals", "preview_url", "TEXT");
   ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
+  migrateRubric(db);
 }
 
 export function slugify(text: string): string {
@@ -239,6 +249,9 @@ export type WarRoomStore = Pick<
   | "enqueueCommand"
   | "createProposal"
   | "saveSpec"
+  | "getRubric"
+  | "saveRubric"
+  | "listRubricVersions"
 >;
 
 /** The Spec was changed since the caller loaded it (or spec.md no longer matches the stored hash). */
@@ -685,6 +698,40 @@ export class Datastore {
         )
         .run(hash, new Date().toISOString(), proposalId);
       return hash;
+    });
+  }
+
+  /** The Rubric at `version`, else the current (highest) one. Versions are immutable, so a Score can name the one it used. */
+  getRubric(version?: number): Rubric {
+    const row = (
+      version === undefined
+        ? this.db.prepare("SELECT * FROM rubric_versions ORDER BY version DESC LIMIT 1").get()
+        : this.db.prepare("SELECT * FROM rubric_versions WHERE version = ?").get(version)
+    ) as RubricRow | undefined;
+    if (!row) throw new DomainError(`No Rubric version ${version}`);
+    return toRubric(row);
+  }
+
+  /** Rubric versions, newest first. */
+  listRubricVersions(): number[] {
+    return (this.db.prepare("SELECT version FROM rubric_versions ORDER BY version DESC").all() as { version: number }[]).map((r) => r.version);
+  }
+
+  /**
+   * Operator edit: validates, then appends a new version if anything changed (an identical save returns the current
+   * one). Throws InvalidRubricError on bad input and RubricConflictError when `baseVersion` is not the current version.
+   */
+  saveRubric(input: RubricInput): Rubric {
+    const next = validateRubricInput(input);
+    return this.inTransaction(() => {
+      const cur = this.getRubric();
+      if (input.baseVersion !== cur.version) throw new RubricConflictError();
+      if (next.gateMinScore === cur.gateMinScore && JSON.stringify(next.dimensions) === JSON.stringify(cur.dimensions)) return cur;
+      const version = cur.version + 1;
+      this.db
+        .prepare("INSERT INTO rubric_versions (version, dimensions, gate_min_score, created_at) VALUES (?, ?, ?, ?)")
+        .run(version, JSON.stringify(next.dimensions), next.gateMinScore, new Date().toISOString());
+      return this.getRubric(version);
     });
   }
 

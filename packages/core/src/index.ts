@@ -2,6 +2,7 @@ export const ARGUS = "argus";
 export * from "./datastore.ts";
 export * from "./evidence-links.ts";
 export * from "./lifecycle.ts";
+export * from "./rubric.ts";
 export * from "./github-repo.ts";
 export * from "./brain.ts";
 export * from "./spec-drafting.ts";
