@@ -5,10 +5,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Expiry follows architecture §3 and goes through the lifecycle with the system actor and a recorded reason
-- [ ] A Proposal with a Brain run in flight is never expired mid-run; tested
-- [ ] The card shows the time left before expiry
-- [ ] Tests use a fake clock
-- [ ] `pnpm check` and `pnpm verify:boot` pass
+- [x] Expiry follows architecture §3 and goes through the lifecycle with the system actor and a recorded reason
+- [x] A Proposal with a Brain run in flight is never expired mid-run; tested
+- [x] The card shows the time left before expiry
+- [x] Tests use a fake clock
+- [x] `pnpm check` and `pnpm verify:boot` pass

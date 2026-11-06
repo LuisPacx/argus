@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import {
   type Rubric,
@@ -59,6 +60,8 @@ export interface Proposal {
   buildSessionId: string | null;
   /** Whether the latest Build deployed the Proposal's Worker to Cloudflare (a leftover the Operator removes before a re-queue). */
   workerDeployed: boolean;
+  /** When the Proposal goes stale and closes (ISO); null for a state that never expires. Counted from the last change (`updatedAt`). */
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -229,6 +232,7 @@ function toProposal(r: Row): Proposal {
     previewUrl: r.preview_url,
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
+    expiresAt: expiresAtFor(r.status, r.updated_at),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

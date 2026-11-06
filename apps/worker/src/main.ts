@@ -9,6 +9,7 @@ import {
   capsFromEnv,
   currentImageTag,
   draftPendingSpecs,
+  expireStaleProposals,
   githubRepoCheck,
   killLiveBrainChildren,
   revisePendingSpecs,
@@ -79,6 +80,7 @@ const tick = reentrant(
     );
     if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
     sweepStaleRuns();
+    expireStaleProposals(store, new Date(), console.log);
     await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
     await revisePendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
   },

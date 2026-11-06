@@ -20,6 +20,18 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(timer));
 
+const nowMs = ref(Date.now());
+const clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+onBeforeUnmount(() => clearInterval(clock));
+// Time left before a stale Proposal closes itself (the worker closes it; a Brain run in flight holds it off).
+const timeLeft = (expiresAt: string) => {
+  const mins = Math.floor((new Date(expiresAt).getTime() - nowMs.value) / 60_000);
+  if (mins <= 0) return "Expires on the next worker tick";
+  if (mins < 60) return `Expires in ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  return hours < 48 ? `Expires in ${hours} h` : `Expires in ${Math.floor(hours / 24)} d ${hours % 24} h`;
+};
+
 const dismissing = ref<number | null>(null);
 const dismissReason = ref("");
 const actionError = ref("");
@@ -99,6 +111,7 @@ async function submit() {
             <a :href="link" target="_blank" rel="noopener">{{ link }}</a>
           </li>
         </ul>
+        <p v-if="p.expiresAt" class="mt-2 text-sm text-muted" data-test="time-left">{{ timeLeft(p.expiresAt) }}</p>
         <p v-if="p.brainRunInFlightSince" class="mt-2 text-sm text-amber-500">
           Brain run in flight since {{ p.brainRunInFlightSince }}. If the worker is not running, it was interrupted and its spend is unknown; restart the worker to flag it.
         </p>
