@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
+import type { Signal } from "./sources/source.ts";
 import {
   type Rubric,
   type RubricInput,
@@ -170,6 +171,18 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "preview_url", "TEXT");
   ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
   migrateRubric(db);
+  // Signals (phase 2 ticket 01): additive and idempotent. `id` is the Source's stable per-item id, so a re-poll cannot duplicate.
+  db.exec(`CREATE TABLE IF NOT EXISTS signals (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    source_label TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    url TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS signals_published_at ON signals (published_at DESC)");
 }
 
 export function slugify(text: string): string {
@@ -256,7 +269,24 @@ export type WarRoomStore = Pick<
   | "getRubric"
   | "saveRubric"
   | "listRubricVersions"
+  | "latestSignals"
 >;
+
+/** A stored Signal: the Source's item plus when argus first saw it. */
+export interface StoredSignal extends Signal {
+  ingestedAt: string;
+}
+
+interface SignalRow {
+  id: string;
+  source_id: string;
+  source_label: string;
+  title: string;
+  summary: string;
+  url: string;
+  published_at: string;
+  ingested_at: string;
+}
 
 /** The Spec was changed since the caller loaded it (or spec.md no longer matches the stored hash). */
 export class SpecConflictError extends DomainError {
@@ -336,6 +366,39 @@ export class Datastore {
   listProposals(): Proposal[] {
     const rows = this.db.prepare(`${PROPOSAL_SELECT} ORDER BY p.id DESC`).all() as unknown as Row[];
     return rows.map(toProposal);
+  }
+
+  /** Stores Signals the datastore has not seen (by id); returns how many were new. The first observation of an item is kept. */
+  recordSignals(signals: Signal[]): number {
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO signals (id, source_id, source_label, title, summary, url, published_at, ingested_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const now = new Date().toISOString();
+    return this.inTransaction(() => {
+      let added = 0;
+      for (const s of signals) {
+        added += Number(insert.run(s.id, s.sourceId, s.sourceLabel, s.title, s.summary, s.url, s.publishedAt, now).changes);
+      }
+      return added;
+    });
+  }
+
+  /** The most recently published Signals, newest first. */
+  latestSignals(limit = 50): StoredSignal[] {
+    const rows = this.db
+      .prepare("SELECT * FROM signals ORDER BY published_at DESC, ingested_at DESC, id LIMIT ?")
+      .all(limit) as unknown as SignalRow[];
+    return rows.map((r) => ({
+      id: r.id,
+      sourceId: r.source_id,
+      sourceLabel: r.source_label,
+      title: r.title,
+      summary: r.summary,
+      url: r.url,
+      publishedAt: r.published_at,
+      ingestedAt: r.ingested_at,
+    }));
   }
 
   /** War Room entry point: records a command row. Never touches status. */

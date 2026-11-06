@@ -14,9 +14,10 @@ const form = reactive(blank());
 const error = ref("");
 
 const { data: commands, refresh: refreshCommands } = await useFetch("/api/commands", { default: () => [] });
+const { data: signals, refresh: refreshSignals } = await useFetch("/api/signals", { default: () => [] });
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  timer = setInterval(() => void Promise.all([refresh(), refreshCommands()]), 3000);
+  timer = setInterval(() => void Promise.all([refresh(), refreshCommands(), refreshSignals()]), 3000);
 });
 onBeforeUnmount(() => clearInterval(timer));
 
@@ -94,6 +95,19 @@ async function submit() {
         <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
         <UButton type="submit">Create Proposal</UButton>
       </form>
+    </UCard>
+
+    <UCard>
+      <template #header>Latest Signals</template>
+      <p v-if="!signals.length" class="text-sm text-muted">No Signals yet. The worker polls the RSS catalog every 5 minutes.</p>
+      <ul class="grid gap-1 text-sm">
+        <li v-for="s in signals" :key="s.id" class="flex flex-wrap items-baseline gap-x-2">
+          <UBadge variant="subtle" size="sm">{{ s.sourceLabel }}</UBadge>
+          <a v-if="s.url" :href="s.url" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>
+          <span v-else>{{ s.title }}</span>
+          <time class="text-muted" :datetime="s.publishedAt">{{ new Date(s.publishedAt).toLocaleString() }}</time>
+        </li>
+      </ul>
     </UCard>
 
     <section class="grid gap-4">

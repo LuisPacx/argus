@@ -5,12 +5,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `Source` interface (`id`, `label`, `poll()` returning normalized Signals) ported from helios, with the RSS adapter and its time-bounded fetch; the feed list is data, not code
-- [ ] Signals are stored with an additive, idempotent migration; a Signal seen again is not stored twice; tested
-- [ ] The worker runs a 5-minute ingest tick alongside its existing tick; each tick is re-entrancy guarded; a failing feed is logged and does not stop the others
-- [ ] Ingestion makes no LLM calls
-- [ ] The War Room shows the latest Signals (Source, title, link, time); every new route has an endpoint-level test with the exact UI payload
-- [ ] Tests use recorded feed fixtures; no network in tests
-- [ ] `pnpm check` and `pnpm verify:boot` pass
+- [x] `Source` interface (`id`, `label`, `poll()` returning normalized Signals) ported from helios, with the RSS adapter and its time-bounded fetch; the feed list is data, not code (`config/rss-feeds.json`)
+- [x] Signals are stored with an additive, idempotent migration; a Signal seen again is not stored twice; tested
+- [x] The worker runs a 5-minute ingest tick alongside its existing tick; each tick is re-entrancy guarded; a failing feed is logged and does not stop the others
+- [x] Ingestion makes no LLM calls
+- [x] The War Room shows the latest Signals (Source, title, link, time); every new route has an endpoint-level test with the exact UI payload
+- [x] Tests use recorded feed fixtures; no network in tests
+- [x] `pnpm check` and `pnpm verify:boot` pass

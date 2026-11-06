@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Another Feed</title>
+    <link>https://other.example.org/</link>
+    <item>
+      <title>Memecoin season rumours</title>
+      <link>https://other.example.org/memecoin-season</link>
+      <description>Chatter is up.</description>
+      <guid>other-guid-1</guid>
+      <pubDate>Sun, 15 Jun 2026 08:30:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

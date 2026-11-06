@@ -1,0 +1,12 @@
+[
+  { "id": "rss:hn-frontpage", "label": "Hacker News front page", "url": "https://hnrss.org/frontpage" },
+  { "id": "rss:techcrunch", "label": "TechCrunch", "url": "https://techcrunch.com/feed/" },
+  { "id": "rss:verge", "label": "The Verge", "url": "https://www.theverge.com/rss/index.xml" },
+  { "id": "rss:ars-technica", "label": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index" },
+  { "id": "rss:wired", "label": "WIRED", "url": "https://www.wired.com/feed/rss" },
+  { "id": "rss:bbc-world", "label": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { "id": "rss:bbc-technology", "label": "BBC Technology", "url": "https://feeds.bbci.co.uk/news/technology/rss.xml" },
+  { "id": "rss:npr-news", "label": "NPR News", "url": "https://feeds.npr.org/1001/rss.xml" },
+  { "id": "rss:guardian-world", "label": "The Guardian World", "url": "https://www.theguardian.com/world/rss" },
+  { "id": "rss:coindesk", "label": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/" }
+]

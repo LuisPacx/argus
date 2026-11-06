@@ -11,7 +11,9 @@ import {
   draftPendingSpecs,
   expireStaleProposals,
   githubRepoCheck,
+  ingestSources,
   killLiveBrainChildren,
+  loadRssSources,
   revisePendingSpecs,
   runPendingBuilds,
   sweepStaleSeals,
@@ -20,6 +22,7 @@ import {
 import { reentrant } from "./reentrant.ts";
 
 const TICK_MS = 5_000;
+const INGEST_TICK_MS = 5 * 60_000;
 const once = process.argv.includes("--once");
 const dryRun = process.argv.includes("--dry-run") || process.env.ARGUS_DRY_RUN === "1";
 const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
@@ -95,6 +98,21 @@ const buildTick = reentrant(
   },
   () => {}, // a Build is still running: the next tick tries again (no log line: a Build takes hours)
 );
+// Ingestion runs on its own guarded loop, every 5 minutes: polling feeds is slow and must not hold up commands or Spec drafts.
+// No brain or LLM is involved. The feed list is re-read each pass, so editing it needs no restart. A dry run polls nothing.
+const rssFeedsPath = process.env.ARGUS_RSS_FEEDS || join(repoRoot, "config", "rss-feeds.json");
+const ingestTick = reentrant(
+  async () => {
+    if (dryRun) {
+      console.log(`[worker] ingest tick: dry-run, would poll the RSS catalog at ${rssFeedsPath}`);
+      return;
+    }
+    const sources = loadRssSources(rssFeedsPath);
+    const { stored, failed } = await ingestSources(store, sources, console.error);
+    console.log(`[worker] ingest tick: ${sources.length} feed(s), ${stored} new signal(s)${failed > 0 ? `, ${failed} feed(s) failed` : ""}`);
+  },
+  () => console.log("[worker] ingest tick skipped: previous ingest still running"),
+);
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()
@@ -105,13 +123,16 @@ const track = (run: () => Promise<unknown>, what: string) => {
 };
 const runTick = () => track(tick, "tick");
 const runBuildTick = () => track(buildTick, "build pass");
+const runIngestTick = () => track(ingestTick, "ingest tick");
 
 let timer: ReturnType<typeof setInterval> | undefined;
+let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
+  clearInterval(ingestTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
   // record the interrupted run, then exit.
   shutdown.abort();
@@ -128,13 +149,16 @@ if (once) {
   console.log("[worker] one-shot tick");
   await runTick();
   await runBuildTick();
+  await runIngestTick();
   if (!stopping) store.close();
 } else {
   console.log(`[worker] starting, tick every ${TICK_MS}ms`);
   void runTick();
   void runBuildTick();
+  void runIngestTick();
   timer = setInterval(() => {
     void runTick();
     void runBuildTick();
   }, TICK_MS);
+  ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
 }

@@ -16,7 +16,7 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   expect(cmd).toBe("node");
   const dir = mkdtempSync(join(tmpdir(), "argus-worker-"));
   const db = join(dir, "argus.db");
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS } });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));
@@ -38,7 +38,10 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   }
 }, 30_000);
 
-const FAKE_CLAUDE = join(workerDir, "../../packages/core/src/testing/fake-claude.mjs");
+// An empty feed list: the booting worker's ingest tick must not reach the network in tests.
+const ARGUS_RSS_FEEDS = join(workerDir, "../../packages/core/src/fixtures/no-feeds.json");
+
+const FAKE_CLAUDE =join(workerDir, "../../packages/core/src/testing/fake-claude.mjs");
 
 /** A hung claude child must not outlive the worker: SIGTERM to the worker kills it before exit. */
 it("SIGTERM kills a live claude child before the worker exits", async () => {
@@ -57,7 +60,7 @@ it("SIGTERM kills a live claude child before the worker exits", async () => {
   store.transition(p.id, "shortlisted", "operator");
   store.close();
   const [, ...args] = pkgStart();
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS } });
   const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
   try {
     const deadline = Date.now() + 15_000;
@@ -96,7 +99,7 @@ it("SIGTERM during one Spec draft leaves the next shortlisted Proposal undrafted
   });
   store.close();
   const [, ...args] = pkgStart();
-  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN } });
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS } });
   const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
   try {
     const deadline = Date.now() + 15_000;
