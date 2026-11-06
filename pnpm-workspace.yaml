@@ -3,4 +3,6 @@ packages:
   - packages/*
 allowBuilds:
   esbuild: true
+  onnxruntime-node: false # its postinstall only fetches optional GPU libraries; the CPU binaries ship in the package
+  protobufjs: false
   vue-demi: false

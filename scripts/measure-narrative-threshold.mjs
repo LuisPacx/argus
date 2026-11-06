@@ -1,20 +1,31 @@
-// Measures the Narrative join threshold on the recorded sample (docs/adr/0006). Clusters the sample with the real
-// HashingEmbedder and clusterNewSignals at thresholds 0.30 to 0.80, and scores each run against the hand labels.
+// Measures the Narrative join threshold on the recorded sample (docs/adr/0006, docs/adr/0007). Clusters the sample with
+// the real clusterNewSignals at thresholds 0.30 to 0.90 and scores each run against the hand labels.
 //
-//   node scripts/measure-narrative-threshold.mjs [<full-sample.json>]
+//   node scripts/measure-narrative-threshold.mjs [--embedder hashing|fixture|semantic] [--embeddings <file>] [--full <full-sample.json>] [--from 0.30 --to 0.90 --step 0.05]
 //
-// By default the embedder sees titles only (all the committed fixture holds). Give the `full` file that
+//   --embedder hashing   (default) the lexical HashingEmbedder
+//   --embedder fixture   the committed vectors of the semantic model (narrative-sample-embeddings.json, or --embeddings <file>);
+//                        offline and exactly reproducible, what `pnpm check` pins
+//   --embedder semantic  embeds the titles with the real model now (needs `pnpm models:fetch` once); also writes the
+//                        fixture file when given --write-embeddings <file>; with --check (`pnpm verify:semantic`) it only
+//                        compares the model's vectors with the committed fixture and exits 1 on a mismatch. Opt-in, not in `pnpm check`.
+//
+// By default the embedder sees titles only (all the committed sample holds). Give the `full` file that
 // collect-narrative-sample.mjs can write and it embeds title and summary, in published order, as production does.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { HashingEmbedder, clusterNewSignals, cosineSimilarity } from "../packages/core/src/narratives.ts";
+import { HashingEmbedder, clusterNewSignals, cosineSimilarity, standsAlone } from "../packages/core/src/narratives.ts";
+import { decodeVectors, encodeVectors } from "../packages/core/src/embedding-codec.ts";
 
+const args = process.argv.slice(2);
+const opt = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const fixtures = (name) => fileURLToPath(new URL(`../packages/core/src/fixtures/${name}`, import.meta.url));
 const sample = JSON.parse(readFileSync(fixtures("narrative-sample.json"), "utf8"));
 const labels = JSON.parse(readFileSync(fixtures("narrative-sample-labels.json"), "utf8"));
-const fullPath = process.argv[2];
+const fullPath = opt("--full");
 const full = fullPath ? JSON.parse(readFileSync(fullPath, "utf8")) : undefined;
 if (full && full.length !== sample.length) throw new Error("the full file does not match the fixture");
+const embedderChoice = opt("--embedder") ?? "hashing";
 
 const N = sample.length;
 const signals = sample.map((s, i) => ({
@@ -41,24 +52,60 @@ const topicSets = Object.values(labels.topics).map((keys) => new Set(keys.map(at
 /** "same" (one story), "related" (a shared wider subject, scored as neither), or "different". */
 const labelOf = (i, j) => (groupOf[i] && groupOf[i] === groupOf[j] ? "same" : topicSets.some((t) => t.has(i) && t.has(j)) ? "related" : "different");
 
-const embedder = new HashingEmbedder();
-const vectors = await Promise.all(signals.map((s) => embedder.embed(s)));
+let vectors;
+if (embedderChoice === "hashing") {
+  const embedder = new HashingEmbedder();
+  vectors = await Promise.all(signals.map((s) => embedder.embed(s)));
+} else if (embedderChoice === "fixture") {
+  const file = JSON.parse(readFileSync(opt("--embeddings") ?? fixtures("narrative-sample-embeddings.json"), "utf8"));
+  vectors = decodeVectors(file);
+  if (vectors.length !== N) throw new Error("the embeddings file does not match the sample");
+  console.log(`embedder: ${file.embedder} (fixture, ${file.dimension} dims)`);
+} else if (embedderChoice === "semantic") {
+  const { loadSemanticEmbedder, modelCacheDir } = await import("../apps/worker/src/semantic-embedder.ts");
+  const embedder = await loadSemanticEmbedder({ dir: modelCacheDir(process.env), allowFetch: false, log: console.log });
+  const t0 = performance.now();
+  vectors = [];
+  for (const s of signals) vectors.push(await embedder.embed(s));
+  console.log(`embedder: ${embedder.id} (${embedder.dimension} dims), ${((performance.now() - t0) / N).toFixed(1)} ms per headline`);
+  if (args.includes("--check")) {
+    // The committed vectors (what `pnpm check` pins) must still be what the real model produces.
+    const committed = decodeVectors(JSON.parse(readFileSync(fixtures("narrative-sample-embeddings.json"), "utf8")));
+    const worst = Math.min(...vectors.map((v, i) => cosineSimilarity(v, committed[i])));
+    console.log(`committed embeddings vs the real model: worst cosine ${worst.toFixed(5)}`);
+    if (!(worst > 0.999)) {
+      console.error("FAIL: narrative-sample-embeddings.json no longer matches the model; regenerate it with --write-embeddings");
+      process.exit(1);
+    }
+    console.log("PASS");
+    process.exit(0);
+  }
+  const out = opt("--write-embeddings");
+  if (out) {
+    writeFileSync(out, JSON.stringify({ embedder: embedder.id, ...encodeVectors(vectors) }) + "\n");
+    console.log(`wrote ${out}`);
+  }
+} else {
+  throw new Error(`unknown --embedder ${embedderChoice}`);
+}
 
-// Distribution of pairwise cosine similarity.
+// Distribution of pairwise cosine similarity. Promo and coupon pages stand alone in production, so they are left out.
+const aloneAt = signals.map((s) => standsAlone(s));
 const bins = new Array(20).fill(0);
 const bySame = [];
 const byDifferent = [];
 for (let i = 0; i < N; i++) {
   for (let j = i + 1; j < N; j++) {
+    if (aloneAt[i] || aloneAt[j]) continue;
     const sim = cosineSimilarity(vectors[i], vectors[j]);
-    bins[Math.min(19, Math.floor(sim * 20))]++;
+    bins[Math.min(19, Math.max(0, Math.floor(sim * 20)))]++;
     const l = labelOf(i, j);
     if (l === "same") bySame.push(sim);
     else if (l === "different") byDifferent.push(sim);
   }
 }
 const quantile = (a, p) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(p * a.length))].toFixed(2);
-console.log(`${N} items, ${(N * (N - 1)) / 2} pairs, embedder input: ${full ? "title + summary" : "title only"}`);
+console.log(`${N} items (${aloneAt.filter(Boolean).length} stand-alone promo pages), ${(N * (N - 1)) / 2} pairs, embedder input: ${full ? "title + summary" : "title only"}`);
 console.log("pairs per 0.05 of similarity:", bins.map((n, k) => `${(k / 20).toFixed(2)}:${n}`).join(" "));
 console.log(`same-story pairs (${bySame.length}) p10/p50/p90 ${[0.1, 0.5, 0.9].map((p) => quantile(bySame, p)).join("/")}; different-story pairs (${byDifferent.length}) p50/p99/max ${[0.5, 0.99, 0.99999].map((p) => quantile(byDifferent, p)).join("/")}`);
 
@@ -75,30 +122,41 @@ async function cluster(joinThreshold) {
     createNarrative: (s) => (assign[byId.get(s.id)] = nextId++),
     joinNarrative: (id, s) => void (assign[byId.get(s.id)] = id),
   };
-  await clusterNewSignals(store, { embed: async (s) => vectors[byId.get(s.id)] }, { config: { joinThreshold, batchSize: N } });
+  await clusterNewSignals(store, { id: "measure", dimension: vectors[0].length, embed: async (s) => vectors[byId.get(s.id)] }, { config: { joinThreshold, batchSize: N } });
   return assign;
 }
 
-/** Different-story pairs that look alike for a mechanical reason: both from Hacker News (shared summary boilerplate), both a Wired coupon page, or an identical title. */
+/**
+ * Different-story pairs that look alike for a mechanical reason: both from Hacker News (shared summary boilerplate), an
+ * identical title, or two BBC programme titles ("Tech Life", "Tech Now") that differ by one word and are told apart only by
+ * their summaries, which the committed sample does not hold. "Cross-story" over-merges exclude these.
+ */
 const isTemplated = (i, j) =>
   (signals[i].sourceId === "rss:hn-frontpage" && signals[j].sourceId === "rss:hn-frontpage") ||
-  (/(promo|coupon|discount) code/i.test(signals[i].title) && /(promo|coupon|discount) code/i.test(signals[j].title)) ||
-  signals[i].title === signals[j].title;
+  signals[i].title === signals[j].title ||
+  (/^Tech (Life|Now)$/.test(signals[i].title) && /^Tech (Life|Now)$/.test(signals[j].title));
 
-console.log("\nthreshold  clusters  largest  over-merged clusters (items)  same pairs joined  different pairs joined (templated + other)  groups split (of " + Object.keys(labels.groups).length + ")");
-for (let step = 0; step <= 10; step++) {
-  const threshold = 0.3 + step * 0.05;
+const header = ["threshold", "clusters", "largest", "over-merged (items)", "cross-story over-merged", "same pairs joined", "different pairs joined (templated + other)", "groups split of " + Object.keys(labels.groups).length];
+console.log("\n" + header.join("  |  "));
+const from = Number(opt("--from") ?? 0.3);
+const to = Number(opt("--to") ?? 0.9);
+const stepSize = Number(opt("--step") ?? 0.05);
+for (let step = 0; from + step * stepSize <= to + 1e-9; step++) {
+  const threshold = from + step * stepSize;
   const assign = await cluster(threshold);
   const members = new Map();
   assign.forEach((c, i) => members.set(c, [...(members.get(c) ?? []), i]));
   let largest = 0;
   let overMerged = 0;
   let overMergedItems = 0;
+  let crossStory = 0;
   for (const m of members.values()) {
     largest = Math.max(largest, m.length);
-    if (m.some((a, x) => m.slice(x + 1).some((b) => labelOf(a, b) === "different"))) {
+    const pairs = m.flatMap((a, x) => m.slice(x + 1).map((b) => [a, b])).filter(([a, b]) => labelOf(a, b) === "different");
+    if (pairs.length > 0) {
       overMerged++;
       overMergedItems += m.length;
+      if (pairs.some(([a, b]) => !isTemplated(a, b))) crossStory++;
     }
   }
   let sameJoined = 0;
@@ -118,5 +176,7 @@ for (let step = 0; step <= 10; step++) {
     }
   }
   const split = Object.values(labels.groups).filter((keys) => new Set(keys.map((k) => assign[at(k)])).size > 1).length;
-  console.log(`${threshold.toFixed(2)}       ${String(members.size).padStart(6)}  ${String(largest).padStart(7)}  ${String(overMerged).padStart(10)} (${String(overMergedItems).padStart(3)})  ${String(sameJoined).padStart(10)}/${sameTotal}  ${String(differentJoined).padStart(8)} (${templatedJoined} + ${differentJoined - templatedJoined})  ${String(split).padStart(14)}`);
+  console.log(
+    `${threshold.toFixed(2)}  |  ${members.size}  |  ${largest}  |  ${overMerged} (${overMergedItems})  |  ${crossStory}  |  ${sameJoined}/${sameTotal}  |  ${differentJoined} (${templatedJoined} + ${differentJoined - templatedJoined})  |  ${split}`,
+  );
 }

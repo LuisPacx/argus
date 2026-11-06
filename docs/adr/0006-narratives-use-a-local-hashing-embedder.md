@@ -1,5 +1,7 @@
 # Narratives are clustered with a local hashing embedder, behind an Embedder seam
 
+Status: superseded in part by [ADR 0007](0007-narratives-use-an-in-process-semantic-embedder.md). The embedder choice (the hashing embedder, and the threshold of 0.6) is replaced by an in-process semantic model; the `Embedder` seam, the clustering rules, the 72-hour window and the material-change rule below still hold, as does the Calibration measurement of the hashing embedder.
+
 Signals are grouped into Narratives by cosine similarity of an embedding of each Signal's text (the approach of helios `embedding.ts` and `clustering.ts`). The embedder is `HashingEmbedder` in `packages/core/src/narratives.ts`: lowercased words of three or more letters, stopwords and a plural or past-tense ending dropped, each word hashed (FNV-1a) into a 256-wide vector, title words counted double, L2-normalized. It is deterministic, has no dependency, makes no network call and costs nothing, so ingestion stays free of Brain and LLM calls and tests need no fixtures beyond the Signals themselves.
 
 A new Signal (oldest first, by published time then id) joins the most similar Narrative that gained a Signal within the last 72 hours when the cosine to that Narrative's centroid is at least `JOIN_THRESHOLD` (0.6, see Calibration), else it starts a new Narrative. The centroid is the running mean of its members. The threshold, window and batch size are `ClusterConfig` in the same file. Helios dropped near-duplicate handling here because Signals are already deduplicated by id on ingest.

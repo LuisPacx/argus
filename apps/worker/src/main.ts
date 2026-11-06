@@ -15,6 +15,7 @@ import {
   draftPendingSpecs,
   expireStaleProposals,
   githubRepoCheck,
+  HASHING_JOIN_THRESHOLD,
   HashingEmbedder,
   clusterNewSignals,
   ingestSources,
@@ -26,6 +27,7 @@ import {
   type BuildRunnerOptions,
 } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
+import { lazyEmbedder, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
 
 const TICK_MS = 5_000;
 const INGEST_TICK_MS = 5 * 60_000;
@@ -120,6 +122,20 @@ const standingSources = standingOn
     ]
   : [];
 console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0)"}`);
+// Narratives are clustered with a semantic model run in this process (docs/adr/0007), loaded on the first clustering pass, which
+// downloads it from huggingface.co if `pnpm models:fetch` has not. If it cannot be had, clustering is skipped that tick (logged);
+// it never falls back to the lexical embedder. ARGUS_EMBEDDER=hashing is the explicit dev and test choice for that embedder.
+// A dry run never reaches clustering, so it downloads nothing.
+const embedderChoice = process.env.ARGUS_EMBEDDER || "semantic";
+if (embedderChoice !== "semantic" && embedderChoice !== "hashing") throw new Error(`ARGUS_EMBEDDER must be "semantic" or "hashing", got "${embedderChoice}"`);
+const getEmbedder =
+  embedderChoice === "hashing"
+    ? async () => new HashingEmbedder()
+    : lazyEmbedder(
+        () => loadSemanticEmbedder({ dir: modelCacheDir(process.env), host: process.env.ARGUS_MODEL_HOST || undefined, signal: shutdown.signal, log: console.log }),
+        console.log,
+      );
+console.log(`[worker] narrative embedder: ${embedderChoice}${embedderChoice === "hashing" ? " (lexical, dev/test choice)" : ` (model cache ${modelCacheDir(process.env)})`}`);
 const ingestTick = reentrant(
   async () => {
     if (dryRun) {
@@ -130,7 +146,10 @@ const ingestTick = reentrant(
     const { stored, failed } = await ingestSources(store, sources, console.error);
     console.log(`[worker] ingest tick: ${sources.length} source(s), ${stored} new signal(s)${failed > 0 ? `, ${failed} source(s) failed` : ""}`);
     // Then cluster whatever is not in a Narrative yet (also leftovers of an earlier pass). Plain code, no brain.
-    const { clustered, created } = await clusterNewSignals(store, new HashingEmbedder());
+    const embedder = await getEmbedder();
+    if (!embedder) return; // the model is unavailable: logged, retried next tick, Signals stay unclustered meanwhile
+    const config = embedderChoice === "hashing" ? { joinThreshold: HASHING_JOIN_THRESHOLD } : undefined;
+    const { clustered, created } = await clusterNewSignals(store, embedder, { config });
     console.log(`[worker] cluster: ${clustered} signal(s) clustered, ${created} new narrative(s)`);
   },
   () => console.log("[worker] ingest tick skipped: previous ingest still running"),

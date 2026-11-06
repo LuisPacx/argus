@@ -197,6 +197,10 @@ export function migrate(db: DatabaseSync): void {
     changed_materially_at TEXT NOT NULL
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS narratives_last_signal_at ON narratives (last_signal_at)");
+  // Which embedder built the centroid (ticket 05c). Rows from before this column are the lexical HashingEmbedder's, hence the defaults.
+  // Centroids of different embedders are never compared: clustering only joins Narratives of its own embedder.
+  ensureColumn(db, "narratives", "embedder", "TEXT NOT NULL DEFAULT 'hashing-v1'");
+  ensureColumn(db, "narratives", "dimension", "INTEGER NOT NULL DEFAULT 256");
   ensureColumn(db, "signals", "narrative_id", "INTEGER");
   db.exec("CREATE INDEX IF NOT EXISTS signals_narrative_id ON signals (narrative_id)");
 }
@@ -312,6 +316,12 @@ export interface Narrative {
 export interface NarrativeDetail extends Narrative {
   /** Newest first. */
   signals: StoredSignal[];
+}
+
+/** Names the embedder and vector length that built a Narrative's centroid. */
+export interface NarrativeEmbedder {
+  id: string;
+  dimension: number;
 }
 
 /** What clustering needs of a Narrative that can still be joined. */
@@ -479,23 +489,31 @@ export class Datastore {
     return rows.map(toStoredSignal);
   }
 
-  /** WORKER ONLY. Narratives that gained a Signal at or after `since` (ISO), which a new Signal may join. */
-  recentNarratives(since: string): NarrativeCandidate[] {
+  /** WORKER ONLY. Narratives built by `embedder` that gained a Signal at or after `since` (ISO), which a new Signal may join. */
+  recentNarratives(since: string, embedder: NarrativeEmbedder): NarrativeCandidate[] {
     const rows = this.db
-      .prepare("SELECT id, centroid, signal_count FROM narratives WHERE last_signal_at >= ? ORDER BY id")
-      .all(since) as unknown as Array<{ id: number; centroid: string; signal_count: number }>;
+      .prepare("SELECT id, centroid, signal_count FROM narratives WHERE last_signal_at >= ? AND embedder = ? AND dimension = ? ORDER BY id")
+      .all(since, embedder.id, embedder.dimension) as unknown as Array<{ id: number; centroid: string; signal_count: number }>;
     return rows.map((r) => ({ id: r.id, centroid: JSON.parse(r.centroid) as number[], signalCount: r.signal_count }));
   }
 
+  /** How many Narratives each embedder built, as clustering sees them (diagnostics, and the migration test). */
+  narrativeEmbedders(): Array<{ embedder: string; dimension: number; narratives: number }> {
+    const rows = this.db
+      .prepare("SELECT embedder, dimension, COUNT(*) AS n FROM narratives GROUP BY embedder, dimension ORDER BY embedder, dimension")
+      .all() as unknown as Array<{ embedder: string; dimension: number; n: number }>;
+    return rows.map((r) => ({ embedder: r.embedder, dimension: r.dimension, narratives: r.n }));
+  }
+
   /** WORKER ONLY. Starts a Narrative from `signal` and puts the Signal in it; returns the Narrative id. */
-  createNarrative(signal: StoredSignal, centroid: number[], now: string): number {
+  createNarrative(signal: StoredSignal, centroid: number[], now: string, embedder: NarrativeEmbedder): number {
     return this.inTransaction(() => {
       const res = this.db
         .prepare(
-          `INSERT INTO narratives (title, summary, centroid, signal_count, material_signal_count, created_at, last_signal_at, changed_materially_at)
-           VALUES (?, ?, ?, 1, 1, ?, ?, ?)`,
+          `INSERT INTO narratives (title, summary, centroid, signal_count, material_signal_count, created_at, last_signal_at, changed_materially_at, embedder, dimension)
+           VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?)`,
         )
-        .run(signal.title, signal.summary.slice(0, NARRATIVE_SUMMARY_CHARS), JSON.stringify(centroid), now, now, now);
+        .run(signal.title, signal.summary.slice(0, NARRATIVE_SUMMARY_CHARS), JSON.stringify(centroid), now, now, now, embedder.id, embedder.dimension);
       const id = Number(res.lastInsertRowid);
       this.db.prepare("UPDATE signals SET narrative_id = ? WHERE id = ? AND narrative_id IS NULL").run(id, signal.id);
       return id;

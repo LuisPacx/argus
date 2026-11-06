@@ -1,4 +1,4 @@
-import { Datastore, HashingEmbedder, clusterNewSignals } from "@argus/core";
+import { Datastore, clusterNewSignals } from "@argus/core";
 import { beforeEach, expect, it, vi } from "vitest";
 
 /** Endpoint-level tests: the real route handlers, with only Nitro's auto-imported globals stubbed. */
@@ -21,7 +21,9 @@ beforeEach(async () => {
     signal("s:2", "Europe gets tokenized stocks", "2026-06-14T09:30:00.000Z"),
     signal("s:3", "Cat elected mayor of small town", "2026-06-14T10:00:00.000Z"),
   ]);
-  await clusterNewSignals(store, new HashingEmbedder(), { now: new Date("2026-06-14T11:00:00.000Z") });
+  // A fake through the Embedder seam: the two tokenized-stocks headlines point one way, the cat another.
+  const embedder = { id: "fake", dimension: 2, embed: async (s: { title: string }) => (/tokenized/i.test(s.title) ? [1, 0] : [0, 1]) };
+  await clusterNewSignals(store, embedder, { now: new Date("2026-06-14T11:00:00.000Z") });
 });
 
 it("GET /api/narratives returns no Narratives before anything is clustered", () => {

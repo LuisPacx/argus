@@ -6,6 +6,6 @@
     "start": "node src/main.ts",
     "typecheck": "tsc --noEmit --checkers 1"
   },
-  "dependencies": { "@argus/core": "workspace:*" },
+  "dependencies": { "@argus/core": "workspace:*", "@huggingface/transformers": "4.3.2" },
   "devDependencies": { "@types/node": "^22.0.0" }
 }

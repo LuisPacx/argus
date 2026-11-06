@@ -5,7 +5,9 @@
 
 **Blocked by:** 05
 
-**Status:** needs-decision
+**Status:** done
+
+**Decision:** the Operator chose a semantic embedder run in the worker process (not Ollama, not staying lexical); built and measured in ticket 05c (ADR 0007).
 
 **Outcome:** No threshold is good for the hashing embedder (ADR 0006, Calibration). On 320 real headlines, 0.40 over-merges 15 Narratives (81 Signals, the largest 19) while joining 63 of 112 same-story pairs; 0.60 merges no two different news stories but joins only 16 of 112, so Narratives mostly fragment. `JOIN_THRESHOLD` is set to 0.60 as a provisional, precision-first value. The decision for the Operator: move to a local semantic embedder (Ollama `nomic-embed-text`, the first Considered Option in ADR 0006) before ticket 07, which means installing Ollama on the worker host. Cheaper fixes that help either embedder, not done here: drop the Hacker News summary boilerplate from the embedded text; skip the Wired coupon pages. Also found: `rss:verge` returned 0 items (likely an Atom feed that `RssSource` does not parse).
 

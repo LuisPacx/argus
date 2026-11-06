@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -29,7 +29,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
       // The standing Sources (Google Trends, DexScreener) are switched off unless a test turns them on against the loopback server.
-      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ...(await env(base)) },
+      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ...(await env(base)) },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -128,6 +128,36 @@ it("an empty URL override falls back to the default, it does not switch the Sour
   expect(code).toBe(0);
   expect(out).toContain("[worker] ingest sources: RSS catalog, trends:google, dexscreener:trending");
   expect(signals).toEqual([]);
+}, 60_000);
+
+it("without the semantic model (unreachable host), the tick stores Signals, logs that clustering is skipped, and does not fall back to the lexical embedder", async () => {
+  const modelDir = tempDir("argus-models-");
+  const { code, out, signals, narratives } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, (base) => ({
+    ARGUS_EMBEDDER: "semantic",
+    ARGUS_MODEL_DIR: modelDir,
+    ARGUS_MODEL_HOST: base, // answers 404 for the model files
+  }));
+  expect(code).toBe(0);
+  expect(out).toContain("[models] downloading Xenova/gte-small/config.json");
+  expect(out).toContain("[worker] cluster: skipped, semantic model unavailable");
+  expect(out).not.toMatch(/\[worker\] cluster: \d+ signal/);
+  expect(signals.length).toBeGreaterThan(0);
+  expect(narratives).toEqual([]);
+  expect(readdirSync(modelDir)).toEqual([]);
+}, 60_000);
+
+it("a dry run downloads no model", async () => {
+  const modelDir = tempDir("argus-models-");
+  const { code, out } = await runOnce([{ id: "rss:tech", path: "/tech" }], routes, (base) => ({
+    ARGUS_EMBEDDER: "semantic",
+    ARGUS_MODEL_DIR: modelDir,
+    ARGUS_MODEL_HOST: base,
+    ARGUS_DRY_RUN: "1",
+  }));
+  expect(code).toBe(0);
+  expect(out).toContain("[worker] narrative embedder: semantic");
+  expect(out).not.toContain("[models]");
+  expect(readdirSync(modelDir)).toEqual([]);
 }, 60_000);
 
 it("a dry run polls nothing", async () => {

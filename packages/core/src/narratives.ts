@@ -8,7 +8,27 @@ export type Embedding = number[];
  * clustering (docs/adr/0006-narratives-use-a-local-hashing-embedder.md). Never calls the Brain.
  */
 export interface Embedder {
+  /** Names the embedder and model that built a vector. Narratives remember it; vectors of different ids are never compared. */
+  readonly id: string;
+  /** Length of the vectors it returns. */
+  readonly dimension: number;
   embed(signal: Pick<StoredSignal, "title" | "summary">): Promise<Embedding>;
+}
+
+/** Hacker News feed items carry only this template as their summary: "Article URL: .. Comments URL: .. Points: N # Comments: N". */
+const HN_TEMPLATE = /\b(?:Article URL|Comments URL):\s*\S+|\bPoints:\s*\d+|#\s*Comments:\s*\d+/g;
+
+/** A Signal summary without the Hacker News template, which says nothing about the story and makes every HN item look alike. */
+export function cleanSummary(summary: string): string {
+  return summary.replace(HN_TEMPLATE, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Promo and coupon pages (Wired publishes dozens a month) share a template, not a story. They get a Narrative of their own
+ * and never join or are joined, rather than being skipped, so they cannot block the unclustered queue.
+ */
+export function standsAlone(signal: Pick<StoredSignal, "title">): boolean {
+  return /(promo|coupon|discount) code/i.test(signal.title);
 }
 
 const DIMS = 256;
@@ -43,10 +63,12 @@ function hash(s: string): number {
  * point the same way. It has no notion of meaning, only shared words.
  */
 export class HashingEmbedder implements Embedder {
+  readonly id = "hashing-v1";
+  readonly dimension = DIMS;
   async embed(signal: Pick<StoredSignal, "title" | "summary">): Promise<Embedding> {
     const vec = new Array<number>(DIMS).fill(0);
     for (const w of tokens(signal.title)) vec[hash(w) % DIMS]! += 2;
-    for (const w of tokens(signal.summary)) vec[hash(w) % DIMS]! += 1;
+    for (const w of tokens(cleanSummary(signal.summary))) vec[hash(w) % DIMS]! += 1;
     const mag = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
     return mag === 0 ? vec : vec.map((v) => v / mag);
   }
@@ -82,14 +104,17 @@ export interface ClusterConfig {
 }
 
 /**
- * Cosine similarity to a Narrative's centroid at which a Signal joins it. Measured on 320 real headlines from the 13 configured
- * feeds (docs/adr/0006, scripts/measure-narrative-threshold.mjs). At 0.60 no two different news stories merge (the only wrong
- * joins are templated pages: Hacker News summaries, coupon pages, identical titles) and the largest Narrative is 4 Signals, but
- * only 16 of 112 same-story pairs join, so Narratives mostly fragment. Below it different stories merge (0.40 over-merges 15
- * clusters); above it almost nothing joins (0.65 joins 6 of 112). Provisional and precision-first: no value is good for this
- * embedder (ticket 05b is needs-decision).
+ * Cosine similarity to a Narrative's centroid at which a Signal joins it, for the semantic embedder (Xenova/gte-small, 8-bit;
+ * see worker `semantic-embedder.ts`). Measured on 320 real headlines from the 13 configured feeds (docs/adr/0007,
+ * scripts/measure-narrative-threshold.mjs). At 0.90 no two different news stories merge (the closest different-story pair
+ * scores 0.878; 0.89 already merged one pair through a drifting centroid) and 53 of 112 same-story pairs join, against 7 for the
+ * lexical embedder at its best. Higher values fragment (0.93 joins 11); lower ones over-merge (0.87 merges 2 stories). The scale is
+ * model-specific: another model needs its own measurement. Precision-first, and thin-margined: re-measure when feeds change.
  */
-export const JOIN_THRESHOLD = 0.6;
+export const JOIN_THRESHOLD = 0.9;
+
+/** The HashingEmbedder's own scale (docs/adr/0006): the lexical embedder is kept only as an explicit dev and test choice (ARGUS_EMBEDDER=hashing). */
+export const HASHING_JOIN_THRESHOLD = 0.6;
 
 export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = { joinThreshold: JOIN_THRESHOLD, windowHours: 72, batchSize: 500 };
 
@@ -134,9 +159,14 @@ export async function clusterNewSignals(
   const signals = store.unclusteredSignals(config.batchSize);
   // Loaded and parsed once per pass; kept current below as Signals join or start Narratives (all stay inside the window).
   const since = new Date(now.getTime() - config.windowHours * 3_600_000).toISOString();
-  const candidates = store.recentNarratives(since);
+  const candidates = store.recentNarratives(since, embedder);
   for (const signal of signals) {
     const embedding = await embedder.embed(signal);
+    if (standsAlone(signal)) {
+      store.createNarrative(signal, embedding, now.toISOString(), embedder);
+      created++;
+      continue;
+    }
     const target = nearestNarrative(embedding, candidates, config.joinThreshold);
     if (target) {
       const centroid = incrementalMean(target.centroid, embedding, target.signalCount + 1);
@@ -144,7 +174,7 @@ export async function clusterNewSignals(
       target.centroid = centroid;
       target.signalCount++;
     } else {
-      const id = store.createNarrative(signal, embedding, now.toISOString());
+      const id = store.createNarrative(signal, embedding, now.toISOString(), embedder);
       candidates.push({ id, centroid: embedding, signalCount: 1 });
       created++;
     }
