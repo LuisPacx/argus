@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildHomeFor, removeTree } from "./build-runner.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
+import { isMintAddress } from "./launch.ts";
 
 export type ProposalStatus =
   | "new"
@@ -105,7 +106,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue";
+export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue" | "mark-launched";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -183,6 +184,12 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
     else retrySpecCommand(store, proposal);
     return;
   }
+  if (command.type === "mark-launched") {
+    // The command's `reason` carries the mint. Re-checked here: the route's check is only fast feedback.
+    if (!proposal) throw new ProposalNotFoundError(command.proposalId);
+    markLaunchedCommand(store, proposal, command.reason.trim());
+    return;
+  }
   const target = TARGET[command.type];
   if (!target) throw new DomainError(`Unknown command type ${String(command.type)}`);
   if (!proposal) throw new ProposalNotFoundError(command.proposalId);
@@ -246,6 +253,14 @@ export function applyPendingCommands(store: Datastore, onError: ((command: Comma
     }
   }
   return n;
+}
+
+/** `built` -> `launched` with the mint the Operator reports. A repeat on an already launched Proposal is a no-op and keeps the first mint. */
+function markLaunchedCommand(store: Datastore, p: Proposal, mint: string): void {
+  if (!isMintAddress(mint)) throw new DomainError("Mark launched needs a Solana mint address (base58, 32 to 44 characters)");
+  if (p.status === "launched") return;
+  if (p.status !== "built") throw new DomainError(`Mark launched needs a built Proposal (it is ${p.status})`);
+  store.markLaunched(p.id, mint);
 }
 
 /** Longest revise instruction accepted. */

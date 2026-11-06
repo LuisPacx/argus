@@ -59,6 +59,8 @@ export interface Proposal {
   approvedAt: string | null;
   /** The workers.dev preview, set when the Build reaches `built`; null before. */
   previewUrl: string | null;
+  /** The mint the Operator recorded when marking the Proposal launched; null before. argus never reads it from a chain. */
+  mint: string | null;
   /** The Claude session of the Proposal's latest Build run that has one; what `claude --resume` continues after a `build-failed`. */
   buildSessionId: string | null;
   /** Whether the latest Build deployed the Proposal's Worker to Cloudflare (a leftover the Operator removes before a re-queue). */
@@ -217,6 +219,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "proposals", "preview_url", "TEXT");
   ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "proposals", "mint", "TEXT");
   migrateRubric(db);
   // Signals (phase 2 ticket 01): additive and idempotent. `id` is the Source's stable per-item id, so a re-poll cannot duplicate.
   db.exec(`CREATE TABLE IF NOT EXISTS signals (
@@ -306,6 +309,7 @@ interface Row {
   spec_revision: string | null;
   approved_at: string | null;
   preview_url: string | null;
+  mint: string | null;
   build_session_id: string | null;
   worker_deployed: number;
   narrative_id: number | null;
@@ -339,6 +343,7 @@ function toProposal(r: Row): Proposal {
     specRevision: r.spec_revision,
     approvedAt: r.approved_at,
     previewUrl: r.preview_url,
+    mint: r.mint,
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
     expiresAt: expiresAtFor(r.status, r.updated_at),
@@ -1169,6 +1174,14 @@ export class Datastore {
     this.inTransaction(() => {
       this.transition(proposalId, "built", "build");
       this.db.prepare("UPDATE proposals SET preview_url = ? WHERE id = ?").run(build.previewUrl, proposalId);
+    });
+  }
+
+  /** WORKER ONLY. Moves `built` -> `launched` and records the mint the Operator reported, atomically. The caller has validated the format. */
+  markLaunched(proposalId: number, mint: string): void {
+    this.inTransaction(() => {
+      this.transition(proposalId, "launched", "operator", `Operator marked launched: ${mint}`);
+      this.db.prepare("UPDATE proposals SET mint = ? WHERE id = ?").run(mint, proposalId);
     });
   }
 

@@ -81,7 +81,9 @@ async function save() {
   }
 }
 
-async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reason = "") {
+const mint = ref("");
+
+async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched", reason = "") {
   if (sending.value || working.value) return;
   sending.value = true;
   message.value = "";
@@ -89,6 +91,7 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reaso
   try {
     await $fetch(`/api/proposals/${id}/commands`, { method: "POST", body: { type, reason } });
     if (type === "revise") instruction.value = "";
+    if (type === "mark-launched") mint.value = "";
     await refreshCommands();
   } catch (e) {
     error.value = (e as { statusMessage?: string }).statusMessage ?? "Could not send command";
@@ -156,6 +159,17 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue", reaso
       <p class="text-sm text-muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }}, the private GitHub repo {{ p.slug }}<template v-if="p.workerDeployed"> and the Cloudflare Worker {{ p.slug }} (the Build deployed it)</template>. Re-queue is refused while the directory or the repo is still there.</p>
       <div><UButton size="sm" :disabled="working || sending" @click="send('requeue')">Re-queue</UButton></div>
     </section>
+    <section v-if="p.status === 'built' && p.launchUrl" class="mt-4 grid gap-2">
+      <h3 class="font-semibold">Launch</h3>
+      <p class="text-sm">Opens newpairspam's token form prefilled. Launch there, then come back and record the mint. argus never touches a chain.</p>
+      <div><UButton size="sm" :to="p.launchUrl" target="_blank" rel="noopener">Launch in newpairspam</UButton></div>
+      <div class="flex gap-2">
+        <UInput v-model="mint" class="w-96" placeholder="Mint address" :disabled="working || sending" />
+        <UButton size="sm" :disabled="working || sending || !mint.trim()" @click="send('mark-launched', mint.trim())">Mark launched</UButton>
+      </div>
+      <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
+    </section>
+    <p v-if="p.status === 'launched' && p.mint" class="mt-4 text-sm">Launched. Mint: <code>{{ p.mint }}</code></p>
     <section v-if="p.status === 'spec-drafted' && loadedFor" class="mt-4 grid gap-2">
       <h3 class="font-semibold">Spec</h3>
       <UTextarea v-model="text" :rows="24" class="font-mono" @update:model-value="edited = true" />
