@@ -14,3 +14,30 @@ Argus watches public Sources, turns Narratives into Proposals (a token angle plu
 Create the Phase 1 tickets with `/to-tickets` from [`docs/architecture.md`](docs/architecture.md) section 12 (tickets live under `.scratch/<feature>/`, see `docs/agents/issue-tracker.md`).
 
 `memecoin-launch-pipeline-plan.md` is superseded by this documentation (its hard constraints live on as section 10 of the architecture) and can be deleted.
+
+## Running argus
+
+### Research (works today)
+
+1. `pnpm install`
+2. `pnpm models:fetch` (the embedding model, once; safe to rerun)
+3. `pnpm dev:start` (starts the worker and the War Room)
+4. Open the War Room at http://localhost:3100/ (logs: `.data/run/warroom-dev.log` and `.data/run/worker.log`)
+5. `pnpm dev:status` / `pnpm dev:stop`
+
+Research uses your Claude subscription through `claude -p`, capped by `ARGUS_DAILY_QUOTA_USD` × `ARGUS_RESEARCH_SHARE` (defaults $20 × 0.3).
+
+### Optional: Telegram
+
+Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`.
+
+### Builds
+
+1. Mint a Build token with `claude setup-token` and save it as one line in `~/.config/argus/build-token` (`chmod 600`, never committed).
+2. `pnpm image:build` (rootless podman is required).
+3. The worker deploys previews to a `<slug>.workers.dev` subdomain on your Cloudflare account.
+4. `pnpm verify:contain` checks the containment.
+
+### Launch
+
+The Launch button opens newpairspam's token form prefilled. Set `ARGUS_NEWPAIRSPAM_URL` (default http://localhost:3000). `ARGUS_LAUNCH_LOGO_URL` is optional and must be a public raster image (newpairspam rejects SVG). argus never touches a chain; you launch in newpairspam and then mark the Proposal launched.
