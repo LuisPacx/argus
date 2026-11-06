@@ -226,6 +226,8 @@ No X in v1. The helios cookie scraper is not ported. X returns later through the
 
 Dimensions, scored per Narrative and carried onto its Proposal: **momentum**, **novelty**, **buildability** (hard gate: below the gate the Narrative never becomes a Proposal), **hook**, **legitimacy**. Weights are equal in v1. The Rubric (dimension descriptions, weights, gate) is editable data in the War Room and stored in the datastore, not in code. The brain `judge` task reads it at call time. New Signals on an existing Narrative trigger a re-score; every Score is stored, so history is kept and shown in the details view.
 
+Score scale: each dimension is scored 0 to 10 (`RUBRIC_MAX_SCORE`), and the default buildability gate is 5 (`SEED_GATE_MIN_SCORE`), both in `packages/core/src/rubric.ts`; the `judge` task follows them.
+
 ## 8. War Room
 
 Localhost only, single Operator, no auth in v1.
