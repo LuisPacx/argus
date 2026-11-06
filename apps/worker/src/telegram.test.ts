@@ -13,7 +13,7 @@ const ARGUS_RSS_FEEDS = join(workerDir, "../../packages/core/src/fixtures/no-fee
 const TOKEN = "987654:WORKER-SECRET-token";
 
 /** Runs the real worker once with a new Proposal in its database, against a fake Telegram API on loopback. */
-async function runOnce(telegram: Record<string, string | undefined>, extraArgs: string[] = []) {
+async function runOnce(telegram: Record<string, string | undefined>, extraArgs: string[] = [], inheritUrl = false) {
   const dir = tempDir("argus-telegram-");
   const db = join(dir, "argus.db");
   const store = Datastore.open(db);
@@ -33,6 +33,8 @@ async function runOnce(telegram: Record<string, string | undefined>, extraArgs: 
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const env: NodeJS.ProcessEnv = { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", ARGUS_TELEGRAM_URL: url, ...telegram };
     for (const [k, v] of Object.entries(telegram)) if (v === undefined) delete env[k];
+    // inheritUrl: the worker keeps the globalSetup's dead loopback URL instead of the fake server's.
+    if (inheritUrl) env.ARGUS_TELEGRAM_URL = process.env.ARGUS_TELEGRAM_URL;
     const child = spawn(process.execPath, ["src/main.ts", "--once", ...extraArgs], { cwd: workerDir, env });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -73,15 +75,23 @@ it("a spawned worker with ARGUS_NO_DOTENV=1 skips a .env that holds a bot token:
   expect(process.env.ARGUS_NO_DOTENV).toBe("1");
   const envFile = join(tempDir("argus-dotenv-"), ".env");
   writeFileSync(envFile, `TELEGRAM_BOT_TOKEN=${TOKEN}\nTELEGRAM_CHAT_ID=-100777\n`);
-  // No TELEGRAM_* in the environment (so nothing masks the file) and no marker override: the worker sees the marker the test run set.
-  // ARGUS_TELEGRAM_URL stays the fake loopback server, so even a failure of the skip could not reach a real chat.
-  const r = await runOnce({ TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined, ARGUS_ENV_FILE: envFile });
+  const noEnvVars = { TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined, ARGUS_ENV_FILE: envFile };
+  // Control: the same file without the marker is read, notifications turn on and the card reaches the fake server. This proves the
+  // file is found and holds a working token, so the skip below is what stops it.
+  const control = await runOnce({ ...noEnvVars, ARGUS_NO_DOTENV: undefined });
+  expect(control.code).toBe(0);
+  expect(control.out).not.toContain(".env skipped");
+  expect(control.received).toHaveLength(1);
+  expect(control.received[0]!.path).toBe(`/bot${TOKEN}/sendMessage`);
+  // Skip run: no TELEGRAM_* in the environment (nothing masks the file), the marker the test run set, and no URL override: the worker
+  // keeps the globalSetup's dead loopback URL.
+  const r = await runOnce(noEnvVars, [], true);
   expect(r.code).toBe(0);
   expect(r.out).toContain("[worker] .env skipped (ARGUS_NO_DOTENV)");
   expect(r.out).toContain("[telegram] notifications are off");
   expect(r.received).toHaveLength(0);
   expect(r.out).not.toContain(TOKEN);
-}, 90_000);
+}, 120_000);
 
 it("a dry run logs the card instead of sending it", async () => {
   const r = await runOnce({ TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: "-100777" }, ["--dry-run"]);

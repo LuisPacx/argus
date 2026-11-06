@@ -16,7 +16,7 @@
 
 **Status:** done
 
-**Notes:** no-guid dedup done (identity is guid, else title, else link). Item 5: a Spec save only happens in `spec-drafted`, which never expires, so the test simulates the later write with a raw `updated_at` update. Item 6: `main.ts` reads an optional `ARGUS_ENV_FILE` (default the repo-root `.env`) so the spawn test can point the worker at a temp `.env` holding a token instead of writing into the repo root.
+**Notes:** no-guid dedup done (identity is guid, else title, else link); guid-less items are re-ingested once after the upgrade (bounded by the 100-item cap), accepted because no research has run on real data yet. Item 5: a Spec save only happens in `spec-drafted`, which never expires, so the test simulates the later write with a raw `updated_at` update. Item 6: `main.ts` reads an optional `ARGUS_ENV_FILE` (default the repo-root `.env`) so the spawn test can point the worker at a temp `.env` holding a token instead of writing into the repo root.
 
 - [x] A 403 with `x-ratelimit-remaining: 0` and `x-ratelimit-reset` backs off until the reset (clamped); ADR 0008 says so
 - [x] Collision GitHub search uses `per_page=100` and `fork:true`; the architecture doc is corrected

@@ -45,6 +45,7 @@ export class RssSource implements Source {
 
   private normalize(item: RssItem): Signal {
     // Without a guid the title (with the Source id in the Signal id) is the identity: links often carry changing tracking parameters.
+    // Accepted: this changes the id of guid-less items, so they are re-ingested once after the upgrade (bounded by FEED_MAX_ITEMS).
     const identity = item.guid || item.title || item.link;
     return {
       id: `${this.id}:${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
