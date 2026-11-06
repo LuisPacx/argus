@@ -11,3 +11,4 @@ Rules for agents that change this repo. Briefs point here.
 - Run the full suite once before committing, not after every edit. At most two full suites run on this machine at once.
 - Signal tests target the node process (or its process group), never the pnpm wrapper, which does not forward signals.
 - Your shell's cwd does not persist between calls; name the worktree in every command (`pnpm --dir <wt>`, `git -C <wt>`).
+- A PreToolUse hook (`.claude/hooks/bash-guard.sh`) enforces two of these rules: it denies in-place `sed -i` and `cd <dir>` chained with `&&` or `;`.
