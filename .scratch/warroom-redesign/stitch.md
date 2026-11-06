@@ -1,3 +1,5 @@
+Rejected by the Operator 2026-11-06 (too dense/heavy); see variations/
+
 # War Room redesign in Google Stitch
 
 Project: "argus War Room redesign", id `8555144023788112596` (https://stitch.withgoogle.com/projects/8555144023788112596), private.
