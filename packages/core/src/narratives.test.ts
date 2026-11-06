@@ -52,6 +52,33 @@ describe("what the embedder reads", () => {
   });
 });
 
+describe("a shutdown during clustering", () => {
+  it("stops before the next Signal's embed, keeps the Signals already clustered, and the rest are clustered by the next pass", async () => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals([1, 2, 3, 4].map((i) => same(`s:${i}`, `rss:src${i}`, { title: `Distinct headline ${i}`, publishedAt: `2026-06-14T09:0${i}:00.000Z` })));
+    const ac = new AbortController();
+    let embeds = 0;
+    const aborting: Embedder = { id: "fake", dimension: 2, embed: async () => (++embeds === 2 && ac.abort(), [1, 0]) };
+    const out = await clusterNewSignals(ds, aborting, { now: NOW, signal: ac.signal });
+    expect(embeds).toBe(2); // the abort during the 2nd embed stops the loop before the 3rd
+    expect(out.clustered).toBe(2);
+    expect(ds.unclusteredSignals(500).map((s) => s.id)).toEqual(["s:3", "s:4"]);
+    expect((await clusterNewSignals(ds, aborting, { now: NOW })).clustered).toBe(2);
+    expect(ds.unclusteredSignals(500)).toEqual([]);
+  });
+
+  it("an already-aborted signal embeds nothing", async () => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals([same("s:1", "rss:a")]);
+    let embeds = 0;
+    const ac = new AbortController();
+    ac.abort();
+    const out = await clusterNewSignals(ds, { id: "fake", dimension: 2, embed: async () => (embeds++, [1, 0]) }, { now: NOW, signal: ac.signal });
+    expect(embeds).toBe(0);
+    expect(out).toEqual({ clustered: 0, created: 0 });
+  });
+});
+
 describe("pages that never join a Narrative", () => {
   const coupon = (id: string, title: string): Signal => ({ ...same(id, "rss:wired"), title });
   const sameVector: Embedder = { id: "fake", dimension: 2, embed: async () => [1, 0] };

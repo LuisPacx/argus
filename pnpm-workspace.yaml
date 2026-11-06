@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+overrides:
+  "@huggingface/transformers>onnxruntime-web": "-" # @huggingface/transformers pulls it for browsers (139 MB); the worker runs on onnxruntime-node
 allowBuilds:
   esbuild: true
   onnxruntime-node: false # its postinstall only fetches optional GPU libraries; the CPU binaries ship in the package

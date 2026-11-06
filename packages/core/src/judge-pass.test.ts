@@ -444,6 +444,57 @@ describe("the shared research budget (judge plus propose)", () => {
     expect(calls()).toHaveLength(1);
   });
 
+  describe("a poison Narrative (its judge run always times out)", () => {
+    const timeouts = (store: Datastore, narrativeId: number, count: number, at: Date) => {
+      for (let i = 0; i < count; i++) {
+        const runId = store.startBrainRun({ proposalId: 0, narrativeId, task: "judge", backend: "claude-code", model: "haiku" }, at);
+        store.finishBrainRun(runId, { sessionId: null, totalCostUsd: 0, exitStatus: "timed-out" });
+      }
+    };
+
+    it("is skipped after 3 consecutive timeouts, so the pass moves on to the next Narrative", async () => {
+      const { store, pass, calls } = setup();
+      const poison = addNarrative(store, "Poison");
+      addSignal(store, poison, "rss:a", NOW); // busiest, so it would be first
+      const other = addNarrative(store, "Other");
+      timeouts(store, poison, 3, NOW);
+      expect(await pass()).toMatchObject({ judged: 1, failed: 0 });
+      expect(calls()).toHaveLength(1);
+      expect(store.getNarrative(poison)!.scores).toHaveLength(0);
+      expect(store.getNarrative(other)!.scores).toHaveLength(1);
+    });
+
+    it("is still tried while it has fewer than N timeouts in a row, and N is configurable", async () => {
+      const { store, pass } = setup();
+      const id = addNarrative(store, "Slow");
+      timeouts(store, id, 2, NOW);
+      expect(await pass()).toMatchObject({ judged: 1 });
+      const { store: s2, pass: pass2 } = setup();
+      const id2 = addNarrative(s2, "Slow");
+      timeouts(s2, id2, 2, NOW);
+      expect(await pass2({ maxConsecutiveTimeouts: 2 })).toMatchObject({ judged: 0 });
+    });
+
+    it("a run that did not time out in between breaks the streak", async () => {
+      const { store, pass } = setup();
+      const id = addNarrative(store, "Flaky");
+      timeouts(store, id, 2, NOW);
+      const mid = store.startBrainRun({ proposalId: 0, narrativeId: id, task: "judge", backend: "claude-code", model: "haiku" }, NOW);
+      store.finishBrainRun(mid, { sessionId: null, totalCostUsd: 0, exitStatus: "failed" });
+      timeouts(store, id, 2, NOW);
+      expect(await pass()).toMatchObject({ judged: 1 });
+    });
+
+    it("is tried again once it changes materially, counting from the stored runs (a restart forgets nothing)", async () => {
+      const { store, pass } = setup();
+      const id = addNarrative(store, "Poison");
+      timeouts(store, id, 3, NOW);
+      expect(await pass({}, { now: minutes(10) })).toMatchObject({ judged: 0 });
+      addSignal(store, id, "rss:other", minutes(20)); // a new Source: material
+      expect(await pass({}, { now: minutes(30) })).toMatchObject({ judged: 1 });
+    });
+  });
+
   it("applies the default budget ($6) when none is passed", async () => {
     const { store, pass } = setup();
     addNarrative(store, "Story");

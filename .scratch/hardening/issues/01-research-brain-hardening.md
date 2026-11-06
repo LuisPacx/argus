@@ -14,12 +14,19 @@
 
 **Blocked by:** none. Shares `apps/worker/src/main.ts` and `datastore.ts` with ticket 02 (different regions); merge one after the other.
 
-**Status:** open
+**Status:** done
 
-- [ ] A Narrative with N consecutive judge timeouts is skipped until it changes materially; a test proves the pass moves on to the next Narrative
-- [ ] A `failed` run with a `session_id` and no cost is charged at the route cap in `spendSince`; one without a session stays $0; tests for both
-- [ ] The propose pass and collision retry are covered by tests for the charge rule and the daily caps across a restart
-- [ ] `clusterNewSignals` checks the shutdown signal per Signal; a test aborts mid-batch
-- [ ] A cold start does not hold ingest behind model downloads; a test with a slow fake download
-- [ ] The onnxruntime-web override is applied and verified, or the finding is recorded in Notes
-- [ ] `pnpm check` passes
+- [x] A Narrative with N consecutive judge timeouts is skipped until it changes materially; a test proves the pass moves on to the next Narrative
+- [x] A `failed` run with a `session_id` and no cost is charged at the route cap in `spendSince`; one without a session stays $0; tests for both
+- [x] The propose pass and collision retry are covered by tests for the charge rule and the daily caps across a restart
+- [x] `clusterNewSignals` checks the shutdown signal per Signal; a test aborts mid-batch
+- [x] A cold start does not hold ingest behind model downloads; a test with a slow fake download
+- [x] The onnxruntime-web override is applied and verified, or the finding is recorded in Notes
+- [x] `pnpm check` passes
+
+## Notes
+
+- Item 1: `JudgeConfig.maxConsecutiveTimeouts` and `ProposeConfig.maxConsecutiveTimeouts` (default 3); `narrativesToJudge` / `narrativesToPropose` take it and leave out a Narrative whose last N runs since its last material change (judge) or latest Score (propose) all timed out. Counted from `brain_runs`.
+- Item 3: the propose pass and the collision retry already booked every run through the same `spendSince` and research budget; the gap was missing tests (retry timed out charged at cap, runs and crashed in-flight rows counted across a restart, the 10 Proposal cap across passes). No code change was needed there.
+- Item 5: `lazyEmbedder` is replaced by `backgroundEmbedder`: `current()` never waits, starts the download after the first ingest, logs the skip once. `--once` waits for the model after ingest.
+- Item 6: applied as `overrides: "@huggingface/transformers>onnxruntime-web": "-"` in `pnpm-workspace.yaml`. A bare `onnxruntime-web: "-"` is not enough on its own, and pnpm only re-resolved after `node_modules/.pnpm-workspace-state-v1.json` was deleted. The install drops 16 packages (onnxruntime-web alone is 140 MB). Verified: `pnpm verify:semantic` (real cached model, worst cosine 1.00000), `pnpm verify:boot` PASS, `pnpm check` green.

@@ -151,17 +151,20 @@ export function isMaterialJoin(opts: { newSource: boolean; signalCount: number; 
 export async function clusterNewSignals(
   store: Pick<Datastore, "unclusteredSignals" | "recentNarratives" | "createNarrative" | "joinNarrative">,
   embedder: Embedder,
-  opts: { now?: Date; config?: Partial<ClusterConfig> } = {},
+  opts: { now?: Date; config?: Partial<ClusterConfig>; signal?: AbortSignal } = {},
 ): Promise<{ clustered: number; created: number }> {
   const config = { ...DEFAULT_CLUSTER_CONFIG, ...opts.config };
   const now = opts.now ?? new Date();
   let created = 0;
+  let clustered = 0;
   const signals = store.unclusteredSignals(config.batchSize);
   // Loaded and parsed once per pass; kept current below as Signals join or start Narratives (all stay inside the window).
   const since = new Date(now.getTime() - config.windowHours * 3_600_000).toISOString();
   const candidates = store.recentNarratives(since, embedder);
   for (const signal of signals) {
+    if (opts.signal?.aborted) break; // a shutdown: the Signals already clustered stay, the rest are picked up by the next pass
     const embedding = await embedder.embed(signal);
+    clustered++;
     if (standsAlone(signal)) {
       store.createNarrative(signal, embedding, now.toISOString(), embedder);
       created++;
@@ -179,5 +182,5 @@ export async function clusterNewSignals(
       created++;
     }
   }
-  return { clustered: signals.length, created };
+  return { clustered, created };
 }

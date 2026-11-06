@@ -387,6 +387,91 @@ describe("caps", () => {
   });
 });
 
+describe("a poison Narrative (its propose run always times out)", () => {
+  const timeouts = (store: Datastore, narrativeId: number, count: number) => {
+    for (let i = 0; i < count; i++) {
+      const runId = store.startBrainRun({ proposalId: 0, narrativeId, task: "propose", backend: "claude-code", model: "sonnet" }, NOW);
+      store.finishBrainRun(runId, { sessionId: null, totalCostUsd: 0, exitStatus: "timed-out" });
+    }
+  };
+
+  it("is skipped after 3 consecutive timeouts, so the pass moves on to the next Narrative", async () => {
+    const { store, pass, calls } = setup();
+    const poison = addScored(store, "Poison", { scores: { momentum: 10 } }); // best Score, so first
+    addScored(store, "Other");
+    timeouts(store, poison, 3);
+    expect(await pass()).toMatchObject({ proposed: 1, failed: 0 });
+    expect(calls()).toHaveLength(1);
+    expect(store.listProposals()).toHaveLength(1);
+  });
+
+  it("is tried again once it is scored again", async () => {
+    const { store, pass } = setup();
+    const poison = addScored(store, "Poison");
+    timeouts(store, poison, 3);
+    expect(await pass({}, { now: minutes(10) })).toMatchObject({ proposed: 0 });
+    rescore(store, poison, {}, minutes(20));
+    expect(await pass({}, { now: minutes(30) })).toMatchObject({ proposed: 1 });
+  });
+
+  it("is still tried with fewer than N timeouts", async () => {
+    const { store, pass } = setup();
+    const id = addScored(store, "Slow");
+    timeouts(store, id, 2);
+    expect(await pass()).toMatchObject({ proposed: 1 });
+  });
+});
+
+describe("the charge rule and the daily caps hold for the propose pass and its collision retry, across a restart", () => {
+  const AT = NOW.toISOString();
+  const collides: CollisionResult = { dex: { status: "collides", detail: "d", source: "DexScreener", checkedAt: AT }, github: { status: "clear", detail: "g", source: "GitHub", checkedAt: AT } };
+  const always: CollisionChecker = { check: async () => collides };
+
+  it("a collision retry that times out is charged at the propose route's cap, and the research budget then holds the next Narrative", async () => {
+    const { store, pass, calls } = setup(
+      { FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_MODE: "hang" }]) },
+      { routing: resolveRouting({ propose: { timeoutMs: 300, maxBudgetUsd: 0.5 } }) },
+    );
+    addScored(store, "One");
+    addScored(store, "Two");
+    const research = { dailyQuotaUsd: 1, share: 0.5 }; // $0.50: the timed-out retry alone is charged $0.50
+    expect(await pass(wide, { collisions: always, research })).toMatchObject({ proposed: 1, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(2);
+    expect(store.proposeSpendSince(hours(-24).toISOString(), { propose: 0.5 })).toMatchObject({ runs: 2 });
+    expect(store.proposeSpendSince(hours(-24).toISOString(), { propose: 0.5 }).chargedUsd).toBeCloseTo(0.0123 + 0.5, 10);
+  });
+
+  it("runs booked before a restart (finished, or left in flight by a crash) still count against the daily run cap", async () => {
+    const { store, pass, calls } = setup();
+    const a = addScored(store, "One");
+    addScored(store, "Two");
+    store.finishBrainRun(store.startBrainRun({ proposalId: 0, narrativeId: a, task: "propose", backend: "claude-code", model: "sonnet" }, minutes(-60)), { sessionId: null, totalCostUsd: 0.01, exitStatus: "invalid-output" });
+    store.startBrainRun({ proposalId: 0, narrativeId: 999, task: "propose", backend: "claude-code", model: "sonnet" }, minutes(-30)); // the crashed run
+    expect(await pass({ maxRunsPerDay: 2 })).toMatchObject({ proposed: 0, stoppedBy: "daily-cap" });
+    expect(calls()).toHaveLength(0);
+  });
+
+  it("a run left in flight by a crash is charged at the route's cap against the research budget, and its Narrative is not run again", async () => {
+    const { store, pass, calls } = setup();
+    const a = addScored(store, "One");
+    addScored(store, "Two");
+    store.startBrainRun({ proposalId: 0, narrativeId: a, task: "propose", backend: "claude-code", model: "sonnet" }, minutes(-30));
+    expect(await pass(wide, { research: { dailyQuotaUsd: 1, share: 0.5 } })).toMatchObject({ proposed: 0, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(0);
+    expect(await pass(wide)).toMatchObject({ proposed: 1 }); // with the default budget the other Narrative goes ahead, the open one never does
+    expect(calls()).toHaveLength(1);
+    expect(store.listProposals()[0]!.narrativeId).not.toBe(a);
+  });
+
+  it("the new-Proposal cap holds after a restart: a fresh pass over the same store drafts no 11th Proposal", async () => {
+    const { store, pass, calls } = setup();
+    for (let i = 0; i < 11; i++) addScored(store, `Story ${i}`);
+    expect((await pass(wide)).proposed).toBe(10);
+    expect(await pass(wide, { now: minutes(30) })).toMatchObject({ proposed: 0, stoppedBy: "proposal-cap" });
+    expect(calls()).toHaveLength(10);
+  });
+});
+
 describe("the Proposal-created hook", () => {
   it("is called once per new Proposal, after it exists, with the stored Proposal", async () => {
     const { store, pass } = setup();

@@ -137,20 +137,47 @@ export async function loadSemanticEmbedder({ dir, spec = SEMANTIC_MODEL, allowFe
 }
 
 /**
- * Loads the embedder on first use. A missing or unreachable model is logged and gives undefined (the caller skips
- * clustering that tick) and is retried on the next call; it never falls back to another embedder. Any other error is a bug and throws.
+ * Loads the embedder in the background so a cold start (up to four downloads of 15 minutes) never holds the ingest tick.
+ * `current()` never waits: it returns the embedder once it is ready, and otherwise undefined (the caller skips clustering that tick),
+ * starting a load if none is running (so the download begins after the first ingest and a failed one is retried on the next call).
+ * The skip is logged once. A missing or unreachable model is logged; any other error is a bug and is thrown by the next `current()`.
+ * `settled()` resolves when the load in progress, if any, has ended (the one-shot `--once` run waits on it).
  */
-export function lazyEmbedder(load: () => Promise<Embedder>, log: (line: string) => void): () => Promise<Embedder | undefined> {
-  let loaded: Embedder | undefined;
-  return async () => {
-    if (loaded) return loaded;
-    try {
-      loaded = await load();
-      return loaded;
-    } catch (err) {
-      if (!(err instanceof ModelUnavailableError)) throw err;
-      log(`[worker] cluster: skipped, semantic model unavailable: ${err.message}`);
+export function backgroundEmbedder(load: () => Promise<Embedder>, log: (line: string) => void): { current(): Embedder | undefined; settled(): Promise<void> } {
+  let ready: Embedder | undefined;
+  let loading: Promise<void> | undefined;
+  let bug: unknown;
+  let noted = false;
+  const start = () => {
+    loading = load().then(
+      (e) => {
+        ready = e;
+      },
+      (err) => {
+        if (err instanceof ModelUnavailableError) log(`[worker] cluster: skipped, semantic model unavailable: ${err.message}`);
+        else bug = err;
+      },
+    ).finally(() => {
+      loading = undefined;
+    });
+  };
+  return {
+    current() {
+      if (ready) return ready;
+      if (bug !== undefined) {
+        const err = bug;
+        bug = undefined;
+        throw err;
+      }
+      if (!loading) start();
+      if (!noted) {
+        noted = true;
+        log("[worker] cluster: skipped until the semantic model is ready (loading in the background; ingest is not held)");
+      }
       return undefined;
-    }
+    },
+    settled: async () => {
+      await loading;
+    },
   };
 }

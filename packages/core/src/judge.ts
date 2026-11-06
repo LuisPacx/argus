@@ -103,6 +103,8 @@ export interface JudgeConfig {
   maxDailyUsd: number;
   /** This many transient failures in a row (claude missing, auth or network trouble, a timeout) end the pass, as a rate limit does. The next tick tries again. */
   maxConsecutiveFailures: number;
+  /** A Narrative whose last this-many judge runs all timed out is skipped until it changes materially (so one poison Narrative cannot starve the pass). */
+  maxConsecutiveTimeouts: number;
 }
 
 /**
@@ -111,7 +113,7 @@ export interface JudgeConfig {
  * research (judge plus propose) may use is the shared budget in research-budget.ts, checked before every run; these caps only keep
  * the judge itself bounded (and, at $2 of the default $6, leave the propose pass the rest).
  */
-export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2, maxConsecutiveFailures: 3 };
+export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
 
 /**
  * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
@@ -179,7 +181,7 @@ export async function judgePendingNarratives(
     return true;
   };
 
-  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass)) {
+  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass, config.maxConsecutiveTimeouts)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const spent = store.judgeSpendSince(new Date(clock().getTime() - 24 * 3_600_000).toISOString(), caps);
     if (spent.runs >= config.maxRunsPerDay || spent.chargedUsd >= config.maxDailyUsd) {

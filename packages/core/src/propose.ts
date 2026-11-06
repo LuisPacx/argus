@@ -129,9 +129,11 @@ export interface ProposeConfig {
   maxRunsPerDay: number;
   /** This many transient failures in a row end the pass, as a rate limit does. */
   maxConsecutiveFailures: number;
+  /** A Narrative whose last this-many propose runs all timed out is skipped until it is scored again. */
+  maxConsecutiveTimeouts: number;
 }
 
-export const DEFAULT_PROPOSE_CONFIG: ProposeConfig = { windowHours: 72, maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: 30, maxConsecutiveFailures: 3 };
+export const DEFAULT_PROPOSE_CONFIG: ProposeConfig = { windowHours: 72, maxPerPass: 3, maxNewPerDay: MAX_NEW_PROPOSALS_PER_DAY, maxRunsPerDay: 30, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
 
 /**
  * The config with ARGUS_PROPOSE_MAX_PER_PASS, ARGUS_PROPOSE_MAX_NEW_PER_DAY and ARGUS_PROPOSE_MAX_RUNS_PER_DAY applied. A value that is not
@@ -265,7 +267,7 @@ export async function proposePendingNarratives(
     return { runId: retryId, answer: { fields: reparsed.fields, collisions: await checkCollisions(reparsed.fields) } };
   };
 
-  for (const candidate of store.narrativesToPropose(embedder, since, store.getRubric().gateMinScore, config.maxPerPass)) {
+  for (const candidate of store.narrativesToPropose(embedder, since, store.getRubric().gateMinScore, config.maxPerPass, config.maxConsecutiveTimeouts)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const dayAgo = new Date(clock().getTime() - 24 * 3_600_000).toISOString();
     if (store.researchProposalsSince(dayAgo) >= maxNew) {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Embedder } from "@argus/core";
 import { tempDir } from "../../../packages/core/src/testing/temp.ts";
-import { ModelUnavailableError, SEMANTIC_MODEL, embedderIdOf, fetchModel, lazyEmbedder, missingFiles, modelCacheDir, type ModelSpec } from "./semantic-embedder.ts";
+import { ModelUnavailableError, SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, fetchModel,missingFiles, modelCacheDir, type ModelSpec } from "./semantic-embedder.ts";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const CONTENT: Record<string, string> = { "config.json": "{}", "onnx/model.onnx": "weights" };
@@ -97,35 +97,56 @@ describe("fetching and checking the model", () => {
   });
 });
 
-describe("loading the embedder lazily", () => {
+describe("loading the embedder in the background (a cold start must not hold ingest)", () => {
   const fake = (id: string): Embedder => ({ id, dimension: 2, embed: async () => [1, 0] });
-
-  it("loads nothing until first asked, then once", async () => {
+  /** A load that stays pending (a slow download) until released. */
+  const slowLoad = () => {
+    let release!: (e: Embedder) => void;
+    let fail!: (e: Error) => void;
     let loads = 0;
-    const get = lazyEmbedder(async () => (loads++, fake("m")), () => {});
-    expect(loads).toBe(0);
-    expect((await get())?.id).toBe("m");
-    await get();
-    expect(loads).toBe(1);
-  });
+    const load = () => (loads++, new Promise<Embedder>((res, rej) => ((release = res), (fail = rej))));
+    return { load, release: (e: Embedder) => release(e), fail: (e: Error) => fail(e), loads: () => loads };
+  };
 
-  it("logs an unavailable model and returns undefined, then tries again on the next call", async () => {
+  it("returns at once while a slow download runs, starts it only once, and logs the skip once", () => {
+    const d = slowLoad();
     const lines: string[] = [];
-    let up = false;
-    const get = lazyEmbedder(async () => {
-      if (!up) throw new ModelUnavailableError("cannot reach huggingface.co");
-      return fake("m");
-    }, (l) => lines.push(l));
-    expect(await get()).toBeUndefined();
-    expect(lines.join("\n")).toContain("cannot reach huggingface.co");
-    up = true;
-    expect((await get())?.id).toBe("m");
+    const bg = backgroundEmbedder(d.load, (l) => lines.push(l));
+    expect(bg.current()).toBeUndefined(); // does not wait for the download
+    expect(bg.current()).toBeUndefined();
+    expect(bg.current()).toBeUndefined();
+    expect(d.loads()).toBe(1);
+    expect(lines.filter((l) => l.includes("skipped"))).toHaveLength(1);
   });
 
-  it("does not hide a bug: any other error propagates", async () => {
-    const get = lazyEmbedder(async () => {
-      throw new Error("onnx runtime exploded");
-    }, () => {});
-    await expect(get()).rejects.toThrow("onnx runtime exploded");
+  it("hands the embedder over once the download has finished", async () => {
+    const d = slowLoad();
+    const bg = backgroundEmbedder(d.load, () => {});
+    bg.current();
+    d.release(fake("m"));
+    await bg.settled();
+    expect(bg.current()?.id).toBe("m");
+    expect(d.loads()).toBe(1);
+  });
+
+  it("an unavailable model is logged, and the next call starts a fresh attempt", async () => {
+    const d = slowLoad();
+    const lines: string[] = [];
+    const bg = backgroundEmbedder(d.load, (l) => lines.push(l));
+    bg.current();
+    d.fail(new ModelUnavailableError("cannot reach huggingface.co"));
+    await bg.settled();
+    expect(lines.join("\n")).toContain("cannot reach huggingface.co");
+    expect(bg.current()).toBeUndefined();
+    expect(d.loads()).toBe(2);
+  });
+
+  it("does not hide a bug: any other error is thrown by the next call", async () => {
+    const d = slowLoad();
+    const bg = backgroundEmbedder(d.load, () => {});
+    bg.current();
+    d.fail(new Error("onnx runtime exploded"));
+    await bg.settled();
+    expect(() => bg.current()).toThrow("onnx runtime exploded");
   });
 });

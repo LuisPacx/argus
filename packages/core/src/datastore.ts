@@ -805,7 +805,10 @@ export class Datastore {
    * before. Every other ending (`failed`, `timed-out`, `rate-limited`, `interrupted`) says something about claude, the network or the
    * worker, so the Narrative stays eligible; the 24 h run and spend caps and the consecutive-failure backoff bound the retries.
    */
-  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number): Narrative[] {
+  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number, maxConsecutiveTimeouts = Infinity): Narrative[] {
+    // Also left out: a Narrative whose last `maxConsecutiveTimeouts` judge runs since its last material change all timed out (a poison
+    // Narrative would otherwise be retried, and starve the pass, until the daily cap). Counted from brain_runs, so a restart keeps it.
+    const n = Number.isFinite(maxConsecutiveTimeouts) ? Math.max(1, Math.floor(maxConsecutiveTimeouts)) : 0;
     const rows = this.db
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
@@ -817,10 +820,14 @@ export class Datastore {
              SELECT 1 FROM brain_runs b
              WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
                AND b.exit_status IN ('invalid-output', 'budget-exceeded'))
+           AND (? = 0 OR (SELECT COUNT(*) FROM (
+             SELECT b.exit_status FROM brain_runs b
+             WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
+             ORDER BY b.id DESC LIMIT ?) WHERE exit_status = 'timed-out') < ?)
          ORDER BY n.signal_count DESC, n.id
          LIMIT ?`,
       )
-      .all(embedder.id, embedder.dimension, since, limit) as unknown as NarrativeRow[];
+      .all(embedder.id, embedder.dimension, since, n, n, n, limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
   }
 
@@ -837,7 +844,9 @@ export class Datastore {
    * or over budget since its latest Score is left out until it is scored again; any other ending (claude missing, a timeout, a rate
    * limit) leaves it eligible, bounded by the daily run and spend caps.
    */
-  narrativesToPropose(embedder: NarrativeEmbedder, since: string, gateMin: number, limit: number): Array<{ narrative: Narrative; score: Score }> {
+  narrativesToPropose(embedder: NarrativeEmbedder, since: string, gateMin: number, limit: number, maxConsecutiveTimeouts = Infinity): Array<{ narrative: Narrative; score: Score }> {
+    // As for the judge: a Narrative whose last `maxConsecutiveTimeouts` propose runs since its latest Score all timed out is left out until it is scored again.
+    const n = Number.isFinite(maxConsecutiveTimeouts) ? Math.max(1, Math.floor(maxConsecutiveTimeouts)) : 0;
     const rows = this.db
       .prepare(
         `SELECT n.id AS nid, n.title, n.summary, n.signal_count AS n_signal_count, n.created_at AS n_created_at, n.last_signal_at, n.changed_materially_at AS n_changed_materially_at, s.*
@@ -851,10 +860,14 @@ export class Datastore {
              SELECT 1 FROM brain_runs b
              WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.created_at >= s.created_at
                AND b.exit_status IN ('invalid-output', 'budget-exceeded'))
+           AND (? = 0 OR (SELECT COUNT(*) FROM (
+             SELECT b.exit_status FROM brain_runs b
+             WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.created_at >= s.created_at
+             ORDER BY b.id DESC LIMIT ?) WHERE exit_status = 'timed-out') < ?)
          ORDER BY s.total DESC, n.id
          LIMIT ?`,
       )
-      .all(embedder.id, embedder.dimension, since, gateMin, limit) as unknown as Array<ScoreRow & { nid: number; title: string; summary: string; n_signal_count: number; n_created_at: string; last_signal_at: string; n_changed_materially_at: string }>;
+      .all(embedder.id, embedder.dimension, since, gateMin, n, n, n, limit) as unknown as Array<ScoreRow & { nid: number; title: string; summary: string; n_signal_count: number; n_created_at: string; last_signal_at: string; n_changed_materially_at: string }>;
     return rows.map((r) => ({
       narrative: toNarrative({ id: r.nid, title: r.title, summary: r.summary, signal_count: r.n_signal_count, created_at: r.n_created_at, last_signal_at: r.last_signal_at, changed_materially_at: r.n_changed_materially_at }),
       score: toScore(r),
@@ -1011,8 +1024,8 @@ export class Datastore {
    * `costUsd` is the sum of the costs runs reported. A run that ended without printing a result (killed by its wall-clock cap, by a
    * shutdown, or left in flight by a worker that died) reports $0 although it may have spent up to its `--max-budget-usd`, so for
    * budget purposes `chargedUsd` charges such a run (`timed-out`, `interrupted`, or still `in-flight`, with no cost recorded) at its
-   * task's cap from `caps`, which is a ceiling on what it can have used. A plain `failed` run is not charged: it is also what a claude
-   * that never started looks like. Without `caps` nothing is charged beyond the reported cost.
+   * task's cap from `caps`, which is a ceiling on what it can have used. So is a `failed` run that has a session (claude ran, then failed
+   * without printing a cost). A `failed` run with no session is not charged: it is what a claude that never started looks like. Without `caps` nothing is charged beyond the reported cost.
    */
   private spendSince(tasks: readonly string[], since: string, caps: RunCaps = {}, backend: "subscription" | "api" = "subscription"): Spend {
     const capFor = (task: string) => caps[task] ?? 0;
@@ -1022,7 +1035,7 @@ export class Datastore {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS runs, COALESCE(SUM(CASE WHEN ${mine} THEN total_cost_usd ELSE 0 END), 0) AS cost,
-           COALESCE(SUM(CASE WHEN NOT (${mine}) THEN 0 WHEN total_cost_usd = 0 AND exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}')
+           COALESCE(SUM(CASE WHEN NOT (${mine}) THEN 0 WHEN total_cost_usd = 0 AND (exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}') OR (exit_status = 'failed' AND session_id IS NOT NULL))
              THEN (CASE task ${tasks.map(() => "WHEN ? THEN ?").join(" ")} ELSE 0 END) ELSE total_cost_usd END), 0) AS charged
          FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?${backend === "api" ? " AND backend = 'api'" : ""}`,
       )

@@ -6,9 +6,9 @@ const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
 const SINCE = hoursAgo(24).toISOString();
 const CAPS = { judge: 0.02, propose: 0.05 };
 
-function run(store: Datastore, o: { task?: string; backend?: string; cost?: number; exit?: string; at?: Date; proposalId?: number }): number {
+function run(store: Datastore, o: { task?: string; backend?: string; cost?: number; exit?: string; at?: Date; proposalId?: number; session?: string }): number {
   const id = store.startBrainRun({ proposalId: o.proposalId ?? 0, task: o.task ?? "judge", backend: o.backend ?? "api", model: "m" }, o.at ?? NOW);
-  if ((o.exit ?? "success") !== BRAIN_RUN_IN_FLIGHT) store.finishBrainRun(id, { sessionId: null, totalCostUsd: o.cost ?? 0, exitStatus: o.exit ?? "success" });
+  if ((o.exit ?? "success") !== BRAIN_RUN_IN_FLIGHT) store.finishBrainRun(id, { sessionId: o.session ?? null, totalCostUsd: o.cost ?? 0, exitStatus: o.exit ?? "success" });
   return id;
 }
 
@@ -33,6 +33,16 @@ describe("real-dollar API spend (kept apart from Est. usage)", () => {
     expect(spend.runs).toBe(5);
     expect(spend.costUsd).toBeCloseTo(0.003, 10);
     expect(spend.chargedUsd).toBeCloseTo(0.02 + 0.05 + 0.02 + 0.003, 10);
+  });
+
+  it("a failed run with a session and no cost (claude ran, then failed without printing one) is charged at its task's cap; one with no session stays $0", () => {
+    const store = Datastore.open(":memory:");
+    run(store, { backend: "claude-code", exit: "failed", session: "5e55a0a0-0000-4000-8000-000000000001" });
+    run(store, { backend: "claude-code", task: "propose", exit: "failed", session: "5e55a0a0-0000-4000-8000-000000000002" });
+    run(store, { backend: "claude-code", exit: "failed" }); // claude never started
+    expect(store.researchSpendSince(SINCE, CAPS)).toMatchObject({ runs: 3, costUsd: 0, chargedUsd: 0.02 + 0.05 });
+    run(store, { backend: "claude-code", exit: "failed", session: "5e55a0a0-0000-4000-8000-000000000003", cost: 0.004 });
+    expect(store.researchSpendSince(SINCE, CAPS).chargedUsd).toBeCloseTo(0.02 + 0.05 + 0.004, 10); // a reported cost is taken as it stands
   });
 
   it("a failed API call whose cost was unknown carries its ceiling as its cost, so it is counted", () => {
