@@ -98,7 +98,7 @@ describe("Narrative threshold on the recorded sample", () => {
 });
 
 // A second sample, collected after the threshold was set and never used to choose it (ticket hardening/04; labelling rule
-// in narrative-holdout-labels.json). The same recorded-vector approach: 146 fresh headlines, 68 same-story pairs in 14 groups.
+// in narrative-holdout-labels.json). The same recorded-vector approach: 146 fresh headlines, 62 same-story pairs in 13 multi-headline stories plus one singleton.
 describe("Narrative threshold on the holdout sample", () => {
   const holdout = read<Array<{ sourceId: string; title: string; url: string }>>("narrative-holdout.json");
   const holdoutLabels = read<{ groups: Record<string, string[]>; topics: Record<string, string[]> }>("narrative-holdout-labels.json");
@@ -111,7 +111,7 @@ describe("Narrative threshold on the holdout sample", () => {
     return i;
   };
 
-  it("joins at least 20 of the 68 same-story pairs, merges no two stories, and keeps the closest wrong pair under the threshold with a margin", async () => {
+  it("joins at least 20 of the 62 same-story pairs, merges no two stories, and keeps the closest wrong pair under the threshold with a margin", async () => {
     const holdoutSignals: Signal[] = holdout.map((s, i) => ({
       id: `holdout:${i}`,
       sourceId: s.sourceId,
@@ -149,7 +149,7 @@ describe("Narrative threshold on the holdout sample", () => {
       }
     }
     expect(wrongJoined).toBe(0);
-    expect(sameJoined).toBeGreaterThanOrEqual(20); // 25 of the 68 when measured at 0.90
+    expect(sameJoined).toBeGreaterThanOrEqual(20); // 25 of the 62 when measured at 0.90
     expect(closestWrong).toBeLessThan(JOIN_THRESHOLD - 0.03); // 0.859 when measured: a margin of 0.041, against 0.022 on the tuning sample
   });
 });

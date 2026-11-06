@@ -1,5 +1,5 @@
 {
- "note": "Hand labels for narrative-holdout.json (a holdout sample, collected 2026-11-06, after JOIN_THRESHOLD was tuned), keyed by '<sourceId> | <title>'. Labelled from the headlines alone, before any similarity was computed. Rule: two headlines are the SAME story when they report the same specific event or development (same actors, same occurrence, same news cycle), from any outlet or angle, so that a reader would say 'that is the same news item'; an update to the same event (a live blog, a follow-up with a new figure of the same event) counts when it is clearly about that one occurrence. Not same: a different development of a shared subject (a market rebound versus the earlier rout, a different day's ETF flow figure), a reaction piece about a wider theme, or two events of one kind (two exchange hacks). Those wider-subject pairs are listed in topics (related, scored as neither same nor different). Every other pair is a different story. Identical titles from different feeds (BBC World and BBC Technology) are the same story. groups: one specific story each. topics: a shared wider subject. Item 'Judge halts construction of Trump's arch. And, Labor Department to release jobs report' is a two-story bulletin and sits in topics only.",
+ "note": "Hand labels for narrative-holdout.json (a holdout sample, collected 2026-11-06, after JOIN_THRESHOLD was tuned), keyed by '<sourceId> | <title>'. Labelled from the headlines alone, before any similarity was computed. Rule: two headlines are the SAME story when they report the same specific event or development (same actors, same occurrence, same news cycle), from any outlet or angle, so that a reader would say 'that is the same news item'; an update to the same event (a live blog, a follow-up with a new figure of the same event) counts when it is clearly about that one occurrence. Not same: a different development of a shared subject (a market rebound versus the earlier rout, a different day's ETF flow figure), a reaction piece about a wider theme, or two events of one kind (two exchange hacks). Those wider-subject pairs are listed in topics (related, scored as neither same nor different). Every other pair is a different story. Identical titles from different feeds (BBC World and BBC Technology) are the same story. groups: one specific story each. topics: a shared wider subject. Item 'Judge halts construction of Trump's arch. And, Labor Department to release jobs report' is a two-story bulletin and sits in topics only (it is excluded from scoring; its lead item is the same story as the Guardian's 'Federal judge temporarily halts building work on Trump's triumphal arch'). Later developments of an event ('Russian extremist group denies sending hoax bomb threats', '$3.1B in Stolen Binance Crypto Has Yet to Be Laundered') are related, not same.",
  "groups": {
   "cybertruck-ends": [
    "rss:hn-frontpage | RIP Cybertruck",
@@ -18,7 +18,6 @@
   ],
   "europe-bomb-threats": [
    "rss:bbc-world | New wave of bomb threats hit European airlines",
-   "rss:bbc-world | Russian extremist group denies sending hoax bomb threats",
    "rss:npr-news | European air traffic is targeted by new threats after a week of hoaxes",
    "rss:guardian-world | Further bomb threats disrupt at least another 18 flights across Europe",
    "rss:guardian-world | Bomb threats against European flights ‘likely a coordinated campaign of disruption’, Ireland says – as it happened"
@@ -68,11 +67,17 @@
   ],
   "binance-hack": [
    "rss:cointelegraph | Binance hackers had 8 weeks of access before $6.3B exploit, Security Alliance estimates",
-   "rss:cointelegraph | Binance’s $6.3B hack leaves questions over hot wallet safeguards",
-   "rss:decrypt | $3.1B in Stolen Binance Crypto Has Yet to Be Laundered: Elliptic"
+   "rss:cointelegraph | Binance’s $6.3B hack leaves questions over hot wallet safeguards"
   ]
  },
  "topics": {
+  "europe-bomb-threats-wider": [
+   "rss:bbc-world | New wave of bomb threats hit European airlines",
+   "rss:bbc-world | Russian extremist group denies sending hoax bomb threats",
+   "rss:npr-news | European air traffic is targeted by new threats after a week of hoaxes",
+   "rss:guardian-world | Further bomb threats disrupt at least another 18 flights across Europe",
+   "rss:guardian-world | Bomb threats against European flights ‘likely a coordinated campaign of disruption’, Ireland says – as it happened"
+  ],
   "midterms": [
    "rss:verge | Big Tech lost big in the 2026 election",
    "rss:bbc-world | Dozens of Democrats eyeing 2028 presidential run, says former Obama aide",

@@ -21,6 +21,7 @@ const args = process.argv.slice(2);
 const opt = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const fixtures = (name) => fileURLToPath(new URL(`../packages/core/src/fixtures/${name}`, import.meta.url));
 const sampleName = opt("--sample") ?? "sample"; // "sample" (the tuning sample) or "holdout" (ticket hardening/04)
+if (!["sample", "holdout"].includes(sampleName)) throw new Error(`unknown --sample ${sampleName} (expected sample or holdout)`);
 const sample = JSON.parse(readFileSync(fixtures(`narrative-${sampleName}.json`), "utf8"));
 const labels = JSON.parse(readFileSync(fixtures(`narrative-${sampleName}-labels.json`), "utf8"));
 const fullPath = opt("--full");
@@ -75,7 +76,7 @@ if (embedderChoice === "hashing") {
     const worst = Math.min(...vectors.map((v, i) => cosineSimilarity(v, committed[i])));
     console.log(`committed embeddings vs the real model: worst cosine ${worst.toFixed(5)}`);
     if (!(worst > 0.999)) {
-      console.error("FAIL: narrative-sample-embeddings.json no longer matches the model; regenerate it with --write-embeddings");
+      console.error(`FAIL: narrative-${sampleName}-embeddings.json no longer matches the model; regenerate it with --write-embeddings`);
       process.exit(1);
     }
     console.log("PASS");
