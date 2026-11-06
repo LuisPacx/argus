@@ -83,3 +83,4 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
   3. `[ingest] rss:hn-frontpage failed: This operation was aborted` (1; same fetch-timeout as before). Also: `propose: narrative 189 refused: \`evidence\` must be an array of 3 to 5 links`` (1).
 
 - Propose run cap raised 30 -> 45 by the Operator on 2026-11-06 mid-run
+- Restart 2026-11-06T23:28:27Z-2026-11-06T23:28:50Z (23 s downtime) on 08b5302 to apply caps 30 Proposals/day and 45 propose runs/day.
