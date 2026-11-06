@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { BrainError, type Brain } from "./brain.ts";
 import type { Datastore, NarrativeDetail, NarrativeEmbedder } from "./datastore.ts";
-import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchUsage, type ResearchBudgetConfig } from "./research-budget.ts";
+import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "./research-budget.ts";
 import { RUBRIC_MAX_SCORE, type DimensionScores, type Rubric, type RubricKey } from "./rubric.ts";
 
 /** Longest rationale accepted; over it the answer is refused, never cut. */
@@ -165,6 +165,7 @@ export async function judgePendingNarratives(
 ): Promise<JudgeSummary> {
   const config = { ...DEFAULT_JUDGE_CONFIG, ...opts.config };
   const research = opts.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG;
+  const caps = researchRunCaps(brain); // a run that reports no cost is charged at its route's cap
   const log = opts.log ?? console.log;
   const clock = () => opts.now ?? new Date();
   const out: JudgeSummary = { judged: 0, refused: 0, failed: 0 };
@@ -180,13 +181,13 @@ export async function judgePendingNarratives(
 
   for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
-    const spent = store.judgeSpendSince(new Date(clock().getTime() - 24 * 3_600_000).toISOString());
-    if (spent.runs >= config.maxRunsPerDay || spent.costUsd >= config.maxDailyUsd) {
-      log(`[worker] judge: daily cap reached (${spent.runs} runs, $${spent.costUsd.toFixed(4)} in 24 h); waiting`);
+    const spent = store.judgeSpendSince(new Date(clock().getTime() - 24 * 3_600_000).toISOString(), caps);
+    if (spent.runs >= config.maxRunsPerDay || spent.chargedUsd >= config.maxDailyUsd) {
+      log(`[worker] judge: daily cap reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h); waiting`);
       return { ...out, stoppedBy: "daily-cap" };
     }
     // The shared research budget (judge plus propose, see research-budget.ts): when it is used up, research waits for older runs to age out.
-    const usage = researchUsage(store, clock(), research);
+    const usage = researchUsage(store, clock(), research, caps);
     if (usage.exhausted) {
       log(`[worker] judge: research budget reached ($${usage.usedUsd.toFixed(4)} of $${usage.budgetUsd.toFixed(2)} in 24 h, judge and propose together); waiting`);
       return { ...out, stoppedBy: "research-cap" };

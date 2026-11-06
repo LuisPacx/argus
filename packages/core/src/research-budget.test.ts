@@ -46,4 +46,18 @@ describe("the research budget: one rolling-24 h Est. usage figure shared by judg
     add("propose", 2, hours(-1));
     expect(researchUsage(store, NOW, DEFAULT_RESEARCH_BUDGET_CONFIG)).toMatchObject({ usedUsd: 6, exhausted: true });
   });
+
+  it("charges runs that reported no cost at their route's cap, so repeated timeouts cannot pass the budget", () => {
+    const store = Datastore.open(":memory:");
+    const timeout = (task: string) => store.finishBrainRun(store.startBrainRun({ proposalId: 0, task, backend: "claude-code", model: "m" }, hours(-1)), { sessionId: null, totalCostUsd: 0, exitStatus: "timed-out" });
+    for (let i = 0; i < 5; i++) timeout("propose"); // the default propose cap is $1 a run
+    expect(researchUsage(store, NOW, DEFAULT_RESEARCH_BUDGET_CONFIG)).toMatchObject({ usedUsd: 5, reportedUsd: 0, runs: 5, exhausted: false });
+    timeout("judge"); // and the judge's $0.10
+    const u = researchUsage(store, NOW, DEFAULT_RESEARCH_BUDGET_CONFIG);
+    expect(u.usedUsd).toBeCloseTo(5.1, 10);
+    timeout("propose");
+    expect(researchUsage(store, NOW, DEFAULT_RESEARCH_BUDGET_CONFIG)).toMatchObject({ exhausted: true });
+    // A route with another cap is charged at that one.
+    expect(researchUsage(store, NOW, DEFAULT_RESEARCH_BUDGET_CONFIG, { judge: 0.1, propose: 0.2 }).usedUsd).toBeCloseTo(1.3, 10);
+  });
 });

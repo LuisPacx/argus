@@ -108,6 +108,16 @@ export interface NewProposal {
   evidenceLinks: string[];
 }
 
+/** Per-task per-run spend ceilings (the route's `--max-budget-usd`), used to charge runs that never reported a cost. */
+export type RunCaps = Partial<Record<string, number>>;
+
+/** Runs started in a window, the cost they reported, and what they are charged against a budget (never less than the reported cost). */
+export interface Spend {
+  runs: number;
+  costUsd: number;
+  chargedUsd: number;
+}
+
 /** A Proposal made by the propose pass: the fields plus the Narrative and Score it came from. */
 export interface NewResearchProposal extends NewProposal {
   narrativeId: number;
@@ -954,26 +964,42 @@ export class Datastore {
     return rows.map(toBrainRun);
   }
 
-  /** What the judge has spent since `since` (ISO): runs started and their cost. Refused and failed runs count too. */
-  judgeSpendSince(since: string): { runs: number; costUsd: number } {
-    return this.spendSince(["judge"], since);
+  /**
+   * What the judge has spent since `since` (ISO): runs started, the cost they reported (`costUsd`) and what they are charged against a
+   * budget (`chargedUsd`, see `spendSince`). Refused and failed runs count too.
+   */
+  judgeSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["judge"], since, caps);
   }
 
-  /** What the propose pass has spent since `since` (ISO): runs started and their cost. Refused and failed runs count too. */
-  proposeSpendSince(since: string): { runs: number; costUsd: number } {
-    return this.spendSince(["propose"], since);
+  /** What the propose pass has spent since `since` (ISO), as for `judgeSpendSince`. */
+  proposeSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["propose"], since, caps);
   }
 
-  /** What research (judge plus propose) has spent since `since` (ISO): the figure the shared research budget is held to. */
-  researchSpendSince(since: string): { runs: number; costUsd: number } {
-    return this.spendSince(["judge", "propose"], since);
+  /** What research (judge plus propose) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
+  researchSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["judge", "propose"], since, caps);
   }
 
-  private spendSince(tasks: readonly string[], since: string): { runs: number; costUsd: number } {
+  /**
+   * `costUsd` is the sum of the costs runs reported. A run that ended without printing a result (killed by its wall-clock cap, by a
+   * shutdown, or left in flight by a worker that died) reports $0 although it may have spent up to its `--max-budget-usd`, so for
+   * budget purposes `chargedUsd` charges such a run (`timed-out`, `interrupted`, or still `in-flight`, with no cost recorded) at its
+   * task's cap from `caps`, which is a ceiling on what it can have used. A plain `failed` run is not charged: it is also what a claude
+   * that never started looks like. Without `caps` nothing is charged beyond the reported cost.
+   */
+  private spendSince(tasks: readonly string[], since: string, caps: RunCaps = {}): Spend {
+    const capFor = (task: string) => caps[task] ?? 0;
     const row = this.db
-      .prepare(`SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?`)
-      .get(...tasks, since) as unknown as { runs: number; cost: number };
-    return { runs: row.runs, costUsd: row.cost };
+      .prepare(
+        `SELECT COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost,
+           COALESCE(SUM(CASE WHEN total_cost_usd = 0 AND exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}')
+             THEN (CASE task ${tasks.map(() => "WHEN ? THEN ?").join(" ")} ELSE 0 END) ELSE total_cost_usd END), 0) AS charged
+         FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?`,
+      )
+      .get(...tasks.flatMap((t) => [t, capFor(t)]), ...tasks, since) as unknown as { runs: number; cost: number; charged: number };
+    return { runs: row.runs, costUsd: row.cost, chargedUsd: row.charged };
   }
 
   /**

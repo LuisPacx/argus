@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ClaudeCodeBrain } from "./brain.ts";
+import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
 import { DEFAULT_JUDGE_CONFIG, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
 import type { ResearchBudgetConfig } from "./research-budget.ts";
@@ -432,6 +432,16 @@ describe("the shared research budget (judge plus propose)", () => {
     const later = new Date(NOW.getTime() + 24 * 3_600_000 + 60_000);
     addNarrative(store, "Fresh story", { at: later });
     expect(await pass({}, { now: later, research: budget(1) })).toMatchObject({ judged: 2 }); // the waiting Narrative and the fresh one
+  });
+
+  it("a timed-out run prints no cost but is charged at the judge route's cap, which then stops the pass", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ judge: { timeoutMs: 300, maxBudgetUsd: 0.2 } }) });
+    for (let i = 0; i < 4; i++) addNarrative(store, `Story ${i}`);
+    expect(await pass({}, { research: budget(0.2) })).toMatchObject({ judged: 0, failed: 1, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
+    expect(store.judgeRunsFor(1)).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }]); // the reported cost stays 0
+    expect(await pass({}, { now: minutes(30), research: budget(0.2) })).toMatchObject({ stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
   });
 
   it("applies the default budget ($6) when none is passed", async () => {

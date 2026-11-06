@@ -56,8 +56,11 @@ export interface BrainRunOptions {
 }
 
 export interface Brain {
-  /** Which backend and model a task is routed to, known before the run (recorded on the in-flight run row). */
-  routeFor(task: BrainTask): { backend: BrainBackend; model: string };
+  /**
+   * Which backend and model a task is routed to, known before the run (recorded on the in-flight run row), and optionally the
+   * per-run spend cap of the route, which research uses to charge a run that ended without reporting its cost.
+   */
+  routeFor(task: BrainTask): { backend: BrainBackend; model: string; maxBudgetUsd?: number };
   run<T = string>(task: BrainTask, input: BrainInput, opts?: BrainRunOptions): Promise<BrainRun<T>>;
 }
 
@@ -317,9 +320,9 @@ export class ClaudeCodeBrain implements Brain {
     this.routing = opts.routing ?? DEFAULT_ROUTING;
   }
 
-  routeFor(task: BrainTask): { backend: BrainBackend; model: string } {
-    const { backend, model } = this.routing[task];
-    return { backend, model };
+  routeFor(task: BrainTask): { backend: BrainBackend; model: string; maxBudgetUsd: number } {
+    const { backend, model, maxBudgetUsd } = this.routing[task];
+    return { backend, model, maxBudgetUsd };
   }
 
   /** The task's wall-clock cap in ms. */

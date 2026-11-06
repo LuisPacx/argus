@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ClaudeCodeBrain } from "./brain.ts";
+import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder, type Proposal } from "./datastore.ts";
 import { expireStaleProposals } from "./expiry.ts";
 import { proposePendingNarratives, type ProposeConfig } from "./propose.ts";
@@ -358,6 +358,16 @@ describe("caps", () => {
     expect(calls()).toHaveLength(2);
   });
 
+  it("a timed-out run prints no cost but is charged at the propose route's cap, which then stops the pass", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "hang" }, { routing: resolveRouting({ propose: { timeoutMs: 300, maxBudgetUsd: 0.5 } }) });
+    for (let i = 0; i < 4; i++) addScored(store, `Story ${i}`);
+    expect(await pass(wide, { research: { dailyQuotaUsd: 1, share: 0.5 } })).toMatchObject({ proposed: 0, failed: 1, stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
+    expect(store.brainRunsFor(0)).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }]); // the reported cost stays 0
+    expect(await pass(wide, { now: minutes(30), research: { dailyQuotaUsd: 1, share: 0.5 } })).toMatchObject({ stoppedBy: "research-cap" });
+    expect(calls()).toHaveLength(1);
+  });
+
   it("stops when the shared research budget is used up, counting judge spend, and waits for the next day", async () => {
     const { store, pass, calls, lines } = setup();
     for (let i = 0; i < 4; i++) addScored(store, `Story ${i}`);
@@ -383,6 +393,34 @@ describe("the Proposal-created hook", () => {
     await pass(wide, { onCreated: (p) => seen.push({ id: p.id, stored: store.getProposal(p.id)?.status === "new" }) });
     expect(seen).toHaveLength(2);
     expect(seen.every((s) => s.stored)).toBe(true);
+  });
+
+  it("a hook that returns a rejecting promise is logged, never an unhandled rejection, and never undoes the Proposal", async () => {
+    const { store, pass, lines } = setup();
+    addScored(store, "One");
+    addScored(store, "Two");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const out = await pass(wide, { onCreated: async () => Promise.reject(new Error("telegram is slow and down")) });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(out).toMatchObject({ proposed: 2 });
+      expect(store.listProposals()).toHaveLength(2);
+      expect(lines.filter((l) => l.includes("new-Proposal hook failed: telegram is slow and down"))).toHaveLength(2);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("an async hook is not awaited: a slow notifier does not hold the pass up", async () => {
+    const { store, pass } = setup();
+    addScored(store, "One");
+    let finished = false;
+    const out = await pass(wide, { onCreated: () => new Promise<void>((r) => setTimeout(() => ((finished = true), r()), 300)) });
+    expect(out.proposed).toBe(1);
+    expect(finished).toBe(false);
   });
 
   it("a hook that throws never undoes the Proposal or stops the pass", async () => {

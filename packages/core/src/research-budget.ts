@@ -1,4 +1,5 @@
-import type { Datastore } from "./datastore.ts";
+import { DEFAULT_ROUTING, type Brain } from "./brain.ts";
+import type { Datastore, RunCaps } from "./datastore.ts";
 
 /**
  * The research share (architecture section 5 and invariant 3): judge and propose together may use about 30% of the daily
@@ -45,9 +46,28 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
   };
 }
 
+/**
+ * What a run that reported no cost is charged against the budget: its route's per-run cap, a ceiling on what it can have used. The
+ * Brain reports its routes' caps; a Brain that does not falls back to the default routing's.
+ */
+export function researchRunCaps(brain: Pick<Brain, "routeFor">): RunCaps {
+  return {
+    judge: brain.routeFor("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
+    propose: brain.routeFor("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
+  };
+}
+
+export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = { judge: DEFAULT_ROUTING.judge.maxBudgetUsd, propose: DEFAULT_ROUTING.propose.maxBudgetUsd };
+
 export interface ResearchUsage {
-  /** Est. usage of every judge and propose run started in the last 24 hours (refused and failed runs included). */
+  /**
+   * What every judge and propose run started in the last 24 hours is charged against the budget (refused and failed runs included): the
+   * Est. usage they reported, except that a run that ended with no reported cost (timed out, interrupted, left in flight by a dead
+   * worker) is charged at its route's per-run cap, since it may have spent that much.
+   */
   usedUsd: number;
+  /** The Est. usage the runs actually reported, without those charges. */
+  reportedUsd: number;
   runs: number;
   budgetUsd: number;
   quotaUsd: number;
@@ -58,16 +78,22 @@ export interface ResearchUsage {
   exhausted: boolean;
 }
 
-export function researchUsage(store: Pick<Datastore, "researchSpendSince">, now: Date, config: ResearchBudgetConfig): ResearchUsage {
-  const spent = store.researchSpendSince(new Date(now.getTime() - 24 * 3_600_000).toISOString());
+export function researchUsage(
+  store: Pick<Datastore, "researchSpendSince">,
+  now: Date,
+  config: ResearchBudgetConfig,
+  caps: RunCaps = DEFAULT_RESEARCH_RUN_CAPS,
+): ResearchUsage {
+  const spent = store.researchSpendSince(new Date(now.getTime() - 24 * 3_600_000).toISOString(), caps);
   const budgetUsd = researchBudgetUsd(config);
   return {
-    usedUsd: spent.costUsd,
+    usedUsd: spent.chargedUsd,
+    reportedUsd: spent.costUsd,
     runs: spent.runs,
     budgetUsd,
     quotaUsd: config.dailyQuotaUsd,
     share: config.share,
-    usedShareOfQuota: spent.costUsd / config.dailyQuotaUsd,
-    exhausted: spent.costUsd >= budgetUsd,
+    usedShareOfQuota: spent.chargedUsd / config.dailyQuotaUsd,
+    exhausted: spent.chargedUsd >= budgetUsd,
   };
 }

@@ -180,7 +180,29 @@ describe("research spend", () => {
     add("propose", 9, hours(-30)); // older than the window
     add("spec", 3, hours(-1));
     add("build", 4, hours(-1));
-    expect(store.researchSpendSince(hours(-24).toISOString())).toEqual({ runs: 2, costUsd: 1.75 });
-    expect(store.proposeSpendSince(hours(-24).toISOString())).toEqual({ runs: 1, costUsd: 1.25 });
+    expect(store.researchSpendSince(hours(-24).toISOString())).toEqual({ runs: 2, costUsd: 1.75, chargedUsd: 1.75 });
+    expect(store.proposeSpendSince(hours(-24).toISOString())).toEqual({ runs: 1, costUsd: 1.25, chargedUsd: 1.25 });
+  });
+
+  it("charges a run that ended without a reported cost (timed out, interrupted, left in flight by a dead worker) at its task's cap, and keeps the reported cost apart", () => {
+    const store = Datastore.open(":memory:");
+    const add = (task: string, cost: number, status: string) => {
+      const id = store.startBrainRun({ proposalId: 0, task, backend: "claude-code", model: "m" }, hours(-1));
+      if (status !== "in-flight") store.finishBrainRun(id, { sessionId: null, totalCostUsd: cost, exitStatus: status });
+    };
+    add("propose", 0, "timed-out");
+    add("judge", 0, "interrupted");
+    add("propose", 0, "in-flight");
+    add("propose", 0.3, "timed-out"); // a cost was reported: that is what it is charged
+    add("judge", 0.02, "success");
+    add("propose", 0, "failed"); // a failure with no cost may be a claude that never started: not charged
+    const caps = { judge: 0.1, propose: 1 };
+    const out = store.researchSpendSince(hours(-24).toISOString(), caps);
+    expect(out.runs).toBe(6);
+    expect(out.costUsd).toBeCloseTo(0.32, 10);
+    expect(out.chargedUsd).toBeCloseTo(1 + 0.1 + 1 + 0.3 + 0.02, 10);
+    expect(store.proposeSpendSince(hours(-24).toISOString(), caps).chargedUsd).toBeCloseTo(2.3, 10);
+    // Without caps nothing is charged beyond the reported cost.
+    expect(store.researchSpendSince(hours(-24).toISOString()).chargedUsd).toBeCloseTo(0.32, 10);
   });
 });

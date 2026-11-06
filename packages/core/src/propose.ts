@@ -13,7 +13,7 @@ import {
 } from "./datastore.ts";
 import { InvalidEvidenceLinkError, normalizeEvidenceLinks } from "./evidence-links.ts";
 import { JUDGE_MAX_SIGNALS as MAX_SIGNALS, oneLine } from "./judge.ts";
-import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchUsage, type ResearchBudgetConfig } from "./research-budget.ts";
+import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "./research-budget.ts";
 import { RUBRIC_MAX_SCORE } from "./rubric.ts";
 
 /** What the propose model writes; limits are characters. Over a limit the answer is refused, never cut. */
@@ -183,11 +183,12 @@ export async function proposePendingNarratives(
     research?: ResearchBudgetConfig;
     log?: (line: string) => void;
     signal?: AbortSignal;
-    onCreated?: (proposal: Proposal) => void;
+    onCreated?: (proposal: Proposal) => void | Promise<void>;
   } = {},
 ): Promise<ProposeSummary> {
   const config = { ...DEFAULT_PROPOSE_CONFIG, ...opts.config };
   const research = opts.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG;
+  const caps = researchRunCaps(brain); // a run that reports no cost is charged at its route's cap
   const log = opts.log ?? console.log;
   const clock = () => opts.now ?? new Date();
   const out: ProposeSummary = { proposed: 0, refused: 0, failed: 0, withdrawn: 0 };
@@ -209,12 +210,12 @@ export async function proposePendingNarratives(
       log(`[worker] propose: the daily cap of ${maxNew} new Proposals is reached; waiting`);
       return { ...out, stoppedBy: "proposal-cap" };
     }
-    const spent = store.proposeSpendSince(dayAgo);
+    const spent = store.proposeSpendSince(dayAgo, caps);
     if (spent.runs >= config.maxRunsPerDay) {
-      log(`[worker] propose: daily run cap reached (${spent.runs} runs, $${spent.costUsd.toFixed(4)} in 24 h); waiting`);
+      log(`[worker] propose: daily run cap reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h); waiting`);
       return { ...out, stoppedBy: "daily-cap" };
     }
-    const usage = researchUsage(store, clock(), research);
+    const usage = researchUsage(store, clock(), research, caps);
     if (usage.exhausted) {
       log(`[worker] propose: research budget reached ($${usage.usedUsd.toFixed(4)} of $${usage.budgetUsd.toFixed(2)} in 24 h, judge and propose together); waiting`);
       return { ...out, stoppedBy: "research-cap" };
@@ -287,10 +288,13 @@ export async function proposePendingNarratives(
     }
     out.proposed++;
     log(`[worker] propose: Proposal ${proposal.id} "${proposal.name}" (${proposal.ticker}) from narrative ${narrative.id}`);
+    // The hook is fire-and-forget: a slow notifier never holds the pass up, and a throw or a rejection is logged, never unhandled.
+    const hookFailed = (e: unknown) => log(`[worker] propose: new-Proposal hook failed: ${e instanceof Error ? e.message : String(e)}`);
     try {
-      opts.onCreated?.(proposal);
+      const pending = opts.onCreated?.(proposal);
+      if (pending) void Promise.resolve(pending).catch(hookFailed);
     } catch (e) {
-      log(`[worker] propose: new-Proposal hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      hookFailed(e);
     }
   }
   return out;
