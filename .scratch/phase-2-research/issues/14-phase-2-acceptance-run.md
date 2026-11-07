@@ -85,3 +85,16 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
 - Propose run cap raised 30 -> 45 by the Operator on 2026-11-06 mid-run
 - Restart 2026-11-06T23:28:27Z-2026-11-06T23:28:50Z (23 s downtime) on 08b5302 to apply caps 30 Proposals/day and 45 propose runs/day.
 - Restart 2026-11-07T02:18:18Z-2026-11-07T02:18:42Z (24 s downtime) on 26afe60 to deploy the War Room redesign (ticket 18). New PIDs: warroom 1470085, worker 1470825. Fix needed: stale dev-server resolution of @fontsource-variable/plus-jakarta-sans returned 500 on all pages; restart cleared it.
+
+### Check-in 2026-11-07T00:47:55-03:00
+
+- Status: `dev:status` reports warroom running (pid 1470085, port 3100) and worker running (pid 1470825). Running: yes.
+- Datastore (read-only, counts at 2026-11-07T00:47:55-03:00): Signals 7602, Narratives 670, Scores 150, Proposals 21.
+- Proposals by status: new 21 (no other status). Created per calendar day (UTC date): 2026-11-06 = 13, 2026-11-07 = 8. Proposals in the last 24 h: 21 (cap 30).
+- Expired Proposals: 0 (no status other than new; no expiry column).
+- brain_runs in the last 6 h: 113 runs, estimated cost $0.8507 total.
+- worker.log since the last check-in (2026-11-06T21:47:44Z, from line 2508): 0 error-level lines; 2 ingest source failures (`github:trending`, `rss:hn-frontpage`, each `This operation was aborted`, one tick each); 6 propose refusals (`evidence` must be an array of 3 to 5 links), 4 of them counted in propose tick summaries; 2 ExperimentalWarning (SQLite, startup only); 5 cap stops (3 judge daily-cap, 2 propose proposal-cap).
+- Most frequent warning/error messages:
+  1. `propose: narrative N refused: evidence must be an array of 3 to 5 links` (6)
+  2. `[ingest] <source> failed: This operation was aborted` (2 distinct sources, 1 each)
+  3. `(node:N) ExperimentalWarning: SQLite is an experimental feature` (2)
