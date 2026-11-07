@@ -25,6 +25,8 @@ Create the Phase 1 tickets with `/to-tickets` from [`docs/architecture.md`](docs
 4. Open the War Room at http://localhost:3100/ (logs: `.data/run/warroom-dev.log` and `.data/run/worker.log`)
 5. `pnpm dev:status` / `pnpm dev:stop`
 
+While argus runs, each process holds a `systemd-inhibit --what=handle-lid-switch:sleep --who=argus` lock, so closing the lid no longer suspends the machine. The lock is released when `pnpm dev:stop` runs or the process dies, and `pnpm dev:status` shows whether it is held. Without `systemd-inhibit` on PATH, argus still starts and prints a warning that sleep is not blocked.
+
 Research uses your Claude subscription through `claude -p`, capped by `ARGUS_DAILY_QUOTA_USD` × `ARGUS_RESEARCH_SHARE` (defaults $20 × 0.3).
 
 ### Optional: Telegram

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listLocks, lockStatusLine, onPath, wrapCommand } from './inhibit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUN_DIR = path.join(ROOT, '.data', 'run');
@@ -21,6 +22,20 @@ const POLL_MS = 500;
 const TARGETS = ['warroom', 'worker', 'all'];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Each long-lived process runs under `systemd-inhibit` (blocks lid-close and sleep). The PID
+// file holds the group leader, and stop signals the whole group, so the wrapper is never
+// signalled alone. The lock ends with the process, on stop or crash.
+const INHIBIT_AVAILABLE = onPath();
+let warned = false;
+function inhibited(command, args, why) {
+  const wrapped = wrapCommand(command, args, `${why}; lid close and sleep are blocked until it stops`, INHIBIT_AVAILABLE);
+  if (wrapped.warning && !warned) {
+    warned = true;
+    console.warn(wrapped.warning);
+  }
+  return wrapped;
+}
 
 function readPid(pidFile) {
   try {
@@ -103,11 +118,8 @@ async function warroomStart(tag) {
 
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const logFd = fs.openSync(WARROOM_LOG_FILE, 'a');
-  const child = spawn(
-    'pnpm',
-    ['--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(PORT)],
-    { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd] },
-  );
+  const cmd = inhibited('pnpm', ['--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(PORT)], 'argus War Room is running');
+  const child = spawn(cmd.command, cmd.args, { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd] });
   fs.closeSync(logFd);
   child.unref();
   fs.writeFileSync(WARROOM_PID_FILE, `${child.pid}\n`);
@@ -141,7 +153,8 @@ async function workerStart(tag) {
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const fromOffset = fs.existsSync(WORKER_LOG_FILE) ? fs.statSync(WORKER_LOG_FILE).size : 0;
   const logFd = fs.openSync(WORKER_LOG_FILE, 'a');
-  const child = spawn('pnpm', ['--filter', '@argus/worker', 'start'], {
+  const cmd = inhibited('pnpm', ['--filter', '@argus/worker', 'start'], 'argus worker is running');
+  const child = spawn(cmd.command, cmd.args, {
     cwd: ROOT,
     detached: true,
     stdio: ['ignore', logFd, logFd],
@@ -223,3 +236,4 @@ if (!['start', 'stop', 'status'].includes(command) || !TARGETS.includes(target))
   process.exit(2);
 }
 process.exitCode = await run(command, target);
+if (command === 'status') console.log(lockStatusLine(INHIBIT_AVAILABLE, INHIBIT_AVAILABLE ? listLocks() : null));
