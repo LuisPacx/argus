@@ -1,5 +1,10 @@
 #!/bin/sh
-set -e
+# Skip the (slow) check when every file in every pushed commit is a note (.scratch/** or *.md, not .claude/**).
+# scripts/prepush-decision.mjs exits 0 only then; any other outcome, including a crash, runs the check.
+refs=$(cat)
+if printf '%s\n' "$refs" | node "$(dirname "$0")/../scripts/prepush-decision.mjs"; then
+  exit 0
+fi
 if ! pnpm check; then
   echo "pre-push: pnpm check failed; push blocked" >&2
   exit 1
