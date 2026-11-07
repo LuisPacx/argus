@@ -98,3 +98,10 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
   1. `propose: narrative N refused: evidence must be an array of 3 to 5 links` (6)
   2. `[ingest] <source> failed: This operation was aborted` (2 distinct sources, 1 each)
   3. `(node:N) ExperimentalWarning: SQLite is an experimental feature` (2)
+
+### Restart 2026-11-07T10:31:00-03:00 (after suspend)
+
+- Downtime 2026-11-07 01:00:02 -03:00 to 10:31:00 -03:00 (9h30m58s). Cause: laptop suspended on lid close, then rebooted at 10:24; no argus fault. Same configuration: defaults, no `.env`, research-only, API fallback off, Telegram off.
+- Time counted so far: 21h32m (2026-11-06 15:28 to 2026-11-07 01:00). Top-up: 26h28m. New planned end: 2026-11-08T12:59:00-03:00 (restart time + 26h28m).
+- New PIDs: warroom 11274 (port 3100), worker 11438. HEAD at restart: aa822d548125d08e9498708349744c5c99010c00.
+- Checks: / and /activity return 200; worker.log shows fresh ticks from 2026-11-07T13:31:00Z with no errors. First tick: judge daily cap reached (150 runs in 24 h) and waiting; ingest 17 sources, 86 new signals.
