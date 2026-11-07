@@ -38,6 +38,7 @@ import {
   PumpPortalSource,
   researchConfigFromEnv,
   revisePendingSpecs,
+  RunCancels,
   runPendingBuilds,
   sweepDismissedHomes,
   sweepStaleSeals,
@@ -137,20 +138,25 @@ if (!dryRun) {
 
 const shutdown = new AbortController();
 const ghRepoExists = githubRepoCheck({ ghBin: process.env.ARGUS_GH_BIN || "gh", cwd: dataDir });
+// The Spec runs (draft and revise) in flight in this process, so Undo shortlist can kill one.
+const specRuns = new RunCancels();
+const applyCommands = () => {
+  const n = applyPendingCommands(
+    store,
+    (c, e) => console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
+    { dataDir, log: console.log, buildRoot, githubRepoExists: ghRepoExists, cancelRun: (id) => specRuns.cancel(id) },
+  );
+  if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
+};
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
-    const n = applyPendingCommands(
-      store,
-      (c, e) => console.error(`[worker] command ${c.id} hit a non-domain error (attempt recorded):`, e),
-      { dataDir, log: console.log, buildRoot, githubRepoExists: ghRepoExists },
-    );
-    if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
+    applyCommands();
     sweepStaleRuns();
     expireStaleProposals(store, new Date(), console.log);
     announceNewProposals(store, notifier);
-    await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
-    await revisePendingSpecs(store, brain, dataDir, console.log, shutdown.signal);
+    await draftPendingSpecs(store, brain, dataDir, console.log, shutdown.signal, specRuns);
+    await revisePendingSpecs(store, brain, dataDir, console.log, shutdown.signal, specRuns);
   },
   () => console.log("[worker] tick skipped: previous tick still running"),
 );
@@ -277,6 +283,7 @@ const runResearchTick = async () => {
 };
 
 let timer: ReturnType<typeof setInterval> | undefined;
+let commandTimer: ReturnType<typeof setInterval> | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
@@ -284,6 +291,7 @@ const stop = async () => {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
+  clearInterval(commandTimer);
   clearInterval(ingestTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
@@ -319,6 +327,16 @@ if (once) {
   timer = setInterval(() => {
     void runTick();
     void runBuildTick();
+  }, TICK_MS);
+  // Commands are also applied on their own timer: the tick above waits for a Spec run (up to the brain timeout), and an Undo shortlist
+  // for that very run must reach it now, not after it. applyCommands is synchronous, so it never interleaves with the tick's own call.
+  commandTimer = setInterval(() => {
+    if (stopping) return;
+    try {
+      applyCommands();
+    } catch (e) {
+      console.error("[worker] command pass failed", e);
+    }
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
   judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);

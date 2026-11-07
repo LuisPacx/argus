@@ -512,6 +512,38 @@ body {
   transform: translateY(-8px);
 }
 
+/* The confirmation modal (ConfirmModal.vue): the backdrop fades, the panel rises a little. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(20 22 43 / 0.38);
+}
+.modal-panel {
+  width: min(28rem, 100%);
+  padding: 24px;
+  box-shadow: var(--wr-shadow-lift);
+}
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s var(--wr-ease);
+}
+.modal-enter-active .modal-panel,
+.modal-leave-active .modal-panel {
+  transition: transform 0.2s var(--wr-ease);
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from .modal-panel,
+.modal-leave-to .modal-panel {
+  transform: translateY(10px) scale(0.98);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -127,6 +127,54 @@ it("SIGTERM during one Spec draft leaves the next shortlisted Proposal undrafted
   }
 }, 30_000);
 
+/** Undo shortlist while the Spec run is in flight: the worker applies the command mid-run (it is not queued behind the run) and kills the child. */
+it("an Undo shortlist queued during a Spec draft is applied mid-run: the child is killed and the run recorded cancelled", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "argus-worker-undo-"));
+  const db = join(dir, "argus.db");
+  const started = join(dir, "started");
+  const log = join(dir, "calls.jsonl");
+  const bin = join(dir, "claude");
+  writeFileSync(bin, `#!/bin/sh\nFAKE_CLAUDE_MODE=hang-report FAKE_CLAUDE_STARTED=${started} FAKE_CLAUDE_LOG=${log} exec ${process.execPath} ${FAKE_CLAUDE} "$@"\n`);
+  chmodSync(bin, 0o755);
+  const store = Datastore.open(db);
+  const p = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Oops Coin", ticker: "OOPS", description: "d", evidenceLinks: [] });
+  store.transition(p.id, "shortlisted", "operator");
+  store.close();
+  const [, ...args] = pkgStart();
+  const child = spawn(process.execPath, args, { cwd: workerDir, env: { ...process.env, ARGUS_DB: db, ARGUS_CLAUDE_BIN: bin, ARGUS_PODMAN_BIN, ARGUS_RSS_FEEDS, ARGUS_INGEST_STANDING: "0" } });
+  const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+  try {
+    const deadline = Date.now() + 15_000;
+    while (!existsSync(started) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(existsSync(started)).toBe(true);
+    await new Promise((r) => setTimeout(r, 200)); // the fake has installed its SIGTERM handler
+    const claudePid = (JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]!) as { pid: number }).pid;
+    const writer = Datastore.open(db);
+    const command = writer.enqueueCommand(p.id, "undo-shortlist");
+    const check = Date.now() + 20_000;
+    let seen = writer.getProposal(p.id)!;
+    while (seen.status !== "new" && Date.now() < check) {
+      await new Promise((r) => setTimeout(r, 100));
+      seen = writer.getProposal(p.id)!;
+    }
+    // Let the killed run record itself.
+    while (writer.getProposal(p.id)!.brainRunInFlightSince !== null && Date.now() < check) await new Promise((r) => setTimeout(r, 100));
+    expect(writer.getCommand(command.id)).toMatchObject({ status: "applied" });
+    expect(writer.getProposal(p.id)).toMatchObject({ status: "new", specError: "", specPath: null, brainRunInFlightSince: null });
+    expect(writer.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "cancelled" }]);
+    expect(() => process.kill(claudePid, 0)).toThrow(); // the child is gone
+    await new Promise((r) => setTimeout(r, 6_000)); // a further tick must not draft it again
+    expect(writer.brainRunsFor(p.id)).toHaveLength(1);
+    writer.close();
+  } finally {
+    child.kill("SIGTERM");
+    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    await exited;
+    clearTimeout(timer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
+
 function pkgStart(): string[] {
   const pkg = JSON.parse(readFileSync(join(workerDir, "package.json"), "utf8")) as { scripts: { start: string } };
   return pkg.scripts.start.split(" ");

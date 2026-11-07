@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BrainError, SESSION_ID_RE, type Brain } from "./brain.ts";
 import { BRAIN_RUN_IN_FLIGHT, SpecConflictError, type Datastore, type Proposal } from "./datastore.ts";
@@ -85,6 +85,40 @@ export function specProblem(text: string): string | null {
   return missing.length > 0 ? `missing required section(s): ${missing.map((h) => `## ${h}`).join(", ")}` : null;
 }
 
+/** `brain_runs.exit_status` of a Spec run the Operator cancelled by undoing the shortlist. Its cost is whatever the killed run reported. */
+export const BRAIN_RUN_CANCELLED = "cancelled";
+
+/**
+ * The Spec runs (draft and revise) this process has in flight, one per Proposal, each with its own abort. The worker hands `cancel` to
+ * the command applier, so an Undo shortlist kills the child instead of letting it spend to the end. A run ends `cancelled` (not
+ * `interrupted`, which means the worker was stopping). Cancelling a Proposal with no run here is a no-op: a run owned by another
+ * process finishes on its own and finds the Proposal no longer in the status it started from.
+ */
+export class RunCancels {
+  private readonly runs = new Map<number, AbortController>();
+
+  /** Registers a run for `proposalId`. `signal` aborts on cancel or on the worker's `outer` shutdown signal. Call `end` when the run is over. */
+  begin(proposalId: number, outer?: AbortSignal): { signal: AbortSignal; cancelled: () => boolean; end: () => void } {
+    const controller = new AbortController();
+    this.runs.set(proposalId, controller);
+    return {
+      signal: outer ? AbortSignal.any([outer, controller.signal]) : controller.signal,
+      cancelled: () => controller.signal.aborted,
+      end: () => {
+        if (this.runs.get(proposalId) === controller) this.runs.delete(proposalId);
+      },
+    };
+  }
+
+  /** Aborts the Proposal's run in flight in this process. Returns whether there was one. */
+  cancel(proposalId: number): boolean {
+    const controller = this.runs.get(proposalId);
+    if (!controller) return false;
+    controller.abort();
+    return true;
+  }
+}
+
 /** Shortlisted Proposals that still need a Spec: not waiting out a failure and with no brain run open. */
 export function draftable(store: Datastore, now = new Date()): Proposal[] {
   return store.listProposals().filter((p) => {
@@ -114,6 +148,7 @@ export async function draftSpec(
   proposal: Proposal,
   dataDir: string,
   signal?: AbortSignal,
+  cancels: RunCancels = new RunCancels(),
 ): Promise<boolean> {
   if (signal?.aborted) return false; // shutting down: never spawn
   const current = store.getProposal(proposal.id);
@@ -121,21 +156,25 @@ export async function draftSpec(
   if (store.openBrainRun(proposal.id, "spec")) return false;
 
   const runId = store.startBrainRun({ proposalId: proposal.id, task: "spec", ...brain.routeFor("spec") });
+  const live = cancels.begin(proposal.id, signal);
   let run;
   try {
     run = await brain.run<string>(
       "spec",
       { prompt: specPromptFor(proposal) },
-      { signal, workDir: brainWorkDirFor(dataDir, proposal.id) },
+      { signal: live.signal, workDir: brainWorkDirFor(dataDir, proposal.id) },
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const brainError = e instanceof BrainError ? e : undefined;
+    // The Operator undid the shortlist: the run is recorded as cancelled with whatever it reported, and the Proposal (now `new`) is left alone.
+    const cancelled = live.cancelled();
     store.finishBrainRun(runId, {
       sessionId: brainError?.sessionId ?? null,
       totalCostUsd: brainError?.totalCostUsd ?? 0,
-      exitStatus: brainError?.kind ?? "failed",
+      exitStatus: cancelled ? BRAIN_RUN_CANCELLED : (brainError?.kind ?? "failed"),
     });
+    if (cancelled) return false;
     // Killed by shutdown: not a verdict on the Proposal. Leave it shortlisted with no error so the next boot drafts it again.
     if (brainError?.kind === "interrupted") return false;
     if (store.getProposal(proposal.id)?.status === "shortlisted") {
@@ -145,6 +184,8 @@ export async function draftSpec(
       });
     }
     return false;
+  } finally {
+    live.end();
   }
   if (run.dryRun) {
     store.discardBrainRun(runId);
@@ -159,21 +200,29 @@ export async function draftSpec(
   });
 
   // The spend is recorded. Nothing below may call the brain again.
+  const path = specPathFor(dataDir, proposal.id);
   try {
     if (store.getProposal(proposal.id)?.status !== "shortlisted") return false;
     if (problem) {
       store.failSpec(proposal.id, `Spec draft invalid: ${problem}. Output not saved: ${JSON.stringify(text.slice(0, 200))}`);
       return false;
     }
-    const path = specPathFor(dataDir, proposal.id);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, text + "\n");
     const hash = createHash("sha256").update(text + "\n").digest("hex");
+    // The status is re-checked inside this call's write transaction: an undo (or a dismissal) that landed since the check above makes it throw.
     store.completeSpec(proposal.id, { path, hash });
     return true;
   } catch (e) {
     if (store.getProposal(proposal.id)?.status === "shortlisted") {
       store.failSpec(proposal.id, `Spec draft failed after the run was recorded: ${e instanceof Error ? e.message : String(e)}`);
+    } else if (store.getProposal(proposal.id)?.specPath !== path) {
+      // The Proposal moved on (undone, dismissed) after the file was written: the draft is an orphan.
+      try {
+        rmSync(path, { force: true });
+      } catch {
+        // Best effort: a file left behind is overwritten by the next draft.
+      }
     }
     return false;
   }
@@ -186,11 +235,12 @@ export async function draftPendingSpecs(
   dataDir: string,
   log: (line: string) => void = console.log,
   signal?: AbortSignal,
+  cancels?: RunCancels,
 ): Promise<number> {
   let n = 0;
   for (const p of draftable(store)) {
     if (signal?.aborted) break; // shutting down: leave the rest for the next boot
-    const ok = await draftSpec(store, brain, p, dataDir, signal);
+    const ok = await draftSpec(store, brain, p, dataDir, signal, cancels);
     log(`[worker] spec for proposal ${p.id}: ${ok ? "drafted" : "not drafted"}`);
     if (ok) n++;
   }
@@ -216,6 +266,7 @@ export async function reviseSpec(
   proposal: Proposal,
   dataDir: string,
   signal?: AbortSignal,
+  cancels: RunCancels = new RunCancels(),
 ): Promise<boolean> {
   if (signal?.aborted) return false;
   const current = store.getProposal(proposal.id);
@@ -245,24 +296,29 @@ export async function reviseSpec(
   const baseHash = current.specHash!;
 
   const runId = store.startBrainRun({ proposalId: proposal.id, task: "spec-revise", ...brain.routeFor("spec") });
+  const live = cancels.begin(proposal.id, signal);
   let run;
   try {
     run = await brain.run<string>(
       "spec",
       { prompt: revisePromptFor(base, instruction) },
-      { signal, resume: sessionId, workDir: brainWorkDirFor(dataDir, proposal.id) },
+      { signal: live.signal, resume: sessionId, workDir: brainWorkDirFor(dataDir, proposal.id) },
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const brainError = e instanceof BrainError ? e : undefined;
+    const cancelled = live.cancelled(); // the Operator undid the shortlist: the Proposal is `new` and the queued instruction is gone
     store.finishBrainRun(runId, {
       sessionId: brainError?.sessionId ?? null,
       totalCostUsd: brainError?.totalCostUsd ?? 0,
-      exitStatus: brainError?.kind ?? "failed",
+      exitStatus: cancelled ? BRAIN_RUN_CANCELLED : (brainError?.kind ?? "failed"),
     });
+    if (cancelled) return false;
     if (brainError?.kind === "interrupted") return false; // shutdown: the instruction stays queued for the next boot
     fail(`Spec revision ${brainError?.kind ?? "failed"} (Spec unchanged): ${message}`);
     return false;
+  } finally {
+    live.end();
   }
   if (run.dryRun) {
     store.discardBrainRun(runId);
@@ -299,11 +355,12 @@ export async function revisePendingSpecs(
   dataDir: string,
   log: (line: string) => void = console.log,
   signal?: AbortSignal,
+  cancels?: RunCancels,
 ): Promise<number> {
   let n = 0;
   for (const p of revisable(store)) {
     if (signal?.aborted) break;
-    const ok = await reviseSpec(store, brain, p, dataDir, signal);
+    const ok = await reviseSpec(store, brain, p, dataDir, signal, cancels);
     log(`[worker] spec revision for proposal ${p.id}: ${ok ? "applied" : "not applied"}`);
     if (ok) n++;
   }

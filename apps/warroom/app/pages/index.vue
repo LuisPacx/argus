@@ -123,8 +123,8 @@ const rejection = (p: { id: number; updatedAt: string }) => {
 
 const retrying = (id: number) => commands.value.find((c) => c.proposalId === id && c.status === "pending" && c.attempts > 0);
 
-async function send(id: number, type: "shortlist" | "dismiss" | "retry-spec" | "requeue", reason = "") {
-  if (busy(id)) return;
+async function send(id: number, type: "shortlist" | "undo-shortlist" | "dismiss" | "retry-spec" | "requeue", reason = ""): Promise<boolean> {
+  if (busy(id)) return false;
   actionError.value = "";
   sending.value.add(id);
   try {
@@ -132,11 +132,31 @@ async function send(id: number, type: "shortlist" | "dismiss" | "retry-spec" | "
     dismissing.value = null;
     dismissReason.value = "";
     await refreshCommands();
+    return true;
   } catch (e) {
     actionError.value = (e as { statusMessage?: string }).statusMessage ?? "Could not send command";
+    return false;
   } finally {
     sending.value.delete(id);
   }
+}
+
+// Shortlist starts a paid Spec run, so it asks first. Nothing is queued until the Operator confirms in the modal.
+const shortlisting = ref<{ id: number; name: string } | null>(null);
+const shortlistName = ref(""); // kept after close so the title does not blank while the modal fades out
+const askShortlist = (p: { id: number; name: string }) => {
+  actionError.value = "";
+  shortlistName.value = p.name;
+  shortlisting.value = { id: p.id, name: p.name };
+};
+const cancelShortlist = () => {
+  shortlisting.value = null;
+  actionError.value = "";
+};
+async function confirmShortlist() {
+  const target = shortlisting.value;
+  if (!target) return;
+  if (await send(target.id, "shortlist")) shortlisting.value = null;
 }
 
 async function submit() {
@@ -167,6 +187,8 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
       <h2 class="page-title">Proposals</h2>
       <p class="page-sub">{{ proposals.length }} {{ proposals.length === 1 ? "Proposal" : "Proposals" }}, {{ newCount }} new</p>
     </div>
+
+    <p v-if="actionError && !shortlisting && dismissing === null" class="note note-red" role="alert">{{ actionError }}</p>
 
     <Transition name="reveal">
       <section v-if="showForm" class="surface" data-test="new-proposal-form">
@@ -277,12 +299,15 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
             </div>
 
             <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="above flex flex-wrap items-center gap-2 lg:justify-end">
-              <button v-if="p.status === 'new'" class="btn btn-primary" :disabled="busy(p.id)" @click="send(p.id, 'shortlist')">Shortlist</button>
+              <button v-if="p.status === 'new'" class="btn btn-primary" :disabled="busy(p.id)" @click="askShortlist(p)">Shortlist</button>
               <button v-if="p.status === 'shortlisted' && p.specError" class="btn btn-primary" :disabled="busy(p.id) || !!p.brainRunInFlightSince" @click="send(p.id, 'retry-spec')">
                 Retry Spec
               </button>
               <NuxtLink v-if="p.status === 'spec-drafted'" class="btn btn-primary" :to="`/proposals/${p.id}`">Edit Spec</NuxtLink>
               <button v-if="p.status === 'build-failed'" class="btn btn-primary" :disabled="busy(p.id)" @click="send(p.id, 'requeue')">Re-queue</button>
+              <button v-if="p.status === 'shortlisted' || p.status === 'spec-drafted'" class="btn" :disabled="busy(p.id)" title="Back to new; a Spec run in flight is cancelled and the Spec draft discarded" @click="send(p.id, 'undo-shortlist')">
+                Undo shortlist
+              </button>
               <button v-if="dismissing !== p.id" class="btn" :disabled="busy(p.id)" @click="dismissing = p.id">Dismiss</button>
               <template v-else>
                 <input v-model="dismissReason" class="field field-sm w-44" placeholder="Reason" />
@@ -315,5 +340,18 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         </article>
       </TransitionGroup>
     </section>
+
+    <ConfirmModal
+      :open="shortlisting !== null"
+      :title="`Shortlist ${shortlistName}?`"
+      confirm-label="Shortlist"
+      :busy="shortlisting !== null && busy(shortlisting.id)"
+      :error="actionError"
+      @confirm="confirmShortlist"
+      @cancel="cancelShortlist"
+    >
+      <p>This starts drafting a Spec with the brain (one Sonnet run).</p>
+      <p>You can undo the shortlist until you approve the Spec.</p>
+    </ConfirmModal>
   </div>
 </template>

@@ -64,7 +64,7 @@ describe("transition table", () => {
         "approved>building:build", "approved>needs-human:build", "building>built:build",
         "building>build-failed:build", "building>needs-human:build", "built>launched:operator",
         "launched>closed:operator", "new>closed:system", "shortlisted>closed:system",
-        "build-failed>approved:operator",
+        "build-failed>approved:operator", "shortlisted>new:operator", "spec-drafted>new:operator",
       ].sort(),
     );
   });

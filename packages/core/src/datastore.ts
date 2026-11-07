@@ -430,7 +430,9 @@ function toProposal(r: Row): Proposal {
     mint: r.mint,
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
-    expiresAt: expiresAtFor(r.status, r.status_since ?? r.updated_at),
+    // `new` counts from creation: Undo shortlist returns a Proposal to `new` and must not restart its 48 h. `shortlisted` counts from
+    // the latest shortlist (a re-shortlist after an undo is a new decision and gets its own 7 days).
+    expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at)),
     narrativeId: r.narrative_id,
     scoreId: r.score_id,
     narrativeCreatedAt: r.narrative_created_at,
@@ -1479,6 +1481,31 @@ export class Datastore {
           "UPDATE proposals SET spec_path = ?, spec_hash = ?, spec_error = '', spec_retry_after = NULL, spec_attempts = 0 WHERE id = ?",
         )
         .run(spec.path, spec.hash, proposalId);
+    });
+  }
+
+  /**
+   * WORKER ONLY. The Operator takes a shortlist back: `shortlisted` or `spec-drafted` -> `new` and the Spec draft discarded (path, hash,
+   * error, retry time, attempts, queued revision), in one transaction. The status is read and written under the same write lock as
+   * `completeSpec`'s, so a Spec that completes meanwhile either lands first (and is discarded here) or finds the Proposal `new` and is
+   * refused: an un-shortlisted Proposal is never flipped to `spec-drafted`. Not a Dismissal; no research feedback is recorded. Brain
+   * runs are left alone (their spend stays on the card); the caller aborts a run in flight, which records itself. Returns the Spec path
+   * the Proposal had, so the caller can delete the file. Throws DomainError from any other status.
+   */
+  undoShortlist(proposalId: number): { specPath: string | null } {
+    return this.inTransaction(() => {
+      const p = this.getProposal(proposalId);
+      if (!p) throw new ProposalNotFoundError(proposalId);
+      if (p.status !== "shortlisted" && p.status !== "spec-drafted") {
+        throw new DomainError(`Undo shortlist is only possible until the Spec is approved (the Proposal is ${p.status})`);
+      }
+      this.transition(proposalId, "new", "operator");
+      this.db
+        .prepare(
+          "UPDATE proposals SET spec_path = NULL, spec_hash = NULL, spec_error = '', spec_retry_after = NULL, spec_attempts = 0, spec_revision = NULL WHERE id = ?",
+        )
+        .run(proposalId);
+      return { specPath: p.specPath };
     });
   }
 

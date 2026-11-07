@@ -3,7 +3,7 @@
 
 **What to build:** The Operator shortlisted a Proposal by accident, which starts a paid Spec brain run (one Sonnet run). Add (1) a confirmation modal before Shortlist and (2) an "Undo shortlist" action that takes the Proposal back to `new`.
 
-**Status:** open
+**Status:** done
 
 Based on ticket 19's branch (same page, the Proposals list).
 
@@ -20,18 +20,23 @@ No migration, no new dependency, no `nuxt.config` change. The worker process mus
 
 ## Acceptance criteria
 
-- [ ] Shortlist (row and detail page) opens a modal naming the Proposal and the cost ("one Sonnet run"), with Confirm and Cancel; nothing is queued until Confirm. Esc and the backdrop cancel; focus moves in and returns; no `window.confirm`/`alert`/`prompt`.
-- [ ] Modal motion uses Vue built-ins only and is disabled under `prefers-reduced-motion`; all DOM access is in `onMounted` or event handlers.
-- [ ] New command `undo-shortlist` (`POST /api/proposals/:id/commands`), no reason needed. New transitions `shortlisted -> new` and `spec-drafted -> new`, actor `operator`, default reason "Operator undid the shortlist".
-- [ ] Undo from `shortlisted` or `spec-drafted` returns the Proposal to `new`, clears the Spec fields (path, hash, error, retry time, attempts, queued revision) and removes `spec.md`. It is refused (rejected command, with the reason) from any other status except `new`, where it is a no-op (double-click).
-- [ ] Undo is not a Dismissal: status is `new`, not `dismissed`, and no research feedback is recorded.
-- [ ] The history shows `shortlisted -> new` (or `spec-drafted -> new`) by `operator`.
-- [ ] Undo while a Spec draft (or Spec revise) is in flight aborts the run through the worker's per-Proposal abort; the brain run row ends `cancelled` with the cost and session the killed run reported (0 when none); the Proposal is not given a `spec_error`, no `spec.md` is written, and it is not re-drafted.
-- [ ] The worker applies commands while a Spec run is in flight (a command loop beside the tick), so the cancel is not queued behind the run it cancels.
-- [ ] Race tests: the run completing right after an undo leaves the Proposal `new` with no `spec.md`; a Spec draft whose transition loses the race removes the file it wrote.
-- [ ] Expiry: after an undo the `new` Proposal expires 48 h after creation, not after the undo (`expiresAt` and `expireStaleProposals`).
-- [ ] The Undo button shows on the list row and the detail page while `shortlisted` or `spec-drafted`, with no modal.
-- [ ] `GLOSSARY.md` (Proposal status: who sets what) and `docs/architecture.md` section 3 (state diagram and transition table) show the undo.
-- [ ] `pnpm check` passes.
+- [x] Shortlist (row and detail page) opens a modal naming the Proposal and the cost ("one Sonnet run"), with Confirm and Cancel; nothing is queued until Confirm. Esc and the backdrop cancel; focus moves in and returns; no `window.confirm`/`alert`/`prompt`.
+- [x] Modal motion uses Vue built-ins only and is disabled under `prefers-reduced-motion`; all DOM access is in `onMounted` or event handlers.
+- [x] New command `undo-shortlist` (`POST /api/proposals/:id/commands`), no reason needed. New transitions `shortlisted -> new` and `spec-drafted -> new`, actor `operator`, default reason "Operator undid the shortlist".
+- [x] Undo from `shortlisted` or `spec-drafted` returns the Proposal to `new`, clears the Spec fields (path, hash, error, retry time, attempts, queued revision) and removes `spec.md`. It is refused (rejected command, with the reason) from any other status except `new`, where it is a no-op (double-click).
+- [x] Undo is not a Dismissal: status is `new`, not `dismissed`, and no research feedback is recorded.
+- [x] The history shows `shortlisted -> new` (or `spec-drafted -> new`) by `operator`.
+- [x] Undo while a Spec draft (or Spec revise) is in flight aborts the run through the worker's per-Proposal abort; the brain run row ends `cancelled` with the cost and session the killed run reported (0 when none); the Proposal is not given a `spec_error`, no `spec.md` is written, and it is not re-drafted.
+- [x] The worker applies commands while a Spec run is in flight (a command loop beside the tick), so the cancel is not queued behind the run it cancels.
+- [x] Race tests: the run completing right after an undo leaves the Proposal `new` with no `spec.md`; a Spec draft whose transition loses the race removes the file it wrote.
+- [x] Expiry: after an undo the `new` Proposal expires 48 h after creation, not after the undo (`expiresAt` and `expireStaleProposals`).
+- [x] The Undo button shows on the list row and the detail page while `shortlisted` or `spec-drafted`, with no modal.
+- [x] `GLOSSARY.md` (Proposal status: who sets what) and `docs/architecture.md` section 3 (state diagram and transition table) show the undo.
+- [x] `pnpm check` passes.
 
 ## Comments
+
+- The detail page (`/proposals/:id`) had no Shortlist button before; it now has a Shortlist section for a `new` Proposal (with the modal) and an Undo section while shortlisted or spec-drafted.
+- Spec runs execute in the worker process, not the War Room. Undo aborts the run through `RunCancels` (one abort per Proposal); the worker therefore needs a restart to pick this up. No migration (the command type is free text), no dependency, no `nuxt.config` change.
+- No component-test infrastructure exists for the War Room (server tests only); the modal was checked by `vue-tsc`, SSR renders of `/` and `/proposals/:id` (200, modal absent when closed) and the endpoint tests. The click behaviour (Esc, backdrop, focus return) has not been exercised in a browser.
+- Expiry consequence of "counts from creation": a Proposal undone more than 48 h after it was created is closed (`stale`) by the next worker tick.

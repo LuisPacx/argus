@@ -1,6 +1,6 @@
 import { MAX_REVISE_INSTRUCTION_CHARS, isMintAddress, type CommandType } from "@argus/core";
 
-const types: CommandType[] = ["shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue", "mark-launched"];
+const types: CommandType[] = ["shortlist", "undo-shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue", "mark-launched"];
 
 export default defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
@@ -27,6 +27,9 @@ export default defineEventHandler(async (event) => {
     }
   }
   // Fast feedback only; the worker re-checks when it applies the command.
+  if (type === "undo-shortlist" && proposal.status !== "shortlisted" && proposal.status !== "spec-drafted") {
+    throw createError({ statusCode: 409, statusMessage: `Undo shortlist is only possible while the Proposal is shortlisted or spec-drafted (it is ${proposal.status})` });
+  }
   if (type === "revise" && proposal.brainRunInFlightSince) {
     throw createError({ statusCode: 409, statusMessage: "A brain run is in flight for this Proposal; try again when it finishes" });
   }

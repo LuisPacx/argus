@@ -61,6 +61,8 @@ stateDiagram-v2
   [*] --> new
   new --> shortlisted : Operator shortlists
   shortlisted --> spec_drafted : system, after Operator shortlists
+  shortlisted --> new : Operator undoes the shortlist
+  spec_drafted --> new : Operator undoes the shortlist
   spec_drafted --> approved : Operator approves
   spec_drafted --> approved : system, score threshold (phase 3)
   approved --> building : Build step starts
@@ -91,8 +93,9 @@ stateDiagram-v2
 | new | system | Brain pass creates the Proposal and notifies Telegram. |
 | new -> closed (stale) | system | 48 h without action. Stored as `closed` with reason `stale`. |
 | shortlisted -> closed (stale) | system | 7 d without action. |
-| new -> shortlisted | Operator | Starts Spec drafting. |
+| new -> shortlisted | Operator | Starts Spec drafting. The War Room asks for confirmation first (a modal: it starts one paid Sonnet run). |
 | shortlisted -> spec-drafted | system | After the Operator shortlists, the brain `spec` task writes `spec.md`; Operator edits freely. |
+| shortlisted/spec-drafted -> new | Operator (`undo-shortlist` command) | "Undo shortlist": available until the Spec is approved. Not a dismissal: no reason, no research feedback. See the note below. |
 | spec-drafted -> approved | Operator (via `approve()`) | One function. |
 | spec-drafted -> approved | system (via `approve(store, id, "system")`) | Phase 3 score threshold, recorded with reason "Score threshold". Same function, different actor. |
 | approved -> building | Build step | Dequeued FIFO by approval time, one Build at a time. |
@@ -103,7 +106,9 @@ stateDiagram-v2
 | built -> launched | Operator | "Mark launched" with the mint recorded. |
 | any non-closed state -> dismissed | Operator | Reachable from every state except `closed`. Dismissal with a reason; feeds the Rubric loop (phase 3). |
 
-Notes on gaps the journal leaves to implementation: `spec-drafted` has no auto-expiry (only `new` and `shortlisted` expire); `launched -> closed` is only exercised from phase 3. Expiry (ticket 10) runs on the worker tick, counts from the Proposal's latest transition into its current status (`status_history.at`; a later write such as a Spec edit does not extend it), skips a Proposal with a Brain run in flight (it closes on a later tick), and the card shows the time left.
+Notes on gaps the journal leaves to implementation: `spec-drafted` has no auto-expiry (only `new` and `shortlisted` expire); `launched -> closed` is only exercised from phase 3. Expiry (ticket 10) runs on the worker tick, counts from the Proposal's latest transition into its current status (`status_history.at`; a later write such as a Spec edit does not extend it; `new` counts from creation instead, see Undo shortlist below), skips a Proposal with a Brain run in flight (it closes on a later tick), and the card shows the time left.
+
+Undo shortlist (ticket 20): the Operator can take a shortlist back from `shortlisted` or `spec-drafted`. The worker applies the command in one write transaction (`Datastore.undoShortlist`): the status goes back to `new` (history: `shortlisted -> new` or `spec-drafted -> new`, actor Operator, reason "Operator undid the shortlist") and the Spec draft is discarded (path, hash, error, retry time, attempts and any queued revision cleared; `spec.md` deleted). It is refused from any other status (a `new` Proposal makes it a no-op). Spec runs execute in the worker process (`draftSpec`/`reviseSpec` call `brain.run` in-process), which registers each run's abort in a per-Proposal `RunCancels`; the undo aborts the run in flight, killing the `claude` child, and the run records itself in `brain_runs` as `cancelled` with whatever cost and session the killed child reported (0 when none), with no `spec_error` and no re-draft. Runs already finished keep their spend on the card. The worker applies commands on their own 5 s timer as well as at the start of each tick, because the tick waits for a Spec run (up to the `spec` timeout), and a cancel must not queue behind the run it cancels. Race safety: `completeSpec` re-reads the status inside its own write transaction and refuses (`new -> spec-drafted` is not a transition), so an undo that lands as the run completes either lands first (the run is recorded and nothing else happens; the `spec.md` it wrote is removed) or lands after (the Spec is discarded); a Proposal that is un-shortlisted is never flipped to `spec-drafted`. Expiry: `new` counts its 48 h from the Proposal's creation (`created_at`), not from its latest transition into `new`, so an undo does not restart the clock; the consequence is that a Proposal undone after more than 48 h since creation is closed (`stale`) by the next worker tick. `shortlisted` still counts from its latest transition, so a re-shortlist gets its own 7 days.
 
 Recovery from `build-failed` (decided in ticket 08): the card shows the exact `claude --resume <session_id>` command, and the Operator can `requeue` the Proposal (`build-failed -> approved`, a transition of its own with the Operator as actor; the plain `approve` command is refused from `build-failed`). A re-queued Proposal goes to the back of the Build queue (its approval time is now) and gets a fresh Build, entering the runner like any approved Proposal. The runner refuses to build over an existing `~/code/<slug>`, and `gh repo create` would fail on the existing private repo, so before re-queueing the Operator removes both. The worker enforces this when it applies the command: while `~/code/<slug>` or the private GitHub repo (asked of `gh repo view`) still exists, the command is rejected (the repo counts as absent only on `gh`'s exit 1 with GitHub's own not-found text and a token that can be shown to read private repos, i.e. with the `repo` scope; GitHub answers "not found" alike for a repo that does not exist and one the token cannot see, so a token without that scope, or one that reports no scopes, gets an error naming the problem instead, and the command is retried), the Proposal stays `build-failed`, and the rejection (shown on the card) names what to remove: the local directory, the GitHub repo, and the Cloudflare Worker when the Build deployed one (`workerDeployed`). Nothing is ever deleted by argus, and a leftover repo is not reused. The per-Build home is kept for `build-failed` (so the session can be resumed) and deleted on `built` and on `dismissed`: the lifecycle module removes it when the Operator's dismissal is applied, except for a Proposal dismissed while `building`, whose home the runner removes when that Build ends (the container still has it mounted until then). A crash in between would leave that home, so worker start also removes the home of every dismissed Proposal that has no Build run alive (`sweepDismissedHomes`).
 
@@ -257,7 +262,7 @@ Localhost only, single Operator, no auth in v1.
 
 **Spec editor**: a textarea over `spec.md` plus "ask the agent to revise" (each turn is `claude -p --resume <session_id>` against the Spec session).
 
-**Actions**: shortlist, approve, dismiss (with a reason), Launch (opens newpairspam with the form prefilled from name, ticker, description, logo and preview link), mark launched (records the mint). The Launch button is enabled only in `built`.
+**Actions**: shortlist (after a confirmation modal, since it starts a paid Spec run), undo shortlist (while shortlisted or spec-drafted), approve, dismiss (with a reason), Launch (opens newpairspam with the form prefilled from name, ticker, description, logo and preview link), mark launched (records the mint). The Launch button is enabled only in `built`.
 
 **Telegram**: one bot, one Team chat, notifications only (no commands, no reply-to-approve): new Proposal cards, build start, build done, build failed.
 

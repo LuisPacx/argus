@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildHomeFor, removeTree } from "./build-home.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
@@ -45,6 +45,10 @@ const DISMISSIBLE: ProposalStatus[] = [
 export const TRANSITIONS: readonly Transition[] = [
   { from: "new", to: "shortlisted", actor: "operator", reason: "Operator shortlisted" },
   { from: "shortlisted", to: "spec-drafted", actor: "system", reason: "Spec drafted" },
+  // Undo shortlist: until the Spec is approved the Operator can take the shortlist back (not a Dismissal). Only Datastore.undoShortlist
+  // uses these, because it also discards the Spec draft in the same transaction.
+  { from: "shortlisted", to: "new", actor: "operator", reason: "Operator undid the shortlist" },
+  { from: "spec-drafted", to: "new", actor: "operator", reason: "Operator undid the shortlist" },
   { from: "spec-drafted", to: "approved", actor: "operator", reason: "Operator approved" },
   { from: "spec-drafted", to: "approved", actor: "system", reason: "Score threshold" },
   { from: "approved", to: "building", actor: "build", reason: "Build started" },
@@ -108,7 +112,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue" | "mark-launched";
+export type CommandType = "shortlist" | "undo-shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue" | "mark-launched";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -147,6 +151,11 @@ export interface ApplyOptions {
   /** argus's data dir. When set, dismissing a Proposal deletes its per-Build home (retention: kept for `build-failed`, gone on `built` and `dismissed`). */
   dataDir?: string;
   log?: (line: string) => void;
+  /**
+   * Aborts the Spec run (draft or revise) this process has in flight for a Proposal, if any. The worker passes `RunCancels.cancel`.
+   * Called by Undo shortlist as the last step of the command, after the Proposal has left `shortlisted`/`spec-drafted`.
+   */
+  cancelRun?: (proposalId: number) => void;
 }
 
 /**
@@ -184,6 +193,11 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
     if (command.type === "revise") reviseCommand(store, proposal, command.reason);
     else retrySpecCommand(store, proposal);
+    return;
+  }
+  if (command.type === "undo-shortlist") {
+    if (!proposal) throw new ProposalNotFoundError(command.proposalId);
+    undoShortlistCommand(store, proposal, opts);
     return;
   }
   if (command.type === "mark-launched") {
@@ -255,6 +269,27 @@ export function applyPendingCommands(store: Datastore, onError: ((command: Comma
     }
   }
   return n;
+}
+
+/**
+ * `shortlisted` or `spec-drafted` -> `new`: the Operator takes the shortlist back. Already `new` is a no-op (a double click). The
+ * status check and the writes are one transaction in the Datastore, so a Spec that completes meanwhile cannot flip the Proposal back.
+ * A Spec run in flight is aborted last, once the command can no longer fail; the run records itself as cancelled.
+ */
+function undoShortlistCommand(store: Datastore, p: Proposal, opts: ApplyOptions): void {
+  if (p.status === "new") return;
+  if (p.status !== "shortlisted" && p.status !== "spec-drafted") {
+    throw new DomainError(`Undo shortlist is only possible until the Spec is approved (the Proposal is ${p.status})`);
+  }
+  const { specPath } = store.undoShortlist(p.id);
+  if (specPath !== null) {
+    try {
+      rmSync(specPath, { force: true });
+    } catch (e) {
+      opts.log?.(`[worker] could not remove ${specPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  opts.cancelRun?.(p.id);
 }
 
 /** `built` -> `launched` with the mint the Operator reports. A repeat on an already launched Proposal is a no-op and keeps the first mint. */

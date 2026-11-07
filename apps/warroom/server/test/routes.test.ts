@@ -58,6 +58,8 @@ const status = async (p: Promise<unknown>) => ((await p.then(() => ({ statusCode
 describe("POST /api/proposals/:id/commands, UI payloads", () => {
   const cases: Array<[string, CommandType, string, "new" | "shortlisted" | "spec-drafted"]> = [
     ["Shortlist button", "shortlist", "", "new"],
+    ["Undo shortlist button on a shortlisted card (list row and detail page)", "undo-shortlist", "", "shortlisted"],
+    ["Undo shortlist button on a spec-drafted card", "undo-shortlist", "", "spec-drafted"],
     ["Dismiss with a typed reason", "dismiss", "not interesting", "new"],
     ["Approve button", "approve", "", "spec-drafted"],
     ["Revise with an instruction", "revise", "Add more cats", "spec-drafted"],
@@ -77,6 +79,21 @@ describe("POST /api/proposals/:id/commands, UI payloads", () => {
     expect(await status(post(id, { type: "dismiss", reason: "  " }))).toBe(400);
     expect(await status(post(id, { type: "revise", reason: "" }))).toBe(400);
     expect(await status(post(id, { type: "retry-spec", reason: "" }))).toBe(200);
+  });
+
+  it("undo-shortlist needs no reason and is not a Dismissal: the card's status changes only when the worker applies it", async () => {
+    const id = seed("shortlisted");
+    expect(await status(post(id, { type: "undo-shortlist" }))).toBe(200);
+    expect(store.getProposal(id)!.status).toBe("shortlisted");
+    expect(store.pendingCommands().map((c) => [c.type, c.reason])).toEqual([["undo-shortlist", ""]]);
+  });
+
+  it("409 for undo-shortlist once the Proposal is new again or the Spec is approved (the worker re-checks anyway)", async () => {
+    expect(await status(post(seed("new"), { type: "undo-shortlist" }))).toBe(409);
+    const id = seed("spec-drafted");
+    store.transition(id, "approved", "operator");
+    expect(await status(post(id, { type: "undo-shortlist" }))).toBe(409);
+    expect(store.pendingCommands()).toEqual([]);
   });
 
   it("rejects an unknown type with 400 and a missing Proposal with 404", async () => {

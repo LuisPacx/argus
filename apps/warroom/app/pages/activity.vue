@@ -90,7 +90,7 @@ const usedPct = computed(() => (usage.value && usage.value.budgetUsd > 0 ? Math.
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span class="font-semibold">{{ r.task }} #{{ r.id }}</span>
             <span class="faint text-sm">{{ r.backend }}, {{ r.model }}</span>
-            <span class="pill" :class="r.status === 'success' ? 'pill-green' : r.status === 'in-flight' ? 'pill-accent' : 'pill-red'">{{ r.status }}</span>
+            <span class="pill" :class="r.status === 'success' ? 'pill-green' : r.status === 'in-flight' ? 'pill-accent' : r.status === 'cancelled' ? '' : 'pill-red'">{{ r.status }}</span>
           </div>
           <p class="muted mt-1 text-sm">
             started {{ ago(r.startedAt) }} · {{ duration(r) }} · {{ r.costKind === "est" ? "est. " : "" }}{{ usd(r.estCostUsd) }}{{ r.costKind === "api" ? " (API)" : "" }}

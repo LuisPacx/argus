@@ -83,8 +83,9 @@ async function save() {
 
 const mint = ref("");
 
-async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched", reason = "") {
-  if (sending.value || working.value) return;
+async function send(type: "shortlist" | "undo-shortlist" | "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched", reason = ""): Promise<boolean> {
+  // Undo is the one command that is meant for a Spec run in flight (it cancels it), so only a pending command holds it back.
+  if (sending.value || (type === "undo-shortlist" ? pending.value : working.value)) return false;
   sending.value = true;
   message.value = "";
   error.value = "";
@@ -93,12 +94,26 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
     if (type === "revise") instruction.value = "";
     if (type === "mark-launched") mint.value = "";
     await refreshCommands();
+    return true;
   } catch (e) {
     error.value = (e as { statusMessage?: string }).statusMessage ?? "Could not send command";
+    return false;
   } finally {
     sending.value = false;
   }
 }
+
+// Shortlist starts a paid Spec run, so it asks first. Nothing is queued until the Operator confirms in the modal.
+const confirmingShortlist = ref(false);
+async function confirmShortlist() {
+  if (await send("shortlist")) confirmingShortlist.value = false;
+}
+const cancelShortlist = () => {
+  confirmingShortlist.value = false;
+  error.value = "";
+};
+// A Spec run in flight does not hold Undo back: cancelling it is the point. Only a pending command or a double click does.
+const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.status === "spec-drafted") && !pending.value && !sending.value);
 </script>
 
 <template>
@@ -140,6 +155,22 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
               <UrlLink :href="link" />
             </li>
           </ul>
+        </section>
+
+        <section v-if="p.status === 'new'" class="surface grid gap-3" data-test="shortlist-section">
+          <h3 class="section-title">Shortlist</h3>
+          <p class="note muted">Shortlisting starts drafting a Spec with the brain (one Sonnet run).</p>
+          <div><button class="btn btn-primary" :disabled="working || sending" @click="confirmingShortlist = true">Shortlist</button></div>
+          <p v-if="error && !confirmingShortlist" class="note note-red">{{ error }}</p>
+        </section>
+
+        <section v-if="p.status === 'shortlisted' || p.status === 'spec-drafted'" class="surface grid gap-3" data-test="undo-section">
+          <h3 class="section-title">Shortlist</h3>
+          <p class="note muted">
+            Shortlisted. Undo takes it back to new: a Spec run in flight is cancelled and the Spec draft is discarded. It is not a dismissal. Possible until you approve the Spec.
+          </p>
+          <div><button class="btn" :disabled="!canUndo" @click="send('undo-shortlist')">Undo shortlist</button></div>
+          <p v-if="error && p.status === 'shortlisted'" class="note note-red">{{ error }}</p>
         </section>
 
         <section v-if="p.status === 'shortlisted' && p.specError" class="surface grid gap-3">
@@ -237,7 +268,7 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
                 <span class="font-semibold">{{ r.task }}</span>
                 <span class="pill pill-outline" :data-backend="r.backend">{{ r.backend }}</span>
                 <span class="pill pill-outline">{{ r.model }}</span>
-                <span class="pill" :class="r.exitStatus === 'success' ? 'pill-green' : r.exitStatus === 'in-flight' ? 'pill-accent' : 'pill-red'">{{ r.exitStatus }}</span>
+                <span class="pill" :class="r.exitStatus === 'success' ? 'pill-green' : r.exitStatus === 'in-flight' ? 'pill-accent' : r.exitStatus === 'cancelled' ? '' : 'pill-red'">{{ r.exitStatus }}</span>
               </div>
               <span class="muted text-xs">{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</span>
             </li>
@@ -245,6 +276,19 @@ async function send(type: "revise" | "approve" | "retry-spec" | "requeue" | "mar
         </section>
       </aside>
     </div>
+
+    <ConfirmModal
+      :open="confirmingShortlist"
+      :title="`Shortlist ${p.name}?`"
+      confirm-label="Shortlist"
+      :busy="sending"
+      :error="confirmingShortlist ? error : ''"
+      @confirm="confirmShortlist"
+      @cancel="cancelShortlist"
+    >
+      <p>This starts drafting a Spec with the brain (one Sonnet run).</p>
+      <p>You can undo the shortlist until you approve the Spec.</p>
+    </ConfirmModal>
   </div>
   <p v-else class="surface muted">Proposal not found.</p>
 </template>
