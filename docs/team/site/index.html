@@ -161,12 +161,12 @@
     <article>
       <h3>Phase 2: research</h3>
       <p class="badge b-live">Live in the acceptance run</p>
-      <p>All tickets are done except two: P2-14 (the 48 hour acceptance run) and P2-17 (PumpPortal market evidence, which waits for P2-14). Also shipped: Activity page, Atom feeds, the new War Room look. Proposals sort and filter is nearly done.</p>
+      <p>All tickets are done except three: P2-14 (the 48 hour acceptance run), P2-17 (PumpPortal market evidence, which waits for P2-14) and ticket 20 (in progress). Also shipped: Activity page, Atom feeds, the new War Room look, and Proposals sort and filter (live). Ticket 20 adds a confirmation dialog before Shortlist and an Undo shortlist. Faster pre-push checks (skip for docs-only changes, skip code already checked) are in progress.</p>
     </article>
     <article>
       <h3>The 48 hour acceptance run</h3>
       <p class="badge b-live">Running</p>
-      <p>Research only, paid fallback off. It stopped once when the computer went to sleep; it was restarted and now holds a sleep lock. Planned end 2026-11-08. Still to check: the forced-exhaustion fallback and the path from card to launched. Usage so far is roughly $0.3 to $0.9 of estimated plan usage per 6 hours (not billed).</p>
+      <p>Research only, paid fallback off. It stopped once when the computer went to sleep; it was restarted and now holds a sleep/lid lock while it runs. The War Room can now restart without stopping the worker. Ends about 2026-11-08 13:00 (-03:00). Still to check: the forced-exhaustion fallback and the path from card to launched. Usage so far is roughly $0.3 to $0.9 of estimated plan usage per 6 hours (not billed).</p>
     </article>
     <article>
       <h3>Phase 3: feedback and auto-ladder</h3>
@@ -195,7 +195,7 @@
       <ul>
         <li>P2-17: show PumpPortal market activity on each card. Worth it? It waits for the 48 hour run.</li>
         <li>Run the first real Build end to end. Which Proposal first?</li>
-        <li>Proposals list sort and filter. What order do you want?</li>
+        <li>Proposals list sort and filter is live. Is the order useful? What is missing?</li>
         <li>Phase 3: let dismissal reasons tune the Rubric.</li>
         <li>Phase 3: should argus ever auto-approve above a score?</li>
         <li>More sources: X through the official API, later.</li>
@@ -218,7 +218,7 @@
         <li>Research and Builds share the plan limits with the Operator's own use.</li>
         <li>Look-alike token names: the clash check can answer "unknown", not only yes or no.</li>
         <li>Real Builds are untested: cost and failure rate are unknown.</li>
-        <li>The run stopped once when the computer slept.</li>
+        <li>The run stopped once when the computer slept; it now holds a sleep lock.</li>
         <li>An AI-built product may overpromise. The disclosure footer helps.</li>
       </ul>
     </article>
