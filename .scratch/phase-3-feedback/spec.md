@@ -166,6 +166,7 @@ Slice 1 (and the X spike, slice 6) produce the numbers; nothing is chosen before
 - **Helius Free:** whether `getTransactionsForAddress` is allowed on Free, the real limits, and credits per Case.
 - **RugCheck:** ToS and rate-limit window; whether the sixth signal is included at all.
 - **Headless or headed Playwright** for X, and the lock/challenge detection signals (slice 6 spike).
+- Share of website Snapshots flagged "empty app shell" (decides Q31's Browser Rendering fallback).
 
 ### Decided in tickets (cos default)
 
@@ -184,7 +185,7 @@ Each is settled in its ticket; the default applies unless the ticket finds a rea
 - Q28: argus closes own-launch Proposals at 7d with the outcome; kept out of Cohort statistics. Section 11.
 - Q29: lesson bar (at least 20 organic migrators, lift at least 1.5x) and at most 10 active lessons per prompt. Section 10.
 - Q30: Cohort is the calendar week of launch; "two in a row" is consecutive weeks. Sections 8, 12.
-- Website capture depth: plain fetch only in 3a (section 6).
+- Website capture depth (Q31): plain fetch only in 3a, with the "empty app shell" flag (section 6). Slice 1 measures the share of empty shells; if it is large, Cloudflare Browser Rendering is added for flagged sites only, inside the $100/mo, after the Operator approves.
 
 ## 15. Suggested slice order
 
@@ -192,7 +193,7 @@ Tickets go under `.scratch/phase-3-feedback/issues/NN-slug.md`. Slices are small
 
 1. **Measure create-to-migrate from chain (spike, no feature).** Take a sample of recent migrations from the existing Signals, read the create and migrate events on chain with Helius Free, produce the distribution (create to complete, complete to pool), compare against PumpPortal receipt times, check the migrate scope and the missed-create rate, count Helius credits per call, and test gTFA on Free. Output: a note that fixes the Snapshot age, the Fast threshold, the migrated timestamp and the credit estimate (the "Measured by slice 1" group in section 14).
 2. **Study storage and create-event retention.** Tables for tokens seen (chain event time, uri, links, gap markers), Snapshots, labels, Cases, Cohorts; keep `uri` and event fields from the existing PumpPortal connection; no second connection.
-3. **Metadata and website Snapshot at the fixed age** (plain fetch, SSRF guard, caps), written once, hashed, with a run cap on the capture job and `--dry-run`.
+3. **Metadata and website Snapshot at the fixed age** (plain fetch, SSRF guard, caps), written once, hashed, with a run cap on the capture job and `--dry-run`. Reports the empty-app-shell share (Q31).
 4. **Chain labeller (24h/7d)** and the Study page health numbers (seen, in population, labelled, missed).
 5. **Raw bot-filter metrics and the Organic migration label** for migrators, with credit accounting; Fast flag; strata report.
 6. **X capture spike.** After the Operator runs `setup-argus-browser.sh` and creates the X account: Playwright on the dedicated directory, headless vs headed, lock/challenge detection, saved fields, the 200/day cap. Results decide whether X stays in 3a.
