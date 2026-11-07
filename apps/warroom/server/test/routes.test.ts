@@ -14,6 +14,7 @@ let store: Datastore;
 vi.stubGlobal("defineEventHandler", (f: unknown) => f);
 vi.stubGlobal("getRouterParam", (e: Ev, k: string) => e.params[k]);
 vi.stubGlobal("readBody", async (e: Ev) => e.body);
+vi.stubGlobal("getQuery", () => ({}));
 vi.stubGlobal("createError", (o: { statusCode: number; statusMessage: string }) => Object.assign(new Error(o.statusMessage), o));
 vi.stubGlobal("useStore", () => store);
 vi.stubGlobal("useDataDir", () => "/argus/data");

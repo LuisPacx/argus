@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { CollisionResult } from "./collision.ts";
+import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
@@ -80,6 +80,19 @@ export interface Proposal {
   collisions: CollisionResult | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ProposalSort = "score" | "newest" | "changed" | "usage";
+
+/** Filters and sort for `queryProposals`; every field is optional. */
+export interface ProposalQuery {
+  sort?: ProposalSort;
+  status?: ProposalStatus;
+  /** A Proposal collides when either check collides, is clear only when both are, and is unknown otherwise (also when never checked). */
+  collision?: CollisionStatus;
+  /** ISO time: only Proposals created at or after it. */
+  createdSince?: string;
+  limit?: number;
 }
 
 export interface BrainRunRecord {
@@ -436,6 +449,7 @@ export type WarRoomStore = Pick<
   | "getProposal"
   | "proposalIdWithMint"
   | "listProposals"
+  | "queryProposals"
   | "getCommand"
   | "listCommands"
   | "pendingCommands"
@@ -756,6 +770,46 @@ export class Datastore {
 
   listProposals(): Proposal[] {
     const rows = this.db.prepare(`${PROPOSAL_SELECT} ORDER BY p.id DESC`).all() as unknown as Row[];
+    return rows.map(toProposal);
+  }
+
+  /**
+   * The Proposals list the War Room shows, filtered and sorted in SQL so a `limit` (none by default) cuts the right rows. Sorts:
+   * `score` (default: the Narrative's latest Score total, highest first, Proposals with none last, then newest), `newest` (by
+   * creation), `changed` (last update), `usage` (Est. usage, highest first). Filters: `status`, `collision`, `createdSince`.
+   */
+  queryProposals(q: ProposalQuery = {}): Proposal[] {
+    const dex = "COALESCE(json_extract(p.collision_checks, '$.dex.status'), '')";
+    const github = "COALESCE(json_extract(p.collision_checks, '$.github.status'), '')";
+    const collides = `(${dex} = 'collides' OR ${github} = 'collides')`;
+    const clear = `(${dex} = 'clear' AND ${github} = 'clear')`;
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+    if (q.status !== undefined) {
+      where.push("p.status = ?");
+      params.push(q.status);
+    }
+    if (q.collision !== undefined) where.push({ collides, clear, unknown: `NOT ${collides} AND NOT ${clear}` }[q.collision]);
+    if (q.createdSince !== undefined) {
+      where.push("p.created_at >= ?");
+      params.push(q.createdSince);
+    }
+    const order = {
+      score: "s.total IS NULL, s.total DESC, p.id DESC",
+      newest: "p.created_at DESC, p.id DESC",
+      changed: "p.updated_at DESC, p.id DESC",
+      usage: "cost_usd DESC, p.id DESC",
+    }[q.sort ?? "score"];
+    const limit = q.limit === undefined ? -1 : Math.max(1, Math.floor(q.limit));
+    const rows = this.db
+      .prepare(
+        `${PROPOSAL_SELECT}
+         LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = p.narrative_id)
+         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY ${order}
+         LIMIT ?`,
+      )
+      .all(...params, limit) as unknown as Row[];
     return rows.map(toProposal);
   }
 

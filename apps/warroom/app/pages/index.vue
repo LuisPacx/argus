@@ -1,12 +1,67 @@
 <script setup lang="ts">
 const route = useRoute();
-const { data: proposals, refresh } = await useFetch("/api/proposals", { default: () => [] });
-
-// Rows animate in when the page is reached by a client navigation; on the first (hydrating) load they are simply there.
-const animate = !useNuxtApp().isHydrating;
 
 // The header's New Proposal button links to /?new=1, which opens the form above the summary band.
 const showForm = computed(() => route.query.new !== undefined);
+
+// Sort and filters live in the URL query (and are applied by the API). Defaults are left out of the URL.
+const SORTS = [
+  { value: "score", label: "Score" },
+  { value: "newest", label: "Newest" },
+  { value: "changed", label: "Recently changed" },
+  { value: "usage", label: "Est. usage" },
+];
+const COLLISIONS = [
+  { value: "", label: "Any" },
+  { value: "clear", label: "Clear" },
+  { value: "collides", label: "Collides" },
+  { value: "unknown", label: "Unknown" },
+];
+const CREATED = [
+  { value: "", label: "Any time" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+];
+const STATUSES = [
+  { value: "", label: "All statuses" },
+  ...["new", "shortlisted", "spec-drafted", "approved", "building", "built", "build-failed", "needs-human", "launched", "closed", "dismissed"].map((value) => ({ value, label: value })),
+];
+const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
+  const v = typeof raw === "string" ? raw : "";
+  return allowed.some((o) => o.value === v) ? v : "";
+};
+type Current = { sort: string; status: string; collision: string; created: string };
+const current = computed<Current>(() => ({
+  sort: pick(route.query.sort, SORTS) || "score",
+  status: pick(route.query.status, STATUSES),
+  collision: pick(route.query.collision, COLLISIONS),
+  created: pick(route.query.created, CREATED),
+}));
+const withDefaults = (c: Current) => {
+  const q: Record<string, string> = {};
+  if (c.sort !== "score") q.sort = c.sort;
+  for (const k of ["status", "collision", "created"] as const) if (c[k]) q[k] = c[k];
+  return q;
+};
+// A change of sort or filter keeps the New Proposal form open when it is open.
+const to = (patch: Partial<Current>) => ({ path: "/", query: { ...(showForm.value ? { new: String(route.query.new || "1") } : {}), ...withDefaults({ ...current.value, ...patch }) } });
+const opts = (list: Array<{ value: string; label: string }>, key: keyof Current) =>
+  list.map((o) => ({ label: o.label, to: to({ [key]: o.value }), active: current.value[key] === o.value }));
+const filtered = computed(() => !!(current.value.status || current.value.collision || current.value.created));
+const clearTo = computed(() => to({ status: "", collision: "", created: "" }));
+const choose = (key: string, value: string) => void navigateTo(to({ [key]: value }), { replace: true });
+const groups = computed(() => [
+  { kind: "seg" as const, key: "sort", title: "Sort", label: "Sort", options: opts(SORTS, "sort") },
+  { kind: "seg" as const, key: "collision", title: "Collisions", label: "Collision filter", options: opts(COLLISIONS, "collision") },
+  { kind: "select" as const, key: "status", title: "Status", id: "proposal-status", value: current.value.status, options: STATUSES },
+  { kind: "select" as const, key: "created", title: "Created", id: "proposal-created", value: current.value.created, options: CREATED },
+]);
+
+const { data: proposals, refresh } = await useFetch("/api/proposals", { query: computed(() => withDefaults(current.value)), default: () => [] });
+
+// Rows animate in when the page is reached by a client navigation; on the first (hydrating) load they are simply there.
+const animate = !useNuxtApp().isHydrating;
 
 const blank = () => ({
   name: "",
@@ -186,8 +241,11 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
       </div>
     </section>
 
+    <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="proposal-controls" @select="choose" />
+
     <section>
-      <p v-if="!proposals.length" class="surface muted text-sm">No Proposals yet.</p>
+      <p v-if="!proposals.length && filtered" class="surface muted text-sm">No Proposals match these filters.</p>
+      <p v-else-if="!proposals.length" class="surface muted text-sm">No Proposals yet.</p>
       <TransitionGroup v-else tag="div" name="row" :appear="animate" class="relative grid gap-4">
         <article v-for="(p, i) in proposals" :key="p.id" class="row" :style="{ '--i': i }" :data-test="`proposal-${p.id}`">
           <div class="grid items-center gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1.4fr)_250px_150px_150px_auto]">

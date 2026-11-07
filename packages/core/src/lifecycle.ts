@@ -4,18 +4,20 @@ import { buildHomeFor, removeTree } from "./build-home.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { isMintAddress } from "./launch.ts";
 
-export type ProposalStatus =
-  | "new"
-  | "shortlisted"
-  | "spec-drafted"
-  | "approved"
-  | "building"
-  | "built"
-  | "build-failed"
-  | "needs-human"
-  | "launched"
-  | "closed"
-  | "dismissed";
+export const PROPOSAL_STATUSES = [
+  "new",
+  "shortlisted",
+  "spec-drafted",
+  "approved",
+  "building",
+  "built",
+  "build-failed",
+  "needs-human",
+  "launched",
+  "closed",
+  "dismissed",
+] as const;
+export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
 
 export type Actor = "operator" | "system" | "build";
 

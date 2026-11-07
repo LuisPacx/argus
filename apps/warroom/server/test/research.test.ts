@@ -6,6 +6,7 @@ type Ev = { params: Record<string, string> };
 let store: Datastore;
 vi.stubGlobal("defineEventHandler", (f: unknown) => f);
 vi.stubGlobal("getRouterParam", (e: Ev, k: string) => e.params[k]);
+vi.stubGlobal("getQuery", () => ({}));
 vi.stubGlobal("createError", (o: { statusCode: number; statusMessage: string }) => Object.assign(new Error(o.statusMessage), o));
 vi.stubGlobal("useStore", () => store);
 vi.stubGlobal("useDataDir", () => "/argus/data");

@@ -74,41 +74,29 @@ const age = (createdAt: string) => {
   const hours = Math.floor(mins / 60);
   return hours < 48 ? `${hours} h` : `${Math.floor(hours / 24)} d`;
 };
-const choose = (key: keyof Current, e: Event) => void navigateTo(to({ [key]: (e.target as HTMLSelectElement).value }), { replace: true });
+const choose = (key: string, value: string) => void navigateTo(to({ [key]: value }), { replace: true });
+const groups = computed(() => [
+  { kind: "seg" as const, key: "sort", title: "Sort", label: "Sort", options: opts(SORTS, "sort") },
+  { kind: "seg" as const, key: "scored", title: "Score", label: "Scored filter", options: opts(SCORED, "scored") },
+  { kind: "seg" as const, key: "proposal", title: "Proposal", label: "Proposal filter", options: opts(PROPOSAL, "proposal") },
+  { kind: "select" as const, key: "active", title: "Active", id: "narrative-active", value: current.value.active, options: ACTIVE },
+  {
+    kind: "select" as const,
+    key: "source",
+    title: "Source",
+    id: "narrative-source",
+    value: current.value.source,
+    class: "max-w-56",
+    options: [{ value: "", label: "All Sources" }, ...sources.value.map((s) => ({ value: s.sourceId, label: s.label }))],
+  },
+]);
 </script>
 
 <template>
   <div class="grid gap-8">
     <h2 class="page-title">Narratives</h2>
 
-    <div class="flex flex-wrap items-end gap-x-4 gap-y-4" data-test="narrative-controls">
-      <div class="grid gap-1.5">
-        <span class="eyebrow">Sort</span>
-        <SegmentedLinks label="Sort" :options="opts(SORTS, 'sort')" />
-      </div>
-      <div class="grid gap-1.5">
-        <span class="eyebrow">Score</span>
-        <SegmentedLinks label="Scored filter" :options="opts(SCORED, 'scored')" />
-      </div>
-      <div class="grid gap-1.5">
-        <span class="eyebrow">Proposal</span>
-        <SegmentedLinks label="Proposal filter" :options="opts(PROPOSAL, 'proposal')" />
-      </div>
-      <div class="grid gap-1.5">
-        <label class="eyebrow" for="narrative-active">Active</label>
-        <select id="narrative-active" class="select-pill" :value="current.active" @change="choose('active', $event)">
-          <option v-for="o in ACTIVE" :key="o.value" :value="o.value" :selected="o.value === current.active">{{ o.label }}</option>
-        </select>
-      </div>
-      <div class="grid gap-1.5">
-        <label class="eyebrow" for="narrative-source">Source</label>
-        <select id="narrative-source" class="select-pill max-w-56" :value="current.source" @change="choose('source', $event)">
-          <option value="" :selected="!current.source">All Sources</option>
-          <option v-for="s in sources" :key="s.sourceId" :value="s.sourceId" :selected="s.sourceId === current.source">{{ s.label }}</option>
-        </select>
-      </div>
-      <NuxtLink v-if="filtered" :to="clearTo" replace class="btn btn-ghost">Clear filters</NuxtLink>
-    </div>
+    <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="narrative-controls" @select="choose" />
 
     <p v-if="!narratives.length && filtered" class="surface muted text-sm">No Narratives match these filters.</p>
     <p v-else-if="!narratives.length" class="surface muted text-sm">No Narratives yet. The worker clusters new Signals after each ingest tick.</p>
