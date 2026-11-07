@@ -1,2 +1,526 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+/* Self-hosted Plus Jakarta Sans (variable); the package ships the font files, nothing is fetched from a CDN. */
+@import "@fontsource-variable/plus-jakarta-sans/index.css";
+
+/* "Soft Rows" design tokens (see .scratch/warroom-redesign/). Light only. */
+:root {
+  --wr-bg: #f2f3f7;
+  --wr-surface: #ffffff;
+  --wr-inset: #f6f7fb;
+  --wr-ink: #14162b;
+  --wr-muted: #6b7088;
+  --wr-faint: #9a9eb5;
+  --wr-line: #ecedf4;
+  --wr-accent: #5b5bd6;
+  --wr-accent-strong: #4a4ac4;
+  --wr-accent-tint: #ededfc;
+  --wr-green: #167a42;
+  --wr-green-tint: #e3f5ea;
+  --wr-amber: #a15c00;
+  --wr-amber-tint: #fef1d6;
+  --wr-red: #b42323;
+  --wr-red-tint: #fde8e8;
+  --wr-neutral-tint: #eceef5;
+  --wr-shadow: 0 1px 2px rgb(20 22 43 / 0.04), 0 4px 16px rgb(20 22 43 / 0.05);
+  --wr-shadow-lift: 0 2px 4px rgb(20 22 43 / 0.05), 0 12px 28px rgb(91 91 214 / 0.13);
+  --wr-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --wr-radius: 20px;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--wr-bg);
+  color: var(--wr-ink);
+  font-family: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  /* ---- surfaces ---- */
+  .surface {
+    background: var(--wr-surface);
+    border-radius: var(--wr-radius);
+    box-shadow: var(--wr-shadow);
+    padding: 24px;
+  }
+  .inset {
+    background: var(--wr-inset);
+    border-radius: 14px;
+  }
+
+  /* A full-width rounded row. Its title link stretches over the whole row (.row-link); controls inside sit above it (.above). */
+  .row {
+    position: relative;
+    background: var(--wr-surface);
+    border-radius: var(--wr-radius);
+    box-shadow: var(--wr-shadow);
+    padding: 20px 24px;
+    transition:
+      transform 0.2s var(--wr-ease),
+      box-shadow 0.2s var(--wr-ease);
+  }
+  .row:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--wr-shadow-lift);
+  }
+  /* Rows that do not link anywhere lift less. */
+  .row-static:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgb(20 22 43 / 0.05), 0 8px 20px rgb(20 22 43 / 0.08);
+  }
+  .row-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--wr-radius);
+  }
+  .row-link:focus-visible {
+    outline: none;
+  }
+  .row-link:focus-visible::after {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: 2px;
+  }
+  .above {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ---- type ---- */
+  .page-title {
+    font-size: 2.1rem;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .page-sub {
+    margin-top: 4px;
+    font-size: 0.875rem;
+    color: var(--wr-muted);
+  }
+  .section-title {
+    font-size: 1.05rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .eyebrow {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--wr-faint);
+  }
+  .muted {
+    color: var(--wr-muted);
+  }
+  .faint {
+    color: var(--wr-faint);
+  }
+  .link {
+    color: var(--wr-accent-strong);
+    text-decoration: none;
+    transition: color 0.15s var(--wr-ease);
+  }
+  .link:hover {
+    color: var(--wr-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .url-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    color: var(--wr-accent-strong);
+    text-decoration: none;
+  }
+  .url-link > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .url-link:hover > span {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* ---- pills ---- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    background: var(--wr-neutral-tint);
+    color: var(--wr-muted);
+    transition:
+      background-color 0.15s var(--wr-ease),
+      color 0.15s var(--wr-ease);
+  }
+  .pill-green {
+    background: var(--wr-green-tint);
+    color: var(--wr-green);
+  }
+  .pill-amber {
+    background: var(--wr-amber-tint);
+    color: var(--wr-amber);
+  }
+  .pill-red {
+    background: var(--wr-red-tint);
+    color: var(--wr-red);
+  }
+  .pill-accent {
+    background: var(--wr-accent-tint);
+    color: var(--wr-accent-strong);
+  }
+  .pill-ink {
+    background: var(--wr-neutral-tint);
+    color: var(--wr-ink);
+  }
+  .pill-outline {
+    background: var(--wr-surface);
+    box-shadow: inset 0 0 0 1px var(--wr-line);
+    color: var(--wr-ink);
+  }
+
+  /* ---- buttons ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: 0;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    background: var(--wr-neutral-tint);
+    color: var(--wr-ink);
+    transition:
+      background-color 0.15s var(--wr-ease),
+      box-shadow 0.15s var(--wr-ease),
+      transform 0.15s var(--wr-ease),
+      opacity 0.15s var(--wr-ease);
+  }
+  .btn:hover:not(:disabled) {
+    background: #e2e4ef;
+    transform: translateY(-1px);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: 2px;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--wr-accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--wr-accent-strong);
+    box-shadow: 0 6px 16px rgb(91 91 214 / 0.3);
+  }
+  .btn-outline {
+    background: var(--wr-surface);
+    box-shadow: inset 0 0 0 1px #dfe1ec;
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: var(--wr-inset);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--wr-muted);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--wr-neutral-tint);
+  }
+  .btn-success {
+    background: var(--wr-green);
+    color: #fff;
+  }
+  .btn-success:hover:not(:disabled) {
+    background: #11663a;
+    box-shadow: 0 6px 16px rgb(22 122 66 / 0.28);
+  }
+  .btn-danger {
+    background: var(--wr-red);
+    color: #fff;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #971c1c;
+  }
+
+  /* ---- form fields ---- */
+  .field {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--wr-line);
+    border-radius: 14px;
+    background: var(--wr-inset);
+    color: var(--wr-ink);
+    font: inherit;
+    font-size: 0.875rem;
+    transition:
+      border-color 0.15s var(--wr-ease),
+      box-shadow 0.15s var(--wr-ease),
+      background-color 0.15s var(--wr-ease);
+  }
+  .field::placeholder {
+    color: var(--wr-faint);
+  }
+  .field:focus {
+    outline: none;
+    background: var(--wr-surface);
+    border-color: var(--wr-accent);
+    box-shadow: 0 0 0 3px rgb(91 91 214 / 0.16);
+  }
+  textarea.field {
+    resize: vertical;
+  }
+  .field-sm {
+    padding: 7px 12px;
+    border-radius: 999px;
+  }
+
+  /* ---- messages ---- */
+  .note {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .note-red {
+    color: var(--wr-red);
+  }
+  .note-amber {
+    color: var(--wr-amber);
+  }
+  .note-green {
+    color: var(--wr-green);
+  }
+
+  /* ---- label / value lists (Details card) ---- */
+  .kv > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    font-size: 0.875rem;
+    border-bottom: 1px solid var(--wr-line);
+  }
+  .kv > div:last-child {
+    border-bottom: 0;
+  }
+  .kv dt {
+    color: var(--wr-muted);
+  }
+  .kv dd {
+    text-align: right;
+    font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- progress bars ---- */
+  .track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--wr-neutral-tint);
+    overflow: hidden;
+  }
+  .track > .fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--wr-accent);
+    transform-origin: left center;
+    animation: bar-grow 0.6s var(--wr-ease) backwards;
+    animation-delay: calc(var(--i, 0) * 50ms + 120ms);
+  }
+  .track > .fill-bad {
+    background: var(--wr-red);
+  }
+
+  /* ---- shell ---- */
+  .nav-pill {
+    display: inline-flex;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--wr-muted);
+    text-decoration: none;
+    transition:
+      background-color 0.18s var(--wr-ease),
+      color 0.18s var(--wr-ease);
+  }
+  .nav-pill:hover {
+    color: var(--wr-ink);
+    background: var(--wr-inset);
+  }
+  .nav-pill.is-active {
+    background: var(--wr-accent-tint);
+    color: var(--wr-accent-strong);
+  }
+
+  /* Segmented pill group (list sorts and filters). */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 999px;
+    background: var(--wr-surface);
+    box-shadow: var(--wr-shadow);
+  }
+  .seg-item {
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--wr-muted);
+    text-decoration: none;
+    transition:
+      background-color 0.18s var(--wr-ease),
+      color 0.18s var(--wr-ease);
+  }
+  .seg-item:hover {
+    color: var(--wr-ink);
+    background: var(--wr-inset);
+  }
+  .seg-item.is-active {
+    background: var(--wr-accent-tint);
+    color: var(--wr-accent-strong);
+  }
+  .select-pill {
+    appearance: none;
+    padding: 9px 36px 9px 16px;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--wr-surface);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b7088' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 14px;
+    box-shadow: var(--wr-shadow);
+    color: var(--wr-ink);
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow 0.18s var(--wr-ease);
+  }
+  .select-pill:hover {
+    box-shadow: var(--wr-shadow-lift);
+  }
+  .select-pill:focus-visible {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ---- motion ---- */
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Cards on a detail page rise in one after another (--i). */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.rise {
+  animation: rise 0.3s var(--wr-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms + 80ms);
+}
+
+/* Page transition (list <-> detail): a short fade with a small lift, out then in. */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity 0.18s var(--wr-ease),
+    transform 0.18s var(--wr-ease);
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Rows entering a <TransitionGroup>: fade and slide in, staggered by --i (set per row, capped). */
+.row-enter-active {
+  transition:
+    opacity 0.26s var(--wr-ease),
+    transform 0.26s var(--wr-ease);
+  transition-delay: calc(min(var(--i, 0), 10) * 45ms);
+}
+.row-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.row-leave-active {
+  position: absolute;
+  width: 100%;
+  transition:
+    opacity 0.18s var(--wr-ease),
+    transform 0.18s var(--wr-ease);
+}
+.row-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+.row-move {
+  transition: transform 0.26s var(--wr-ease);
+}
+
+/* The New Proposal form opening above the header band. */
+.reveal-enter-active,
+.reveal-leave-active {
+  transition:
+    opacity 0.22s var(--wr-ease),
+    transform 0.22s var(--wr-ease);
+}
+.reveal-enter-from,
+.reveal-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .row:hover,
+  .btn:hover:not(:disabled) {
+    transform: none;
+  }
+}

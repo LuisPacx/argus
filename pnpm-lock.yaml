@@ -26,6 +26,9 @@ importers:
       '@argus/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fontsource-variable/plus-jakarta-sans':
+        specifier: 5.3.0
+        version: 5.3.0
       '@nuxt/ui':
         specifier: ^4.0.0
         version: 4.12.0(d2be25dee5f6462c33e66a20d1145815)
@@ -585,6 +588,9 @@ packages:
     resolution: {integrity: sha512-043dyEKD9TDSfz080YH2vobubgg+NIo/9Fw4RAl7sEMpD8Am1DNrrSTl/GpMBjyGHoD/FbJY2QLawY+HSQsEIA==}
     peerDependencies:
       vue: '>=3.3.0'
+
+  '@fontsource-variable/plus-jakarta-sans@5.3.0':
+    resolution: {integrity: sha512-/l/4r0yyWK9JzAlmA0LiYgGgmJe/Gswt4jTJEzr5QhJfwMbvJZDmYWyW0M4X7yCK69BajMVlV/Lx8g7WDc1+sw==}
 
   '@huggingface/jinja@0.5.11':
     resolution: {integrity: sha512-YzEzwM5oQf4r0vs7ifWQ+yuVR1YkAHrjERQ+a8WRsStHHp4NRBg+NesjiFc+X2AFUpRvvrIeHDS1xFy9jY/IjQ==}
@@ -4996,6 +5002,8 @@ snapshots:
       '@floating-ui/dom': 1.8.0
       '@floating-ui/utils': 0.2.12
       vue: 3.5.44(typescript@5.9.3)
+
+  '@fontsource-variable/plus-jakarta-sans@5.3.0': {}
 
   '@huggingface/jinja@0.5.11': {}
 
