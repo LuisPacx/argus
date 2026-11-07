@@ -1,15 +1,23 @@
 // `pnpm check`: typecheck, lint, test, in order, stopping at the first failure with its exit code.
-// On success in a clean worktree it stamps HEAD's tree (see check-stamp.mjs) so the pre-push hook can skip a re-run.
+// On success it stamps HEAD's tree (see check-stamp.mjs) so the pre-push hook can skip a re-run, but only if the worktree was
+// clean and HEAD's tree unchanged for the whole run (snapshot taken before the first step).
 import { spawnSync } from 'node:child_process';
-import { stampIfClean } from './check-stamp.mjs';
+import { snapshot, stampIfClean, unstampableReason } from './check-stamp.mjs';
 
+let before = null;
+try {
+  before = snapshot(process.cwd());
+} catch {
+  // not a git worktree: run the check, stamp nothing
+}
 for (const step of ['typecheck', 'lint', 'test']) {
   const r = spawnSync('pnpm', [step], { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 try {
-  const tree = stampIfClean(process.cwd());
-  console.log(tree ? `check: passed, stamped tree ${tree.slice(0, 10)}` : 'check: passed, worktree dirty so not stamped');
+  const tree = before && stampIfClean(process.cwd(), before);
+  if (tree) console.log(`check: passed, stamped tree ${tree.slice(0, 10)}`);
+  else console.log(`check: passed, not stamped (${before ? unstampableReason(before, snapshot(process.cwd())) : 'no git snapshot'})`);
 } catch (err) {
   console.warn(`check: passed, but stamping failed: ${err.message}`); // never fail a passing check over the stamp
 }

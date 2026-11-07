@@ -27,11 +27,24 @@ export function pruneStamps(dir, now = Date.now()) {
   }
 }
 
-// Call after a passing check. Stamps HEAD's tree only when the worktree is clean (nothing modified or untracked), because
-// only then is HEAD's tree exactly what was tested. Returns the tree sha, or null when nothing was written (dirty tree).
-export function stampIfClean(cwd, now = Date.now()) {
-  if (git(cwd, 'status', '--porcelain').trim() !== '') return null;
-  const tree = git(cwd, 'rev-parse', 'HEAD^{tree}').trim();
+// HEAD's tree and whether the worktree is clean (nothing modified or untracked) right now.
+export function snapshot(cwd) {
+  return { clean: git(cwd, 'status', '--porcelain').trim() === '', tree: git(cwd, 'rev-parse', 'HEAD^{tree}').trim() };
+}
+
+// Why a passing check must not be stamped, or null if it may. `before` is the snapshot taken BEFORE the check started: only
+// a tree that was clean at the start and is the same clean tree at the end is exactly what was tested.
+export function unstampableReason(before, after) {
+  if (!before.clean) return 'worktree was dirty when the check started';
+  if (!after.clean) return 'worktree changed during the check';
+  if (before.tree !== after.tree) return 'HEAD changed during the check';
+  return null;
+}
+
+// Call after a passing check, with the snapshot taken before it started. Returns the tree sha, or null when nothing was written.
+export function stampIfClean(cwd, before, now = Date.now()) {
+  if (unstampableReason(before, snapshot(cwd))) return null;
+  const tree = before.tree;
   const dir = stampDir(cwd);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, tree), '');
