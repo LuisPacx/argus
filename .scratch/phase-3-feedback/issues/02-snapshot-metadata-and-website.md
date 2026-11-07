@@ -6,6 +6,8 @@ Spec: sections 5, 6, 13, 15 (slices 2-3).
 
 **Blocked by:** 01 Measure create-to-migrate from chain
 
+**Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
+
 **Status:** ready-for-agent
 
 - [ ] The PumpPortal Source keeps uri, links, creator and chain event times and stores gap markers; it still uses one connection; existing Source tests still pass

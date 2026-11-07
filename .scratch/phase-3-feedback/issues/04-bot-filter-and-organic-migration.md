@@ -6,6 +6,8 @@ Spec: sections 5, 7, 9, 13, 15 (slice 5).
 
 **Blocked by:** 03 Chain labeller at 24h and 7d
 
+**Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
+
 **Status:** ready-for-agent
 
 - [ ] The five raw metrics are stored per migrator: creation-slot supply share, clustered supply, top-10 holder share, creator holding and selling, buyer count with round-trip volume share

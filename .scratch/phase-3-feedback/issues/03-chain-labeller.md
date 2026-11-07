@@ -6,6 +6,8 @@ Spec: sections 7, 13, 14, 15 (slice 4).
 
 **Blocked by:** 02 Snapshot metadata and website at the fixed age, end to end
 
+**Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
+
 **Status:** ready-for-agent
 
 - [ ] Labels come from chain through Helius, batched at 100 accounts per call, with the pinned Pump IDL version noted; times are chain event times, never receipt times

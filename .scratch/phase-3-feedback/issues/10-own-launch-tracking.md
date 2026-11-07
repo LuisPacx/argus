@@ -6,6 +6,8 @@ Spec: sections 10, 11, 15 (slice 11).
 
 **Blocked by:** 03 Chain labeller at 24h and 7d (reuses its chain reader)
 
+**Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
+
 **Status:** ready-for-agent
 
 - [ ] Marking launched schedules reads at 1h, 24h and 7d after the launch time; each read stores whether the curve completed, the migration, and DexScreener price and liquidity
