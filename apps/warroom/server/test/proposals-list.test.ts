@@ -100,4 +100,5 @@ it("GET /api/proposals answers 400 to an unknown sort, status, collision result 
   expect(() => list({ query: { status: "bogus" } })).toThrow("Invalid status");
   expect(() => list({ query: { collision: "maybe" } })).toThrow("Invalid collision filter");
   expect(() => list({ query: { created: "forever" } })).toThrow("Invalid created window");
+  for (const inherited of ["constructor", "__proto__", "toString"]) expect(() => list({ query: { created: inherited } })).toThrow("Invalid created window");
 });

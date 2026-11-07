@@ -164,6 +164,7 @@ it("GET /api/narratives answers 400 to an unknown sort, filter value or window",
   expect(() => list({ query: { scored: "maybe" } })).toThrow("Invalid scored filter");
   expect(() => list({ query: { proposal: "1" } })).toThrow("Invalid proposal filter");
   expect(() => list({ query: { active: "forever" } })).toThrow("Invalid active window");
+  for (const inherited of ["constructor", "__proto__", "toString"]) expect(() => list({ query: { active: inherited } })).toThrow("Invalid active window");
 });
 
 it("GET /api/narratives/:id returns the Narrative with its Signals, newest first", () => {

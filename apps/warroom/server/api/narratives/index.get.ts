@@ -32,9 +32,8 @@ export default defineEventHandler((event) => {
   if (source !== undefined) query.sourceId = source;
   const active = one(q.active);
   if (active !== undefined) {
-    const ms = WINDOWS_MS[active];
-    if (ms === undefined) throw bad("active window");
-    query.activeSince = new Date(Date.now() - ms).toISOString();
+    if (!Object.hasOwn(WINDOWS_MS, active)) throw bad("active window");
+    query.activeSince = new Date(Date.now() - WINDOWS_MS[active]!).toISOString();
   }
   return useStore().queryNarratives(query);
 });

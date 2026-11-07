@@ -32,9 +32,8 @@ export default defineEventHandler((event) => {
   }
   const created = one(q.created);
   if (created !== undefined) {
-    const ms = WINDOWS_MS[created];
-    if (ms === undefined) throw bad("created window");
-    query.createdSince = new Date(Date.now() - ms).toISOString();
+    if (!Object.hasOwn(WINDOWS_MS, created)) throw bad("created window");
+    query.createdSince = new Date(Date.now() - WINDOWS_MS[created]!).toISOString();
   }
   const dataDir = useDataDir();
   const buildRoot = useBuildRoot();
