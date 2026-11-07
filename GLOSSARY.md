@@ -67,3 +67,29 @@ The API-equivalent dollar figure (`total_cost_usd`) that `claude -p` reports for
 
 **API spend**:
 Real dollars billed by the Anthropic API when the optional API fallback serves a judge or propose run (the subscription is rate-limited). Computed from the provider's reported token usage times the model's price, held to a daily cap in code, and always shown apart from Est. usage, which is not money.
+
+## Learning
+
+**Study**:
+The standing, unattended programme that watches new pump.fun tokens that have a website or X link, records how each looked early, finds out later which ones migrated organically, and learns from the difference. It studies other people's tokens, never argus's own Launches.
+
+**Snapshot**:
+The frozen record of one studied token's website, X account, metadata and launch figures, taken once at a fixed early age and never edited, so that later analysis cannot see the outcome.
+
+**Case**:
+A studied token whose outcome is final, pairing its Snapshot with that outcome. Cases are analysed without the outcome shown, and the outcome is joined afterwards.
+_Avoid_: Sample, example
+
+**Cohort**:
+The Cases whose tokens were created in the same week. A lesson learned on one Cohort is tested on later ones.
+
+**Playbook**:
+The evidence-backed lessons the Study has learned, each suggested until the Operator approves it, plus the Rubric changes it suggests. Approved lessons are shown to the research steps; the Operator reviews the Playbook weekly.
+_Avoid_: Insights, model
+
+**Organic migration**:
+A token's bonding curve completing and moving to a swap pool, where the buying looks like many independent buyers and not bots or insiders controlling the supply. It is the Study's success label. A migration that fails the bot filter is a bot-driven migration, kept as its own group.
+_Avoid_: Graduation, bonding, success
+
+**Fast migration**:
+A migration that happens very soon after the token's creation (starting at under 30 minutes, to be adjusted once measured). Fast migrations are kept and counted, but the Playbook learns no lessons from them.

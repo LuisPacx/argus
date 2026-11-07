@@ -1,5 +1,7 @@
 # Argus does not launch tokens: the newpairspam boundary
 
+Status: accepted. Amended by the Phase 3 spec (2026-11-07): outcome tracking of argus's own Launches is read from chain automatically, read-only, and is no longer entered by hand (see Amendment). The boundary itself, no wallet and never launching, stands.
+
 Argus researches, proposes, specs and builds. Token deploy, trading and PnL stay in newpairspam. The handoff is a Launch button that opens the newpairspam token form prefilled from the Proposal (name, ticker, description, logo, preview link), and a manual "mark launched" in the War Room where the Operator records the mint. Argus holds no wallet and no chain keys.
 
 ## Considered Options
@@ -11,5 +13,9 @@ Argus researches, proposes, specs and builds. Token deploy, trading and PnL stay
 ## Consequences
 
 - The only coupling is the prefill format. Whether it is query params or a JSON paste is an open question to check in newpairspam's `TokenForm.vue` before building the button.
-- Launch status in argus is only as accurate as the Operator's "mark launched"; outcome tracking (phase 3) is entered by hand too.
+- Launch status in argus is only as accurate as the Operator's "mark launched", which supplies the mint. ~~Outcome tracking (phase 3) is entered by hand too.~~ Superseded by the Amendment: outcomes are read from chain.
 - The old plan's generator, deployer, promoter, position manager and ledger are out of scope for this repo.
+
+## Amendment (Phase 3 spec, 2026-11-07)
+
+Once the Operator has marked a Proposal launched with its mint, argus reads that mint from chain on its own (whether the curve completed, the migration, market data at 1h, 24h and 7d) and shows the outcome on the Proposal. This is read-only: public RPC and public market APIs, no wallet, no keys, no transaction. Argus still never launches, still holds no chain keys, and auto-launch through a newpairspam API stays out of scope. The mint still comes from the Operator's manual "mark launched"; argus does not discover Launches by watching wallets. Why: hand-entered outcomes would be rarely filled in and late, and the Phase 3 Study reads the same chain data for other tokens anyway. See `.scratch/phase-3-feedback/spec.md`, section 11.
