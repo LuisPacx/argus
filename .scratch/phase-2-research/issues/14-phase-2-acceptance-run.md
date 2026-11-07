@@ -132,3 +132,18 @@ Operator actions today (not research; excluded from the research counts above ex
 - About 11:25 -03:00, accidental Shortlist of Proposal 21 (created 2026-11-06T22:21 -03:00): one spec brain run (sonnet, $0.0438, brain_runs created 2026-11-07T14:25:45Z, exit success). Proposal 21 is now spec-drafted. Log: `spec for proposal 21: drafted`, `resolved 1 command(s)`. The run is included in the 24 h totals above.
 - About 11:30 -03:00, War Room-only restart for ticket 19 (the worker was not touched; worker pid 174028 is unchanged since 11:01).
 - Restarts at 10:31 (after suspend) and 11:01 (sleep lock) are recorded above.
+
+### Check-in 2026-11-07T18:47 -03:00
+
+- Status: `dev:status` reports warroom running (pid 362056, port 3100), worker running (pid 174028), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". Running: yes. `systemd-inhibit --list` shows two argus block locks (sleep:handle-lid-switch, one per process). / and /api/proposals return 200. No process was restarted or signalled for this check-in.
+- Time: 27h19m elapsed since the 2026-11-06 15:28 start (including 9h31m suspend downtime). Planned end unchanged: 2026-11-08T12:59:50-03:00 (18h12m left).
+- Proposals: total 27 (new 26, spec-drafted 1). Proposals in the last 24 h: 20 (cap 30). Since the last check-in (15:47Z): 6 (Proposals 22 to 27, created 19:02Z to 21:02Z).
+- brain_runs in the last 24 h (window from 2026-11-06T21:47Z): 184 runs, $1.2511 total. By task and outcome: judge (haiku, success) 150 runs, $0.1944; propose (sonnet, success) 24 runs, $0.7837; propose (sonnet, invalid-output) 9 runs, $0.2292; spec (sonnet, success) 1 run, $0.0438 (the Proposal 21 run from 14:25Z).
+- brain_runs since the last check-in (15:47Z): 70 runs, $0.3036: judge 60 runs, $0.0801 (six 10-narrative ticks, 19:02Z to 21:32Z); propose 10 runs, $0.2765 (8 success $0.2230, 2 invalid-output $0.0535). The spec run is outside this window.
+- Judge cap: binding again. The 24 h judge count is exactly 150 at 21:47Z. The worker logged `judge: daily cap reached` and skipped judging at six ticks (16:01, 16:31, 17:01, 17:31, 18:01, 18:31Z). Judging resumed at 19:02Z as runs aged out, and the 21:32Z tick scored 10. The cap-stop log line repeats the fixed figures "150 runs, $0.1975"; the DB shows $0.1944 for the same 150 runs now, so treat the log figure as stale.
+- Propose caps: not reached. Proposals 20 of 30 in 24 h. Propose runs 33 in 24 h, under the 45/day limit.
+- Propose refusals since the last check-in: 2 (narrative 321 at 19:32Z, narrative 829 at 21:02Z), both `evidence must be an array of 3 to 5 links`. These match the 2 invalid-output propose runs (ids 208 and 242). The 24 h total is 9 invalid-output runs.
+- Errors since the last check-in: 0 error-level lines; no judge or propose failures ("0 failed" on every tick). Ingest: `rss:hn-frontpage` failed 6 times (16:06 aborted, 16:16 aborted, 16:36 fetch failed, 16:56 502 Bad Gateway, 17:26 aborted, 18:31 aborted), each one tick and recovered. No `github:trending` failures in the window.
+- Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
+
+Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
