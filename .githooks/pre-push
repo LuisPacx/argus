@@ -1,5 +1,6 @@
 #!/bin/sh
-# Skip the (slow) check when every file in every pushed commit is a note (.scratch/** or *.md, not .claude/**).
+# Skip the (slow) check when each pushed ref differs from origin, or from a commit whose tree already passed `pnpm check`
+# (a stamp, see scripts/check-stamp.mjs), only by notes (.scratch/** or *.md, not .claude/**), or is itself stamped.
 # scripts/prepush-decision.mjs exits 0 only then; any other outcome, including a crash, runs the check.
 refs=$(cat)
 if printf '%s\n' "$refs" | node "$(dirname "$0")/../scripts/prepush-decision.mjs"; then

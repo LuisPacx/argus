@@ -6,8 +6,12 @@ const ZERO = "0".repeat(40);
 const refLine = (local: string, remote: string, ref = "refs/heads/main") => `${ref} ${local} ${ref} ${remote}\n`;
 
 // Fake git: `files` maps "from..to" to the changed files; `base` is the merge-base with origin/main (null = no origin/main).
-const fakeGit = (files: Record<string, string[]>, base: string | null = "base") => ({
+// `commits` maps "from..to" to the rev-list (tip first); `stamped` is the set of stamped commits (tree of commit X is "tree-X").
+const fakeGit = (files: Record<string, string[]>, base: string | null = "base", commits: Record<string, string[]> = {}, stamped: string[] = []) => ({
   mergeBase: () => base,
+  rangeCommits: (from: string, to: string) => commits[`${from}..${to}`] ?? [],
+  treeOf: (c: string) => `tree-${c}`,
+  hasStamp: (tree: string) => stamped.some((c) => `tree-${c}` === tree),
   changedFiles: (from: string, to: string) => {
     const hit = files[`${from}..${to}`];
     if (!hit) throw new Error("bad object");
@@ -70,6 +74,44 @@ describe("decidePush", () => {
 
   it("runs the check when a live ref changes no files", () => {
     expect(decidePush(refLine("l", "r"), fakeGit({ "r..l": [] })).skip).toBe(false);
+  });
+
+  describe("with check stamps", () => {
+    const range = { "r..c3": ["c3", "c2", "c1"] };
+
+    it("skips when the tip tree is stamped, even if the code changed since origin", () => {
+      const git = fakeGit({ "r..c3": ["src/a.ts"], "c3..c3": [] }, "base", range, ["c3"]);
+      const out = decidePush(refLine("c3", "r"), git);
+      expect(out.skip).toBe(true);
+      expect(out.reasons).toEqual(["tree tree-c3 already checked"]);
+    });
+
+    it("skips when a stamped ancestor differs from the tip only by notes", () => {
+      const git = fakeGit({ "r..c3": ["src/a.ts", "README.md"], "c2..c3": ["README.md"] }, "base", range, ["c2"]);
+      const out = decidePush(refLine("c3", "r"), git);
+      expect(out.skip).toBe(true);
+      expect(out.reasons).toEqual(["docs-only since c2 (checked)"]);
+    });
+
+    it("runs the check when a stamped ancestor differs from the tip by code", () => {
+      const git = fakeGit({ "r..c3": ["src/a.ts"], "c1..c3": ["src/b.ts"] }, "base", range, ["c1"]);
+      expect(decidePush(refLine("c3", "r"), git).skip).toBe(false);
+    });
+
+    it("falls back to the docs-only rule with no stamps", () => {
+      expect(decidePush(refLine("c3", "r"), fakeGit({ "r..c3": ["README.md"] }, "base", range)).skip).toBe(true);
+      expect(decidePush(refLine("c3", "r"), fakeGit({ "r..c3": ["a.ts"] }, "base", range)).skip).toBe(false);
+    });
+
+    it("needs every ref justified", () => {
+      const git = fakeGit({ "r..c3": ["a.ts"], "c3..c3": [], "r2..d": ["a.ts"] }, "base", { ...range, "r2..d": ["d"] }, ["c3"]);
+      expect(decidePush(refLine("c3", "r") + refLine("d", "r2", "refs/heads/b"), git).skip).toBe(false);
+    });
+
+    it("runs the check when stamp lookup throws", () => {
+      const git = { ...fakeGit({ "r..c3": ["a.ts"] }, "base", range), hasStamp: () => { throw new Error("boom"); } };
+      expect(decidePush(refLine("c3", "r"), git).skip).toBe(false);
+    });
   });
 
   it("runs the check on any git error, empty input, or malformed input", () => {
