@@ -11,9 +11,8 @@ Argus watches public Sources, turns Narratives into Proposals (a token angle plu
 
 ## Team board
 
-[`docs/team/argus-board.excalidraw`](docs/team/argus-board.excalidraw) is a whiteboard that explains argus to the Team and seeds a "what next?" discussion.
-Open it at excalidraw.com (free, no account): menu > Open, then pick the file.
-For a shared session use Live collaboration (menu > Live collaboration) and send the link.
+[`docs/team/site/`](docs/team/site/) is a static, public page (https://argus-overview.pages.dev) that explains argus to the Team and seeds a "what next?" discussion. It holds no secrets; keep it that way.
+Redeploy from a directory outside the repo: `npx wrangler pages deploy <path-to>/docs/team/site --project-name argus-overview --branch main` (needs `wrangler login`). Update the "Last updated" date first.
 
 ## Next step
 

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus overview</title>
+<meta name="description" content="What argus is, how it works, where we stand and what to build next.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2314212b'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f2b84b'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%2314212b'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#how">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <p class="mark" aria-hidden="true"><span class="eye"></span></p>
+    <h1>Argus</h1>
+    <p class="lede">Argus watches public news and market feeds, spots stories that are gaining momentum, and proposes a token idea plus a small product that rides the story. A human decides at every step. Argus never launches a token.</p>
+    <p class="meta">Last updated 2026-11-07</p>
+    <nav aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#guardrails">Guardrails</a>
+      <a href="#status">Where we stand</a>
+      <a href="#discuss">Discussion</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section id="how" class="wrap">
+  <h2>How it works</h2>
+  <p class="sub">From a news story to a live preview of a small product, in seven steps.</p>
+  <ol class="steps">
+    <li><b>Read.</b> Argus reads public news, trend and market feeds all day.</li>
+    <li><b>Group.</b> It groups related items into a Narrative: one story that is gaining momentum.</li>
+    <li><b>Score.</b> An AI judge scores each Narrative on momentum, novelty, buildability, hook and legitimacy.</li>
+    <li><b>Propose.</b> For the best ones, argus proposes a token idea plus a small product (the Tech) that rides the story.</li>
+    <li class="human"><b>Decide.</b> A human, the Operator, reviews the Proposals in the War Room and approves or dismisses them.</li>
+    <li><b>Build.</b> For an approved Proposal, an AI agent builds a small working product inside a locked box.</li>
+    <li class="human"><b>Preview and launch.</b> The product appears as a preview link. Humans decide whether to launch the token, outside argus.</li>
+  </ol>
+  <p class="note"><span class="chip human-chip">Highlighted</span> steps are where a person decides.</p>
+
+  <h3>Small glossary</h3>
+  <dl class="gloss">
+    <div><dt>Signal</dt><dd>One raw item seen in a feed: an article, a trending term, a market event.</dd></div>
+    <div><dt>Narrative</dt><dd>A cluster of recent Signals about one subject that is gaining momentum.</dd></div>
+    <div><dt>Proposal</dt><dd>A Narrative plus a token angle (name, ticker) and a Tech worth building. What the Operator decides on.</dd></div>
+    <div><dt>Tech</dt><dd>The small product argus can build that rides the Narrative.</dd></div>
+    <div><dt>Spec</dt><dd>The written brief for a Build. The Operator edits it before approving.</dd></div>
+    <div><dt>Build</dt><dd>The small working product made from an approved Proposal's Spec.</dd></div>
+    <div><dt>Operator</dt><dd>The one person who approves each gate.</dd></div>
+    <div><dt>War Room</dt><dd>The local dashboard where the Operator reviews Proposals.</dd></div>
+  </dl>
+</section>
+
+<section id="architecture" class="wrap wide">
+  <h2>Architecture</h2>
+  <p class="sub">The path from public feeds to a live preview. Left to right, then down.</p>
+
+  <ul class="legend" aria-label="Legend">
+    <li><i class="sw s-done"></i>Done and verified</li>
+    <li><i class="sw s-live"></i>Live in the current 48 hour acceptance run</li>
+    <li><i class="sw s-built"></i>Built, not used for real yet</li>
+    <li><i class="sw s-none"></i>Not built</li>
+    <li><i class="sw s-human"></i>A human decides here</li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 980 600" role="img" aria-labelledby="dt dd" class="desk">
+      <title id="dt">Argus architecture</title>
+      <desc id="dd">Sources feed ingest, then Narratives, the Judge and Propose. Proposals go to the War Room where the Operator decides, then a Spec, a Build in containment and a workers.dev preview. Humans launch in newpairspam, outside argus.</desc>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="arrowhead"/></marker>
+      </defs>
+
+      <!-- row 1 -->
+      <g class="node live"><rect x="25" y="30" width="150" height="110" rx="10"/><text x="100" y="58" class="t">Sources</text><text x="100" y="80" class="d">RSS news, Google Trends,</text><text x="100" y="96" class="d">PumpPortal, DexScreener,</text><text x="100" y="112" class="d">GitHub trending</text><text x="100" y="132" class="s">live</text></g>
+      <g class="node live"><rect x="220" y="30" width="150" height="110" rx="10"/><text x="295" y="58" class="t">Ingest</text><text x="295" y="80" class="d">Plain code, no AI,</text><text x="295" y="96" class="d">every 5 minutes.</text><text x="295" y="112" class="d">Items become Signals</text><text x="295" y="132" class="s">live</text></g>
+      <g class="node live"><rect x="415" y="30" width="150" height="110" rx="10"/><text x="490" y="58" class="t">Narratives</text><text x="490" y="80" class="d">Signals clustered</text><text x="490" y="96" class="d">by meaning</text><text x="490" y="132" class="s">live</text></g>
+      <g class="node live"><rect x="610" y="30" width="150" height="110" rx="10"/><text x="685" y="58" class="t">Judge</text><text x="685" y="80" class="d">AI scores each Narrative.</text><text x="685" y="96" class="d">Below the buildability</text><text x="685" y="112" class="d">gate, no Proposal</text><text x="685" y="132" class="s">live</text></g>
+      <g class="node live"><rect x="805" y="30" width="150" height="110" rx="10"/><text x="880" y="58" class="t">Propose</text><text x="880" y="80" class="d">Name, ticker, Tech.</text><text x="880" y="96" class="d">Checks name clashes.</text><text x="880" y="112" class="d">Max 30 a day</text><text x="880" y="132" class="s">live</text></g>
+
+      <path class="arrow" d="M175 85H218" marker-end="url(#ah)"/>
+      <path class="arrow" d="M370 85H413" marker-end="url(#ah)"/>
+      <path class="arrow" d="M565 85H608" marker-end="url(#ah)"/>
+      <path class="arrow" d="M760 85H803" marker-end="url(#ah)"/>
+      <path class="arrow" d="M880 140V185H100V228" marker-end="url(#ah)"/>
+
+      <!-- row 2 -->
+      <g class="node live human"><rect x="25" y="230" width="150" height="120" rx="10"/><text x="100" y="258" class="t">War Room</text><text x="100" y="280" class="d">Runs on localhost.</text><text x="100" y="296" class="d">Operator shortlists,</text><text x="100" y="312" class="d">approves or dismisses</text><text x="100" y="334" class="s">live, human decides</text></g>
+      <g class="node built human"><rect x="220" y="230" width="150" height="120" rx="10"/><text x="295" y="258" class="t">Spec</text><text x="295" y="280" class="d">Drafted when shortlisted.</text><text x="295" y="296" class="d">Operator edits it,</text><text x="295" y="312" class="d">then approves</text><text x="295" y="334" class="s">built, not used yet</text></g>
+      <g class="node built"><rect x="415" y="230" width="150" height="120" rx="10"/><text x="490" y="258" class="t">Build</text><text x="490" y="276" class="d">in containment</text><text x="490" y="298" class="d">An agent writes the</text><text x="490" y="312" class="d">product. One at a time,</text><text x="490" y="326" class="d">one retry</text><text x="490" y="340" class="s">built, not used yet</text></g>
+      <g class="node built"><rect x="610" y="230" width="150" height="120" rx="10"/><text x="685" y="258" class="t">Preview</text><text x="685" y="280" class="d">Live link on workers.dev</text><text x="685" y="296" class="d">to the finished product</text><text x="685" y="334" class="s">built, not used yet</text></g>
+      <g class="node edge"><rect x="805" y="230" width="150" height="120" rx="10"/><text x="880" y="258" class="t">newpairspam</text><text x="880" y="284" class="d">Humans launch here.</text><text x="880" y="300" class="d">Out of scope for</text><text x="880" y="316" class="d">argus</text><text x="880" y="334" class="s">outside argus</text></g>
+
+      <path class="arrow" d="M175 290H218" marker-end="url(#ah)"/>
+      <path class="arrow" d="M370 290H413" marker-end="url(#ah)"/>
+      <path class="arrow" d="M565 290H608" marker-end="url(#ah)"/>
+      <path class="arrow dash" d="M760 290H803" marker-end="url(#ah)"/>
+
+      <!-- containment band -->
+      <rect x="403" y="220" width="174" height="140" rx="14" class="band"/>
+      <text x="490" y="378"class="cap" text-anchor="middle">Locked box: rootless podman, no keys inside</text>
+
+      <!-- row 3 -->
+      <text x="25" y="425" class="cap2">Also in the picture. No arrows: they touch several steps, or come later.</text>
+      <g class="node done small"><rect x="25" y="440" width="200" height="90" rx="10"/><text x="125" y="466" class="t2">Containment</text><text x="125" y="486" class="d">Rootless podman, no keys</text><text x="125" y="502" class="d">inside, egress allowlist</text><text x="125" y="520" class="s">done</text></g>
+      <g class="node done small"><rect x="245" y="440" width="200" height="90" rx="10"/><text x="345" y="466" class="t2">Launch handoff</text><text x="345" y="486" class="d">Opens the newpairspam</text><text x="345" y="502" class="d">form prefilled</text><text x="345" y="520" class="s">done</text></g>
+      <g class="node built small"><rect x="465" y="440" width="200" height="90" rx="10"/><text x="565" y="466" class="t2">Team notifications</text><text x="565" y="486" class="d">Chat messages, notify only,</text><text x="565" y="502" class="d">no commands</text><text x="565" y="520" class="s">built, not used yet</text></g>
+      <g class="node built small"><rect x="685" y="440" width="270" height="90" rx="10"/><text x="820" y="466" class="t2">Paid API fallback</text><text x="820" y="486" class="d">Backup for judge and propose.</text><text x="820" y="502" class="d">Off by default, $0.50 a day cap</text><text x="820" y="520" class="s">built, not used yet</text></g>
+      <g class="node none small"><rect x="25" y="545" width="440" height="46" rx="10"/><text x="245" y="565" class="t2">P2-17 market evidence on each card</text><text x="245" y="582" class="d">PumpPortal activity. Waits for the 48 hour run</text></g>
+      <g class="node none small"><rect x="485" y="545" width="470" height="46" rx="10"/><text x="720" y="565" class="t2">Phase 3: feedback loop</text><text x="720" y="582" class="d">Dismissal reasons tune the Rubric; optional auto-approve</text></g>
+    </svg>
+
+    <ol class="flow" aria-label="Architecture as a list">
+      <li class="live"><b>Sources</b><span>RSS news, Google Trends, PumpPortal, DexScreener, GitHub trending</span><em>live</em></li>
+      <li class="live"><b>Ingest</b><span>Plain code, no AI, every 5 minutes. Items become Signals</span><em>live</em></li>
+      <li class="live"><b>Narratives</b><span>Signals clustered by meaning</span><em>live</em></li>
+      <li class="live"><b>Judge</b><span>AI scores each Narrative; below the buildability gate, no Proposal</span><em>live</em></li>
+      <li class="live"><b>Propose</b><span>Name, ticker, Tech. Checks name clashes. Max 30 a day</span><em>live</em></li>
+      <li class="live human"><b>War Room</b><span>Runs on localhost. Operator shortlists, approves or dismisses</span><em>live, human decides</em></li>
+      <li class="built human"><b>Spec</b><span>Drafted when shortlisted. Operator edits it, then approves</span><em>built, not used yet</em></li>
+      <li class="built"><b>Build in containment</b><span>An agent writes the product inside a locked box. One at a time, one retry</span><em>built, not used yet</em></li>
+      <li class="built"><b>Preview</b><span>Live link on workers.dev to the finished product</span><em>built, not used yet</em></li>
+      <li class="edge"><b>newpairspam</b><span>Humans launch here. Out of scope for argus</span><em>outside argus</em></li>
+      <li class="done"><b>Containment</b><span>Rootless podman, no keys inside, egress allowlist</span><em>done</em></li>
+      <li class="done"><b>Launch handoff</b><span>Opens the newpairspam form prefilled</span><em>done</em></li>
+      <li class="built"><b>Team notifications</b><span>Chat messages, notify only</span><em>built, not used yet</em></li>
+      <li class="built"><b>Paid API fallback</b><span>Backup for judge and propose. Off by default</span><em>built, not used yet</em></li>
+      <li class="none"><b>P2-17 market evidence</b><span>PumpPortal activity on each card. Waits for the 48 hour run</span><em>not built</em></li>
+      <li class="none"><b>Phase 3: feedback loop</b><span>Dismissal reasons tune the Rubric; optional auto-approve</span><em>not built</em></li>
+    </ol>
+  </figure>
+</section>
+
+<section id="guardrails" class="wrap">
+  <h2>Guardrails</h2>
+  <p class="sub">What keeps this safe: four rules, plus one.</p>
+  <div class="rails">
+    <article><h3>Human in the loop</h3><p>A person decides at every gate: shortlist, approve the Spec, dismiss, launch. Argus never launches a token and holds no wallet.</p></article>
+    <article><h3>Containment</h3><p>Builds run in a locked container: no passwords or keys inside, internet only to two allowed sites, no access to the Operator's files. There is no uncontained mode.</p></article>
+    <article><h3>Budget caps</h3><p>Every AI run has a spend cap. Research is held to about 30% of the daily plan. A Build gets a $25 cap and 4 hours. Hitting a cap stops the run; caps are never raised silently.</p></article>
+    <article><h3>Subscription only</h3><p>AI work runs on the Claude subscription, not pay-per-use. The optional paid fallback is off, and capped at $0.50 a day if ever turned on.</p></article>
+    <article><h3>Honesty</h3><p>Every Build carries a footer saying argus made it and the creator may sell. Argus does no posting, botting or promotion.</p></article>
+  </div>
+</section>
+
+<section id="status" class="wrap">
+  <h2>Where we stand</h2>
+  <p class="sub">Status as of 2026-11-07.</p>
+  <div class="phases">
+    <article>
+      <h3>Phase 1: build path</h3>
+      <p class="badge b-built">Built, not used for real yet</p>
+      <p>Tickets 01 to 20 are done, including containment. Open: the first real Build (ticket 10) and one check in ticket 12. Both need the Operator present and the Build token. No real Build has run yet.</p>
+    </article>
+    <article>
+      <h3>Phase 2: research</h3>
+      <p class="badge b-live">Live in the acceptance run</p>
+      <p>All tickets are done except two: P2-14 (the 48 hour acceptance run) and P2-17 (PumpPortal market evidence, which waits for P2-14). Also shipped: Activity page, Atom feeds, the new War Room look. Proposals sort and filter is nearly done.</p>
+    </article>
+    <article>
+      <h3>The 48 hour acceptance run</h3>
+      <p class="badge b-live">Running</p>
+      <p>Research only, paid fallback off. It stopped once when the computer went to sleep; it was restarted and now holds a sleep lock. Planned end 2026-11-08. Still to check: the forced-exhaustion fallback and the path from card to launched. Usage so far is roughly $0.3 to $0.9 of estimated plan usage per 6 hours (not billed).</p>
+    </article>
+    <article>
+      <h3>Phase 3: feedback and auto-ladder</h3>
+      <p class="badge b-none">Not started</p>
+      <p>Dismissal reasons feed the Rubric; optional auto-approve above a score, off by default. Auto-launch is out of scope.</p>
+    </article>
+  </div>
+
+  <h3>Waiting on the Operator</h3>
+  <ol class="todo">
+    <li>Mint the Build token. It blocks the first real Build.</li>
+    <li>Confirm the workers.dev subdomain in Cloudflare.</li>
+    <li>Check the extra-usage setting on the Claude account.</li>
+    <li>After the run: decide the API fallback and the research quota.</li>
+    <li>Re-check that headless Claude stays on the subscription.</li>
+  </ol>
+</section>
+
+<section id="discuss" class="wrap">
+  <h2>Discussion</h2>
+  <p class="sub">Post your answers where the team talks. The Operator collects them. Nothing on this page records replies.</p>
+
+  <div class="prompts">
+    <article>
+      <h3>What should we build next?</h3>
+      <ul>
+        <li>P2-17: show PumpPortal market activity on each card. Worth it? It waits for the 48 hour run.</li>
+        <li>Run the first real Build end to end. Which Proposal first?</li>
+        <li>Proposals list sort and filter. What order do you want?</li>
+        <li>Phase 3: let dismissal reasons tune the Rubric.</li>
+        <li>Phase 3: should argus ever auto-approve above a score?</li>
+        <li>More sources: X through the official API, later.</li>
+        <li>Small hardening fixes (timeouts, one podman setting). Now or later?</li>
+      </ul>
+    </article>
+    <article>
+      <h3>Questions</h3>
+      <ul>
+        <li>Is the current Claude plan enough for research plus Builds?</li>
+        <li>Should the paid API fallback ever be on? At what daily cap?</li>
+        <li>Will headless Claude keep drawing from the subscription? Unresolved.</li>
+        <li>Are Narratives good enough? The clustering margin is thin.</li>
+        <li>What should a Team member see on a Proposal to give a useful opinion?</li>
+      </ul>
+    </article>
+    <article>
+      <h3>Risks</h3>
+      <ul>
+        <li>Research and Builds share the plan limits with the Operator's own use.</li>
+        <li>Look-alike token names: the clash check can answer "unknown", not only yes or no.</li>
+        <li>Real Builds are untested: cost and failure rate are unknown.</li>
+        <li>The run stopped once when the computer slept.</li>
+        <li>An AI-built product may overpromise. The disclosure footer helps.</li>
+      </ul>
+    </article>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Last updated 2026-11-07. Source: <code>docs/team/site/</code> in the argus repo.</p>
+  </div>
+</footer>
+</body>
+</html>
