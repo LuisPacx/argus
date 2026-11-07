@@ -10,17 +10,17 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip" href="#how">Skip to content</a>
+<a class="skip" href="#architecture">Skip to content</a>
 
 <header class="top">
-  <div class="wrap">
-    <p class="mark" aria-hidden="true"><span class="eye"></span></p>
-    <h1>Argus</h1>
-    <p class="lede">Argus watches public news and market feeds, spots stories that are gaining momentum, and proposes a token idea plus a small product that rides the story. A human decides at every step. Argus never launches a token.</p>
-    <p class="meta">Last updated 2026-11-07</p>
+  <div class="wrap top-row">
+    <div class="top-text">
+      <h1><span class="eye" aria-hidden="true"></span>Argus</h1>
+      <p class="lede">Argus watches public news and market feeds, spots stories that are gaining momentum, and proposes a token idea plus a small product that rides the story. A human decides at every step. Argus never launches a token.</p>
+    </div>
     <nav aria-label="Sections">
-      <a href="#how">How it works</a>
       <a href="#architecture">Architecture</a>
+      <a href="#how">How it works</a>
       <a href="#guardrails">Guardrails</a>
       <a href="#status">Where we stand</a>
       <a href="#discuss">Discussion</a>
@@ -30,95 +30,170 @@
 
 <main>
 
-<section id="how" class="wrap">
-  <h2>How it works</h2>
-  <p class="sub">From a news story to a live preview of a small product, in seven steps.</p>
-  <ol class="steps">
-    <li><b>Read.</b> Argus reads public news, trend and market feeds all day.</li>
-    <li><b>Group.</b> It groups related items into a Narrative: one story that is gaining momentum.</li>
-    <li><b>Score.</b> An AI judge scores each Narrative on momentum, novelty, buildability, hook and legitimacy.</li>
-    <li><b>Propose.</b> For the best ones, argus proposes a token idea plus a small product (the Tech) that rides the story.</li>
-    <li class="human"><b>Decide.</b> A human, the Operator, reviews the Proposals in the War Room and approves or dismisses them.</li>
-    <li><b>Build.</b> For an approved Proposal, an AI agent builds a small working product inside a locked box.</li>
-    <li class="human"><b>Preview and launch.</b> The product appears as a preview link. Humans decide whether to launch the token, outside argus.</li>
-  </ol>
-  <p class="note"><span class="chip human-chip">Highlighted</span> steps are where a person decides.</p>
+<section id="architecture" class="wrap hero" aria-labelledby="arch-title">
+  <div class="diagram">
 
-  <h3>Small glossary</h3>
-  <dl class="gloss">
-    <div><dt>Signal</dt><dd>One raw item seen in a feed: an article, a trending term, a market event.</dd></div>
-    <div><dt>Narrative</dt><dd>A cluster of recent Signals about one subject that is gaining momentum.</dd></div>
-    <div><dt>Proposal</dt><dd>A Narrative plus a token angle (name, ticker) and a Tech worth building. What the Operator decides on.</dd></div>
-    <div><dt>Tech</dt><dd>The small product argus can build that rides the Narrative.</dd></div>
-    <div><dt>Spec</dt><dd>The written brief for a Build. The Operator edits it before approving.</dd></div>
-    <div><dt>Build</dt><dd>The small working product made from an approved Proposal's Spec.</dd></div>
-    <div><dt>Operator</dt><dd>The one person who approves each gate.</dd></div>
-    <div><dt>War Room</dt><dd>The local dashboard where the Operator reviews Proposals.</dd></div>
-  </dl>
-</section>
+    <header class="d-head">
+      <p class="eyebrow">System overview</p>
+      <h2 id="arch-title">Architecture</h2>
+      <p class="d-sub">Left to right: from public feeds to a live preview. Humans decide at the highlighted stages. Each stage has a number, so you can say "Stage 4".</p>
 
-<section id="architecture" class="wrap wide">
-  <h2>Architecture</h2>
-  <p class="sub">Left to right: from public feeds to a live preview. Humans decide at the highlighted stages. Each stage has a number, so you can say "Stage 4".</p>
+      <div class="legend">
+        <span class="legend-label" id="legend-label">Status legend:</span>
+        <ul aria-labelledby="legend-label">
+          <li><i class="dot dot-done"></i>Done and verified</li>
+          <li><i class="dot dot-live"></i>Live in the 48 hour acceptance run</li>
+          <li><i class="dot dot-built"></i>Built, not used for real yet</li>
+          <li><i class="dot dot-none"></i>Not built (planned)</li>
+          <li class="legend-human"><i class="box"></i>Human decision point (thick border)</li>
+        </ul>
+      </div>
+    </header>
 
-  <ul class="legend" aria-label="Legend: colour shows status">
-    <li><i class="sw s-done"></i>Done and verified</li>
-    <li><i class="sw s-live"></i>Live in the current 48 hour acceptance run</li>
-    <li><i class="sw s-built"></i>Built, not used for real yet</li>
-    <li><i class="sw s-none"></i>Not built</li>
-    <li><i class="sw s-human"></i>A human decides here</li>
-    <li><i class="sw s-rail"></i>Guardrail</li>
-  </ul>
+    <div class="lanes">
 
-  <div class="lanes">
+      <section class="lane lane-research" aria-labelledby="lane1">
+        <div class="lane-head">
+          <div class="lane-title"><h3 id="lane1">Research</h3><span class="count">5 stages</span></div>
+          <span class="lane-no">Lane 1</span>
+        </div>
+        <ol class="stages">
+          <li class="stage is-live">
+            <div class="stage-top"><div class="stage-id"><span class="num">1</span><h4>Sources</h4></div><span class="status">Live</span></div>
+            <p class="desc">News, trends and market feeds</p>
+          </li>
+          <li class="stage is-live">
+            <div class="stage-top"><div class="stage-id"><span class="num">2</span><h4>Ingest</h4></div><span class="status">Live</span></div>
+            <p class="desc">Plain code, no AI, every 5 minutes; items become Signals</p>
+          </li>
+          <li class="stage is-live">
+            <div class="stage-top"><div class="stage-id"><span class="num">3</span><h4>Narratives</h4></div><span class="status">Live</span></div>
+            <p class="desc">Related Signals grouped into one story</p>
+          </li>
+          <li class="stage is-live">
+            <div class="stage-top"><div class="stage-id"><span class="num">4</span><h4>Judge</h4></div><span class="status">Live</span></div>
+            <p class="desc">AI scores each story; weak ones stop here</p>
+          </li>
+          <li class="stage is-live">
+            <div class="stage-top"><div class="stage-id"><span class="num">5</span><h4>Propose</h4></div><span class="status">Live</span></div>
+            <p class="desc">A token idea plus a small product; checks name clashes</p>
+            <div class="chips"><span class="chip chip-rail">Guardrail: Cap: 30 Proposals a day</span></div>
+          </li>
+        </ol>
+      </section>
 
-    <div class="lane l-research">
-      <h3><span>Research</span><small>5 stages</small></h3>
-      <ol>
-        <li class="st live"><span class="n">1</span><div><b>Sources</b><p>News, trends and market feeds.</p></div><em>Live</em></li>
-        <li class="st live"><span class="n">2</span><div><b>Ingest</b><p>Plain code, no AI, every 5 minutes. Items become Signals.</p></div><em>Live</em></li>
-        <li class="st live"><span class="n">3</span><div><b>Narratives</b><p>Related Signals grouped into one story.</p></div><em>Live</em></li>
-        <li class="st live"><span class="n">4</span><div><b>Judge</b><p>AI scores each story. Weak ones stop here.</p></div><em>Live</em></li>
-        <li class="st live"><span class="n">5</span><div><b>Propose</b><p>A token idea plus a small product. Checks name clashes.</p><span class="rail">Cap: 30 Proposals a day</span></div><em>Live</em></li>
-      </ol>
+      <section class="lane lane-decide" aria-labelledby="lane2">
+        <div class="lane-head">
+          <div class="lane-title"><h3 id="lane2">Decide (human)</h3><span class="count">2 stages</span></div>
+          <span class="lane-no">Lane 2</span>
+        </div>
+        <ol class="stages">
+          <li class="stage human is-live tint-blue">
+            <div class="stage-top"><div class="stage-id"><span class="num">6</span><h4>War Room</h4></div><span class="status">Live</span></div>
+            <p class="desc">Operator shortlists, approves or dismisses</p>
+            <div class="chips"><span class="chip chip-human">Human decides</span><span class="chip chip-rail">Guardrail: Human approval</span></div>
+          </li>
+          <li class="stage human is-built tint-amber">
+            <div class="stage-top"><div class="stage-id"><span class="num">7</span><h4>Spec</h4></div><span class="status">Built, not used</span></div>
+            <p class="desc">Written brief, drafted when shortlisted, then edited by the Operator</p>
+            <div class="chips"><span class="chip chip-human">Human decides</span><span class="chip chip-rail">Guardrail: Human approval</span></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="lane lane-build" aria-labelledby="lane3">
+        <div class="lane-head">
+          <div class="lane-title"><h3 id="lane3">Build</h3><span class="count">2 stages</span></div>
+          <span class="lane-no">Lane 3</span>
+        </div>
+        <ol class="stages">
+          <li class="stage is-built">
+            <div class="stage-top"><div class="stage-id"><span class="num">8</span><h4>Build</h4></div><span class="status">Built, not used</span></div>
+            <p class="desc">An AI agent builds a small product in a locked box; one at a time, one retry</p>
+            <div class="chips stack"><span class="chip chip-done">Guardrail: Containment: no keys inside, 2 allowed sites (done)</span><span class="chip chip-rail">Guardrail: Cap: $25 and 4 hours</span></div>
+          </li>
+          <li class="stage is-built">
+            <div class="stage-top"><div class="stage-id"><span class="num">9</span><h4>Preview</h4></div><span class="status">Built, not used</span></div>
+            <p class="desc">A live link to the finished product</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="lane lane-launch" aria-labelledby="lane4">
+        <div class="lane-head">
+          <div class="lane-title"><h3 id="lane4">Launch <span class="aside">(outside argus)</span></h3><span class="count">1 stage</span></div>
+          <span class="lane-no">Lane 4</span>
+        </div>
+        <ol class="stages">
+          <li class="stage is-edge">
+            <div class="stage-top"><div class="stage-id"><span class="num">10</span><h4>newpairspam</h4></div><span class="status">Outside Argus</span></div>
+            <p class="desc">Humans launch here. Not part of argus</p>
+            <div class="chips stack"><span class="chip chip-rail">Guardrail: Argus never launches a token</span><span class="chip chip-done">Launch handoff: opens the form prefilled (done)</span></div>
+          </li>
+        </ol>
+      </section>
+
     </div>
 
-    <div class="lane l-decide">
-      <h3><span>Decide (human)</span><small>2 stages</small></h3>
-      <ol>
-        <li class="st live human"><span class="n">6</span><div><b>War Room</b><p>Operator shortlists, approves or dismisses.</p><span class="tag">Human decides</span><span class="rail">Human approval</span></div><em>Live</em></li>
-        <li class="st built human"><span class="n">7</span><div><b>Spec</b><p>Written brief, drafted when shortlisted, then edited by the Operator.</p><span class="tag">Human decides</span><span class="rail">Human approval</span></div><em>Built, not used yet</em></li>
-      </ol>
-    </div>
-
-    <div class="lane l-build">
-      <h3><span>Build</span><small>2 stages</small></h3>
-      <ol>
-        <li class="st built"><span class="n">8</span><div><b>Build</b><p>An AI agent builds a small product in a locked box. One at a time, one retry.</p><span class="rail done">Containment: no keys inside, two allowed sites (done)</span><span class="rail">Cap: $25 and 4 hours</span></div><em>Built, not used yet</em></li>
-        <li class="st built"><span class="n">9</span><div><b>Preview</b><p>A live link to the finished product.</p></div><em>Built, not used yet</em></li>
-      </ol>
-    </div>
-
-    <div class="lane l-launch">
-      <h3><span>Launch</span><small>outside argus</small></h3>
-      <ol>
-        <li class="st edge"><span class="n">10</span><div><b>newpairspam</b><p>Humans launch here. Not part of argus.</p><span class="rail">Argus never launches a token</span><span class="rail done">Launch handoff: opens the form prefilled (done)</span></div><em>Outside argus</em></li>
-      </ol>
-    </div>
+    <section class="extras" aria-labelledby="also">
+      <div class="extras-head"><h3 id="also">Also in the picture</h3><span class="extras-rule"></span></div>
+      <ul class="extras-grid">
+        <li class="extra extra-none">
+          <div class="extra-id"><span class="num">11</span><div><h4>Market evidence</h4><p>PumpPortal activity on each card. Waits for the 48 hour run (P2-17)</p></div></div>
+          <span class="tag-none">Not built</span>
+        </li>
+        <li class="extra extra-none">
+          <div class="extra-id"><span class="num">12</span><div><h4>Feedback loop</h4><p>Dismissal reasons tune the Rubric. Optional auto-approve (Phase 3)</p></div></div>
+          <span class="tag-none">Not built</span>
+        </li>
+        <li class="extra extra-built">
+          <div class="extra-id"><div><h4>Team notifications</h4><p>Chat messages, notify only, no commands</p></div></div>
+          <span class="status st-built">Built, not used</span>
+        </li>
+        <li class="extra extra-built">
+          <div class="extra-id"><div><h4>Paid API fallback</h4><p>Backup for Judge and Propose. Off by default, $0.50 a day cap</p></div></div>
+          <span class="status st-built">Built, not used</span>
+        </li>
+      </ul>
+    </section>
 
   </div>
+</section>
 
-  <h3 class="also">Also in the picture</h3>
-  <ul class="extras">
-    <li class="st none"><span class="n">11</span><div><b>Market evidence</b><p>PumpPortal activity on each card. Waits for the 48 hour run (P2-17).</p></div><em>Not built</em></li>
-    <li class="st none"><span class="n">12</span><div><b>Feedback loop</b><p>Dismissal reasons tune the Rubric. Optional auto-approve (Phase 3).</p></div><em>Not built</em></li>
-    <li class="st built"><span class="n"></span><div><b>Team notifications</b><p>Chat messages, notify only, no commands.</p></div><em>Built, not used yet</em></li>
-    <li class="st built"><span class="n"></span><div><b>Paid API fallback</b><p>Backup for Judge and Propose. Off by default, $0.50 a day cap.</p></div><em>Built, not used yet</em></li>
-  </ul>
+<section id="how" class="wrap">
+  <h2 class="sec">How it works</h2>
+  <p class="sub">From a news story to a live preview of a small product, in seven steps.</p>
+  <div class="how-grid">
+    <div>
+      <ol class="steps">
+        <li><b>Read.</b> Argus reads public news, trend and market feeds all day.</li>
+        <li><b>Group.</b> It groups related items into a Narrative: one story that is gaining momentum.</li>
+        <li><b>Score.</b> An AI judge scores each Narrative on momentum, novelty, buildability, hook and legitimacy.</li>
+        <li><b>Propose.</b> For the best ones, argus proposes a token idea plus a small product (the Tech) that rides the story.</li>
+        <li class="human"><b>Decide.</b> A human, the Operator, reviews the Proposals in the War Room and approves or dismisses them.</li>
+        <li><b>Build.</b> For an approved Proposal, an AI agent builds a small working product inside a locked box.</li>
+        <li class="human"><b>Preview and launch.</b> The product appears as a preview link. Humans decide whether to launch the token, outside argus.</li>
+      </ol>
+      <p class="note"><span class="chip-note">Highlighted</span> steps are where a person decides.</p>
+    </div>
+    <div>
+      <h3 class="gloss-title">Small glossary</h3>
+      <dl class="gloss">
+        <div><dt>Signal</dt><dd>One raw item seen in a feed: an article, a trending term, a market event.</dd></div>
+        <div><dt>Narrative</dt><dd>A cluster of recent Signals about one subject that is gaining momentum.</dd></div>
+        <div><dt>Proposal</dt><dd>A Narrative plus a token angle (name, ticker) and a Tech worth building. What the Operator decides on.</dd></div>
+        <div><dt>Tech</dt><dd>The small product argus can build that rides the Narrative.</dd></div>
+        <div><dt>Spec</dt><dd>The written brief for a Build. The Operator edits it before approving.</dd></div>
+        <div><dt>Build</dt><dd>The small working product made from an approved Proposal's Spec.</dd></div>
+        <div><dt>Operator</dt><dd>The one person who approves each gate.</dd></div>
+        <div><dt>War Room</dt><dd>The local dashboard where the Operator reviews Proposals.</dd></div>
+      </dl>
+    </div>
+  </div>
 </section>
 
 <section id="guardrails" class="wrap">
-  <h2>Guardrails</h2>
+  <h2 class="sec">Guardrails</h2>
   <p class="sub">What keeps this safe: four rules, plus one.</p>
   <div class="rails">
     <article><h3>Human in the loop</h3><p>A person decides at every gate: shortlist, approve the Spec, dismiss, launch. Argus never launches a token and holds no wallet.</p></article>
@@ -130,7 +205,7 @@
 </section>
 
 <section id="status" class="wrap">
-  <h2>Where we stand</h2>
+  <h2 class="sec">Where we stand</h2>
   <p class="sub">Status as of 2026-11-07.</p>
   <div class="phases">
     <article>
@@ -155,7 +230,7 @@
     </article>
   </div>
 
-  <h3>Waiting on the Operator</h3>
+  <h3 class="sub-h">Waiting on the Operator</h3>
   <ol class="todo">
     <li>Mint the Build token. It blocks the first real Build.</li>
     <li>Confirm the workers.dev subdomain in Cloudflare.</li>
@@ -166,7 +241,7 @@
 </section>
 
 <section id="discuss" class="wrap">
-  <h2>Discussion</h2>
+  <h2 class="sec">Discussion</h2>
   <p class="sub">Post your answers where the team talks. The Operator collects them. Nothing on this page records replies.</p>
 
   <div class="prompts">
@@ -209,7 +284,7 @@
 
 <footer>
   <div class="wrap">
-    <p>Last updated 2026-11-07. Source: <code>docs/team/site/</code> in the argus repo.</p>
+    <p>Last updated 2026-11-07. The source of this page lives in the argus repo.</p>
   </div>
 </footer>
 </body>
