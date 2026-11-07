@@ -33,7 +33,7 @@ const siteDir = path.join(root, SITE);
 if (!fs.existsSync(siteDir)) fail(`${siteDir} does not exist`);
 if (!fs.existsSync(SCRATCH)) fail(`scratch dir ${SCRATCH} does not exist`);
 
-const dirty = execFileSync('git', ['-C', root, 'status', '--porcelain', '--', SITE], { encoding: 'utf8' }).trim();
+const dirty = execFileSync('git', ['-C', root, 'status', '--porcelain', '--ignored', '--', SITE], { encoding: 'utf8' }).trim();
 if (dirty) fail(`${SITE}/ has uncommitted changes; commit or revert them first:\n${dirty}`);
 
 const sha = git('rev-parse', 'HEAD');
@@ -46,9 +46,9 @@ const result = spawnSync(
   [
     'wrangler', 'pages', 'deploy', siteDir,
     '--project-name', PROJECT,
-    '--branch', PRODUCTION_BRANCH,
-    '--commit-hash', sha,
-    '--commit-message', message,
+    `--branch=${PRODUCTION_BRANCH}`,
+    `--commit-hash=${sha}`,
+    `--commit-message=${message}`,
     '--commit-dirty=false',
   ],
   // The home dir is itself a git repo, so wrangler's git probes in the scratch dir would find it (and warn it is dirty).
