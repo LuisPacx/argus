@@ -332,7 +332,8 @@ describe("refused and failed answers", () => {
     for (let i = 0; i < 6; i++) addNarrative(s2, `Story ${i}`);
     for (let p = 0; p < 6; p++) await pass2({ maxDailyUsd: 0.019 }, { now: minutes(30 * p) });
     expect(calls2()).toHaveLength(5); // four runs spend 0.016, the fifth brings it to 0.02, over the cap
-  });
+    // Twelve fake claude child processes: 2.1 to 2.5 s with the machine at load 9 (same on the parent commit), so 5 s is too tight for a full parallel run.
+  }, 20_000);
 
   it("a rate-limited run stops the pass at once and is tried again on the next one", async () => {
     const { store, pass, calls } = setup({ FAKE_CLAUDE_MODE: "ratelimit" });

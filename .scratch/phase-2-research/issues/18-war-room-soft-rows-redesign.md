@@ -36,4 +36,6 @@ Vue/Nuxt built-ins and CSS only, no motion library. Rows fade and slide in with 
 - [x] Long URLs truncate with an ellipsis and a `title` tooltip.
 - [x] `pnpm check` and `pnpm verify:boot` pass.
 
+**Decision (review round):** the list row is the minimal row of the approved design, so it no longer shows the Tech one-liner, "why now" or the evidence links; they live on the Proposal's detail page. `docs/architecture.md` (propose pass and Proposal card paragraphs) says so. Text colours meet WCAG AA (4.5:1) on their surfaces.
+
 **Notes:** the Figma list image shows vertical score bars; the Operator asked for thin horizontal bars, so those win. Row content that the design shows but the page has no data for (for example a per-Proposal Signal count and source) is left out.

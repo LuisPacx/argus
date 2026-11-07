@@ -89,11 +89,13 @@ describe("transition table", () => {
 
   it("rejects every transition not in the table", () => {
     for (const from of ALL) {
+      // One store and Proposal per `from`: a refused transition changes nothing (asserted below), so each attempt starts from the
+      // same state. Opening a store per attempt (about 300 migrations) took 2.5 to 3 s here and timed out under a loaded machine.
+      const ds = Datastore.open(":memory:");
+      const id = proposalAt(ds, from);
       for (const to of ALL) {
         for (const actor of ["operator", "system", "build"] as const) {
           if (findTransition(from, to, actor)) continue;
-          const ds = Datastore.open(":memory:");
-          const id = proposalAt(ds, from);
           expect(() => ds.transition(id, to, actor)).toThrow(IllegalTransitionError);
           expect(ds.getProposal(id)!.status).toBe(from);
         }

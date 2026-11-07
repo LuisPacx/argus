@@ -9,8 +9,9 @@
   --wr-surface: #ffffff;
   --wr-inset: #f6f7fb;
   --wr-ink: #14162b;
-  --wr-muted: #6b7088;
-  --wr-faint: #9a9eb5;
+  /* Text colours are at least 4.5:1 on white, the page grey, the inset grey and the neutral pill. */
+  --wr-muted: #5a5f78;
+  --wr-faint: #686c88;
   --wr-line: #ecedf4;
   --wr-accent: #5b5bd6;
   --wr-accent-strong: #4a4ac4;

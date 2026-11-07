@@ -205,7 +205,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
             <div class="flex items-center gap-4">
               <template v-if="p.score">
                 <span class="pill pill-accent shrink-0 px-3 py-2 text-base tabular-nums">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
-                <ScoreBars class="min-w-0 grow" compact :scores="p.score.scores" />
+                <ScoreBars class="above min-w-0 grow" compact :scores="p.score.scores" />
               </template>
               <span v-else class="faint text-sm">No score</span>
             </div>

@@ -25,6 +25,7 @@ const ACTIVE = [
   { value: "24h", label: "24 hours" },
   { value: "7d", label: "7 days" },
 ];
+const { data: sources } = await useFetch("/api/activity/sources", { default: () => [] });
 const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
   const v = typeof raw === "string" ? raw : "";
   return allowed.some((o) => o.value === v) ? v : "";
@@ -35,7 +36,8 @@ const current = computed<Current>(() => ({
   scored: pick(route.query.scored, SCORED),
   proposal: pick(route.query.proposal, PROPOSAL),
   active: pick(route.query.active, ACTIVE),
-  source: typeof route.query.source === "string" ? route.query.source : "",
+  // An unknown Source in the URL falls back to all Sources, like the other controls.
+  source: typeof route.query.source === "string" && sources.value.some((s) => s.sourceId === route.query.source) ? route.query.source : "",
 }));
 const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
@@ -50,7 +52,6 @@ const filtered = computed(() => !!(current.value.scored || current.value.proposa
 const clearTo = computed(() => to({ scored: "", proposal: "", active: "", source: "" }));
 
 const { data: narratives, refresh } = await useFetch("/api/narratives", { query: computed(() => withDefaults(current.value)), default: () => [] });
-const { data: sources } = await useFetch("/api/activity/sources", { default: () => [] });
 const LIMIT = 100;
 
 // Rows animate in when the page is reached by a client navigation; on the first (hydrating) load they are simply there.
