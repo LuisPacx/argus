@@ -105,3 +105,11 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
 - Time counted so far: 21h32m (2026-11-06 15:28 to 2026-11-07 01:00). Top-up: 26h28m. New planned end: 2026-11-08T12:59:00-03:00 (restart time + 26h28m).
 - New PIDs: warroom 11274 (port 3100), worker 11438. HEAD at restart: aa822d548125d08e9498708349744c5c99010c00.
 - Checks: / and /activity return 200; worker.log shows fresh ticks from 2026-11-07T13:31:00Z with no errors. First tick: judge daily cap reached (150 runs in 24 h) and waiting; ingest 17 sources, 86 new signals.
+
+### Restart 2026-11-07T11:01:24-03:00 (under the sleep lock)
+
+- Restarted through `pnpm dev:stop` / `pnpm dev:start` so both processes run under the systemd-inhibit sleep/lid lock (c2c75c3). Same configuration: research-only, API fallback off, Telegram off.
+- Downtime 2026-11-07 11:00:34 -03:00 (stop issued) to 11:01:24 -03:00 (first tick of the new worker): 50 s.
+- New planned end: 2026-11-08T12:59:50-03:00 (previous 2026-11-08T12:59:00-03:00 plus 50 s).
+- New PIDs: warroom 171016 (port 3100), worker 174028. Old PIDs 11274, 11438, 11461 confirmed gone before start. HEAD at restart: c2c75c3c04f4f814b9ffe7f46f253ea32a3f0cfb.
+- Checks: `dev:status` shows "sleep lock: held (2 argus locks, handle-lid-switch:sleep)"; `systemd-inhibit --list` shows two who=argus block locks (sleep:handle-lid-switch); / and /activity return 200; worker.log shows "API fallback off" and fresh ticks with no errors (judge daily cap reached and waiting; ingest 17 sources).
