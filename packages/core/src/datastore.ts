@@ -454,6 +454,7 @@ export type WarRoomStore = Pick<
   | "researchProposalsSince"
   | "latestSignals"
   | "listNarratives"
+  | "queryNarratives"
   | "getNarrative"
   | "sourceHealth"
   | "newestNarratives"
@@ -477,6 +478,25 @@ export interface Narrative {
   lastSignalAt: string;
   /** When the Narrative last changed materially (see `isMaterialJoin`): the input for the judge delta. */
   changedMateriallyAt: string;
+}
+
+export type NarrativeSort = "score" | "newest" | "signals" | "active";
+
+/** Filters and sort for `queryNarratives`; every field is optional. */
+export interface NarrativeQuery {
+  sort?: NarrativeSort;
+  scored?: boolean;
+  hasProposal?: boolean;
+  sourceId?: string;
+  /** ISO time: only Narratives that gained a Signal at or after it. */
+  activeSince?: string;
+  limit?: number;
+}
+
+/** A Narrative as the War Room list shows it: its latest Score total and whether a Proposal exists for it. */
+export interface NarrativeListItem extends Narrative {
+  score: number | null;
+  hasProposal: boolean;
 }
 
 /** One judge result for a Narrative (GLOSSARY: Score). Stored for every judge run that produced a valid answer. */
@@ -916,6 +936,48 @@ export class Datastore {
       )
       .all(limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
+  }
+
+  /**
+   * The Narratives list the War Room shows, filtered and sorted in SQL so a cap (`limit`, default 100) cuts the right rows: "highest
+   * Score" is highest across every Narrative, not across the newest hundred. `score` is the latest Score's total (null before the
+   * first Score); `hasProposal` is whether a Proposal exists for it. Filters: `scored`, `hasProposal`, `sourceId` (at least one Signal
+   * from that Source), `activeSince` (ISO; gained a Signal at or after it). Sorts: `score` (default, highest first, unscored last, then
+   * busiest), `newest` (by creation), `signals` (most Signals), `active` (latest Signal first).
+   */
+  queryNarratives(q: NarrativeQuery = {}): NarrativeListItem[] {
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+    if (q.scored !== undefined) where.push(q.scored ? "s.id IS NOT NULL" : "s.id IS NULL");
+    if (q.hasProposal !== undefined) where.push(`${q.hasProposal ? "" : "NOT "}EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)`);
+    if (q.sourceId !== undefined) {
+      where.push("EXISTS (SELECT 1 FROM signals g WHERE g.narrative_id = n.id AND g.source_id = ?)");
+      params.push(q.sourceId);
+    }
+    if (q.activeSince !== undefined) {
+      where.push("n.last_signal_at >= ?");
+      params.push(q.activeSince);
+    }
+    const order = {
+      score: "s.total IS NULL, s.total DESC, n.signal_count DESC, n.id DESC",
+      newest: "n.created_at DESC, n.id DESC",
+      signals: "n.signal_count DESC, n.last_signal_at DESC, n.id DESC",
+      active: "n.last_signal_at DESC, n.id DESC",
+    }[q.sort ?? "score"];
+    const limit = Math.max(1, Math.min(500, Math.floor(q.limit ?? 100)));
+    const rows = this.db
+      .prepare(
+        `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at,
+                s.total AS score_total,
+                EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id) AS has_proposal
+         FROM narratives n
+         LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
+         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY ${order}
+         LIMIT ?`,
+      )
+      .all(...params, limit) as unknown as Array<NarrativeRow & { score_total: number | null; has_proposal: number }>;
+    return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, hasProposal: r.has_proposal === 1 }));
   }
 
   getNarrative(id: number): NarrativeDetail | undefined {
