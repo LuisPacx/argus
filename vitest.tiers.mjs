@@ -9,6 +9,8 @@ export const SLOW_TESTS = [
   "apps/worker/src/ingest.test.ts", // spawned worker
   "apps/worker/src/telegram.test.ts", // spawned worker
   "packages/core/src/brain.test.ts", // >10 s
+  "packages/core/src/build-image.test.ts", // real `podman run` against the built image (self-skips when absent, but belongs here)
+  "packages/core/src/egress-proxy-entry.test.ts", // spawns the real proxy entry as a child process
   "packages/core/src/build-runner-bundle.test.ts", // real wrangler --dry-run
   "packages/core/src/build-runner-hardening.test.ts",
   "packages/core/src/build-runner-notify.test.ts",
@@ -22,4 +24,9 @@ export const SLOW_TESTS = [
   "packages/core/src/sandbox.test.ts", // podman
 ];
 
-export const fastTier = () => process.env.ARGUS_TEST_TIER === "fast";
+// Only the exact value "fast" selects the fast tier; anything else (unset, "full", junk) is the full suite.
+export const fastTier = (env = process.env) => env.ARGUS_TEST_TIER === "fast";
+
+// The env `pnpm check` hands its steps: the tier is always set explicitly, so an ambient ARGUS_TEST_TIER=fast
+// in the caller's shell can never turn a stamping full check into a fast-only one.
+export const checkEnv = (fast, env = process.env) => ({ ...env, ARGUS_TEST_TIER: fast ? "fast" : "full" });

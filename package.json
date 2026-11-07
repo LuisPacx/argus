@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "lint": "oxlint",
-    "test": "vitest run",
+    "test": "ARGUS_TEST_TIER=full vitest run",
     "test:fast": "ARGUS_TEST_TIER=fast vitest run",
     "check": "node scripts/check.mjs",
     "check:fast": "node scripts/check.mjs --fast",

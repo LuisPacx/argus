@@ -2,6 +2,7 @@
 // On success it stamps HEAD's tree (see check-stamp.mjs) so the pre-push hook can skip a re-run, but only if the worktree was
 // clean and HEAD's tree unchanged for the whole run (snapshot taken before the first step).
 import { spawnSync } from 'node:child_process';
+import { checkEnv } from '../vitest.tiers.mjs';
 import { snapshot, stampIfClean, unstampableReason } from './check-stamp.mjs';
 
 // `pnpm check:fast` (--fast) runs the fast test tier instead and never stamps: a stamp must mean the full suite passed.
@@ -13,7 +14,7 @@ try {
   // not a git worktree: run the check, stamp nothing
 }
 for (const step of ['typecheck', 'lint', fast ? 'test:fast' : 'test']) {
-  const r = spawnSync('pnpm', [step], { stdio: 'inherit' });
+  const r = spawnSync('pnpm', [step], { stdio: 'inherit', env: checkEnv(fast) });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 if (fast) {
