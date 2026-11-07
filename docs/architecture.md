@@ -321,6 +321,12 @@ Not ported:
 
 ## 12. Phases
 
+Status as of 2026-11-07 (the journal `.scratch/cos.md` is the live record):
+
+- **Phase 1**: tickets 01-20 done, including containment (15-17, ADR 0005). Open: ticket 10 (acceptance run) and the second acceptance point of ticket 12, both needing the Operator present and the Build token, which is not yet minted. No real Build has run; Builds are exercised only by fakes, `--dry-run`, `verify:boot` and `verify:contain`.
+- **Phase 2**: all tickets done except P2-14 (the 48 h acceptance run) and P2-17 (PumpPortal market evidence, ticket written, not built, waits for P2-14). The acceptance run is live as a research-only run with the API fallback off; it was restarted after a lid-close suspend and now runs under a systemd sleep lock, with a planned end on 2026-11-08. Still open inside it: the forced-exhaustion fallback check and the card-to-launched check. Also merged: the Activity page (P2-16), Atom feeds (P2-15), the Soft Rows War Room redesign with Narratives sort and filter (ticket 18). A Proposals sort and filter ticket is in progress.
+- **Phase 3**: not started.
+
 **Phase 1 - Build path end to end with a hand-entered Proposal.**
 Scope: monorepo skeleton and tooling; datastore with Proposal, Spec, brain-run and Build tables; Proposal lifecycle module with `approve()`; War Room list, Proposal card and details view, Spec editor (textarea plus revise via `--resume`); `argus-build-template` repo (Workers web app, `/implement-spec` skill, lint, CI, disclosure footer); Build Runner (clone, `gh repo create`, spawn, stream-json log, retry, build-failed with `session_id`, FIFO queue, 4 h cap); `wrangler deploy` preview; cost capture from `total_cost_usd`; Brain interface with ClaudeCodeBrain only. Telegram is phase 2.
 Definition of done: the Operator enters a Proposal by hand, shortlists it, edits the Spec, approves, and without further input ends with a private GitHub repo, a working `<slug>.workers.dev` preview, status `built`, and agent cost on the card; a forced failure produces one retry then `build-failed` with a resumable `session_id`; an on-chain Spec ends in `needs-human`; a dry-run mode exists; budget and wall-clock caps are tested.
@@ -335,7 +341,10 @@ Definition of done: dismissal reasons visibly adjust the suggested Rubric; outco
 
 ## 13. Open questions
 
-- Max-plan numeric limits are unconfirmed. Measure real usage in Phase 1 and size the 30% research share from it.
-- Whether `claude -p` keeps drawing from the subscription: a support article from October 2026 says yes, re-check before relying on it, and keep ApiBrain working.
-- API fallback policy (ticket 12) is the most conservative reading and the Operator may want it looser: off by default (`ARGUS_API_FALLBACK=1`); triggered only by a rate-limited `claude -p` run; held until claude's reported reset (at most 6 h), else 15 minutes; a daily cap of $0.50 real money, lowerable but never raisable by configuration. Whether to turn it on, and the cap amount, are the Operator's decision.
-- newpairspam prefill mechanism: query params or pasted JSON. Check `TokenForm.vue` in newpairspam before building the Launch button; a small newpairspam change may be needed.
+- Plan limits and the research share. The plan is Max 5x (Operator, 2026-11-06) and `ARGUS_DAILY_QUOTA_USD` stays at $20 (research $6 a day) as an estimate; argus cannot read the plan's real limits. Revisit using the measured usage of the P2-14 run (so far roughly $0.3 to $0.9 per 6 h; the judge's 150 runs a day cap binds first).
+- Whether `claude -p` keeps drawing from the subscription: a support article from October 2026 says yes; re-check before relying on it, and keep ApiBrain working. Unresolved.
+- API fallback policy (ticket 12): off by default (`ARGUS_API_FALLBACK=1`); triggered only by a rate-limited `claude -p` run; held until claude's reported reset (at most 6 h), else 15 minutes; a daily cap of $0.50 real money, lowerable but never raisable by configuration. The Operator keeps it off until after the P2-14 run, then decides on and sizes it from measured usage.
+- Real-claude paths that only fakes cover: budget-exceeded, 429 and rejected rate-limit handling. First real Builds wait for the Build token.
+- Narrative clustering margin: the 0.90 threshold of the in-process `gte-small` embedder holds on a fresh holdout but the margin is thin; re-measure on a larger, later-week sample before changing any feed or model.
+- PumpPortal market evidence (P2-17): decided as B+C, not built, after P2-14.
+- Resolved: the newpairspam prefill mechanism (P2-13) is built and merged in both repos.
