@@ -81,7 +81,7 @@ A studied token whose outcome is final, pairing its Snapshot with that outcome. 
 _Avoid_: Sample, example
 
 **Cohort**:
-The Cases whose tokens were created in the same week. A lesson learned on one Cohort is tested on later ones.
+The Cases whose tokens were created in the same calendar week of launch. A lesson learned on one Cohort is tested on later ones.
 
 **Playbook**:
 The evidence-backed lessons the Study has learned, each suggested until the Operator approves it, plus the Rubric changes it suggests. Approved lessons are shown to the research steps; the Operator reviews the Playbook weekly.
@@ -92,4 +92,4 @@ A token's bonding curve completing and moving to a swap pool, where the buying l
 _Avoid_: Graduation, bonding, success
 
 **Fast migration**:
-A migration that happens very soon after the token's creation (starting at under 30 minutes, to be adjusted once measured). Fast migrations are kept and counted, but the Playbook learns no lessons from them.
+A migration that happens within a threshold of the token's creation, set by the first slice's measurement (30 minutes is the starting value). Fast migrations are kept and counted, but the Playbook learns no lessons from them.

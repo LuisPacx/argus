@@ -1,6 +1,6 @@
 # Phase 3: the Study, the Playbook and the auto-ladder
 
-Status: draft for Operator review, before `/to-tickets`. Written 2026-11-07. Decisions are Q1 to Q24 in `.scratch/cos.md` (from "11-07 GOAL (user): Phase 3"); this spec does not reopen them. Where a decision needs a detail it does not give, the detail is an open question (section 14), not a choice. Terms follow `GLOSSARY.md` (new: Study, Snapshot, Case, Cohort, Playbook, Organic migration, Fast migration). Research: `research/data-sources.md`, `research/bot-filters.md`. X browser setup: `setup-argus-browser.sh`. Decisions: ADR 0009 (new), ADR 0002 (amended).
+Status: draft for Operator review, before `/to-tickets`. Written 2026-11-07. Decisions are Q1 to Q30 in `.scratch/cos.md` (from "11-07 GOAL (user): Phase 3" and "Phase 3 round 5 DECIDED"); this spec does not reopen them. Where a decision needs a detail it does not give, the detail is either measured by slice 1 or decided in a ticket with a stated default (section 14), not chosen here. Terms follow `GLOSSARY.md` (new: Study, Snapshot, Case, Cohort, Playbook, Organic migration, Fast migration). Research: `research/data-sources.md`, `research/bot-filters.md`. X browser setup: `setup-argus-browser.sh`. Decisions: ADR 0009 (new), ADR 0002 (amended).
 
 ## 1. Problem
 
@@ -53,9 +53,9 @@ Mapping to the Rubric: Narrative maps to momentum, novelty, hook; Tech maps to b
 - **Population:** every pump.fun token created while the Study runs whose metadata names a website or an X link. Tokens with neither are counted (for the base rate) and not studied.
 - **Captured broadly, analysed narrowly (Q16).** Capture is cheap code with no Claude: for each token in the population, a Snapshot at the fixed age (section 6). The expensive part, Claude analysis, runs only after the 7d label, on all organic-migration Cases plus an equal number of randomly drawn control Cases from the same Cohort.
 - **Control:** a token in the population that had not migrated by 7d. Controls are drawn at random within the Cohort, not matched on outcome or on anything after the fixed age. The Study stores the sampling weight of each Case (population controls per control drawn) so rates can be re-weighted; the 1:1 sample is a deliberate oversample of a base rate below 2%.
-- **Strata kept, not dropped:** bot-driven migrators and fast migrators are their own buckets (Q17, Q22). They are stored, counted and studied for signatures, but excluded from the Rubric lessons.
+- **Strata kept, not dropped:** bot-driven migrators and fast migrators are their own buckets (Q17, Q22). They are stored, counted and also get blind study Cases, so the Study can learn bot signatures (Q22). Those Cases are reported as their own sections (bot-driven, fast) and are never used for Rubric lessons. They count against the same Study run cap (section 9), after organic migrators and controls, which take priority.
 - **Missed creates.** A migration whose create the worker never saw (about 59% of migrate rows had no create row on 2026-11-07, partly the lid-suspend outage, partly unknown) has no valid fixed-age Snapshot. It is counted as `missed` and never backfilled at a later age. The missed rate is a Study health number shown in the War Room.
-- **Selection under the X cap.** X capture is capped at about 200 per day (section 6), so not every token in the population gets X fields. Which ones do is chosen by a rule that uses only what is known at capture time; the rule and each token's reason are stored, so the bias can be modelled. Open question 2.
+- **Selection under the X cap.** X capture is capped at about 200 per day (section 6), so not every token in the population gets X fields. Which ones do is chosen by a rule that uses only what is known at capture time; the rule and each token's reason are stored, so the bias can be modelled. The rule is decided in its ticket (section 14).
 
 ## 6. Snapshot capture (Q3, Q14, Q16)
 
@@ -64,12 +64,12 @@ A Snapshot is a frozen record of one token at a fixed age after creation. It is 
 Fields (field list only):
 - Identity: mint, name, symbol, creator, create event time (from chain), metadata URI, capture time, age at capture (capture time minus chain create time, in seconds), capture rule version.
 - Metadata: description, image URL, website URL, X URL, Telegram URL (all untrusted; same sanitising as `pumpportal.ts`, `safeUrl`, size caps).
-- Website: fetch status, final URL, content type, text content (capped), page title, a content hash, response time; "empty app shell" flag. Fetch is plain HTTP with an SSRF guard (no private addresses), size and time caps, one URL only, robots.txt honoured. A rendered fetch (Cloudflare Browser Run) and Wayback are optional later additions (open question 12).
+- Website: fetch status, final URL, content type, text content (capped), page title, a content hash, response time; "empty app shell" flag. Fetch is plain HTTP with an SSRF guard (no private addresses), size and time caps, one URL only, robots.txt honoured. 3a uses plain fetch only; a rendered fetch (Cloudflare Browser Run) and Wayback are optional later additions, not part of 3a.
 - X: handle, profile fields (display name, bio, created date, followers, following), recent posts (text, time, counts), ticker/name mentions found, capture status (ok, not found, suspended, login wall, challenge), capture time. Optional: the whole feature can be off; Study fields are then null and the loop still works.
 - Launch mechanics (raw, section 7) and Timing fields taken from the create event and chain.
 - Selection: why this token was captured (population, X priority reason, sampling weight).
 
-**Age (Q3: about 1h; Q16: fixed early age).** One age for every Snapshot, set in config and versioned. The value is open question 1: the research puts median create-to-migrate at 4.4 minutes, so a 1h Snapshot postdates most migrations and the creator-controlled fields (website, metadata) can change after migration. The first slice measures real create-to-migrate times from chain; the age and the Fast threshold (30 min, Q17) are then set from that, once, and recorded in the Snapshot's capture rule version.
+**Age (Q3, Q16, Q25).** Fixed ages, set in config and versioned. Starting values (Q25): metadata and website are captured about 3 minutes after create; X is captured at 5 to 15 minutes. The research puts median create-to-migrate at 4.4 minutes, so a 1h Snapshot would postdate most migrations and the creator-controlled fields (website, metadata) can change after migration; that is why the ages are early. The numbers are starting values: the first slice measures real create-to-migrate times from chain and sets the final ages and the Fast threshold (30 min starting value, Q17) once, recorded in the Snapshot's capture rule version.
 
 **X capture (Q9, Q13, Q14, ADR 0009).** A Playwright script, run by the worker as a plain child process (no Claude in it), opens the dedicated Chrome user-data directory (`ARGUS_CHROME_DIR`, default `~/.local/share/argus/chrome`, created by `setup-argus-browser.sh`) as a persistent context, logged in as the dedicated Argus X account, and saves the profile page, recent posts and a ticker search to the Snapshot as text plus a raw HTML/screenshot artefact. Rules:
 - About 200 captures per day (a config cap, counted in code), early-traction candidates first.
@@ -80,7 +80,7 @@ Fields (field list only):
 
 ## 7. Labels, Organic migration and the Fast bucket (Q10, Q17, Q22, Q23)
 
-**Chain labels.** Each Snapshot'd token is read from chain (Helius RPC, `BondingCurve.complete` via `getMultipleAccounts`, 100 accounts per call) at 24h (provisional) and 7d (final) after creation. Timestamps are chain event times, never PumpPortal receipt times (`published_at` there is when argus received the event, possibly a poll batch time). The Study stores both moments, curve complete and pool created, and the label uses the second ("moved to a swap pool", the glossary sense); which one is which is open question 4. The Study learns only from final (7d) labels (Q10); 24h labels are shown and used for health checks. A token not migrated at 7d is a control, even if it migrates later; late migrators are counted and reported.
+**Chain labels.** Each Snapshot'd token is read from chain (Helius RPC, `BondingCurve.complete` via `getMultipleAccounts`, 100 accounts per call) at 24h (provisional) and 7d (final) after creation. Timestamps are chain event times, never PumpPortal receipt times (`published_at` there is when argus received the event, possibly a poll batch time). The Study stores both moments, curve complete and pool created, and the label uses the second ("moved to a swap pool", the glossary sense); which timestamp counts as migrated is measured by slice 1 (section 14). The Study learns only from final (7d) labels (Q10); 24h labels are shown and used for health checks. A token not migrated at 7d is a control, even if it migrates later; late migrators are counted and reported.
 
 **Organic migration (Q22, Q23).** A migration is organic if it passes the five-check bot filter. Raw metrics are stored for every migrator so thresholds can change without recapture:
 1. creation-slot supply share (non-creator wallets, create slot plus 2): starting threshold under 10%
@@ -89,15 +89,15 @@ Fields (field list only):
 4. creator holding at migration under 5%, and creator has not sold more than 50% of what the creator bought
 5. at least 100 unique buyer wallets before migration, and under 30% of volume from wallets whose round-trip ratio is 0.9 to 1.1
 
-The thresholds are hypotheses (`bot-filters.md` section 6), none validated on pump.fun migrators. A sixth signal, RugCheck insider networks, is stored at capture time only (it returns current state, so a later call is hindsight) and only once its ToS is confirmed (open question 7). The label stays "organic migration"; thresholds are calibrated on post-migration crash (a price drop within the first 20 minutes after migration, MELT-style, plus seller concentration over the Cohort), choosing cut-offs that make the dropped group the one that crashes, then re-checked on a later Cohort. How the crash is measured is open question 5. Wallet analysis runs only for migrators in the population (Q24).
+The thresholds are hypotheses (`bot-filters.md` section 6), none validated on pump.fun migrators. A sixth signal, RugCheck insider networks, is stored at capture time only (it returns current state, so a later call is hindsight) and only once its ToS is confirmed (section 14). The label stays "organic migration"; thresholds are calibrated on post-migration crash (a price drop within the first 20 minutes after migration, MELT-style, plus seller concentration over the Cohort), choosing cut-offs that make the dropped group the one that crashes, then re-checked on a later Cohort. How the crash is measured is decided in the calibration ticket (section 14). Wallet analysis runs only for migrators in the population (Q24).
 
-**Fast migration (Q17).** Migrated less than 30 minutes after creation (chain event times). Stored as a flag and a bucket; excluded from Rubric lessons; the 30 minutes is adjusted once, after the first slice's measurement. Fast and bot-driven overlap; the flags are independent and the report shows the cross-tab.
+**Fast migration (Q17).** Migrated within a threshold after creation (chain event times); 30 minutes is the starting value, and slice 1's measurement sets the final threshold once (Q17, Q25). Stored as a flag and a bucket; excluded from Rubric lessons, but fast Cases are studied and reported as their own section (section 5). Fast and bot-driven overlap; the flags are independent and the report shows the cross-tab.
 
 **Outcome buckets per token:** non-migrated (control), organic migrator, bot-driven migrator, plus the fast flag on any migrator.
 
 ## 8. Cases, Cohorts and blind analysis (Q16, Q18)
 
-- **Cohort:** the Cases whose tokens were created in the same calendar week (open question 10). Cohorts are the unit of time-split validation: a lesson found on Cohort k is tested on k+1, k+2.
+- **Cohort:** the Cases whose tokens were created in the same calendar week of launch (Q30). Cohorts are the unit of time-split validation: a lesson found on Cohort k is tested on k+1, k+2.
 - **Case:** a studied token whose label is final (7d), pairing its frozen Snapshot with its outcome bucket. A Case is created only after the 7d label.
 - **Blind analysis.** A Study run (`study` Brain task) receives one Snapshot as delimited untrusted data and never sees the label, the bucket, the Cohort's outcomes or the other Cases. It returns structured notes per axis (Narrative, Identity, Tech only; fixed JSON, validated like a Score; anything else refused and not stored). The label is joined afterwards by code, not by the model. Frozen means the run reads only the saved Snapshot: no tools, no web, no `--chrome`.
 - **Aggregation is code, not Claude.** Lesson candidates come from comparing per-axis notes across organic migrators and controls (rates, lift, counts, Cohort stability) in plain code; Claude may be asked to propose wording for a candidate, again with the evidence and without labels beyond the aggregate. Each candidate stores its evidence (counts, rates with sampling weights, the Cohorts it holds in).
@@ -106,27 +106,29 @@ The thresholds are hypotheses (`bot-filters.md` section 6), none validated on pu
 ## 9. Study run cap and budget (Q8, Q11, Q24)
 
 - **Run cap:** Study has its own rolling-24h run cap, starting about 100 runs/day (config, lowerable, raising is a reviewed code change like `MAX_NEW_PROPOSALS_PER_DAY`), with a per-run `--max-budget-usd`. It lives inside the $100/mo and never borrows from the judge's or propose's budgets or from Builds. When the subscription window is rate-limited, Study waits; it never falls back to the API (the ApiBrain is judge and propose only).
-- **One run per Case.** 100 runs/day covers about 50 migrator Cases plus 50 controls per day, which is more than the 3a gate needs (Q19).
-- **Dollars:** the $100/mo is a ceiling on real-dollar services plus the Est. usage of Study runs (open question 8 on how to combine them). Fixed line items: Helius Free ($0) first; wallet analysis only for migrators in the population; credits measured in week 1; the Operator is asked before moving to Helius Developer ($49). DexScreener and RugCheck $0; the X capture costs no API dollars (browser). The War Room shows Study spend: runs against cap, Est. usage, Helius credits used, X captures against cap.
+- **One run per Case.** 100 runs/day covers about 50 migrator Cases plus 50 controls per day, which is more than the 3a gate needs (Q19). Order when the cap binds: organic migrators and controls first, then bot-driven and fast Cases.
+- **Dollars (Q26):** the $100/mo counts real cash only (Helius, Cloudflare Browser Rendering and the like). Claude runs are on the subscription and are limited by the Study run cap, not counted in dollars. Fixed line items: Helius Free ($0) first; wallet analysis only for migrators in the population; credits measured in week 1; the Operator is asked before moving to Helius Developer ($49). DexScreener and RugCheck $0; the X capture costs no API dollars (browser). The War Room shows Study spend: runs against cap, Est. usage (informational), Helius credits used, X captures against cap.
 - Everything that spends supports `--dry-run` (invariant 2).
 
 ## 10. Playbook, weekly review and how it reaches the prompts (Q5, Q12)
 
 **Playbook.** The list of lessons and suggested Rubric changes the Study has produced. A lesson has: statement (one line), axis (Narrative, Identity or Tech), evidence (Cases counted, organic rate against control rate with weights, lift, Cohorts it held in), status (suggested, approved, retired), approval time and the Operator's edit, if any. Retired lessons stay for history.
 
-**Weekly review.** A War Room page lists suggested lessons and Rubric changes with their evidence. The Operator approves, edits, rejects or retires each. The first review is after about 14 days of data (Q12). A suggested Rubric change is a proposed new Rubric version (reweight, reword, or a new dimension) shown as a diff; approving it applies it through the existing Rubric editor/versioning (ticket 06), so each Score still records the Rubric version it used.
+**Weekly review.** A War Room page lists suggested lessons and Rubric changes with their evidence. The Operator approves, edits, rejects or retires each. The page also has its own section for dismissal reasons (Q27) and one for the Operator's own Launches (Q28). The first review is after about 14 days of data (Q12). A suggested Rubric change is a proposed new Rubric version (reweight, reword, or a new dimension) shown as a diff; approving it applies it through the existing Rubric editor/versioning (ticket 06), so each Score still records the Rubric version it used.
 
 **Into the prompts.** Judge and propose are static skills plus a Rubric that argus writes into each prompt at call time. The Playbook uses the same mechanism: at call time argus renders the approved lessons for that task into a delimited block in the prompt, with the Playbook version.
 - Judge gets lessons that help score Narrative and Tech; propose gets lessons on Identity (name, ticker, description tone) and Tech. Each lesson names its tasks.
-- The block is capped (lesson count and characters; the numbers are open question 15), ordered by evidence strength, and stored on each Score and Proposal as a Playbook version, next to the Rubric version, so a change in behaviour can be traced.
+- The block is capped at 10 active lessons per prompt (Q29), with a character cap set in its ticket, ordered by evidence strength, and stored on each Score and Proposal as a Playbook version, next to the Rubric version, so a change in behaviour can be traced.
 - The lessons are Operator-approved text, but derived from untrusted pages; they are re-rendered through the same sanitising (length, one line, no markup) as other prompt data, and the skills say to treat lessons as hints, not instructions that override the output contract.
 - A Playbook change never re-judges old Narratives (same rule as a Rubric edit).
 
-**Dismissal reasons** (old Phase 3 scope) are not in the decisions. Open question 13.
+**Lesson bar (Q29).** A lesson may be suggested only if at least 20 organic migrators show it and its lift against controls is at least 1.5x (weighted), on top of the Cohort validation in section 8.
+
+**Dismissal reasons (Q27).** The Operator's dismissal reasons (old Phase 3 scope) get their own section in the weekly Playbook review. They are shown beside the lessons, are not Study evidence, and are not approved into prompts by themselves.
 
 ## 11. Own-launch tracking (Q6, ADR 0002 amendment)
 
-When the Operator marks a Proposal launched with its mint, argus reads that mint from chain on its own, read-only: whether the curve completed, the migration, and market data (DexScreener) at 1h, 24h and 7d. These outcomes show on the Proposal's details page and in the Study page. No wallet, no keys, no transaction; argus still never launches. Own launches are tracked as outcomes only and kept out of Cohort statistics (they were chosen by the Operator, so they are a biased sample). Whether argus then closes the Proposal itself, replacing the manual `launched -> closed` step, is open question 14. Manual outcome entry is dropped.
+When the Operator marks a Proposal launched with its mint, argus reads that mint from chain on its own, read-only: whether the curve completed, the migration, and market data (DexScreener) at 1h, 24h and 7d. These outcomes show on the Proposal's details page and in the Study page. No wallet, no keys, no transaction; argus still never launches. Own launches are tracked as outcomes only and kept out of Cohort statistics (they were chosen by the Operator, so they are a biased sample); they get their own section in the weekly review (Q28). At the 7d label argus closes the Proposal itself with the outcome, replacing the manual `launched -> closed` step (Q28). Manual outcome entry is dropped.
 
 ## 12. Done signals
 
@@ -137,7 +139,7 @@ When the Operator marks a Proposal launched with its mint, argus reads that mint
 4. The first Playbook review took place in the War Room.
 5. At least one approved lesson is present in the live propose or judge prompt (visible as a Playbook version on a stored Score or Proposal).
 
-**3b gate (Q20).** The brain's own score is computed on a later Cohort blind to labels; if the top decile of that Cohort by the brain's score has an organic migration rate at least 3 times the Cohort's base rate (population base rate, not the oversampled 1:1 rate), in two consecutive later Cohorts, 3b may start. Open questions 9 and 10 define what "brain's score" and "base rate" mean in practice; they must be answered before the gate is tickets.
+**3b gate (Q20).** The brain's own score is computed on a later Cohort blind to labels; if the top decile of that Cohort by the brain's score has an organic migration rate at least 3 times the Cohort's base rate (population base rate, not the oversampled 1:1 rate), in two consecutive later Cohorts (consecutive calendar weeks, Q30), 3b may start. How the brain's score is computed cheaply is decided in the first 3b ticket (section 14); the base rate is the population base rate with sampling weights.
 
 ## 13. Risks
 
@@ -147,36 +149,48 @@ When the Operator marks a Proposal launched with its mint, argus reads that mint
 - **Chrome headless and unattended runs.** `claude -p --chrome` is not documented and the extension drops its connection on service-worker idle; that is why capture is a Playwright script, not Claude. Remaining risk: X may treat headless Chrome differently; Chrome 136+ ignores remote-debugging switches on the default directory (hence the separate directory); one process per directory; sessions expire; the wizard's extension-permission step is a guess. A spike (slice 6) settles headless against headed (virtual display) before the daily job is trusted.
 - **Bot-filter validity.** No published threshold is validated on pump.fun migrators; the five checks may not separate dumpers from survivors. Mitigation: raw metrics stored, calibration on post-migration crash, re-check on a later Cohort.
 - **Helius Free budget.** Wallet analysis could exceed 1M credits/month (estimate 0.5M to 6.5M depending on `getTransactionsForAddress` access on Free). Mitigation: migrators only, measure in week 1, ask before $49.
-- **Small samples.** Roughly 5 to 30 organic migrators with links per day may be fewer; 50 Cases in 14 days is the floor, not a result. Lessons need evidence thresholds (open question 15).
+- **Small samples.** Roughly 5 to 30 organic migrators with links per day may be fewer; 50 Cases in 14 days is the floor, not a result. Lessons need evidence thresholds (Q29, section 10).
 - **Prompt injection.** Websites and X text are untrusted input to Claude: no tools, delimited, validated output (as judge).
 - **Chain format drift.** Pump IDL has `_v2`/`_v3` instructions and `quote_mint`; pin the IDL version and test the labeller against it.
 - **Selection bias** from the X cap and from missed creates; recorded, not corrected.
+- **Own launches** are excluded from Cohort statistics (Q28), so they never help or distort the lessons.
 
-## 14. Open questions
+## 14. Open questions and how they get settled
 
-1. **Snapshot age.** Decision says about 1h; median migration is 4.4 min in the literature and the PumpPortal pairs show a median 0.01 min, so a 1h Snapshot postdates most migrations. Set after slice 1's measurement; possibly website at one age and traction fields at another. Same for the Fast threshold (30 min).
-2. **Which tokens get the X capture** under the 200/day cap ("early traction first"): what free early-traction signal exists at capture time (PumpPortal create payload fields such as initial buy; trade streams cost money and need a wallet, so are out)?
-3. **Where `uri` and links come from.** Does the PumpPortal create payload carry the metadata URI? (`pumpportal.ts` does not keep it.) If not, read `CreateEvent` from chain, which costs Helius credits per create.
-4. **Which timestamp is "migrated".** Curve `complete` versus pool creation (`CompletePumpAmmMigrationEvent`); and what the PumpPortal `migrate` event actually covers.
-5. **How post-migration crash is measured** for calibration: DexScreener `priceChange` windows (crude) or pool trades from RPC (uncosted credits).
-6. **Helius Free access:** is `getTransactionsForAddress` allowed on Free? Real credits per Case.
-7. **RugCheck ToS** and rate-limit window; whether to include the sixth signal at all.
-8. **What the $100/mo counts.** Real dollars only (Helius, optional Browser Run), or also the Est. usage of Study runs expressed in dollars; and how Study shares the subscription window with judge, propose and Builds.
-9. **The brain's own score (3b).** How a token is scored at capture time cheaply (one Study run per token is not affordable at 14k tokens/day): rules from approved lessons, or Claude on a sample? And how the top decile is formed on a sampled Cohort using sampling weights.
-10. **Cohort length** (week assumed) and whether "two Cohorts in a row" means consecutive weeks.
-11. **Bucket overlap** of bot-driven and Fast: independent flags assumed (section 7).
-12. **Website capture depth:** plain fetch only in 3a, or Cloudflare Browser Run and Wayback Save Page Now too (a new Cloudflare dependency)?
-13. **Dismissal reasons** (old Phase 3 scope): fold into the weekly review as a second evidence input in 3a, or defer?
-14. **Own launches:** does argus move `launched -> closed` itself after 7d; do own launches ever enter Cohorts?
-15. **Playbook limits:** maximum lessons and characters per prompt, and the minimum evidence (Cases, lift, Cohorts) before a lesson may be suggested.
-16. **Headless or headed** Playwright for X, and the lock/challenge detection signals (settled by the spike).
-17. **Late migrators and 24h/7d disagreements:** reported only, or used to adjust the 7d window?
+### Measured by slice 1
+
+Slice 1 (and the X spike, slice 6) produce the numbers; nothing is chosen before then.
+- **Snapshot age and Fast threshold.** Starting values in section 6 (metadata and website about 3 min, X 5 to 15 min; Fast 30 min). Median create-to-migrate is 4.4 min in the literature and the PumpPortal pairs show a median 0.01 min, so the final ages follow the measured distribution.
+- **Metadata `uri` source.** Does the PumpPortal create payload carry the metadata URI (`pumpportal.ts` does not keep it)? If not, read `CreateEvent` from chain, which costs Helius credits per create.
+- **Which timestamp counts as migrated:** curve `complete` or pool creation (`CompletePumpAmmMigrationEvent`), and the scope of the PumpPortal `migrate` event (pump-to-pumpswap only, or other venues).
+- **Helius Free:** whether `getTransactionsForAddress` is allowed on Free, the real limits, and credits per Case.
+- **RugCheck:** ToS and rate-limit window; whether the sixth signal is included at all.
+- **Headless or headed Playwright** for X, and the lock/challenge detection signals (slice 6 spike).
+
+### Decided in tickets (cos default)
+
+Each is settled in its ticket; the default applies unless the ticket finds a reason to change it.
+- **X-capture selection under the 200/day cap:** rank by free signals present in the create payload (initial dev buy, links present), fill the cap in that order, store the reason; trade streams are out (cost, wallet).
+- **Crash measure for calibration:** DexScreener `priceChange` windows first (free, crude); pool trades from RPC only if the credits allow.
+- **Cheap brain score for 3b:** rules built from approved lessons, applied at capture time with no Claude run; the top decile on a sampled Cohort uses the sampling weights.
+- **Bot-driven and Fast overlap:** independent flags, report the cross-tab (section 7).
+- **Late migrators and 24h/7d disagreements:** reported only; the 7d label is never adjusted.
+
+### Resolved
+
+- Q25: capture timing (metadata and website about 3 min, X at 5 to 15 min; slice 1 sets final numbers). Sections 6, 7.
+- Q26: the $100/mo is real cash only; Claude runs are limited by the Study run cap. Section 9.
+- Q27: dismissal reasons are their own section in the weekly review. Section 10.
+- Q28: argus closes own-launch Proposals at 7d with the outcome; kept out of Cohort statistics. Section 11.
+- Q29: lesson bar (at least 20 organic migrators, lift at least 1.5x) and at most 10 active lessons per prompt. Section 10.
+- Q30: Cohort is the calendar week of launch; "two in a row" is consecutive weeks. Sections 8, 12.
+- Website capture depth: plain fetch only in 3a (section 6).
 
 ## 15. Suggested slice order
 
 Tickets go under `.scratch/phase-3-feedback/issues/NN-slug.md`. Slices are small and each leaves the system working; 3a first.
 
-1. **Measure create-to-migrate from chain (spike, no feature).** Take a sample of recent migrations from the existing Signals, read the create and migrate events on chain with Helius Free, produce the distribution (create to complete, complete to pool), compare against PumpPortal receipt times, check the migrate scope and the missed-create rate, count Helius credits per call, and test gTFA on Free. Output: a note that fixes the Snapshot age, the Fast threshold, the migrated timestamp and the credit estimate (open questions 1, 3, 4, 6).
+1. **Measure create-to-migrate from chain (spike, no feature).** Take a sample of recent migrations from the existing Signals, read the create and migrate events on chain with Helius Free, produce the distribution (create to complete, complete to pool), compare against PumpPortal receipt times, check the migrate scope and the missed-create rate, count Helius credits per call, and test gTFA on Free. Output: a note that fixes the Snapshot age, the Fast threshold, the migrated timestamp and the credit estimate (the "Measured by slice 1" group in section 14).
 2. **Study storage and create-event retention.** Tables for tokens seen (chain event time, uri, links, gap markers), Snapshots, labels, Cases, Cohorts; keep `uri` and event fields from the existing PumpPortal connection; no second connection.
 3. **Metadata and website Snapshot at the fixed age** (plain fetch, SSRF guard, caps), written once, hashed, with a run cap on the capture job and `--dry-run`.
 4. **Chain labeller (24h/7d)** and the Study page health numbers (seen, in population, labelled, missed).
@@ -198,7 +212,7 @@ An unmerged branch rewrites that file, so these are listed for a follow-up:
 - Header term list: add Study, Snapshot, Case, Cohort, Playbook, Organic migration, Fast migration.
 - Section 1: the principle stays; mention `approve()` with actor `system` is 3b only and gated.
 - Section 2: add the Study as a second pipeline beside the brain pass (PumpPortal create/migrate, Helius, capture, labeller, Study runs, Playbook, War Room review), and the Playbook arrow into judge/propose.
-- Section 3 and glossary: `launched -> closed` and the own-launch outcome fields (open question 14); the Phase 3 note on dismissal reasons (open question 13).
+- Section 3 and glossary: `launched -> closed` and the own-launch outcome fields and the automatic `launched -> closed` at 7d (Q28); the Phase 3 note on dismissal reasons (Q27).
 - Section 5: add `study` to `BrainTask` with its route (claude-code, haiku or sonnet to be set), its own caps, and "no API fallback".
 - Section 6: the line "No X in v1 ... X returns later through the official API" becomes the dedicated logged-in browser capture (ADR 0009); add Helius and RugCheck as read-only data sources of the Study (not `Source`s).
 - Section 7: the judge/propose prompts carry the approved Playbook block and its version; Scores/Proposals record the Playbook version; Study's caps next to the research share.
