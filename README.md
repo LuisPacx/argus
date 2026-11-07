@@ -9,6 +9,12 @@ Argus watches public Sources, turns Narratives into Proposals (a token angle plu
 - [`docs/adr/`](docs/adr/): decisions (Claude Code brain, newpairspam boundary, template build archetype).
 - [`.scratch/cos.md`](.scratch/cos.md): the decision journal (local, gitignored); the source of truth for every agreed decision.
 
+## Team board
+
+[`docs/team/argus-board.excalidraw`](docs/team/argus-board.excalidraw) is a whiteboard that explains argus to the Team and seeds a "what next?" discussion.
+Open it at excalidraw.com (free, no account): menu > Open, then pick the file.
+For a shared session use Live collaboration (menu > Live collaboration) and send the link.
+
 ## Next step
 
 Create the Phase 1 tickets with `/to-tickets` from [`docs/architecture.md`](docs/architecture.md) section 12 (tickets live under `.scratch/<feature>/`, see `docs/agents/issue-tracker.md`).
