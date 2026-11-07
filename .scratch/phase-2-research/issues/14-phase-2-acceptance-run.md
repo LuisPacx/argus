@@ -113,3 +113,22 @@ Signals 817, Narratives 369, Scores 10, Proposals 1.
 - New planned end: 2026-11-08T12:59:50-03:00 (previous 2026-11-08T12:59:00-03:00 plus 50 s).
 - New PIDs: warroom 171016 (port 3100), worker 174028. Old PIDs 11274, 11438, 11461 confirmed gone before start. HEAD at restart: c2c75c3c04f4f814b9ffe7f46f253ea32a3f0cfb.
 - Checks: `dev:status` shows "sleep lock: held (2 argus locks, handle-lid-switch:sleep)"; `systemd-inhibit --list` shows two who=argus block locks (sleep:handle-lid-switch); / and /activity return 200; worker.log shows "API fallback off" and fresh ticks with no errors (judge daily cap reached and waiting; ingest 17 sources).
+
+### Check-in 2026-11-07T12:47:23-03:00
+
+- Status: `dev:status` reports warroom running (pid 362056, port 3100), worker running (pid 174028), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". Running: yes. / and /activity return 200. package.json and git status clean.
+- Time: 21h18m elapsed since the 2026-11-06 15:28 start (including 9h31m suspend downtime). Planned end unchanged: 2026-11-08T12:59:50-03:00.
+- Datastore (read-only, counts at 2026-11-07 12:47 -03:00): Signals 9259, Narratives 802, Scores 150, Proposals 21.
+- Proposals by status: new 20, spec-drafted 1 (Proposal 21, the accidental Shortlist below). Created per calendar day (UTC date): 2026-11-06 = 13, 2026-11-07 = 8. Proposals in the last 24 h: 21 (cap 30). Since the last check-in (00:48 -03:00): 0. Expired Proposals: 0.
+- brain_runs since the last check-in (00:48 -03:00 = 03:48Z): 1 run, $0.0438 (judge 0, propose 0): the spec run for Proposal 21 (sonnet). Downtime 01:00 to 10:31 produced no runs.
+- brain_runs in the last 24 h: 184 runs, $1.2504 total. Rows start 2026-11-06T18:58:43Z, so the 24 h window is the whole run to date. By task and outcome: judge (haiku, success) 150 runs, $0.1975; propose (sonnet, success) 25 runs, $0.8074; propose (sonnet, invalid-output) 8 runs, $0.2016; spec (sonnet, success) 1 run, $0.0438.
+- Judge cap: binding. 150 runs in 24 h, and the worker has logged `judge: daily cap reached` and skipped judging since the last check-in (6 cap-stop ticks in the window). Runs age out of the 24 h window from 2026-11-07T18:58Z onward, so the cap releases gradually.
+- Propose caps: not reached. Proposal cap 21 of 30; propose runs 33 of the 45/day limit. The two `daily cap of 10 new Proposals` lines in worker.log are from before the raise to 30 (lines 3314 and 3671).
+- Propose refusals (whole run): 5 `narrative N refused: evidence must be an array of 3 to 5 links`, plus 3 name-retry notices (2 for evidence, 1 for non-JSON output), matching the 8 invalid-output propose runs. Since the last check-in: 0.
+- Errors since the last check-in: 0 error-level lines; no ingest failures; no judge or propose failures. Whole run ingest failures: `rss:hn-frontpage` aborted 3 times, `github:trending` aborted once (each one tick, recovered). SQLite ExperimentalWarning appears at startup only.
+
+Operator actions today (not research; excluded from the research counts above except where a row is noted):
+
+- About 11:25 -03:00, accidental Shortlist of Proposal 21 (created 2026-11-06T22:21 -03:00): one spec brain run (sonnet, $0.0438, brain_runs created 2026-11-07T14:25:45Z, exit success). Proposal 21 is now spec-drafted. Log: `spec for proposal 21: drafted`, `resolved 1 command(s)`. The run is included in the 24 h totals above.
+- About 11:30 -03:00, War Room-only restart for ticket 19 (the worker was not touched; worker pid 174028 is unchanged since 11:01).
+- Restarts at 10:31 (after suspend) and 11:01 (sleep lock) are recorded above.
