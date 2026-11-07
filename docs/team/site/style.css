@@ -3,7 +3,8 @@
    status legend, "Lane N" labels, filled number badges and thick-bordered
    human stages. Dark mode keeps the layout and swaps the palette only. */
 
-:root {
+/* .diagram re-declares the light palette, so the card stays light in dark mode. */
+:root, .diagram {
   --page: #f8fafc;
   --card: #ffffff;
   --card-line: #e2e8f0;
@@ -180,6 +181,7 @@ nav a:hover { border-color: var(--slate-line); color: var(--ink); }
 /* diagram card */
 .hero { padding-bottom: 24px; }
 .diagram {
+  color-scheme: light; color: var(--ink);
   background: var(--card); border: 1px solid var(--card-line); border-radius: 16px; box-shadow: var(--shadow);
   padding: 40px; display: flex; flex-direction: column; gap: 32px;
 }
