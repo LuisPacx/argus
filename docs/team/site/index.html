@@ -59,82 +59,62 @@
 
 <section id="architecture" class="wrap wide">
   <h2>Architecture</h2>
-  <p class="sub">The path from public feeds to a live preview. Left to right, then down.</p>
+  <p class="sub">Left to right: from public feeds to a live preview. Humans decide at the highlighted stages. Each stage has a number, so you can say "Stage 4".</p>
 
-  <ul class="legend" aria-label="Legend">
+  <ul class="legend" aria-label="Legend: colour shows status">
     <li><i class="sw s-done"></i>Done and verified</li>
     <li><i class="sw s-live"></i>Live in the current 48 hour acceptance run</li>
     <li><i class="sw s-built"></i>Built, not used for real yet</li>
     <li><i class="sw s-none"></i>Not built</li>
     <li><i class="sw s-human"></i>A human decides here</li>
+    <li><i class="sw s-rail"></i>Guardrail</li>
   </ul>
 
-  <figure class="diagram">
-    <svg viewBox="0 0 980 600" role="img" aria-labelledby="dt dd" class="desk">
-      <title id="dt">Argus architecture</title>
-      <desc id="dd">Sources feed ingest, then Narratives, the Judge and Propose. Proposals go to the War Room where the Operator decides, then a Spec, a Build in containment and a workers.dev preview. Humans launch in newpairspam, outside argus.</desc>
-      <defs>
-        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="arrowhead"/></marker>
-      </defs>
+  <div class="lanes">
 
-      <!-- row 1 -->
-      <g class="node live"><rect x="25" y="30" width="150" height="110" rx="10"/><text x="100" y="58" class="t">Sources</text><text x="100" y="80" class="d">RSS news, Google Trends,</text><text x="100" y="96" class="d">PumpPortal, DexScreener,</text><text x="100" y="112" class="d">GitHub trending</text><text x="100" y="132" class="s">live</text></g>
-      <g class="node live"><rect x="220" y="30" width="150" height="110" rx="10"/><text x="295" y="58" class="t">Ingest</text><text x="295" y="80" class="d">Plain code, no AI,</text><text x="295" y="96" class="d">every 5 minutes.</text><text x="295" y="112" class="d">Items become Signals</text><text x="295" y="132" class="s">live</text></g>
-      <g class="node live"><rect x="415" y="30" width="150" height="110" rx="10"/><text x="490" y="58" class="t">Narratives</text><text x="490" y="80" class="d">Signals clustered</text><text x="490" y="96" class="d">by meaning</text><text x="490" y="132" class="s">live</text></g>
-      <g class="node live"><rect x="610" y="30" width="150" height="110" rx="10"/><text x="685" y="58" class="t">Judge</text><text x="685" y="80" class="d">AI scores each Narrative.</text><text x="685" y="96" class="d">Below the buildability</text><text x="685" y="112" class="d">gate, no Proposal</text><text x="685" y="132" class="s">live</text></g>
-      <g class="node live"><rect x="805" y="30" width="150" height="110" rx="10"/><text x="880" y="58" class="t">Propose</text><text x="880" y="80" class="d">Name, ticker, Tech.</text><text x="880" y="96" class="d">Checks name clashes.</text><text x="880" y="112" class="d">Max 30 a day</text><text x="880" y="132" class="s">live</text></g>
+    <div class="lane l-research">
+      <h3><span>Research</span><small>5 stages</small></h3>
+      <ol>
+        <li class="st live"><span class="n">1</span><div><b>Sources</b><p>News, trends and market feeds.</p></div><em>Live</em></li>
+        <li class="st live"><span class="n">2</span><div><b>Ingest</b><p>Plain code, no AI, every 5 minutes. Items become Signals.</p></div><em>Live</em></li>
+        <li class="st live"><span class="n">3</span><div><b>Narratives</b><p>Related Signals grouped into one story.</p></div><em>Live</em></li>
+        <li class="st live"><span class="n">4</span><div><b>Judge</b><p>AI scores each story. Weak ones stop here.</p></div><em>Live</em></li>
+        <li class="st live"><span class="n">5</span><div><b>Propose</b><p>A token idea plus a small product. Checks name clashes.</p><span class="rail">Cap: 30 Proposals a day</span></div><em>Live</em></li>
+      </ol>
+    </div>
 
-      <path class="arrow" d="M175 85H218" marker-end="url(#ah)"/>
-      <path class="arrow" d="M370 85H413" marker-end="url(#ah)"/>
-      <path class="arrow" d="M565 85H608" marker-end="url(#ah)"/>
-      <path class="arrow" d="M760 85H803" marker-end="url(#ah)"/>
-      <path class="arrow" d="M880 140V185H100V228" marker-end="url(#ah)"/>
+    <div class="lane l-decide">
+      <h3><span>Decide (human)</span><small>2 stages</small></h3>
+      <ol>
+        <li class="st live human"><span class="n">6</span><div><b>War Room</b><p>Operator shortlists, approves or dismisses.</p><span class="tag">Human decides</span><span class="rail">Human approval</span></div><em>Live</em></li>
+        <li class="st built human"><span class="n">7</span><div><b>Spec</b><p>Written brief, drafted when shortlisted, then edited by the Operator.</p><span class="tag">Human decides</span><span class="rail">Human approval</span></div><em>Built, not used yet</em></li>
+      </ol>
+    </div>
 
-      <!-- row 2 -->
-      <g class="node live human"><rect x="25" y="230" width="150" height="120" rx="10"/><text x="100" y="258" class="t">War Room</text><text x="100" y="280" class="d">Runs on localhost.</text><text x="100" y="296" class="d">Operator shortlists,</text><text x="100" y="312" class="d">approves or dismisses</text><text x="100" y="334" class="s">live, human decides</text></g>
-      <g class="node built human"><rect x="220" y="230" width="150" height="120" rx="10"/><text x="295" y="258" class="t">Spec</text><text x="295" y="280" class="d">Drafted when shortlisted.</text><text x="295" y="296" class="d">Operator edits it,</text><text x="295" y="312" class="d">then approves</text><text x="295" y="334" class="s">built, not used yet</text></g>
-      <g class="node built"><rect x="415" y="230" width="150" height="120" rx="10"/><text x="490" y="258" class="t">Build</text><text x="490" y="276" class="d">in containment</text><text x="490" y="298" class="d">An agent writes the</text><text x="490" y="312" class="d">product. One at a time,</text><text x="490" y="326" class="d">one retry</text><text x="490" y="340" class="s">built, not used yet</text></g>
-      <g class="node built"><rect x="610" y="230" width="150" height="120" rx="10"/><text x="685" y="258" class="t">Preview</text><text x="685" y="280" class="d">Live link on workers.dev</text><text x="685" y="296" class="d">to the finished product</text><text x="685" y="334" class="s">built, not used yet</text></g>
-      <g class="node edge"><rect x="805" y="230" width="150" height="120" rx="10"/><text x="880" y="258" class="t">newpairspam</text><text x="880" y="284" class="d">Humans launch here.</text><text x="880" y="300" class="d">Out of scope for</text><text x="880" y="316" class="d">argus</text><text x="880" y="334" class="s">outside argus</text></g>
+    <div class="lane l-build">
+      <h3><span>Build</span><small>2 stages</small></h3>
+      <ol>
+        <li class="st built"><span class="n">8</span><div><b>Build</b><p>An AI agent builds a small product in a locked box. One at a time, one retry.</p><span class="rail done">Containment: no keys inside, two allowed sites (done)</span><span class="rail">Cap: $25 and 4 hours</span></div><em>Built, not used yet</em></li>
+        <li class="st built"><span class="n">9</span><div><b>Preview</b><p>A live link to the finished product.</p></div><em>Built, not used yet</em></li>
+      </ol>
+    </div>
 
-      <path class="arrow" d="M175 290H218" marker-end="url(#ah)"/>
-      <path class="arrow" d="M370 290H413" marker-end="url(#ah)"/>
-      <path class="arrow" d="M565 290H608" marker-end="url(#ah)"/>
-      <path class="arrow dash" d="M760 290H803" marker-end="url(#ah)"/>
+    <div class="lane l-launch">
+      <h3><span>Launch</span><small>outside argus</small></h3>
+      <ol>
+        <li class="st edge"><span class="n">10</span><div><b>newpairspam</b><p>Humans launch here. Not part of argus.</p><span class="rail">Argus never launches a token</span><span class="rail done">Launch handoff: opens the form prefilled (done)</span></div><em>Outside argus</em></li>
+      </ol>
+    </div>
 
-      <!-- containment band -->
-      <rect x="403" y="220" width="174" height="140" rx="14" class="band"/>
-      <text x="490" y="378"class="cap" text-anchor="middle">Locked box: rootless podman, no keys inside</text>
+  </div>
 
-      <!-- row 3 -->
-      <text x="25" y="425" class="cap2">Also in the picture. No arrows: they touch several steps, or come later.</text>
-      <g class="node done small"><rect x="25" y="440" width="200" height="90" rx="10"/><text x="125" y="466" class="t2">Containment</text><text x="125" y="486" class="d">Rootless podman, no keys</text><text x="125" y="502" class="d">inside, egress allowlist</text><text x="125" y="520" class="s">done</text></g>
-      <g class="node done small"><rect x="245" y="440" width="200" height="90" rx="10"/><text x="345" y="466" class="t2">Launch handoff</text><text x="345" y="486" class="d">Opens the newpairspam</text><text x="345" y="502" class="d">form prefilled</text><text x="345" y="520" class="s">done</text></g>
-      <g class="node built small"><rect x="465" y="440" width="200" height="90" rx="10"/><text x="565" y="466" class="t2">Team notifications</text><text x="565" y="486" class="d">Chat messages, notify only,</text><text x="565" y="502" class="d">no commands</text><text x="565" y="520" class="s">built, not used yet</text></g>
-      <g class="node built small"><rect x="685" y="440" width="270" height="90" rx="10"/><text x="820" y="466" class="t2">Paid API fallback</text><text x="820" y="486" class="d">Backup for judge and propose.</text><text x="820" y="502" class="d">Off by default, $0.50 a day cap</text><text x="820" y="520" class="s">built, not used yet</text></g>
-      <g class="node none small"><rect x="25" y="545" width="440" height="46" rx="10"/><text x="245" y="565" class="t2">P2-17 market evidence on each card</text><text x="245" y="582" class="d">PumpPortal activity. Waits for the 48 hour run</text></g>
-      <g class="node none small"><rect x="485" y="545" width="470" height="46" rx="10"/><text x="720" y="565" class="t2">Phase 3: feedback loop</text><text x="720" y="582" class="d">Dismissal reasons tune the Rubric; optional auto-approve</text></g>
-    </svg>
-
-    <ol class="flow" aria-label="Architecture as a list">
-      <li class="live"><b>Sources</b><span>RSS news, Google Trends, PumpPortal, DexScreener, GitHub trending</span><em>live</em></li>
-      <li class="live"><b>Ingest</b><span>Plain code, no AI, every 5 minutes. Items become Signals</span><em>live</em></li>
-      <li class="live"><b>Narratives</b><span>Signals clustered by meaning</span><em>live</em></li>
-      <li class="live"><b>Judge</b><span>AI scores each Narrative; below the buildability gate, no Proposal</span><em>live</em></li>
-      <li class="live"><b>Propose</b><span>Name, ticker, Tech. Checks name clashes. Max 30 a day</span><em>live</em></li>
-      <li class="live human"><b>War Room</b><span>Runs on localhost. Operator shortlists, approves or dismisses</span><em>live, human decides</em></li>
-      <li class="built human"><b>Spec</b><span>Drafted when shortlisted. Operator edits it, then approves</span><em>built, not used yet</em></li>
-      <li class="built"><b>Build in containment</b><span>An agent writes the product inside a locked box. One at a time, one retry</span><em>built, not used yet</em></li>
-      <li class="built"><b>Preview</b><span>Live link on workers.dev to the finished product</span><em>built, not used yet</em></li>
-      <li class="edge"><b>newpairspam</b><span>Humans launch here. Out of scope for argus</span><em>outside argus</em></li>
-      <li class="done"><b>Containment</b><span>Rootless podman, no keys inside, egress allowlist</span><em>done</em></li>
-      <li class="done"><b>Launch handoff</b><span>Opens the newpairspam form prefilled</span><em>done</em></li>
-      <li class="built"><b>Team notifications</b><span>Chat messages, notify only</span><em>built, not used yet</em></li>
-      <li class="built"><b>Paid API fallback</b><span>Backup for judge and propose. Off by default</span><em>built, not used yet</em></li>
-      <li class="none"><b>P2-17 market evidence</b><span>PumpPortal activity on each card. Waits for the 48 hour run</span><em>not built</em></li>
-      <li class="none"><b>Phase 3: feedback loop</b><span>Dismissal reasons tune the Rubric; optional auto-approve</span><em>not built</em></li>
-    </ol>
-  </figure>
+  <h3 class="also">Also in the picture</h3>
+  <ul class="extras">
+    <li class="st none"><span class="n">11</span><div><b>Market evidence</b><p>PumpPortal activity on each card. Waits for the 48 hour run (P2-17).</p></div><em>Not built</em></li>
+    <li class="st none"><span class="n">12</span><div><b>Feedback loop</b><p>Dismissal reasons tune the Rubric. Optional auto-approve (Phase 3).</p></div><em>Not built</em></li>
+    <li class="st built"><span class="n"></span><div><b>Team notifications</b><p>Chat messages, notify only, no commands.</p></div><em>Built, not used yet</em></li>
+    <li class="st built"><span class="n"></span><div><b>Paid API fallback</b><p>Backup for Judge and Propose. Off by default, $0.50 a day cap.</p></div><em>Built, not used yet</em></li>
+  </ul>
 </section>
 
 <section id="guardrails" class="wrap">
