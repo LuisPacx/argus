@@ -12,6 +12,7 @@ const DIR = dirname(fileURLToPath(import.meta.url));
 const names = (prefix: string) => readdirSync(DIR).filter((f) => f.startsWith(prefix) && f.endsWith(".json")).sort();
 const read = (f: string): unknown => JSON.parse(readFileSync(join(DIR, f), "utf8"));
 const MINT = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 describe("phase 3 fixtures", () => {
   it("has PumpPortal and Helius fixture files", () => {
@@ -26,9 +27,12 @@ describe("phase 3 fixtures", () => {
       expect(text, f).not.toMatch(/api-key=/i);
       if (key) expect(text.includes(key), f).toBe(false);
     }
+    for (const f of names("helius-")) {
+      expect(readFileSync(join(DIR, f), "utf8"), f).not.toMatch(UUID);
+    }
   });
 
-  it("pumpportal create event carries a mint and no metadata uri-bearing field is assumed", () => {
+  it("pumpportal create event has txType create, a mint, a name and a symbol", () => {
     const create = read("pumpportal-create.json") as Record<string, unknown>;
     expect(create.txType).toBe("create");
     expect(String(create.mint)).toMatch(MINT);
