@@ -162,3 +162,18 @@ Operator actions since the last check-in: none. This check-in only read the DB (
 - Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
 
 Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
+
+### Check-in 2026-11-08T06:47 -03:00
+
+- Status: `dev:status` reports warroom running (pid 362056, port 3100), worker running (pid 174028), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". Running: yes. `systemd-inhibit --list` shows the two argus block locks (sleep:handle-lid-switch, one per process). / and /api/proposals return 200. No process was restarted or signalled for this check-in.
+- Time: 39h19m elapsed since the 2026-11-06 15:28 start. Planned end unchanged: 2026-11-08T12:59:50-03:00 (6h12m left).
+- Proposals: total 39 (unchanged since the last check-in). Proposals in the last 24 h: 18 (cap 30, not exceeded). None created since the last check-in; the newest Proposal was created 2026-11-08T02:02:25Z.
+- brain_runs in the last 24 h (window from 2026-11-07T09:47Z): 184 runs, $1.1778 total by task and outcome: judge (success) 150 runs, $0.1927; propose (success) 23 runs, $0.6921; propose (invalid-output) 10 runs, $0.2492; spec (success) 1 run, $0.0438.
+- brain_runs since the last check-in (created after 2026-11-08T03:47Z): 0. The newest brain run was created 2026-11-08T02:02:20Z.
+- Judge cap: binding. The 150 judge runs in the 24 h window were all created between 2026-11-07T19:00Z and 2026-11-08T02:02Z, so the cap holds until about 2026-11-08T19:00Z, which is after the run ends. The worker logged `judge: daily cap reached (150 runs, $0.1927 in 24 h); waiting` and `stopped: daily-cap` on every judge tick since the last check-in. Unlike the earlier entries, the logged figure matches the DB now ($0.1927). Zero narratives scored since 02:02Z.
+- Propose caps: not reached. Propose runs 33 in 24 h, under the 45/day limit. No propose runs since 02:02Z (no new judged narratives).
+- Propose refusals since the last check-in: 0 (the 10 invalid-output runs in the 24 h window are all from before 03:47Z).
+- Errors since the last check-in: 0 error-level lines; 0 judge or propose failures ("0 failed" on every tick). Ingest: `rss:hn-frontpage` failed 7 times (6 `This operation was aborted`, 1 `502 Bad Gateway`), each one tick and recovered, as known. `github:trending` had 0 failures in the window (the last aborts were before 03:47Z). Ingest ticks continued every cycle (17 sources).
+- Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
+
+Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
