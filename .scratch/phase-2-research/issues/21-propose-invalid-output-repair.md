@@ -3,7 +3,7 @@
 
 **What to build:** Make far fewer propose runs end `invalid-output`, without loosening the validator. Today a propose answer that misses the schema is refused and costs a run; the Narrative is then excluded from propose until it is scored again (datastore.ts 1060-1125).
 
-**Status:** open
+**Status:** done on branch worktree-agent-a322997b64bbcf801 (not merged; needs a worker restart)
 
 **Needs a worker restart** (prompt and pass code are loaded at start). Do not merge under a live run: merge between runs, then restart the worker.
 
@@ -37,13 +37,13 @@ Why this over the alternatives: prompt alone cannot fix the model returning 2 li
 
 ## Acceptance criteria
 
-- [ ] `proposePromptFor` states the Narrative's distinct Signal-link count and, when it is below 3, tells the model to find more links on the web; SKILL.md carries the same instruction and the count/length self-check. Test on the prompt text for a 1-Signal and a 10-Signal Narrative.
-- [ ] An `invalid-output` first answer for evidence count or `tech`/other length triggers exactly one repair run with the problem text in the prompt; a valid repair is stored as a normal Proposal, the first run stays `invalid-output`, the repair run is `success`. A second failure leaves two `invalid-output` rows and no further run. Bad JSON, a rate limit, interruption or budget error does not retry.
-- [ ] The repair run counts against the daily propose-run cap and budget exactly as the name retry does; a pass at the cap does not retry.
-- [ ] The refusal log line adds the evidence array length and `tech` length (numbers only, never the untrusted text) so the next analysis can separate too few from too many.
-- [ ] A test file with fixtures built from real failing outputs: the logged 200-char prefixes of runs 103, 130, 142, 306, 321, 334 (names, tickers and tech lines from `worker.log` lines 3309, 3826, 4183, 14485, 14866, 15243), completed with evidence arrays of 0, 1, 2 and 6 links and, for 334, the over-length `tech`, each asserting `parseProposeOutput` refuses with the exact problem. The prefix-and-completion origin is stated in the file's comment because the full outputs were never stored.
-- [ ] `PROPOSE_LIMITS` and the validator are unchanged.
-- [ ] `pnpm check` passes.
+- [x] `proposePromptFor` states the Narrative's distinct Signal-link count and, when it is below 3, tells the model to find more links on the web; SKILL.md carries the same instruction and the count/length self-check. Test on the prompt text for a 1-Signal and a 10-Signal Narrative.
+- [x] An `invalid-output` first answer for evidence count or `tech`/other length triggers exactly one repair run with the problem text in the prompt; a valid repair is stored as a normal Proposal, the first run stays `invalid-output`, the repair run is `success`. A second failure leaves two `invalid-output` rows and no further run. Bad JSON, a rate limit, interruption or budget error does not retry.
+- [x] The repair run counts against the daily propose-run cap and budget exactly as the name retry does; a pass at the cap does not retry.
+- [x] The refusal log line adds the evidence array length and `tech` length (numbers only, never the untrusted text) so the next analysis can separate too few from too many.
+- [x] A test file with fixtures built from real failing outputs: the logged 200-char prefixes of runs 103, 130, 142, 306, 321, 334 (names, tickers and tech lines from `worker.log` lines 3309, 3826, 4183, 14485, 14866, 15243), completed with evidence arrays of 0, 1, 2 and 6 links and, for 334, the over-length `tech`, each asserting `parseProposeOutput` refuses with the exact problem. The prefix-and-completion origin is stated in the file's comment because the full outputs were never stored.
+- [x] `PROPOSE_LIMITS` and the validator are unchanged.
+- [x] `pnpm check` passes.
 
 ## Out of scope
 

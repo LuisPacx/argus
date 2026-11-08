@@ -80,6 +80,23 @@ export function parseProposeOutput(text: string): ProposeParse {
   return { ok: true, fields: { name: name as string, ticker: ticker as string, techOneLiner: tech as string, whyNow: whyNow as string, description: description as string, evidenceLinks: links } };
 }
 
+/** A refusal a second try can plausibly fix: the evidence count, or a text over its length. Not bad JSON, a bad link, a missing key or a bad ticker. */
+const isRepairable = (problem: string): boolean => problem.startsWith("`evidence` must be an array of") || / is over \d+ characters$/.test(problem);
+
+/** The size of the evidence array and the `tech` text of a refused answer, as numbers only (never the untrusted text), for the refusal log. */
+function shapeOf(output: string): string {
+  let v: unknown;
+  try {
+    v = JSON.parse(output.trim());
+  } catch {
+    return "evidence n/a, tech n/a";
+  }
+  if (!isPlainObject(v)) return "evidence n/a, tech n/a";
+  const e = Array.isArray(v.evidence) ? `${v.evidence.length} links` : "n/a";
+  const t = typeof v.tech === "string" ? `${v.tech.trim().length} characters` : "n/a";
+  return `evidence ${e}, tech ${t}`;
+}
+
 const TITLE_CHARS = 200;
 const SUMMARY_CHARS = 400;
 const URL_CHARS = 300;
@@ -89,9 +106,14 @@ const URL_CHARS = 300;
  * bytes; inside it, as untrusted data, go the Narrative's newest Signals (one line each, with their links) and its latest Score with
  * the judge's rationale (which was itself written from those Signals).
  */
-export function proposePromptFor(narrative: NarrativeDetail, score: Score, rejected?: { name: string; ticker: string; reasons: string[] }): string {
+export function proposePromptFor(narrative: NarrativeDetail, score: Score, rejected?: { name: string; ticker: string; reasons: string[] }, repairProblem?: string): string {
   const b = `BOUNDARY-${randomBytes(12).toString("hex")}`;
   const shown = narrative.signals.slice(0, MAX_SIGNALS);
+  const linkCount = new Set(shown.map((s) => s.url.trim())).size;
+  const linkAdvice =
+    linkCount >= PROPOSE_LIMITS.evidenceMin
+      ? `The Signals below carry ${linkCount} distinct links; prefer them, and add anything you verified on the web.`
+      : `The Signals below carry ${linkCount} distinct ${linkCount === 1 ? "link" : "links"}, fewer than the ${PROPOSE_LIMITS.evidenceMin} you need: find at least ${PROPOSE_LIMITS.evidenceMin - linkCount} more with WebSearch or WebFetch (public pages that really support the Narrative). Never invent a link.`;
   const signals = shown.map(
     (s) => `- [${oneLine(s.sourceLabel, 80)}] (${s.publishedAt}) ${oneLine(s.title, TITLE_CHARS)}${s.summary.trim() ? ` — ${oneLine(s.summary, SUMMARY_CHARS)}` : ""} <${oneLine(s.url, URL_CHARS)}>`,
   );
@@ -100,6 +122,11 @@ export function proposePromptFor(narrative: NarrativeDetail, score: Score, rejec
     "Propose one token and the Tech to build for the Narrative below.",
     "",
     `Reply with exactly one JSON object and nothing else (no preamble, no code fence): {"name": <token name, at most ${PROPOSE_LIMITS.name} characters>, "ticker": <2 to 10 upper-case letters or digits, starting with a letter>, "tech": <one line, at most ${PROPOSE_LIMITS.tech} characters: the web app that rides the Narrative>, "whyNow": <one line, at most ${PROPOSE_LIMITS.whyNow} characters>, "description": <one line, at most ${PROPOSE_LIMITS.description} characters, the token pitch>, "evidence": [${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax} absolute http or https URLs that support the Narrative]}. Every key above must appear, with no other keys, and every text on one line.`,
+    "",
+    `${linkAdvice} Before you answer, count your evidence links (${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax}) and the characters of "tech" (at most ${PROPOSE_LIMITS.tech}); an answer outside those limits is refused, never cut.`,
+    ...(repairProblem
+      ? ["", `Your last answer was refused: ${repairProblem}. Return the corrected object for the same Narrative, in the same format, fixing that and nothing else you do not have to.`]
+      : []),
     ...(rejected
       ? [
           "",
@@ -270,6 +297,41 @@ export async function proposePendingNarratives(
     return { runId: retryId, answer: { fields: reparsed.fields, collisions: await checkCollisions(reparsed.fields) } };
   };
 
+  /**
+   * One repair run for an answer refused on a count or length (ticket 21), under the same limits as the name retry: refused at the daily
+   * run count and at the research budget, its own in-flight brain run, cost recorded the moment it returns. It never ends the pass;
+   * a failed, interrupted or unusable repair leaves `parsed` undefined and the first refusal stands.
+   */
+  const repairRun = async (narrative: NarrativeDetail, score: Score, problem: string): Promise<{ runId?: number; parsed?: ProposeParse; output?: string }> => {
+    const dayAgo = new Date(clock().getTime() - 24 * 3_600_000).toISOString();
+    if (opts.signal?.aborted) return {};
+    if (store.proposeSpendSince(dayAgo, caps).runs >= config.maxRunsPerDay) {
+      log(`[worker] propose: narrative ${narrative.id} refused (${problem}) but the daily run cap is reached; no repair`);
+      return {};
+    }
+    if (researchUsage(store, clock(), research, caps).exhausted) {
+      log(`[worker] propose: narrative ${narrative.id} refused (${problem}) but the research budget is reached; no repair`);
+      return {};
+    }
+    const repairId = store.startBrainRun({ proposalId: 0, narrativeId: narrative.id, task: "propose", ...brain.routeFor("propose") }, clock());
+    let run;
+    try {
+      run = await brain.run<string>("propose", { prompt: proposePromptFor(narrative, score, undefined, problem) }, { signal: opts.signal, onBackend: (r) => store.setBrainRunBackend(repairId, r.backend, r.model) });
+    } catch (e) {
+      const brainError = e instanceof BrainError ? e : undefined;
+      store.finishBrainRun(repairId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: brainError?.kind ?? "failed", backend: brainError?.backend, model: brainError?.model });
+      log(`[worker] propose: narrative ${narrative.id} repair ${brainError?.kind ?? "failed"}: ${e instanceof Error ? e.message : String(e)}`);
+      return { runId: repairId };
+    }
+    if (run.dryRun) {
+      store.discardBrainRun(repairId);
+      return {};
+    }
+    const parsed = parseProposeOutput(run.output);
+    store.finishBrainRun(repairId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: run.backend, model: run.model });
+    return { runId: repairId, parsed, output: run.output };
+  };
+
   for (const candidate of store.narrativesToPropose(embedder, since, store.getRubric().gateMinScore, config.maxPerPass, config.maxConsecutiveTimeouts)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const dayAgo = new Date(clock().getTime() - 24 * 3_600_000).toISOString();
@@ -318,13 +380,23 @@ export async function proposePendingNarratives(
       log("[worker] propose: dry-run, nothing spawned; stopping the pass");
       return { ...out, stoppedBy: "dry-run" };
     }
-    const parsed = parseProposeOutput(run.output);
+    let parsed = parseProposeOutput(run.output);
     store.finishBrainRun(runId, { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: run.backend, model: run.model });
-    // The spend is recorded. Nothing below calls the brain again.
+    const runIds = [runId];
     if (!parsed.ok) {
-      log(`[worker] propose: narrative ${narrative.id} refused: ${parsed.problem}. Output not stored: ${JSON.stringify(run.output.trim().slice(0, 200))}`);
-      out.refused++;
-      continue;
+      log(`[worker] propose: narrative ${narrative.id} refused: ${parsed.problem} (${shapeOf(run.output)}). Output not stored: ${JSON.stringify(run.output.trim().slice(0, 200))}`);
+      // A count or length miss gets one repair run (ticket 21); anything else (bad JSON, a bad link, a missing key) is refused as before.
+      const repaired = isRepairable(parsed.problem) ? await repairRun(narrative, score, parsed.problem) : {};
+      if (repaired.runId !== undefined) runIds.push(repaired.runId);
+      if (repaired.parsed?.ok) {
+        parsed = repaired.parsed;
+      } else {
+        if (repaired.parsed && repaired.output !== undefined) {
+          log(`[worker] propose: narrative ${narrative.id} repair refused: ${repaired.parsed.ok ? "" : repaired.parsed.problem} (${shapeOf(repaired.output)}). Output not stored: ${JSON.stringify(repaired.output.trim().slice(0, 200))}`);
+        }
+        out.refused++;
+        continue;
+      }
     }
     // The Narrative may have been scored again while the model ran: the gate is judged on its latest Score at the moment of creation.
     const latest = store.latestScore(narrative.id);
@@ -334,9 +406,8 @@ export async function proposePendingNarratives(
       continue;
     }
     // Collision checks (ticket 09). A colliding name is retried once; the retry is one more propose run under the same caps. A name that
-    // still collides is stored with the flag, never dropped. Both runs end up as the Proposal's cost.
+    // still collides is stored with the flag, never dropped. All runs end up as the Proposal's cost.
     let fields = parsed.fields;
-    const runIds = [runId];
     let collisions = await checkCollisions(fields);
     if (collisions && hasCollision(collisions)) {
       const reasons = [

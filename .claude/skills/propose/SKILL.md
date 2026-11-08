@@ -16,7 +16,7 @@ You may use WebSearch and WebFetch to confirm that a story is real and to find b
 - **Tech**: one web app on Cloudflare Workers, previewed at a `workers.dev` address, that an unattended coding agent can build in 1 to 4 hours (ADR 0003). Public, unauthenticated data only. No on-chain programs, wallets that sign, bots, native apps, paid APIs or accounts. If the Narrative offers no such Tech, propose the closest buildable one rather than a bigger idea.
 - **Name** and **ticker**: short, memorable, tied to the Narrative. No real person's name, no impersonation of a real brand or project, no hate, harassment or scam wording. The ticker is 2 to 10 upper-case letters or digits, starting with a letter, with no `$`.
 - **Why now**: what in the Signals makes this timely, in your own words.
-- **Evidence**: 3 to 5 distinct absolute http or https links that really support the Narrative, preferably the Signals' own links, plus anything you verified on the web. Never invent a link.
+- **Evidence**: 3 to 5 distinct absolute http or https links that really support the Narrative, preferably the Signals' own links, plus anything you verified on the web. Never invent a link. The prompt tells you how many distinct links the Signals carry; when that is fewer than 3, use WebSearch and WebFetch to find the rest. Do not stop at the Signals' one or two links.
 - Argus does not launch tokens and does no promotion. Do not mention buying, trading, price or launching.
 
 ## Output contract
@@ -31,3 +31,5 @@ Argus checks your output before saving it and refuses (stores nothing) anything 
 - Every text is one line: no newlines or control characters. `name` is at most 40 characters, `tech` at most 200, `whyNow` at most 300, `description` at most 500 characters. Text over its limit is refused, not cut.
 - `ticker` is 2 to 10 characters from A-Z and 0-9, starting with a letter.
 - No text before or after the object. No code fence around it.
+- Last check before you answer: count your evidence links (3 to 5, no more, no fewer) and count the characters of `tech` (at most 200). Shorten or add before you reply; Argus refuses, and never cuts or pads.
+- If the prompt says your last answer was refused, return the corrected object, fixing the problem it names.

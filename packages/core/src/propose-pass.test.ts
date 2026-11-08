@@ -248,7 +248,6 @@ describe("untrusted output: refused, logged, never coerced", () => {
     ["a code fence", "```json\n" + ANSWER + "\n```"],
     ["a string where text belongs", JSON.stringify({ ...JSON.parse(ANSWER), name: 7 })],
     ["a lower-case ticker", JSON.stringify({ ...JSON.parse(ANSWER), ticker: "paws" })],
-    ["too few links", JSON.stringify({ ...JSON.parse(ANSWER), evidence: ["https://a.example/1"] })],
     ["a javascript: link", JSON.stringify({ ...JSON.parse(ANSWER), evidence: ["https://a.example/1", "https://b.example/2", "javascript:alert(1)"] })],
     ["an extra key", JSON.stringify({ ...JSON.parse(ANSWER), status: "approved" })],
   ];
@@ -689,5 +688,94 @@ describe("collision checks in the propose pass", () => {
     const { c } = checker((name) => (name === "Stock Paws" ? result("collides") : result("clear")));
     await pass({}, { collisions: c });
     expect(store.proposeSpendSince(hours(-24).toISOString()).runs).toBe(2);
+  });
+});
+
+describe("one repair retry for a count or length refusal (ticket 21)", () => {
+  const TWO = JSON.stringify({ ...JSON.parse(ANSWER), evidence: ["https://a.example/1", "https://b.example/2"] });
+  const LONG_TECH = JSON.stringify({ ...JSON.parse(ANSWER), tech: "x".repeat(201) });
+  const REPAIRED = JSON.stringify({ ...JSON.parse(ANSWER), name: "Repaired Paws" });
+  const seq = (...steps: Array<Record<string, string>>) => ({ FAKE_CLAUDE_SEQUENCE: JSON.stringify(steps) });
+
+  it("repairs an evidence-count refusal: the repair prompt carries the problem, the first run stays invalid-output, the repair is success", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: TWO, ...seq({}, { FAKE_CLAUDE_RESULT: REPAIRED }) });
+    addScored(store, "One");
+    expect(await pass()).toMatchObject({ proposed: 1, refused: 0 });
+    expect(calls()).toHaveLength(2);
+    expect(calls()[0]!.argv[1]).not.toContain("last answer was refused");
+    expect(calls()[1]!.argv[1]).toContain("Your last answer was refused: `evidence` must be an array of 3 to 5 links");
+    const p = store.listProposals()[0]!;
+    expect(p.name).toBe("Repaired Paws");
+    expect(store.brainRunsFor(p.id).map((r) => r.exitStatus).sort()).toEqual(["invalid-output", "success"]);
+  });
+
+  it("repairs an over-length tech the same way", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: LONG_TECH, ...seq({}, { FAKE_CLAUDE_RESULT: REPAIRED }) });
+    addScored(store, "One");
+    expect(await pass()).toMatchObject({ proposed: 1, refused: 0 });
+    expect(calls()[1]!.argv[1]).toContain("`tech` is over 200 characters");
+  });
+
+  it("a second failure leaves two invalid-output rows, counts one refusal and runs nothing more, even on the next pass", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: TWO });
+    addScored(store, "One");
+    expect(await pass()).toMatchObject({ proposed: 0, refused: 1 });
+    expect(calls()).toHaveLength(2);
+    expect(store.brainRunsFor(0).map((r) => r.exitStatus)).toEqual(["invalid-output", "invalid-output"]);
+    expect(store.listProposals()).toEqual([]);
+    await pass({}, { now: minutes(30) });
+    expect(calls()).toHaveLength(2);
+  });
+
+  for (const [label, env] of [
+    ["bad JSON", { FAKE_CLAUDE_RESULT: "not json at all" }],
+    ["a bad link", { FAKE_CLAUDE_RESULT: JSON.stringify({ ...JSON.parse(ANSWER), evidence: ["https://a.example/1", "https://b.example/2", "javascript:alert(1)"] }) }],
+    ["a failed run", { FAKE_CLAUDE_MODE: "failure" }],
+    ["a rate limit", { FAKE_CLAUDE_MODE: "ratelimit" }],
+    ["a budget error", { FAKE_CLAUDE_MODE: "budget" }],
+  ] as Array<[string, Record<string, string>]>) {
+    it(`does not retry ${label}`, async () => {
+      const { store, pass, calls } = setup(env);
+      addScored(store, "One");
+      await pass();
+      expect(calls()).toHaveLength(1);
+    });
+  }
+
+  it("the repair counts against the daily run cap: at the cap there is no retry", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: TWO, ...seq({}, { FAKE_CLAUDE_RESULT: REPAIRED }) });
+    addScored(store, "One");
+    expect(await pass({ maxRunsPerDay: 1 })).toMatchObject({ proposed: 0, refused: 1 });
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("the repair counts against the research budget: when it is used up there is no retry", async () => {
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: TWO, ...seq({}, { FAKE_CLAUDE_RESULT: REPAIRED }) });
+    addScored(store, "One");
+    expect(await pass({}, { research: { dailyQuotaUsd: 0.02, share: 0.5 } })).toMatchObject({ proposed: 0, refused: 1 });
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("both runs show in the day's propose spend", async () => {
+    const { store, pass } = setup({ FAKE_CLAUDE_RESULT: TWO, ...seq({}, { FAKE_CLAUDE_RESULT: REPAIRED }) });
+    addScored(store, "One");
+    await pass();
+    expect(store.proposeSpendSince(hours(-24).toISOString()).runs).toBe(2);
+  });
+
+  it("the refusal log line adds the evidence array length and tech length, numbers only", async () => {
+    const { store, pass, lines } = setup({ FAKE_CLAUDE_RESULT: TWO });
+    addScored(store, "One");
+    await pass();
+    const log = lines.join("\n");
+    expect(log).toMatch(/narrative \d+ refused: .*\(evidence 2 links, tech 57 characters\)/);
+    expect(log).toMatch(/repair refused: .*\(evidence 2 links, tech 57 characters\)/);
+  });
+
+  it("the log line shows n/a for an answer that is not a JSON object", async () => {
+    const { store, pass, lines } = setup({ FAKE_CLAUDE_RESULT: "prose" });
+    addScored(store, "One");
+    await pass();
+    expect(lines.join("\n")).toMatch(/\(evidence n\/a, tech n\/a\)/);
   });
 });
