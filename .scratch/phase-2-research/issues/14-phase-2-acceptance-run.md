@@ -177,3 +177,31 @@ Operator actions since the last check-in: none. This check-in only read the DB (
 - Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
 
 Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
+
+### Final check-in 2026-11-08T13:24 -03:00 (16:24Z): whole-run totals
+
+Whole run: start 2026-11-06T18:28:43Z (15:28:43 -03) to 2026-11-08T15:59:50Z (12:59:50 -03). Read-only: DB and worker.log; no process restarted or signalled.
+
+- Liveness now: `dev:status` pids unchanged: warroom 362056 (port 3100), worker 174028. Both systemd-inhibit lock wrappers are alive (`sleep:handle-lid-switch`, who=argus). `/` and `/api/proposals` return 200. The worker is still ticking past the planned end (last log tick 2026-11-08T16:23:46Z); it was left running as instructed.
+- Proposals: 39 total (38 `new`, 1 `spec-drafted`, Proposal 21). Per UTC calendar day: 2026-11-06 = 13, 2026-11-07 = 21, 2026-11-08 = 5 (to 02:02Z). Rolling 24 h maximum: 23 (window ending 2026-11-07T23:32Z). Cap 30 never reached. Two `stopped: proposal-cap` ticks were on 2026-11-06, before the raise to 30 (cap 10 then).
+- brain_runs by kind (all backend claude-code; API backend runs: 0): judge (haiku, success) 300 runs, $0.3902; propose (sonnet, success) 48 runs, $1.4995; propose (sonnet, invalid-output) 18 runs, $0.4508; spec (sonnet, success) 1 run, $0.0438. Total 367 runs, $2.3844 (claude-code `total_cost_usd`, est. usage). API spend: $0.00 (API fallback off).
+- Invalid-output and refusal counts: 18 invalid-output brain runs (all propose). Worker log has 18 `propose: narrative N refused` lines: 13 outputs dropped, and 5 name-retry notices where the Proposal was kept with a flagged name. Reasons: `evidence` not 3 to 5 links (most), `tech` over 200 characters (narrative 90), and non-single-JSON output (retry, narrative 59). Judge: 0 refused, 0 failed on all ticks.
+- Judge cap stop windows (43 `stopped: daily-cap` judge ticks): window 1 from 2026-11-07T02:18:41Z to 18:31:25Z (15 ticks); window 2 from 2026-11-08T02:31:21Z to 16:01:20Z (28 ticks, still binding at the end). Judge scored 10 per tick between the windows.
+- Errors by source (worker.log: 0 error-level lines, 0 judge or propose failed ticks; only startup SQLite ExperimentalWarnings):
+  - Ingest source failures: 99 lines in total.
+  - Network blip 2026-11-08T15:41Z to about 16:01Z: 71 source failures over five ingest ticks, 65 RSS feeds with `fetch failed` (incl. `rss:hn-frontpage`), plus Google Trends, DexScreener and GitHub trending (2 each). Recovered at the 2026-11-08T16:21:26Z ingest tick (70 new Signals, no failures).
+  - Outside the blip: `rss:hn-frontpage` 22 (mostly `This operation was aborted`, plus 502 Bad Gateway and fetch failed, one tick each); `github:trending` 6 (`This operation was aborted`, one tick each). All recovered on the next tick.
+- Stall: no brain runs after 2026-11-08T02:02:20Z (last judge 02:02:03Z). The 150 judge runs in the trailing 24 h were all created between 2026-11-07T19:00Z and 02:02Z, so the judge cap stayed binding until the run ended. Zero narratives were scored after 02:02Z, so propose had nothing new to work on and the pool stayed empty. Cause and fix are in ticket 21 (commit ef09647).
+- Store counts at the end: Signals 22864, Narratives 1443, Scores 300.
+
+Correction to the run clock: the 2026-11-07 01:00 -03 entry above recorded 21h32m elapsed from 2026-11-06 15:28 to 2026-11-07 01:00. That span is 9h32m. The 26h28m top-up, and so the 12:59:50 -03 end, were computed from that miscount. Wall clock from start to 15:59:50Z is 45h31m; minus the 9h31m suspend (04:00Z to 13:31Z on 2026-11-07) and about 2 min of restarts, the run had about 36h of uptime, not 48h.
+
+Acceptance criteria (evidence at this check-in; no boxes ticked):
+- AC1 (at most 30 Proposals per day, over 48 h unattended): partly. The cap held (max 23 in any rolling 24 h), but the unattended run covered about 36 h, not 48 h.
+- AC2 (every card shows all architecture §8 fields): not evidenced. No card or field check is recorded for this run, and no screenshots are in the ticket.
+- AC3 (stale Proposals close on schedule): not exercised. Expiry is wired (`apps/worker/src/main.ts`, `packages/core/src/expiry.ts`: `new` 48 h, `shortlisted` 7 d). The oldest `new` Proposal (2026-11-06T18:59:39Z) reaches 48 h at 18:59Z on 11-08, after the run end. No expiries, no status changes.
+- AC4 (forced subscription exhaustion switches judge and propose to the API, builds wait, API spend under cap): not met. No forced exhaustion; API fallback off (Operator's research-only choice); API spend $0.00. The judge daily cap bound and stalled the pool, a different mechanism (ticket 21).
+- AC5 (card to marked launched using only War Room and newpairspam): not met. No Proposal launched or marked launched; only `new` and `spec-drafted` statuses exist.
+- AC6 (evidence recorded in the ticket): partly. Counts, logs and check-ins are recorded; screenshots are missing.
+
+Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
