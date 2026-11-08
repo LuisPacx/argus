@@ -1,0 +1,17 @@
+{
+  "signature": "2k1xSBXHeiGXy5eQkyaWjDh8tk6CayKmZHus2X2JEv24WEYEASBLsNi2eFMbDuTn2VVWqBHkeatx69tGhgiuTHzo",
+  "mint": "6oKJ4MAKt3tWh6ru374ctrBMxPaMQ2qLTEGCDDNqpump",
+  "traderPublicKey": "FFS4aboq5WB4H8QFjzbtiwXXQgWWWAsw1YmzNUbdYZdb",
+  "txType": "create",
+  "initialBuy": 1058707.391261,
+  "solAmount": 0.029629628,
+  "bondingCurveKey": "7ZdJZns35GiSo4F6mH7utKZF1Y6LH7FbUeVkjsuvedHU",
+  "vTokensInBondingCurve": 1071941292.608739,
+  "vSolInBondingCurve": 30.029629627999995,
+  "marketCapSol": 28.014248387538213,
+  "name": "No Risk No Rari",
+  "symbol": "VROOM",
+  "uri": "https://ipfs.io/ipfs/bafkreictddc23key7yw5gps2prjn7tuuckwokbnjzx7qwflelxcypnomz4",
+  "is_mayhem_mode": false,
+  "pool": "pump"
+}

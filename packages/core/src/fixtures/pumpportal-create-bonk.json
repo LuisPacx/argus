@@ -1,0 +1,13 @@
+{
+  "signature": "3J68aT2JdQucmXtWaWw8REQsLwzhkfGMgUDc8xFjnm11ddip2TzTcq6umwKu5JR39zNKEU22jBEEwoxgLcqUPHFy",
+  "traderPublicKey": "A3hf5GWM8dLSL6Qbn2VNCUkPxT5Z6A21zKeYko6GNp9r",
+  "txType": "create",
+  "mint": "9GUEk6JMedHNqDdDxvwaT5qrBHCov6AN8QJf9vbfLoat",
+  "solInPool": 0.29775,
+  "tokensInPool": 998496167.0733,
+  "initialBuy": 1503832.926699996,
+  "solAmount": 0.29775,
+  "newTokenBalance": 1503832.9267,
+  "marketCapSol": 28.03618884034107,
+  "pool": "bonk"
+}
