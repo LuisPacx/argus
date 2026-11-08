@@ -147,3 +147,18 @@ Operator actions today (not research; excluded from the research counts above ex
 - Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
 
 Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
+
+### Check-in 2026-11-08T00:47 -03:00
+
+- Status: `dev:status` reports warroom running (pid 362056, port 3100), worker running (pid 174028), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". Running: yes. `systemd-inhibit --list` shows the two argus block locks (sleep:handle-lid-switch, one per process). / and /api/proposals return 200. No process was restarted or signalled for this check-in.
+- Time: 33h19m elapsed since the 2026-11-06 15:28 start. Planned end unchanged: 2026-11-08T12:59:50-03:00 (12h12m left).
+- Proposals: total 39 (was 27 at the last check-in, so 12 new). Proposals in the last 24 h: 18 (cap 30, not exceeded).
+- brain_runs in the last 24 h: 184 runs, $1.1778 total by task and outcome: judge (success) 150 runs, $0.1927; propose (success) 23 runs, $0.6921; propose (invalid-output) 10 runs, $0.2492; spec (success) 1 run, $0.0438.
+- brain_runs since the last check-in (created after 2026-11-07T21:47Z): judge (success) 90 runs, $0.1126; propose (success) 15 runs, $0.4692; propose (invalid-output) 8 runs, $0.1957. Total 113 runs, $0.7775.
+- Judge cap: binding again. The worker logged `judge: daily cap reached` and `stopped: daily-cap` on repeated ticks in the window, interleaved with normal judge ticks of 10 scored. The cap-stop log line repeats the stale figure "150 runs, $0.1975"; the DB shows $0.1927 for the current 150 runs, so treat the log figure as stale.
+- Propose caps: one tick logged `stopped: proposal-cap` (two occurrences in the window). Propose runs 33 in 24 h, under the 45/day limit.
+- Propose refusals since the last check-in: about 9 in the log, all `evidence must be an array of 3 to 5 links` except one `tech is over 200 characters` (narrative 90). Matches the 8 invalid-output runs in the DB since the last check-in (one run is the 24 h tally of 10 invalid-output).
+- Errors since the last check-in: 0 judge or propose failures ("0 failed" on every tick). Ingest: `rss:hn-frontpage` failed as known (aborted, fetch failed, 502 Bad Gateway, each one tick and recovered). New to this window: `github:trending` failed with "This operation was aborted" on three ticks (one tick also had rss aborted). Each recovered on the next tick.
+- Datastore counts (Signals, Narratives, Scores) were not re-counted for this check-in.
+
+Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
