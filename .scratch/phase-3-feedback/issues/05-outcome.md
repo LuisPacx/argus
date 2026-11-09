@@ -38,7 +38,9 @@ The classification and stop loop live in `packages/core/src/x-capture/detect.mjs
 - Profile: display name, bio, joined date, followers, following (text and parsed number). Worked for Bonk and Dogecoin.
 - Recent posts (up to 10 captured, 6 to 9 seen after two scrolls): text, ISO time, and the counts string from the post's aria-label ("44 replies, 39 reposts, 185 likes, 4 bookmarks, 18856 views"). Search results for new posts carry fewer counts (some show only views).
 - Ticker/name mentions: count of captured posts containing the ticker (naive substring match; the job needs word-boundary matching).
-- Raw artefacts: full HTML and a PNG per load, plus `results.json`, in `~/.cache/argus-scratch/x-spike/<run>/` (outside git, files mode 600, dirs 700). The HTML contains the Argus account's own nav and handle, so artefacts are as sensitive as the session and must not be shared.
+- Raw artefacts: full HTML and a PNG per load, plus `results.json`, in `~/.cache/argus-scratch/x-spike/<run>/` (outside git, dirs 700). The HTML and JSON files are mode 600, but the screenshots were written 644 because `page.screenshot` has no mode option; the 644 PNGs sit inside 700 directories, so they are not reachable by other users. The HTML contains the Argus account's own nav and handle, so artefacts are as sensitive as the session and must not be shared.
+
+Ticket 06 must write every artefact 0600 and unit-test the Chrome-directory lock.
 
 ## Lock and directory checks
 

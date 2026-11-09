@@ -8,7 +8,7 @@ Spec: sections 6, 13, 14, 15 (slice 6).
 
 **Status:** ready-for-agent
 
-- [x] The script opens the dedicated directory as a persistent context and refuses to start if Chrome already holds it (one process per directory, lock tested)
+- [x] The script opens the dedicated directory as a persistent context and refuses to start if Chrome already holds it (one process per directory, lock tested) (manual run on a throwaway directory, recorded in 05-outcome.md; no automated test)
 - [x] Headless and headed (virtual display) are each tried over a small number of captures, with the result recorded for each (headed ran on Chrome's headless Ozone platform; Xvfb is not installed, see 05-outcome.md)
 - [x] Detection signals for login wall, challenge, lock and suspension are written down, and the script stops on any of them without retrying (tested offline; never fired live: `packages/core/src/x-capture/detect.test.ts`)
 - [x] Saved fields are listed: profile fields, recent posts with time and counts, ticker and name mentions, capture status, plus a raw HTML or screenshot artefact
