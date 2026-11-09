@@ -10,7 +10,7 @@ Spec: sections 6, 7, 14, 15 (slice 1).
 
 - [x] A note exists in the phase-3-feedback directory and answers each item below with the measured number, the sample size and the date range
 - [x] Snapshot ages: distribution of create-to-complete and complete-to-pool, from chain event times; final metadata/website age and X age window proposed from it
-- [x] Fast threshold: proposed from the measured distribution, replacing the 30-minute starting value or confirming it
+- [x] Fast threshold: proposed from the measured distribution, replaces the 30-minute starting value: Fast = migrated within 60 s, decided 2026-11-08
 - [x] Migrated timestamp: states whether curve complete or pool creation counts, with the reason
 - [x] PumpPortal migrate scope: states whether migrate events are only pump-to-pumpswap or include other venues
 - [x] Metadata uri source: states whether the PumpPortal create payload carries the uri; if not, the Helius credit cost per create to read it from chain

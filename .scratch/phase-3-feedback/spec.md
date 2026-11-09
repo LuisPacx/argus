@@ -69,7 +69,7 @@ Fields (field list only):
 - Launch mechanics (raw, section 7) and Timing fields taken from the create event and chain.
 - Selection: why this token was captured (population, X priority reason, sampling weight).
 
-**Age (Q3, Q16, Q25).** Fixed ages, set in config and versioned. Starting values (Q25): metadata and website are captured about 3 minutes after create; X is captured at 5 to 15 minutes. The research puts median create-to-migrate at 4.4 minutes, so a 1h Snapshot would postdate most migrations and the creator-controlled fields (website, metadata) can change after migration; that is why the ages are early. The numbers are starting values: the first slice measures real create-to-migrate times from chain and sets the final ages and the Fast threshold (30 min starting value, Q17) once, recorded in the Snapshot's capture rule version.
+**Age (Q3, Q16, Q25).** Fixed ages, set in config and versioned. Decided 2026-11-08 (slice 1, `measurements.md`): metadata and website are captured at age 60 s after create; X at age 5 min (window 5 to 15 min). The research puts median create-to-migrate at 4.4 minutes, so a 1h Snapshot would postdate most migrations and the creator-controlled fields (website, metadata) can change after migration; that is why the ages are early. Slice 1 measured real create-to-migrate times from chain and set the ages and the Fast threshold (60 s, decided 2026-11-08, Q17), recorded in the Snapshot's capture rule version.
 
 **X capture (Q9, Q13, Q14, ADR 0009).** A Playwright script, run by the worker as a plain child process (no Claude in it), opens the dedicated Chrome user-data directory (`ARGUS_CHROME_DIR`, default `~/.local/share/argus/chrome`, created by `setup-argus-browser.sh`) as a persistent context, logged in as the dedicated Argus X account, and saves the profile page, recent posts and a ticker search to the Snapshot as text plus a raw HTML/screenshot artefact. Rules:
 - About 200 captures per day (a config cap, counted in code), early-traction candidates first.
@@ -91,7 +91,7 @@ Fields (field list only):
 
 The thresholds are hypotheses (`bot-filters.md` section 6), none validated on pump.fun migrators. RugCheck is not used (its terms could not be found; user decision 2026-11-08), so there is no sixth signal; on-chain risk labels come from the chain labeller (ticket 03). The label stays "organic migration"; thresholds are calibrated on post-migration crash (a price drop within the first 20 minutes after migration, MELT-style, plus seller concentration over the Cohort), choosing cut-offs that make the dropped group the one that crashes, then re-checked on a later Cohort. How the crash is measured is decided in the calibration ticket (section 14). Wallet analysis runs only for migrators in the population (Q24).
 
-**Fast migration (Q17).** Migrated within a threshold after creation (chain event times); 30 minutes is the starting value, and slice 1's measurement sets the final threshold once (Q17, Q25). Stored as a flag and a bucket; excluded from Rubric lessons, but fast Cases are studied and reported as their own section (section 5). Fast and bot-driven overlap; the flags are independent and the report shows the cross-tab.
+**Fast migration (Q17).** Migrated within 60 s after creation (chain event times; decided 2026-11-08 from slice 1's measurement, replacing the 30-minute starting value, Q17, Q25). Stored as a flag and a bucket; excluded from Rubric lessons, but fast Cases are studied and reported as their own section (section 5). Fast and bot-driven overlap; the flags are independent and the report shows the cross-tab.
 
 **Outcome buckets per token:** non-migrated (control), organic migrator, bot-driven migrator, plus the fast flag on any migrator.
 
@@ -160,7 +160,7 @@ When the Operator marks a Proposal launched with its mint, argus reads that mint
 ### Measured by slice 1
 
 Slice 1 (and the X spike, slice 6) produce the numbers; nothing is chosen before then.
-- **Snapshot age and Fast threshold.** Starting values in section 6 (metadata and website about 3 min, X 5 to 15 min; Fast 30 min). Median create-to-migrate is 4.4 min in the literature and the PumpPortal pairs show a median 0.01 min, so the final ages follow the measured distribution.
+- **Snapshot age and Fast threshold.** Decided 2026-11-08 (section 6): metadata and website at age 60 s, X at age 5 min; Fast = migrated within 60 s. Median create-to-migrate is 4.4 min in the literature and the PumpPortal pairs show a median 0.01 min, so the final ages follow the measured distribution.
 - **Metadata `uri` source.** Does the PumpPortal create payload carry the metadata URI (`pumpportal.ts` does not keep it)? If not, read `CreateEvent` from chain, which costs Helius credits per create.
 - **Which timestamp counts as migrated:** curve `complete` or pool creation (`CompletePumpAmmMigrationEvent`), and the scope of the PumpPortal `migrate` event (pump-to-pumpswap only, or other venues).
 - **Helius Free:** whether `getTransactionsForAddress` is allowed on Free, the real limits, and credits per Case.
@@ -179,7 +179,7 @@ Each is settled in its ticket; the default applies unless the ticket finds a rea
 
 ### Resolved
 
-- Q25: capture timing (metadata and website about 3 min, X at 5 to 15 min; slice 1 sets final numbers). Sections 6, 7.
+- Q25: capture timing (metadata and website at age 60 s, X at age 5 min; decided 2026-11-08 from slice 1). Sections 6, 7.
 - Q26: the $100/mo is real cash only; Claude runs are limited by the Study run cap. Section 9.
 - Q27: dismissal reasons are their own section in the weekly review. Section 10.
 - Q28: argus closes own-launch Proposals at 7d with the outcome; kept out of Cohort statistics. Section 11.
