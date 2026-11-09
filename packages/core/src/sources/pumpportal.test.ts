@@ -300,4 +300,59 @@ describe("PumpPortalSource", () => {
   });
 });
 
+describe("PumpPortalSource lifecycle log", () => {
+  function fake() {
+    const clock = fakeClock();
+    const lines: string[] = [];
+    const sockets: SocketLike[] = [];
+    source = new PumpPortalSource({
+      schedule: clock.schedule,
+      log: (l) => lines.push(l),
+      createSocket: (): SocketLike => {
+        const ws: SocketLike = { onopen: null, onmessage: null, onclose: null, onerror: null, send: () => {}, close: () => {} };
+        sockets.push(ws);
+        return ws;
+      },
+    });
+    source.start();
+    return { clock, lines, sockets, source };
+  }
+
+  it("logs connect and subscribe with a connection id and the open count", () => {
+    const { lines, sockets } = fake();
+    sockets[0]!.onopen?.({});
+    expect(lines).toEqual(["[pumpportal] connect conn=1 open=1", "[pumpportal] subscribe conn=1 streams=newToken,migration"]);
+  });
+
+  it("logs disconnect with code and reason, then reconnect with attempt and backoff, then a new connection id", () => {
+    const { lines, sockets, clock } = fake();
+    sockets[0]!.onopen?.({});
+    lines.length = 0;
+    sockets[0]!.onclose?.({ code: 1006, reason: "gone away" });
+    expect(lines).toEqual(['[pumpportal] disconnect conn=1 code=1006 reason="gone away" open=0', "[pumpportal] reconnect attempt=1 in=1000ms"]);
+    lines.length = 0;
+    clock.fire();
+    sockets[1]!.onopen?.({});
+    expect(lines).toEqual(["[pumpportal] connect conn=2 open=1", "[pumpportal] subscribe conn=2 streams=newToken,migration"]);
+  });
+
+  it("counts attempts up while the server stays down, and an error without a close event logs code=none", () => {
+    const { lines, sockets, clock } = fake();
+    sockets[0]!.onerror?.({});
+    clock.fire();
+    sockets[1]!.onclose?.({ code: 1006 });
+    expect(lines).toContain("[pumpportal] disconnect conn=1 code=none reason=\"\" open=0");
+    expect(lines).toContain("[pumpportal] reconnect attempt=1 in=1000ms");
+    expect(lines).toContain("[pumpportal] reconnect attempt=2 in=2000ms");
+  });
+
+  it("never reports more than one open connection and logs close()", () => {
+    const { lines, sockets, source } = fake();
+    sockets[0]!.onopen?.({});
+    source.close();
+    expect(lines.at(-1)).toBe("[pumpportal] closed conn=1 open=0");
+    expect(lines.filter((l) => l.includes("open=")).every((l) => !/open=[2-9]/.test(l))).toBe(true);
+  });
+});
+
 type Signal = import("./source.ts").Signal;

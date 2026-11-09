@@ -108,6 +108,8 @@ export class PumpPortalSource implements Source {
   private socket: SocketLike | undefined;
   private cancelRetry: (() => void) | undefined;
   private failures = 0;
+  /** Counts sockets created, so each connection line names its own. */
+  private connId = 0;
   private running = false;
 
   constructor(opts: PumpPortalOptions = {}) {
@@ -136,6 +138,7 @@ export class PumpPortalSource implements Source {
     this.cancelRetry = undefined;
     const ws = this.socket;
     this.socket = undefined;
+    if (ws) this.log(`[pumpportal] closed conn=${this.connId} open=0`);
     this.reportDown();
     if (ws) {
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
@@ -166,13 +169,16 @@ export class PumpPortalSource implements Source {
       return;
     }
     this.socket = ws;
+    this.connId++;
     ws.onopen = () => {
       if (this.socket !== ws) return;
       this.reportedUp = true;
+      this.log(`[pumpportal] connect conn=${this.connId} open=${this.openCount()}`);
       this.emitConnection("up");
       try {
         ws.send(JSON.stringify({ method: "subscribeNewToken" }));
         ws.send(JSON.stringify({ method: "subscribeMigration" }));
+        this.log(`[pumpportal] subscribe conn=${this.connId} streams=newToken,migration`);
       } catch {
         // the close event follows and triggers the retry
       }
@@ -182,14 +188,22 @@ export class PumpPortalSource implements Source {
       this.onMessage(ev.data, ws);
     };
     // A failed handshake raises error without close in Node, so an error counts as a drop too.
-    ws.onerror = () => this.drop(ws);
-    ws.onclose = () => this.drop(ws);
+    ws.onerror = (ev) => this.drop(ws, ev);
+    ws.onclose = (ev) => this.drop(ws, ev);
   }
 
-  /** Lets go of a socket (closing it if it is still open) and plans the reconnect. */
-  private drop(ws: SocketLike): void {
+  /** Sockets this Source holds open right now: 0 or 1, by construction; logged so a reader can confirm it. */
+  private openCount(): number {
+    return this.reportedUp && this.socket ? 1 : 0;
+  }
+
+  /** Lets go of a socket (closing it if it is still open) and plans the reconnect. `info` is the close event or a reason of our own. */
+  private drop(ws: SocketLike, info?: unknown): void {
     if (this.socket !== ws) return;
     this.socket = undefined;
+    const code = isRecord(info) && typeof info.code === "number" ? String(info.code) : "none";
+    const reason = typeof info === "string" ? info : isRecord(info) && typeof info.reason === "string" ? info.reason : "";
+    this.log(`[pumpportal] disconnect conn=${this.connId} code=${code} reason=${JSON.stringify(cleanText(reason, 120))} open=0`);
     this.reportDown();
     ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
     try {
@@ -210,6 +224,7 @@ export class PumpPortalSource implements Source {
     if (!this.running || this.cancelRetry) return;
     const wait = Math.min(RECONNECT_BASE_MS * 2 ** Math.min(this.failures, 20), RECONNECT_MAX_MS);
     this.failures++;
+    this.log(`[pumpportal] reconnect attempt=${this.failures} in=${wait}ms`);
     this.cancelRetry = this.schedule(() => this.connect(), wait);
   }
 
@@ -218,7 +233,7 @@ export class PumpPortalSource implements Source {
     if (data.length > this.maxMessageChars) {
       // Something is wrong with the sender: drop it and start over. (The socket library has already read the frame; this bounds what is kept.)
       this.log("[pumpportal] message too large; resetting the connection");
-      this.drop(ws);
+      this.drop(ws, "message too large");
       return;
     }
     const event = this.parseEvent(data);

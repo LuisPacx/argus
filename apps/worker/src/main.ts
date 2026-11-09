@@ -42,6 +42,8 @@ import {
   revisePendingSpecs,
   RunCancels,
   runPendingBuilds,
+  startupConfigLine,
+  STUDY_CAPTURE_RULE,
   sweepDismissedHomes,
   sweepStaleSeals,
   type BuildRunnerOptions,
@@ -198,7 +200,7 @@ const pumpPortal =
   standingOn && !once && !dryRun
     ? new PumpPortalSource({
         url: process.env.ARGUS_PUMPPORTAL_URL || undefined,
-        log: console.error,
+        log: console.log, // lifecycle lines ([pumpportal] connect/disconnect/...) go to stdout beside the other [worker] lines
         onToken: (e) => store.study.recordTokenEvent(e),
         onConnection: (e) => store.study.recordConnection(e),
       })
@@ -293,6 +295,8 @@ const studyTick = reentrant(
   },
   () => {}, // a slow site is still being fetched: the next tick takes what is due then
 );
+// One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
+console.log(startupConfigLine(process.env, { apiKeySet: apiKey !== undefined, telegramOn: notifier.enabled, studyOn: pumpPortal !== undefined && standingOn }));
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()
@@ -325,6 +329,7 @@ const stop = async () => {
   clearInterval(timer);
   clearInterval(commandTimer);
   clearInterval(ingestTimer);
+  if (studyTimer) console.log("[worker] Study stopped");
   clearInterval(studyTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
@@ -372,6 +377,9 @@ if (once) {
     }
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
-  if (standingOn) studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
+  if (standingOn) {
+    studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
+    console.log(`[worker] Study started: capture tick every ${STUDY_TICK_MS / 1000}s, rule v${STUDY_CAPTURE_RULE.version}`);
+  }
   judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
 }

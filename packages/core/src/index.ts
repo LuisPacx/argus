@@ -10,6 +10,7 @@ export * from "./api-brain.ts";
 export * from "./api-fallback.ts";
 export * from "./spec-drafting.ts";
 export * from "./judge.ts";
+export * from "./startup-config.ts";
 export * from "./research-budget.ts";
 export * from "./propose.ts";
 export * from "./collision.ts";
