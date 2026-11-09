@@ -151,9 +151,16 @@ function openTag(block: string, name: string): string {
   return open ? block.slice(open.tagStart, open.contentStart) : "";
 }
 
+/** One literal pattern per attribute we read (no RegExp is built from a name). */
+const ATTR_PATTERNS = {
+  type: /\stype\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  rel: /\srel\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+  href: /\shref\s*=\s*(?:"([^"]*)"|'([^']*)')/i,
+};
+
 /** One attribute's value from an open tag, or empty. The tag is already cut at its `>`. */
-function attr(openTagText: string, name: string): string {
-  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(openTagText);
+function attr(openTagText: string, name: "type" | "rel" | "href"): string {
+  const m = ATTR_PATTERNS[name].exec(openTagText);
   return m ? (m[1] ?? m[2] ?? "") : "";
 }
 

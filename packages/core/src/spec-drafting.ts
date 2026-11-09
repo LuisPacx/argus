@@ -81,7 +81,8 @@ export function specProblem(text: string): string | null {
     return null;
   }
   if (!/^# \S/.test(first)) return `does not start with a \`# <Name>\` title (starts with: ${JSON.stringify(first.slice(0, 80))})`;
-  const missing = REQUIRED_SPEC_HEADINGS.filter((h) => !new RegExp(`^## ${h}[ \\t]*$`, "im").test(text));
+  const headingLines = text.split(/\r\n|[\n\r]/).map((l) => l.trimEnd().toLowerCase());
+  const missing = REQUIRED_SPEC_HEADINGS.filter((h) => !headingLines.includes(`## ${h.toLowerCase()}`));
   return missing.length > 0 ? `missing required section(s): ${missing.map((h) => `## ${h}`).join(", ")}` : null;
 }
 

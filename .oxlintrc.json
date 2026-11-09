@@ -1,0 +1,10 @@
+{
+  "jsPlugins": ["./config/oxlint/argus-plugin.js"],
+  "rules": { "argus/no-dynamic-regexp": "error" },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.mjs", "**/test/**", "**/testing/**"],
+      "rules": { "argus/no-dynamic-regexp": "off" }
+    }
+  ]
+}

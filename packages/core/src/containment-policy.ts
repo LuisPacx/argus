@@ -106,7 +106,7 @@ function checkAllowlist(t: readonly string[], role: string, o: PolicyOptions): s
         if (v !== "no-new-privileges") bad(`forbidden --security-opt ${v}`);
       } else if (a === "--tmpfs") {
         const dir = v.split(":")[0] ?? "";
-        if (role === "egress" || !(TMPFS_DIRS as readonly string[]).includes(dir) || !new RegExp(`^${dir}:rw,noexec,nosuid,nodev,size=[0-9]+[gm]$`).test(v)) bad(`unexpected --tmpfs ${v}`);
+        if (role === "egress" || !(TMPFS_DIRS as readonly string[]).includes(dir) || !/^rw,noexec,nosuid,nodev,size=[0-9]+[gm]$/.test(v.slice(dir.length + 1))) bad(`unexpected --tmpfs ${v}`);
         else if (tmpfsSeen.has(dir)) bad(`repeated --tmpfs ${dir}`);
         tmpfsSeen.add(dir);
       } else if (a === "--network") {

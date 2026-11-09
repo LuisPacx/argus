@@ -26,7 +26,8 @@ export function pageRoutes(pagesDir, ids) {
 // The /activity page's four sections must be in the server-rendered HTML. Returns a problem string, or null.
 export const ACTIVITY_HEADINGS = ['Sources', 'Narratives', 'Brain runs', 'Usage today'];
 export function activityProblem(body) {
-  const missing = ACTIVITY_HEADINGS.filter((h) => !new RegExp(`<h3[^>]*>\\s*${h}\\s*</h3>`).test(body));
+  const found = new Set([...body.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1].trim()));
+  const missing = ACTIVITY_HEADINGS.filter((h) => !found.has(h));
   return missing.length > 0 ? `SSR HTML lacks the heading(s) ${missing.join(', ')}` : null;
 }
 
