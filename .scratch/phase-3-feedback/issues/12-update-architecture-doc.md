@@ -15,5 +15,5 @@ Spec: sections 12, 16.
 - [x] The invariants section states the changed rules: the Chrome directory holds cookies, Study caps and Helius budget in code, no wallet/keys/transactions with read-only chain reads allowed, and the Argus X account never posts
 - [x] The "not ported" X-cookie line is reworded to match ADR 0009
 - [x] The Phase 3 entry is replaced by 3a and 3b and their done signals
-- [ ] Terms are consistent with the glossary, and no section contradicts another (open: the glossary Fast migration entry still says 30 minutes is the starting value; architecture.md says 60 s, measured. Glossary left unchanged: not a missing term.)
+- [x] Terms are consistent with the glossary, and no section contradicts another (glossary Fast migration set to 60 s by Operator decision 2026-11-08)
 - [x] No files other than the architecture document are changed, except the glossary if a term is found missing

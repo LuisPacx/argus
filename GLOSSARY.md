@@ -92,4 +92,4 @@ A token's bonding curve completing and moving to a swap pool, where the buying l
 _Avoid_: Graduation, bonding, success
 
 **Fast migration**:
-A migration that happens within a threshold of the token's creation, set by the first slice's measurement (30 minutes is the starting value). Fast migrations are kept and counted, but the Playbook learns no lessons from them.
+A migration that happens within 60 seconds of the token's creation (the Operator's decision on 2026-11-08, from the first slice's measurement). Fast migrations are kept and counted, but the Playbook learns no lessons from them.
