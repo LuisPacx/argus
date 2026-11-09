@@ -205,3 +205,78 @@ Acceptance criteria (evidence at this check-in; no boxes ticked):
 - AC6 (evidence recorded in the ticket): partly. Counts, logs and check-ins are recorded; screenshots are missing.
 
 Operator actions since the last check-in: none. This check-in only read the DB (read-only) and the logs.
+
+## Spec draft for #21 Zoo Lobby Ledger (saved before undo, 2026-11-08)
+
+# Zoo Lobby Ledger (ZOOLOG)
+
+A single-page Cloudflare Worker site that lays out cited public reporting on lobbying over endangered-animal imports ahead of CITES meetings, as a timeline with claims, denials and documents side by side, each with a source link.
+
+## Goal
+
+A visitor can open the page, read a dated timeline of reporting on the Vantara zoo lobbying story and the UK-chaired CITES meeting, filter it by entry type, and click through to the original article for every entry. It fits the Narrative now because on 3 Nov 2026 the Guardian and Mongabay reported that UK ministers were told not to engage formally with Vantara after lobbying. People following the story need one place that separates what was alleged, what was denied and what documents show, without editorialising.
+
+## Scope
+
+1. **Timeline**: reverse-chronological list of entries. Each entry has date, outlet, headline (as published), a one-to-two sentence neutral summary, a type badge (`claim`, `denial`, `document`, `event`) and a source link.
+2. **Type filter**: buttons to show all or one type. Works client-side and is reflected in the URL query (`?type=denial`).
+3. **Who-lobbies-whom panel**: a small table of relationships stated in the cited reporting (lobbying party, target, as reported by, source link). Each row is attributed ("according to the Guardian"), never stated as fact by the site.
+4. **Permit counts**: a small block of figures that appear in the cited sources, each with the figure, what it counts, the source link and the date. Seed it only with numbers that are explicitly in the four sources; if none can be confirmed, show the empty state "No permit figures recorded yet" rather than inventing any.
+5. **JSON API and about note**: `/api/entries` returns the data as JSON; a short "About and method" section explains that entries are hand-curated from public reporting, that the summaries are paraphrases, and that the ledger does not assert wrongdoing.
+
+## Out of scope
+
+- Accounts, comments, submissions, admin UI, or any write endpoint.
+- Live scraping or fetching of the news sites, RSS, or any third-party API.
+- Reproducing article text beyond a short paraphrase; no quotes longer than a few words.
+- Tokens, wallets, trading, notifications, email.
+- Charts or maps.
+
+## Pages and routes
+
+- `GET /`: the HTML page (server-rendered from the static data module, small inline-able CSS, minimal vanilla JS for filtering). Sections in order: header with one-line description, timeline with filter, lobbying relationships table, permit counts, About and method. The creator disclosure footer from the template stays.
+- `GET /api/entries`: JSON `{ "updated": "YYYY-MM-DD", "entries": Entry[], "relationships": Relationship[], "permits": Permit[] }`. Optional `?type=` filter on entries; unknown type returns 400 with `{ "error": "unknown type" }`. Header `Cache-Control: public, max-age=300`.
+- `GET /api/entries/:id`: a single entry, or 404 JSON `{ "error": "not found" }`.
+- Any other path: 404 using the template's default.
+
+Data shapes:
+
+```
+Entry { id: string, date: "YYYY-MM-DD", outlet: string, headline: string,
+        summary: string, type: "claim"|"denial"|"document"|"event", url: string }
+Relationship { id, lobbyist: string, target: string, reportedBy: string, url: string }
+Permit { id, figure: string, describes: string, date: "YYYY-MM-DD", url: string }
+```
+
+## Data
+
+- A single typed module `src/data.ts` exporting `entries`, `relationships`, `permits` and `updated`. No D1, KV or Durable Objects.
+- Seed it with at least one entry per source below (use the URLs exactly), dated by the article publication date visible in the URL or page where known:
+  - https://www.theguardian.com/environment/2026/nov/03/uk-ministers-anant-ambani-indian-zoo-vantara-freedom-information-endangered-animals-cites
+  - https://news.mongabay.com/2026/09/vantara-works-with-lobbyist-tied-to-trump-jr-and-pro-hunting-groups/
+  - https://www.khaleejtimes.com/world/asia/india-mega-zoo-in-spotlight-animal-acquisitions
+  - https://www.dawn.com/news/1954843/india-asks-un-wildlife-body-to-not-curb-its-animal-imports-amid-ambani-zoo-furore
+- The implementer cannot browse. Write summaries only from what the Proposal and the URL slugs support (for example: the Guardian reported ministers were told not to engage formally with Vantara after lobbying, based on freedom of information material; Mongabay reported Vantara works with a lobbyist; Dawn reported India asked the UN wildlife body not to curb its animal imports). Where a detail is not supported, leave it out. Do not invent quotes, numbers, names or denials. Add a visible note on the page: "Summaries are paraphrased from headlines and URLs by the site maintainer and have not been verified against full articles; check the source."
+- Do not add `denial` or `document` entries unless the slugs/Proposal support them; it is fine for those types to be empty at launch, with filter buttons showing a count of 0.
+
+## Acceptance criteria
+
+- [ ] `GET /` returns 200 HTML containing the timeline, relationships, permits and About sections, plus the template's disclosure footer.
+- [ ] Every entry, relationship and permit row renders a working `<a href>` with `rel="noopener noreferrer"` to its source URL.
+- [ ] All four evidence URLs appear at least once in the page.
+- [ ] Entries render newest first.
+- [ ] `?type=claim` (and other valid types) filters the server-rendered list; the filter buttons work with JS enabled and the links work without JS.
+- [ ] `GET /api/entries` returns valid JSON matching the shapes above; `?type=bogus` returns 400; `/api/entries/<unknown>` returns 404.
+- [ ] Unit tests cover the filter function, the sorting, and the API status codes; template lint and CI pass.
+- [ ] A test asserts every `url` in the data module is `https:` and every entry has a non-empty summary.
+- [ ] The paraphrase disclaimer is visible on the page.
+- [ ] Layout is readable at 360px width; text contrast is sufficient; no external fonts, scripts or trackers.
+- [ ] No secrets, env vars or outbound fetches are required to run or deploy.
+
+## Notes for the implementer
+
+- Escape all data when rendering HTML (even though it is static) with a small helper; do not use `innerHTML` with data.
+- Build in this order: data module and types, filter/sort helpers with tests, API routes, HTML renderer, filter UI, styling.
+- Cut first if short on time: the `/api/entries/:id` route, then the permit block (keep the empty state), then the URL-reflected filter JS enhancement.
+- Keep the tone neutral: use "reported", "according to", "alleged"; never state lobbying or wrongdoing as fact in the site's own voice.
+- Set `updated` to the date of the last data edit (seed: 2026-11-07).
