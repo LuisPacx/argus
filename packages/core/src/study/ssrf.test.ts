@@ -23,6 +23,10 @@ describe("isBlockedAddress", () => {
     "fd00:ec2::254", // AWS IPv6 metadata (unique local)
     "fc00::1",
     "ff02::1",
+    "::127.0.0.1", // IPv4-compatible
+    "::10.0.0.1",
+    "::8.8.8.8", // deprecated form: refused whatever it embeds
+    "::7f00:1",
     "::ffff:127.0.0.1", // IPv4-mapped
     "::ffff:7f00:1", // IPv4-mapped, hex form
     "::ffff:169.254.169.254",
@@ -59,6 +63,7 @@ describe("checkFetchUrl", () => {
     ["https://example.com:6379/", /port/],
     ["http://127.0.0.1/", /address/],
     ["http://[::1]/", /address/],
+    ["http://[::127.0.0.1]/", /address/],
     ["http://[::ffff:127.0.0.1]/", /address/],
     ["http://169.254.169.254/latest/meta-data/", /address/],
     ["http://2130706433/", /address/], // decimal form of 127.0.0.1

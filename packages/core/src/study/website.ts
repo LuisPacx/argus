@@ -40,6 +40,11 @@ export interface WebsiteFetchOptions {
 
 const ROBOTS_MAX_BYTES = 64 * 1024;
 const BLOCKED_PREFIX = "blocked: ";
+/** Limits on what is read from an untrusted robots.txt: groups, rules per group, characters per rule, and the path matched against. */
+const MAX_GROUPS = 200;
+const MAX_RULES_PER_GROUP = 500;
+const MAX_RULE_CHARS = 512;
+const MAX_PATH_CHARS = 2_048;
 /** Our robots.txt product tokens, lower case: a group naming either applies to us. */
 const OUR_AGENTS = ["argusstudy", "argus"];
 const MOUNT_IDS = new Set(["root", "app", "__next", "__nuxt", "___gatsby", "svelte", "q-app", "react-root", "main-app"]);
@@ -103,6 +108,7 @@ function parseRobots(body: string): RobotsGroup[] {
     const value = m[2]!.trim();
     if (key === "user-agent") {
       if (!current || !lastWasAgent) {
+        if (groups.length >= MAX_GROUPS) break;
         current = { agents: [], rules: [] };
         groups.push(current);
       }
@@ -110,20 +116,40 @@ function parseRobots(body: string): RobotsGroup[] {
       lastWasAgent = true;
     } else if ((key === "allow" || key === "disallow") && current) {
       lastWasAgent = false;
-      if (value !== "") current.rules.push({ allow: key === "allow", pattern: value });
+      // A rule that is empty, over-long, or past the group's cap is dropped (never an error): the file is untrusted.
+      if (value !== "" && value.length <= MAX_RULE_CHARS && current.rules.length < MAX_RULES_PER_GROUP) current.rules.push({ allow: key === "allow", pattern: value });
     } else lastWasAgent = false;
   }
   return groups;
 }
 
-/** A robots pattern (`*` any run, `$` end) against path+query, as a prefix match. */
-function patternMatches(pattern: string, path: string): boolean {
-  const re = new RegExp(`^${pattern.replace(/[.+?^{}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\$$/, "$")}`);
-  return re.test(path);
+/**
+ * A robots pattern (`*` any run, a final `$` end anchor) against path+query, as a prefix match (Google's semantics).
+ * Linear: the pattern is split at `*` and each piece is found left to right, greedily and without backtracking, so a hostile
+ * robots.txt cannot make it exponential (the match is synchronous and would freeze the worker). No RegExp is built from the pattern.
+ */
+export function patternMatches(pattern: string, path: string): boolean {
+  const anchored = pattern.endsWith("$");
+  const parts = (anchored ? pattern.slice(0, -1) : pattern).split("*");
+  const first = parts[0]!;
+  if (!path.startsWith(first)) return false;
+  if (parts.length === 1) return !anchored || path.length === first.length;
+  let pos = first.length;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const piece = parts[i]!;
+    if (piece === "") continue;
+    const at = path.indexOf(piece, pos);
+    if (at < 0) return false;
+    pos = at + piece.length;
+  }
+  const last = parts[parts.length - 1]!;
+  if (anchored) return path.length - last.length >= pos && path.endsWith(last);
+  return last === "" || path.indexOf(last, pos) >= 0;
 }
 
 /** RFC 9309: our own group if there is one, else `*`; the longest matching rule wins and Allow wins a tie. */
-export function robotsAllows(body: string, pathAndQuery: string): boolean {
+export function robotsAllows(body: string, rawPathAndQuery: string): boolean {
+  const pathAndQuery = rawPathAndQuery.slice(0, MAX_PATH_CHARS);
   const groups = parseRobots(body);
   const ours = groups.filter((g) => g.agents.some((a) => OUR_AGENTS.includes(a)));
   const chosen = ours.length > 0 ? ours : groups.filter((g) => g.agents.includes("*"));

@@ -78,6 +78,44 @@ describe("robotsAllows", () => {
     expect(robotsAllows("User-agent: *\nDisallow: /*.pdf$", "/x/y.pdf")).toBe(false);
     expect(robotsAllows("User-agent: *\nDisallow: /*.pdf$", "/x/y.pdf?z")).toBe(true);
   });
+  it("matches wildcards in the middle, at the ends and with several in a row", () => {
+    const dis = (p: string) => `User-agent: *\nDisallow: ${p}`;
+    expect(robotsAllows(dis("/a*c"), "/abbbc/x")).toBe(false);
+    expect(robotsAllows(dis("/a*c"), "/abbb/x")).toBe(true);
+    expect(robotsAllows(dis("/a*b*c"), "/a1b2c")).toBe(false);
+    expect(robotsAllows(dis("/a*b*c"), "/a1c2b")).toBe(true);
+    expect(robotsAllows(dis("/*"), "/anything")).toBe(false);
+    expect(robotsAllows(dis("*"), "/anything")).toBe(false);
+    expect(robotsAllows(dis("/a**b"), "/aXb")).toBe(false);
+    expect(robotsAllows(dis("/a*"), "/a")).toBe(false);
+    expect(robotsAllows(dis("/a$"), "/a")).toBe(false);
+    expect(robotsAllows(dis("/a$"), "/ab")).toBe(true);
+    expect(robotsAllows(dis("/a*b$"), "/aXbYb")).toBe(false);
+    expect(robotsAllows(dis("/a*b$"), "/aXbY")).toBe(true);
+    expect(robotsAllows(dis("/ab*b$"), "/ab")).toBe(true); // the end piece must come after the start piece
+    expect(robotsAllows(dis("/x.y+z(1)"), "/x.y+z(1)")).toBe(false); // regex characters are literal
+    expect(robotsAllows(dis("/x.y"), "/xAy")).toBe(true);
+  });
+
+  it("a pathological wildcard pattern on a long path finishes at once (no regex backtracking)", () => {
+    const body = "User-agent: *\nDisallow: /*a*a*a*a*a*a*a*a*b\nAllow: /*a*a*a*a*a*a*a*a*c$";
+    const path = `/${"a".repeat(1_999)}`;
+    const started = performance.now();
+    expect(robotsAllows(body, path)).toBe(true);
+    expect(robotsAllows(body, `${path}b`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(50);
+  });
+
+  it("drops rules over the length cap and rules past the per-group cap, without throwing", () => {
+    const long = `User-agent: *\nDisallow: /${"x".repeat(600)}`;
+    expect(robotsAllows(long, `/${"x".repeat(600)}`)).toBe(true); // dropped, so nothing disallows it
+    const many = ["User-agent: *", ...Array.from({ length: 600 }, (_, i) => `Disallow: /p${i}/`)].join("\n");
+    expect(robotsAllows(many, "/p0/x")).toBe(false);
+    expect(robotsAllows(many, "/p599/x")).toBe(true); // the 501st and later rules are dropped
+  });
+});
+
+describe("robots.txt parsing limits", () => {
   it("ignores comments and unknown lines", () => {
     expect(robotsAllows("# hi\nUser-agent: * # all\nCrawl-delay: 5\nDisallow: /x # no", "/x")).toBe(false);
   });

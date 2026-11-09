@@ -72,6 +72,7 @@ export function isBlockedAddress(ip: string): boolean {
   const embedded = (hi: number, lo: number) => [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff];
   if (g.every((x) => x === 0)) return true; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return true; // ::1
+  if (g.slice(0, 6).every((x) => x === 0)) return true; // IPv4-compatible ::a.b.c.d (deprecated, never a public host)
   if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return blockedIPv4(embedded(g[6]!, g[7]!)); // IPv4-mapped
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return blockedIPv4(embedded(g[6]!, g[7]!)); // NAT64
   if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true; // local-use NAT64
