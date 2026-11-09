@@ -1,5 +1,7 @@
 # Separating organic from bot-driven pump.fun migrations
 
+Note 2026-11-08: RugCheck was dropped (terms unavailable, user decision); the RugCheck material below is a historical record and no plan uses it.
+
 Researched 2026-11-07. Builds on `data-sources.md` (not repeated). Terms follow `GLOSSARY.md`. No repo toolchain was run; I made single HTTP requests to DexScreener, RugCheck and GitHub, and read public docs and papers. "Not verified" marks anything I could not confirm from the owner of the claim. SOL/USD price is not assumed anywhere; costs are in credits or SOL.
 
 Scale: about 14k launches/day, about 100-300 migrations/day, plus an equal random control (Round 3 Q16).

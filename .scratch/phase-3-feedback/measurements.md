@@ -1,5 +1,7 @@
 # Phase 3 slice 1: measurements (ticket 01)
 
+Note 2026-11-08: RugCheck was dropped (terms unavailable, user decision); item 7 below is a historical record.
+
 Measured 2026-11-08. Method: a random sample of PumpPortal migrate Signals stored by argus from 2026-11-07T14:18Z to 2026-11-08T17:17Z (read-only copy of the live DB), then for each mint two Helius Free calls (`getTransactionsForAddress`): the mint's first successful transaction (the `CreateV2` transaction, which carries the `CreateEvent` with the metadata uri and the bonding-curve address) and the last transactions on the bonding curve (the `Migrate`/`MigrateV2` transaction and the `CompleteEvent`). Chain times are Solana `blockTime` (whole seconds). Plus a 9-minute live capture of the PumpPortal stream (77 creates, 2 migrates, 2026-11-08 17:59-18:08Z). The scripts were throwaway and are not committed (they hold RPC calls, which `adr-0002.test.ts` bans in source); the recorded responses are in `packages/core/src/fixtures/`.
 
 Sample: 140 mints drawn; 117 usable. Dropped: 5 are not on the pump program (no bonding curve; see "PumpPortal migrate scope"), 5 repeats, 13 where the Migrate transaction was not among the curve's last 6 transactions (not investigated). Margin of error for a share at n=117 is about plus or minus 9 points. Everything below is one 27-hour window (a Saturday-Sunday), so it is a snapshot, not a seasonal average.

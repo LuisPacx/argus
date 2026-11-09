@@ -1,7 +1,7 @@
 # 04: Bot-filter raw metrics and the Organic migration label
 **Model:** sonnet / high — on-chain wallet clustering with a credit budget.
 
-**What to build:** For migrators in the population only, argus analyses the wallets around the migration and stores five raw metrics per migrator. Each migrator is then put in the organic or bot-driven bucket using starting thresholds held in config, and carries the Fast flag from the ticket 01 threshold. The Study page shows the buckets, the Fast and bot-driven cross-tab (the flags are independent) and Helius credits used, so the Operator can see the budget before any paid plan is considered. Raw metrics are kept so thresholds can change without recapture. The RugCheck signal is out of this ticket unless ticket 01 cleared its ToS.
+**What to build:** For migrators in the population only, argus analyses the wallets around the migration and stores five raw metrics per migrator. Each migrator is then put in the organic or bot-driven bucket using starting thresholds held in config, and carries the Fast flag from the ticket 01 threshold. The Study page shows the buckets, the Fast and bot-driven cross-tab (the flags are independent) and Helius credits used, so the Operator can see the budget before any paid plan is considered. Raw metrics are kept so thresholds can change without recapture. RugCheck is not used (terms unavailable, user decision 2026-11-08); on-chain risk labels are covered by ticket 03's chain labeller.
 Spec: sections 5, 7, 9, 13, 15 (slice 5).
 
 **Blocked by:** 03 Chain labeller at 24h and 7d
