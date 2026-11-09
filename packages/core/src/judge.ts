@@ -99,6 +99,8 @@ export interface JudgeConfig {
   maxPerPass: number;
   /** Most judge runs started in any rolling 24 hours, refused and failed ones included. */
   maxRunsPerDay: number;
+  /** A Narrative is judged only when backed by at least this many Signals. Fewer: skipped (no run, no cap use) until it gains more. */
+  minSignals: number;
   /** Most the judge may spend in any rolling 24 hours (Est. usage: on the subscription this is a measure, not a bill). A run in progress may overshoot by up to its own budget. */
   maxDailyUsd: number;
   /** This many transient failures in a row (claude missing, auth or network trouble, a timeout) end the pass, as a rate limit does. The next tick tries again. */
@@ -107,16 +109,22 @@ export interface JudgeConfig {
   maxConsecutiveTimeouts: number;
 }
 
-/**
- * Defaults: a pass is 10 runs at most, and a rolling day 150 runs or $2, whichever is reached first. A haiku run of this prompt is
- * about a cent, so $2 is the binding cap only if runs get ten times dearer than expected. The share of the subscription that
- * research (judge plus propose) may use is the shared budget in research-budget.ts, checked before every run; these caps only keep
- * the judge itself bounded (and, at $2 of the default $6, leave the propose pass the rest).
- */
-export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
+/** Judge only Narratives backed by at least this many Signals (Operator, 2026-11-08: single-Signal Narratives are noise and used up the cap). */
+export const DEFAULT_JUDGE_MIN_SIGNALS = 2;
+/** Judge runs allowed in any rolling 24 hours (Operator, 2026-11-08: raised from 150; a run costs about $0.0013). */
+export const DEFAULT_JUDGE_RUNS_PER_DAY = 300;
 
 /**
- * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
+ * Defaults: a pass is 10 runs at most, and a rolling day `DEFAULT_JUDGE_RUNS_PER_DAY` runs or $2, whichever is reached first, over
+ * Narratives with at least `DEFAULT_JUDGE_MIN_SIGNALS` Signals. A haiku run of this prompt is about a cent at most, so $2 is the
+ * binding cap only if runs get several times dearer than expected. The share of the subscription that research (judge plus propose)
+ * may use is the shared budget in research-budget.ts, checked before every run; these caps only keep the judge itself bounded (and,
+ * at $2 of the default $6, leave the propose pass the rest).
+ */
+export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: DEFAULT_JUDGE_RUNS_PER_DAY, minSignals: DEFAULT_JUDGE_MIN_SIGNALS, maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
+
+/**
+ * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY, ARGUS_JUDGE_MIN_SIGNALS and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
  * positive number is an error, not a fallback. The two counts are floored first and the result must still be at least 1: 0.5 would
  * otherwise become 0 and the judge would silently never run.
  */
@@ -132,6 +140,7 @@ export function judgeConfigFromEnv(env: Record<string, string | undefined>): Jud
     ...DEFAULT_JUDGE_CONFIG,
     maxPerPass: read("ARGUS_JUDGE_MAX_PER_PASS", DEFAULT_JUDGE_CONFIG.maxPerPass, true),
     maxRunsPerDay: read("ARGUS_JUDGE_MAX_RUNS_PER_DAY", DEFAULT_JUDGE_CONFIG.maxRunsPerDay, true),
+    minSignals: read("ARGUS_JUDGE_MIN_SIGNALS", DEFAULT_JUDGE_CONFIG.minSignals, true),
     maxDailyUsd: read("ARGUS_JUDGE_MAX_DAILY_USD", DEFAULT_JUDGE_CONFIG.maxDailyUsd, false),
   };
 }
@@ -181,7 +190,7 @@ export async function judgePendingNarratives(
     return true;
   };
 
-  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass, config.maxConsecutiveTimeouts)) {
+  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass, config.maxConsecutiveTimeouts, config.minSignals)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const spent = store.judgeSpendSince(new Date(clock().getTime() - 24 * 3_600_000).toISOString(), caps);
     if (spent.runs >= config.maxRunsPerDay || spent.chargedUsd >= config.maxDailyUsd) {

@@ -4,7 +4,7 @@ import { ApiBrain } from "./api-brain.ts";
 import { apiSpentUsd, FallbackBrain } from "./api-fallback.ts";
 import { ClaudeCodeBrain } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
-import { judgePendingNarratives } from "./judge.ts";
+import { judgePendingNarratives as judgePass } from "./judge.ts";
 import { proposePendingNarratives } from "./propose.ts";
 import type { DimensionScores } from "./rubric.ts";
 import { messageBody, startFakeAnthropic, type FakeAnthropic, type FakeReply } from "./testing/fake-anthropic.ts";
@@ -19,6 +19,8 @@ import { tempDir } from "./testing/temp.ts";
 const KEY = "sk-ant-test-0123456789abcdef";
 const SKILLS = join(import.meta.dirname, "../../../.claude/skills");
 const NOW = new Date("2026-06-14T12:00:00.000Z");
+/** These tests make one-Signal Narratives, so the judge's minimum Signal count is lowered to 1 here. */
+const judgePendingNarratives = (...a: Parameters<typeof judgePass>) => judgePass(a[0], a[1], a[2], { config: { minSignals: 1 }, ...a[3] });
 const CUR: NarrativeEmbedder = { id: "sem-test", dimension: 2 };
 const SCORES: DimensionScores = { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 };
 const JUDGE_ANSWER = JSON.stringify({ scores: SCORES, rationale: "clear and buildable" });

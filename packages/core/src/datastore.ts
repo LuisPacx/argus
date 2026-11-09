@@ -1074,8 +1074,11 @@ export class Datastore {
    * refused (`budget-exceeded`, `invalid-output`): those say something about the Narrative, so it is tried again when it changes, not
    * before. Every other ending (`failed`, `timed-out`, `rate-limited`, `interrupted`) says something about claude, the network or the
    * worker, so the Narrative stays eligible; the 24 h run and spend caps and the consecutive-failure backoff bound the retries.
+   * Also left out: a Narrative backed by fewer than `minSignals` Signals. It is skipped, not scored, and starts no run, so it never
+   * counts against the run cap; it becomes eligible the moment it gains Signals to reach `minSignals`. Default 1 (no filter); the judge
+   * passes `JudgeConfig.minSignals`.
    */
-  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number, maxConsecutiveTimeouts = Infinity): Narrative[] {
+  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number, maxConsecutiveTimeouts = Infinity, minSignals = 1): Narrative[] {
     // Also left out: a Narrative whose last `maxConsecutiveTimeouts` judge runs since its last material change all timed out (a poison
     // Narrative would otherwise be retried, and starve the pass, until the daily cap). Counted from brain_runs, so a restart keeps it.
     const n = Number.isFinite(maxConsecutiveTimeouts) ? Math.max(1, Math.floor(maxConsecutiveTimeouts)) : 0;
@@ -1083,7 +1086,7 @@ export class Datastore {
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
          FROM narratives n
-         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ? AND n.signal_count >= ?
            AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
            AND NOT EXISTS (
@@ -1097,7 +1100,7 @@ export class Datastore {
          ORDER BY n.signal_count DESC, n.id
          LIMIT ?`,
       )
-      .all(embedder.id, embedder.dimension, since, n, n, n, limit) as unknown as NarrativeRow[];
+      .all(embedder.id, embedder.dimension, since, Math.max(1, Math.floor(minSignals)), n, n, n, limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
   }
 

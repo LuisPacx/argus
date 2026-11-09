@@ -44,7 +44,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
       cwd: workerDir,
       // The standing Sources (Google Trends, DexScreener) are switched off unless a test turns them on against the loopback server.
-      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ...(await env(base)) },
+      env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ARGUS_JUDGE_MIN_SIGNALS: "1", ...(await env(base)) },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));

@@ -76,6 +76,7 @@ const usedPct = computed(() => (usage.value && usage.value.budgetUsd > 0 ? Math.
                 gate {{ n.gate?.passed ? "passed" : "failed" }}: {{ n.gate?.dimension }} {{ n.gate?.value }} of {{ n.gate?.min }} needed
               </span>
             </template>
+            <template v-else-if="n.signalCount === 1">skipped: a single-Signal Narrative is not judged until it gains another Signal</template>
             <template v-else>not judged yet</template>
           </p>
         </article>

@@ -50,7 +50,7 @@ async function runOnce(env: Record<string, string>, replies: FakeReply[] = []) {
   const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "ratelimit", FAKE_CLAUDE_LOG: claudeLog });
   const child = spawn(process.execPath, ["src/main.ts", "--once"], {
     cwd: workerDir,
-    env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ARGUS_ANTHROPIC_URL: fake.url, ...env },
+    env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ARGUS_JUDGE_MIN_SIGNALS: "1", ARGUS_ANTHROPIC_URL: fake.url, ...env },
   });
   let out = "";
   child.stdout.on("data", (d) => (out += d));

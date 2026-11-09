@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
-import { DEFAULT_JUDGE_CONFIG, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
+import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
 import type { ResearchBudgetConfig } from "./research-budget.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { tempDir } from "./testing/temp.ts";
@@ -28,7 +28,7 @@ function setup(env: Record<string, string> = {}, brainOpts: ConstructorParameter
   const lines: string[] = [];
   const calls = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : []);
   const pass = (config: Partial<JudgeConfig> = {}, over: { embedder?: NarrativeEmbedder; now?: Date; signal?: AbortSignal; research?: ResearchBudgetConfig } = {}) =>
-    judgePendingNarratives(store, brain, over.embedder ?? CUR, { now: over.now ?? NOW, config, log: (l) => lines.push(l), signal: over.signal, research: over.research });
+    judgePendingNarratives(store, brain, over.embedder ?? CUR, { now: over.now ?? NOW, config: { minSignals: 1, ...config }, log: (l) => lines.push(l), signal: over.signal, research: over.research });
   return { store, brain, pass, calls, lines, dir };
 }
 
@@ -50,6 +50,46 @@ function addSignal(store: Datastore, narrativeId: number, sourceId: string, at: 
 }
 
 const minutes = (m: number) => new Date(NOW.getTime() + m * 60_000);
+
+describe("the judge pass: minimum Signals", () => {
+  const since = new Date(NOW.getTime() - 72 * 3_600_000).toISOString();
+  const ids = (store: Datastore, minSignals: number) => store.narrativesToJudge(CUR, since, 50, Infinity, minSignals).map((x) => x.id);
+
+  it("candidate selection leaves out a 1-Signal Narrative and takes it once it has 2", () => {
+    const { store } = setup();
+    const one = addNarrative(store, "Lone story");
+    const two = addNarrative(store, "Pair story");
+    addSignal(store, two, "rss:b", NOW);
+    expect(ids(store, DEFAULT_JUDGE_CONFIG.minSignals)).toEqual([two]);
+    addSignal(store, one, "rss:b", minutes(5));
+    expect(ids(store, DEFAULT_JUDGE_CONFIG.minSignals).sort()).toEqual([one, two].sort());
+  });
+
+  it("a 1-Signal Narrative is skipped by a default pass: no run, no failure, no cap use, then judged after a second Signal", async () => {
+    const { store, lines } = setup();
+    const id = addNarrative(store, "Lone story");
+    const defaultPass = (now: Date) => judgePendingNarratives(store, new ClaudeCodeBrain({ command: FAKE_CLAUDE, env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: ANSWER }, passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_RESULT"] }), CUR, { now, log: (l) => lines.push(l) });
+    expect(await defaultPass(NOW)).toEqual({ judged: 0, refused: 0, failed: 0 });
+    expect(store.judgeRunsFor(id)).toHaveLength(0);
+    expect(store.judgeSpendSince(new Date(NOW.getTime() - 86_400_000).toISOString()).runs).toBe(0);
+    addSignal(store, id, "rss:b", minutes(10));
+    expect(await defaultPass(minutes(30))).toMatchObject({ judged: 1, failed: 0 });
+  });
+
+  it("skipped Narratives do not use the run cap: with cap 2, ten 1-Signal Narratives leave both runs for the 2-Signal ones", async () => {
+    const { store, pass } = setup();
+    for (let i = 0; i < 10; i++) addNarrative(store, `Lone ${i}`);
+    for (let i = 0; i < 2; i++) addSignal(store, addNarrative(store, `Pair ${i}`), "rss:b", NOW);
+    expect(await pass({ minSignals: 2, maxRunsPerDay: 2 })).toMatchObject({ judged: 2, failed: 0 });
+    expect(await pass({ minSignals: 2, maxRunsPerDay: 2 }, { now: minutes(30) })).toEqual({ judged: 0, refused: 0, failed: 0 });
+  });
+
+  it("the daily run cap defaults to 300, with ARGUS_JUDGE_MIN_SIGNALS as the override", () => {
+    expect(judgeConfigFromEnv({})).toMatchObject({ maxRunsPerDay: 300, minSignals: 2 });
+    expect(judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS: "3" }).minSignals).toBe(3);
+    expect(() => judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS: "0" })).toThrow(/ARGUS_JUDGE_MIN_SIGNALS/);
+  });
+});
 
 describe("the judge pass", () => {
   it("scores a new Narrative against the current Rubric and stores the Score with the Rubric version", async () => {
@@ -365,8 +405,8 @@ describe("refused and failed answers", () => {
 });
 
 describe("spend caps", () => {
-  it("has defaults: 10 per pass, 150 runs and $2 per rolling day", () => {
-    expect(DEFAULT_JUDGE_CONFIG).toMatchObject({ maxPerPass: 10, maxRunsPerDay: 150, maxDailyUsd: 2 });
+  it("has defaults: 10 per pass, 300 runs and $2 per rolling day, Narratives with 2 Signals or more", () => {
+    expect(DEFAULT_JUDGE_CONFIG).toMatchObject({ maxPerPass: 10, maxRunsPerDay: 300, minSignals: 2, maxDailyUsd: 2 });
   });
 
   it("judges at most maxPerPass Narratives in one pass and the rest on the next", async () => {
