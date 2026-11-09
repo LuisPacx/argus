@@ -20,6 +20,7 @@
 // never into git. Cookie values are never read or printed.
 
 import { chromium } from "playwright-core";
+import { captureAll, classify, statusOf } from "../src/x-capture/detect.mjs";
 import { mkdirSync, readlinkSync, existsSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -80,33 +81,16 @@ if (flag("check-lock", false)) {
 }
 const dirMode = assertDirSafe(DIR);
 
-// Detection. STOP signals end the run without retry; the others are recorded.
-// All are plain URL/DOM/text checks on a loaded page.
-const STOP = new Set(["login_wall", "challenge", "locked", "own_suspended", "rate_limited"]);
+// Detection facts are gathered here; classification and the stop loop live in ../src/x-capture/detect.mjs.
 
 async function detect(page) {
   const url = page.url();
   const text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
   const has = async (sel) => (await page.locator(sel).count().catch(() => 0)) > 0;
   const loggedIn = await has('[data-testid="AppTabBar_Home_Link"], [data-testid="SideNav_AccountSwitcher_Button"]');
-  const signals = [];
-  if (/\/account\/access|\/account\/locked/.test(url) || /your account has been locked|account is locked/i.test(text)) signals.push("locked");
-  if (/\/account\/suspended/.test(url) || /your account (has been|is) suspended/i.test(text)) signals.push("own_suspended");
-  if (
-    /\/i\/flow\/(?!login)/.test(url) ||
-    /verify your identity|confirm your identity|unusual (login )?activity|help us keep your account safe|are you a robot|complete the challenge/i.test(text) ||
-    (await has('iframe[src*="arkoselabs"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-testid="ocfEnterTextTextInput"]'))
-  ) signals.push("challenge");
-  if (
-    /\/i\/flow\/login|\/login(\?|$)/.test(url) ||
-    (!loggedIn && (await has('[data-testid="loginButton"], [data-testid="signupButton"], a[href="/login"]'))) ||
-    /sign in to x|log in to x|don.t miss what.s happening/i.test(text)
-  ) signals.push("login_wall");
-  if (/rate limit exceeded|you are being rate limited/i.test(text)) signals.push("rate_limited");
-  if (/this account doesn.t exist/i.test(text)) signals.push("not_found");
-  if (/account suspended/i.test(text) && !signals.includes("own_suspended") && /\/[A-Za-z0-9_]+$/.test(url)) signals.push("target_suspended");
-  // Logged out but no explicit wall: still a login problem.
-  if (!loggedIn && !signals.includes("login_wall") && !signals.includes("not_found")) signals.push("login_wall");
+  const hasChallengeWidget = await has('iframe[src*="arkoselabs"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-testid="ocfEnterTextTextInput"]');
+  const hasLoginButton = await has('[data-testid="loginButton"], [data-testid="signupButton"], a[href="/login"]');
+  const signals = classify({ url, text, loggedIn, hasLoginButton, hasChallengeWidget });
   return { url, loggedIn, signals, text };
 }
 
@@ -171,22 +155,22 @@ const context = await chromium.launchPersistentContext(DIR, {
 });
 const page = context.pages()[0] ?? (await context.newPage());
 
-const results = [];
-let loads = 0;
-let stopped = null;
 const targets = [
   ...PROFILES.map((h) => ({ kind: "profile", key: h, url: `https://x.com/${h}` })),
   ...TICKERS.map((s) => ({ kind: "search", key: `$${s}`, url: `https://x.com/search?q=${encodeURIComponent("$" + s)}&src=typed_query&f=live` })),
 ];
 
+let captured = 0;
+let loads = 0;
+let stopped = null;
+let results = [];
 try {
-  for (const tg of targets) {
-    if (loads >= MAX_LOADS) break;
-    if (loads > 0) await sleep(jitter(9000, 22000));
-    loads++;
+  ({ results, loads, stopped } = await captureAll(
+    targets,
+    async (tg) => {
     const started = Date.now();
     const rec = { kind: tg.kind, key: tg.key, mode: MODE, at: new Date().toISOString() };
-    try {
+    {
       const resp = await page.goto(tg.url, { waitUntil: "domcontentloaded", timeout: 45000 });
       rec.httpStatus = resp?.status() ?? null;
       await page
@@ -202,17 +186,11 @@ try {
       rec.loggedIn = d.loggedIn;
       rec.signals = d.signals;
       rec.elapsedMs = Date.now() - started;
-      const base = join(outDir, `${results.length}-${tg.kind}-${tg.key.replace(/\W/g, "_")}`);
+      const base = join(outDir, `${captured++}-${tg.kind}-${tg.key.replace(/\W/g, "_")}`);
       writeFileSync(`${base}.html`, await page.content(), { mode: 0o600 });
       await page.screenshot({ path: `${base}.png` }).catch(() => {});
-      const stop = d.signals.find((s) => STOP.has(s));
-      if (stop) {
-        rec.status = stop;
-        stopped = stop;
-      } else if (d.signals.includes("not_found")) rec.status = "not_found";
-      else if (d.signals.includes("target_suspended")) rec.status = "suspended";
-      else {
-        rec.status = "ok";
+      rec.status = statusOf(d.signals);
+      if (rec.status === "ok") {
         if (tg.kind === "profile") {
           const p = await extractProfile(page);
           rec.profile = { ...p, followersN: parseCount(p.followers), followingN: parseCount(p.following) };
@@ -221,17 +199,13 @@ try {
         const needle = tg.key.replace(/^\$/, "").toLowerCase();
         rec.mentions = rec.posts.filter((p) => p.text?.toLowerCase().includes(needle)).length;
       }
-    } catch (e) {
-      rec.status = "error";
-      rec.error = String(e.message).split("\n")[0];
     }
-    results.push(rec);
     console.log(`${rec.kind} ${rec.key}: ${rec.status} signals=${(rec.signals ?? []).join(",") || "-"} posts=${rec.posts?.length ?? 0} ${rec.elapsedMs ?? ""}ms`);
-    if (stopped) {
-      console.log(`STOP on ${stopped}: no retry. Report to the Operator.`);
-      break;
-    }
-  }
+    return rec;
+    },
+    { maxLoads: MAX_LOADS, pause: () => sleep(jitter(9000, 22000)) },
+  ));
+  if (stopped) console.log(`STOP on ${stopped}: no retry. Report to the Operator.`);
 } finally {
   await context.close();
   writeFileSync(join(outDir, "results.json"), JSON.stringify({ mode: MODE, loads, stopped, results }, null, 2), { mode: 0o600 });

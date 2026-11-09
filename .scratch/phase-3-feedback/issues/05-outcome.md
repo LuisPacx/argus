@@ -30,7 +30,7 @@ The script stops on the first STOP signal and never retries. Checks are URL, DOM
 | Not found | recorded | text "This account doesn't exist" (worked: made-up handle) |
 | Target suspended | recorded | "Account suspended" on a profile URL |
 
-None of the STOP signals fired, so they are written from X's known behaviour and are **untested against a real wall**; only the logged-in check and "not found" were exercised live. They must be hardened when a real one is seen. The "no logged-in nav means login wall" fallback is the safety net.
+The classification and stop loop live in `packages/core/src/x-capture/detect.mjs` and are tested offline with synthetic page facts (`detect.test.ts`: each STOP signal stops the run with the right status, no further loads, no retry; a normal logged-in page is not flagged). None of the STOP signals fired live, so they are written from X's known behaviour and are **untested against a real wall**; only the logged-in check and "not found" were exercised live. They must be hardened when a real one is seen. The "no logged-in nav means login wall" fallback is the safety net.
 
 ## Saved fields
 
