@@ -280,3 +280,141 @@ Permit { id, figure: string, describes: string, date: "YYYY-MM-DD", url: string 
 - Cut first if short on time: the `/api/entries/:id` route, then the permit block (keep the empty state), then the URL-reflected filter JS enhancement.
 - Keep the tone neutral: use "reported", "according to", "alleged"; never state lobbying or wrongdoing as fact in the site's own voice.
 - Set `updated` to the date of the last data edit (seed: 2026-11-07).
+
+## Re-run (2026-11-09)
+
+### Purpose
+
+A fresh 48 h acceptance run of the Phase 2 definition of done, because the first run (2026-11-06 to 2026-11-08) left gaps: only about 36 h of uptime; AC2 not evidenced; AC3 not exercised; AC4 and AC5 not met; AC6 partial (no screenshots). Since the first run: ticket 21 (propose repair retry), ticket 22 (judge only Narratives with >= 2 Signals; cap 300/24h), ticket 23 (startup `[config]` line and PumpPortal/Study lifecycle logging) and ticket 24 (lint rule against non-literal RegExp) were merged.
+
+### Operator decisions
+
+- API fallback stays OFF for the whole run, with no forced window. AC4 is recorded as "not tested, by Operator decision".
+- AC5 goes as far as built + the Launch link opening pump.fun prefilled. No real launch and no SOL. AC5 is therefore at best partial.
+- The DB (`.data/argus.db`) is kept, so the carried-over `new` Proposals can expire for AC3. It must not be wiped or moved.
+- Judge min Signals 2 and cap 300/24h.
+- $20 daily quota with a 0.3 research share.
+- Telegram off.
+
+### Run start
+
+- T0: 2026-11-09T16:28:34.799Z (2026-11-09T13:28:34-03:00), the first `[worker] tick` after the restart.
+- Commit: c7b5392 (main; code as 8bff602 plus `scripts/tick-gaps.mjs`). Started with `pnpm dev:stop` / `pnpm dev:start`, no extra env. `pnpm install --frozen-lockfile`: already up to date.
+- PIDs: warroom 3396797 (port 3100), worker 3397022. `dev:status`: "sleep lock: held (2 argus locks, handle-lid-switch:sleep)".
+- `[config]` line:
+
+```
+[config] judge_min_signals=2 judge_runs_24h=300 propose_new_24h=30 propose_runs_24h=45 daily_quota_usd=20 research_share=0.3 api_fallback=off api_key=unset study=on study_rule=v1 study_age_s=60/300 study_captures_day=20000 telegram=off
+```
+
+### Start/end rule
+
+End = T0 + 48h + downtime, computed only with `node scripts/tick-gaps.mjs 2026-11-09T16:28:34.799Z`, never by hand. A downtime is a gap of more than 10 min between consecutive `[worker] tick` lines. Every restart or suspend is logged here with its gap and the new End.
+
+Initial End: 2026-11-11T16:28:34.799Z (2026-11-11T13:28:34-03:00).
+
+### Evidence plan per AC
+
+- AC1: Proposals per rolling 24 h vs 30 (SQL on `proposals.created_at` plus `/api/research`).
+- AC2: at h6 and h42, fetch 3 Proposals via `/api/proposals/<id>`, check that every architecture section-8 card field is non-null, and take screenshots.
+- AC3: the carried-over `new` Proposals are listed in the h0 check-in with created_at and expected close (created + 48 h). At each check-in: `grep -c 'closed stale Proposal'` on worker.log plus status_history rows with reason stale. Compare scheduled vs actual close at h42 and at the end.
+- AC4: not tested, by Operator decision (API fallback off all run; API spend must stay $0.00).
+- AC5: between h30 and h40, with the Operator present: shortlist one Proposal -> spec drafted -> approve -> build -> built -> check that the Launch link opens pump.fun prefilled. Record status_history and screenshots. Stop before launch (no real launch, no SOL).
+- AC6: everything is recorded in this ticket.
+
+Lockouts: count them. A lockout is a Narrative excluded from propose after an invalid-output propose run until a newer Score (see the propose candidate query in `packages/core/src/datastore.ts`). Also count cap/budget stops by reason (`stopped:`, `daily cap reached`, `research budget reached`, `the daily cap of`).
+
+### 6h check-in brief
+
+Each check-in records "### Check-in <ISO>" in the format of the first run, plus:
+
+- the `node scripts/tick-gaps.mjs <T0>` output;
+- the `[config]` line;
+- `[pumpportal]` lifecycle lines since the last check-in (connect count, max `open`, reconnects);
+- Study counts from `/api/study`;
+- lockouts and stops by reason;
+- refusals and failures;
+- ingest failures by source;
+- an alert to the Operator if Proposals exceed 30 per rolling 24 h, argus is down, or `open` is ever above 1.
+
+### Final report
+
+The final check-in lists whole-run totals and a per-AC verdict table (AC1 to AC6).
+
+### Check-in 2026-11-09T16:32Z (h0 baseline)
+
+- Status: `dev:status` shows warroom running (pid 3396797, port 3100) and worker running (pid 3397022), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". PASS.
+- Config: `[config]` line as quoted in Run start (judge_min_signals=2, judge_runs_24h=300, propose_new_24h=30, daily_quota_usd=20, research_share=0.3, api_fallback=off, telegram=off). PASS.
+- PumpPortal: `[pumpportal] connect conn=1 open=1` and `[pumpportal] subscribe conn=1 streams=newToken,migration` present. PASS. Connect count 1, max open 1, reconnects 0.
+- `[worker] Study started: capture tick every 10s, rule v1` present. PASS.
+- Ticks: first tick 2026-11-09T16:28:34.799Z, last at check time 2026-11-09T16:31:45.001Z, every 5 s. No stack traces and no error lines in the first 3 min (only the startup SQLite ExperimentalWarning). PASS.
+- HTTP via http://localhost:3100: `/` 200, `/study` 200, `/api/proposals` 200, `/api/research` 200. PASS.
+- Ingest first tick: 17 sources, 0 new Signals; clustering waited for the semantic embedder (loaded Xenova/gte-small q8). Judge tick 0 scored; `propose: the daily cap of 30 new Proposals is reached; waiting` (`stopped: proposal-cap`) at the first tick: 30 Proposals (ids 40 to 69) were created in the 24 h before T0, so propose is capped until the oldest of them ages out (about 2026-11-09T19:25Z).
+- Proposals by status: new 48, closed 21 (total 69). Rolling 24 h to T0: 30 (ids 40 to 69), at the cap, not above it.
+- `/api/study` at baseline (all-time = last 24 h): seen 5607, out of scope 558, in population 1924, captured 1924, pending 4, missed 286 (58.1% of 492 migrations), late 0, capped 0, unreadable 3303, website fetched 548, empty shell 75 (13.7%), capture runs 24h 12167 of 20000.
+- Lockouts and stops since T0: lockouts not yet counted (baseline); stops so far: `the daily cap of 30` x1.
+
+Carried-over `new` Proposals for AC3: 48 (ids 22 to 69). Expected close = created_at + 48 h; the expiry job runs in the worker, so actual close may lag by a tick. Earliest expected close: Proposal 22 at 2026-11-09T19:02:17.932Z (2 h 33 min after T0). Latest: Proposal 69 at 2026-11-11T02:26:29.315Z.
+
+| id | name | created_at (Z) | expected close (Z) |
+|---|---|---|---|
+| 22 | Coin Flip Playoffs | 2026-11-07T19:02:17.932 | 2026-11-09T19:02:17.932 |
+| 23 | Spurs Night Watch | 2026-11-07T19:32:16.692 | 2026-11-09T19:32:16.692 |
+| 24 | Duck Line Watch | 2026-11-07T19:32:22.585 | 2026-11-09T19:32:22.585 |
+| 25 | Sunflower Showdown | 2026-11-07T20:32:05.539 | 2026-11-09T20:32:05.539 |
+| 26 | Price Pinch Ledger | 2026-11-07T21:02:12.278 | 2026-11-09T21:02:12.278 |
+| 27 | Ahsoka Delay Dial | 2026-11-07T21:02:27.519 | 2026-11-09T21:02:27.519 |
+| 28 | Signal Check Krakow | 2026-11-07T22:02:22.196 | 2026-11-09T22:02:22.196 |
+| 29 | Matriarch Moves | 2026-11-07T22:02:27.671 | 2026-11-09T22:02:27.671 |
+| 30 | Tipoff Tracker | 2026-11-07T22:32:30.983 | 2026-11-09T22:32:30.983 |
+| 31 | Podium Pending | 2026-11-07T22:32:46.541 | 2026-11-09T22:32:46.541 |
+| 32 | Academy Kids Radar | 2026-11-07T23:02:15.667 | 2026-11-09T23:02:15.667 |
+| 33 | Iowa Saturday Hawk Cyclone | 2026-11-07T23:02:21.617 | 2026-11-09T23:02:21.617 |
+| 34 | Belt Watch | 2026-11-07T23:32:19.651 | 2026-11-09T23:32:19.651 |
+| 35 | Possible Love Meter | 2026-11-08T00:02:11.829 | 2026-11-10T00:02:11.829 |
+| 36 | Herod Court Ledger | 2026-11-08T00:02:17.444 | 2026-11-10T00:02:17.444 |
+| 37 | Pineapple Tribunal | 2026-11-08T00:32:18.582 | 2026-11-10T00:32:18.582 |
+| 38 | Ankle Watch | 2026-11-08T01:32:06.929 | 2026-11-10T01:32:06.929 |
+| 39 | Second Act Scoreboard | 2026-11-08T02:02:25.936 | 2026-11-10T02:02:25.936 |
+| 40 | Lights Out Seattle | 2026-11-08T19:25:06.871 | 2026-11-10T19:25:06.871 |
+| 41 | Wild Thousand | 2026-11-08T19:25:12.917 | 2026-11-10T19:25:12.917 |
+| 42 | Preload Lounge | 2026-11-08T19:25:25.420 | 2026-11-10T19:25:25.420 |
+| 43 | Top 25 Tumble Tracker | 2026-11-08T19:55:12.691 | 2026-11-10T19:55:12.691 |
+| 44 | Win Run Tracker | 2026-11-08T19:55:24.237 | 2026-11-10T19:55:24.237 |
+| 45 | Bercy Bracket Buddy | 2026-11-08T19:55:37.177 | 2026-11-10T19:55:37.177 |
+| 46 | Cop Tangible | 2026-11-08T20:25:05.982 | 2026-11-10T20:25:05.982 |
+| 47 | Kickoff Compass | 2026-11-08T20:25:11.482 | 2026-11-10T20:25:11.482 |
+| 48 | Lumen Lamp | 2026-11-08T20:25:37.011 | 2026-11-10T20:25:37.011 |
+| 49 | Bracket Shift | 2026-11-08T20:55:23.824 | 2026-11-10T20:55:23.824 |
+| 50 | Mini Menu Advent | 2026-11-08T20:55:34.324 | 2026-11-10T20:55:34.324 |
+| 51 | Shake Check | 2026-11-08T20:55:40.488 | 2026-11-10T20:55:40.488 |
+| 52 | Silicon Sentry | 2026-11-08T21:25:10.385 | 2026-11-10T21:25:10.385 |
+| 53 | Hardwood Rhythm | 2026-11-08T21:25:24.158 | 2026-11-10T21:25:24.158 |
+| 54 | Playoff Pitch | 2026-11-08T21:25:30.097 | 2026-11-10T21:25:30.097 |
+| 55 | Vortex Watch | 2026-11-08T21:55:22.576 | 2026-11-10T21:55:22.576 |
+| 56 | Paris Masters Pulse | 2026-11-08T22:25:06.723 | 2026-11-10T22:25:06.723 |
+| 57 | Bottle Fine Meter | 2026-11-08T22:25:27.192 | 2026-11-10T22:25:27.192 |
+| 58 | Cowboy Title Watch | 2026-11-08T22:55:31.611 | 2026-11-10T22:55:31.611 |
+| 59 | Steph Ladder | 2026-11-08T22:55:57.719 | 2026-11-10T22:55:57.719 |
+| 60 | Tall Rookie Watch | 2026-11-08T22:56:11.911 | 2026-11-10T22:56:11.911 |
+| 61 | Memory Rosetta | 2026-11-08T23:25:11.750 | 2026-11-10T23:25:11.750 |
+| 62 | Canes Eye Tracker | 2026-11-08T23:25:38.486 | 2026-11-10T23:25:38.486 |
+| 63 | Maradona Matchday Board | 2026-11-08T23:25:56.675 | 2026-11-10T23:25:56.675 |
+| 64 | SEC Payroll Watch | 2026-11-08T23:55:13.117 | 2026-11-10T23:55:13.117 |
+| 65 | Grifone Rossonero | 2026-11-09T00:25:25.088 | 2026-11-11T00:25:25.088 |
+| 66 | Steel Bye Week | 2026-11-09T00:25:38.146 | 2026-11-11T00:25:38.146 |
+| 67 | Niner Report Desk | 2026-11-09T00:54:57.501 | 2026-11-11T00:54:57.501 |
+| 68 | Santa Slay Meter | 2026-11-09T01:57:07.417 | 2026-11-11T01:57:07.417 |
+| 69 | Marshals Clock | 2026-11-09T02:26:29.315 | 2026-11-11T02:26:29.315 |
+
+tick-gaps output at this check-in (`node scripts/tick-gaps.mjs 2026-11-09T16:28:34.799Z`):
+
+```
+T0: 2026-11-09T16:28:34.799Z
+Last tick: 2026-11-09T16:31:45.001Z
+Total wall time: 0h03m10s
+Gaps over 10 min: 0
+Total downtime: 0h00m00s
+Uptime: 0h03m10s
+End (T0 + 48h + downtime): 2026-11-11T16:28:34.799Z (2026-11-11T13:28:34-03:00)
+```
