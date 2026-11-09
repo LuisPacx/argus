@@ -1,12 +1,12 @@
 # Argus architecture and plan
 
-Terms (Signal, Source, Narrative, Tech, Proposal, Spec, Build, Launch, Operator, Team, War Room, Dismissal, Proposal status) are defined in [`GLOSSARY.md`](../GLOSSARY.md). Decisions are recorded in [`docs/adr/`](adr/) and the journal [`.scratch/cos.md`](../.scratch/cos.md).
+Terms (Signal, Source, Narrative, Tech, Proposal, Spec, Build, Launch, Operator, Team, War Room, Dismissal, Proposal status, Study, Snapshot, Case, Cohort, Playbook, Organic migration, Fast migration) are defined in [`GLOSSARY.md`](../GLOSSARY.md). Decisions are recorded in [`docs/adr/`](adr/) and the journal [`.scratch/cos.md`](../.scratch/cos.md).
 
 ## 1. Purpose and the human-in-the-loop principle
 
 Argus watches public Sources, clusters Signals into Narratives, and proposes tokens whose Tech (a new product that rides the Narrative) argus can then build. It researches, proposes and builds; it never launches. The Operator decides at every gate: shortlist, approve the Spec, dismiss, and finally Launch. The Launch happens manually in newpairspam (token deploy, trading and PnL live there). The Team is only notified (Telegram) and discusses outside the system.
 
-Principle: every spend or irreversible step passes through one Operator decision, implemented as a single function (`approve(proposalId)`), so a score threshold can replace the click later (phase 3) without touching the rest.
+Principle: every spend or irreversible step passes through one Operator decision, implemented as a single function (`approve(proposalId)`), so a score threshold can replace the click later without touching the rest. That replacement is phase 3b only: `approve()` with actor `system` is reachable only behind an off-by-default config switch with a daily cap, and only after the 3b gate (section 12).
 
 ## 2. System overview
 
@@ -27,6 +27,9 @@ flowchart TD
   PREV["workers.dev preview"]
   HAND["Launch handoff: newpairspam form prefilled"]
   MARK["Operator marks launched + mint"]
+  STUDY["Study (phase 3a): PumpPortal create/migrate, Helius chain reads, Snapshot capture, chain labeller, blind study runs"]
+  PB[("Playbook: lessons and Rubric changes")]
+  REV["War Room: Study page and weekly Playbook review"]
 
   SRC --> ING --> SIG --> NAR --> BRAIN --> PROP
   PROP --> WR
@@ -41,6 +44,11 @@ flowchart TD
   HAND --> OP
   OP --> MARK
   MARK --> PROP
+  SRC -->|"PumpPortal create/migrate"| STUDY
+  STUDY --> PB --> REV --> OP
+  OP -->|"approves lessons"| PB
+  PB -->|"approved lessons, versioned"| BRAIN
+  MARK -->|"mint read-only at 1h, 24h, 7d"| STUDY
 ```
 
 Notes:
@@ -49,6 +57,13 @@ Notes:
 - The brain pass only looks at the delta since the last pass (new or materially changed Narratives) and is capped at 30 new Proposals per day.
 - The Spec is drafted when the Operator shortlists (not at Proposal creation), and the Operator edits it in the War Room before approving.
 - Launch itself is outside argus: the handoff only opens newpairspam with the form prefilled; the Operator launches there and returns to mark it.
+- The Study (phase 3a) is a second pipeline beside the brain pass. It learns which of Narrative, Identity and Tech go with Organic migration on pump.fun, and it never creates Proposals. Stages, all plain code except the study runs:
+  1. Create and migrate events from the existing PumpPortal connection (one WebSocket only; `uri` and raw event fields are kept), with event times and labels read from chain (Helius, read-only).
+  2. A Snapshot of each token in the population (metadata names a website or X link), frozen at a fixed age: metadata and website at 60 s after create (plain fetch, SSRF guard), X at 5 min (window 5 to 15 min) by a Playwright script in the dedicated logged-in Chrome directory (ADR 0009), about 200 captures per day. No Claude in the capture path.
+  3. A chain labeller at 24h (provisional) and 7d (final). The 7d label makes a Case (Snapshot plus outcome bucket); Cases group into weekly Cohorts. Buckets are control, organic migrator and bot-driven migrator (five-check bot filter on raw stored metrics, from our own Helius-based labeller), plus the Fast flag: migrated within 60 s of creation, measured by slice 1 (`.scratch/phase-3-feedback/measurements.md`).
+  4. Blind study runs: the `study` Brain task reads one Snapshot as untrusted data, never the label; aggregation into lesson candidates is plain code.
+  5. The Playbook (lessons and suggested Rubric changes) is reviewed weekly by the Operator in the War Room. Approved lessons are rendered into the judge and propose prompts at call time, with the Playbook version (section 7).
+- The Operator's own Launches are read from chain after "mark launched" and tracked as outcomes only, kept out of Cohort statistics.
 
 ## 3. Proposal lifecycle
 
@@ -64,7 +79,7 @@ stateDiagram-v2
   shortlisted --> new : Operator undoes the shortlist
   spec_drafted --> new : Operator undoes the shortlist
   spec_drafted --> approved : Operator approves
-  spec_drafted --> approved : system, score threshold (phase 3)
+  spec_drafted --> approved : system, score threshold (phase 3b, gated)
   approved --> building : Build step starts
   approved --> needs_human : Build step, Spec needs on-chain program
   building --> built : Build step, deploy ok
@@ -72,7 +87,7 @@ stateDiagram-v2
   build_failed --> approved : Operator re-queues
   building --> needs_human : Build step, Spec needs on-chain program
   built --> launched : Operator marks launched with mint
-  launched --> closed : Operator, after a Launch (phase 3)
+  launched --> closed : system, at the 7d label with the outcome (phase 3a)
   new --> closed : system, stale after 48h
   shortlisted --> closed : system, stale after 7d
   new --> dismissed : Operator
@@ -97,16 +112,17 @@ stateDiagram-v2
 | shortlisted -> spec-drafted | system | After the Operator shortlists, the brain `spec` task writes `spec.md`; Operator edits freely. |
 | shortlisted/spec-drafted -> new | Operator (`undo-shortlist` command) | "Undo shortlist": available until the Spec is approved. Not a dismissal: no reason, no research feedback. See the note below. |
 | spec-drafted -> approved | Operator (via `approve()`) | One function. |
-| spec-drafted -> approved | system (via `approve(store, id, "system")`) | Phase 3 score threshold, recorded with reason "Score threshold". Same function, different actor. |
+| spec-drafted -> approved | system (via `approve(store, id, "system")`) | Phase 3b only: score threshold behind an off-by-default switch with a daily cap, recorded with reason "Score threshold". Same function, different actor. |
 | approved -> building | Build step | Dequeued FIFO by approval time, one Build at a time. |
 | approved/building -> needs-human | Build step | Spec requires an on-chain program or anything not buildable unattended as a Cloudflare Workers web app (ADR 0003). |
 | building -> built | Build step | After `wrangler deploy` succeeds and the preview URL responds. |
 | building -> build-failed | Build step | After the one automatic retry. Stores `session_id`. |
 | build-failed -> approved | Operator (`requeue` command) | Back into the Build queue; see the note below. |
 | built -> launched | Operator | "Mark launched" with the mint recorded. |
-| any non-closed state -> dismissed | Operator | Reachable from every state except `closed`. Dismissal with a reason; feeds the Rubric loop (phase 3). |
+| launched -> closed | system (phase 3a) | At the 7d label of the Proposal's mint, argus closes the Proposal itself with the own-launch outcome fields (curve completed, migration, DexScreener market data at 1h, 24h and 7d), read-only from chain. Replaces the manual step; manual outcome entry is dropped. |
+| any non-closed state -> dismissed | Operator | Reachable from every state except `closed`. Dismissal with a reason; from phase 3 the reasons are shown in their own section of the weekly Playbook review, beside the lessons. They are not Study evidence and are not approved into prompts by themselves. |
 
-Notes on gaps the journal leaves to implementation: `spec-drafted` has no auto-expiry (only `new` and `shortlisted` expire); `launched -> closed` is only exercised from phase 3. Expiry (ticket 10) runs on the worker tick, counts from the Proposal's latest transition into its current status (`status_history.at`; a later write such as a Spec edit does not extend it; `new` counts from creation instead, see Undo shortlist below), skips a Proposal with a Brain run in flight (it closes on a later tick), and the card shows the time left.
+Notes on gaps the journal leaves to implementation: `spec-drafted` has no auto-expiry (only `new` and `shortlisted` expire); `launched -> closed` is only exercised from phase 3a, by the system at the 7d label. Expiry (ticket 10) runs on the worker tick, counts from the Proposal's latest transition into its current status (`status_history.at`; a later write such as a Spec edit does not extend it; `new` counts from creation instead, see Undo shortlist below), skips a Proposal with a Brain run in flight (it closes on a later tick), and the card shows the time left.
 
 Undo shortlist (ticket 20): the Operator can take a shortlist back from `shortlisted` or `spec-drafted`. The worker applies the command in one write transaction (`Datastore.undoShortlist`): the status goes back to `new` (history: `shortlisted -> new` or `spec-drafted -> new`, actor Operator, reason "Operator undid the shortlist") and the Spec draft is discarded (path, hash, error, retry time, attempts and any queued revision cleared; `spec.md` deleted). It is refused from any other status (a `new` Proposal makes it a no-op). Spec runs execute in the worker process (`draftSpec`/`reviseSpec` call `brain.run` in-process), which registers each run's abort in a per-Proposal `RunCancels`; the undo aborts the run in flight, killing the `claude` child, and the run records itself in `brain_runs` as `cancelled` with whatever cost and session the killed child reported (0 when none), with no `spec_error` and no re-draft. Runs already finished keep their spend on the card. The worker applies commands on their own 5 s timer as well as at the start of each tick, because the tick waits for a Spec run (up to the `spec` timeout), and a cancel must not queue behind the run it cancels. Race safety: `completeSpec` re-reads the status inside its own write transaction and refuses (`new -> spec-drafted` is not a transition), so an undo that lands as the run completes either lands first (the run is recorded and nothing else happens; the `spec.md` it wrote is removed) or lands after (the Spec is discarded); a Proposal that is un-shortlisted is never flipped to `spec-drafted`. Expiry: `new` counts its 48 h from the Proposal's creation (`created_at`), not from its latest transition into `new`, so an undo does not restart the clock; the consequence is that a Proposal undone after more than 48 h since creation is closed (`stale`) by the next worker tick. `shortlisted` still counts from its latest transition, so a re-shortlist gets its own 7 days.
 
@@ -179,7 +195,7 @@ Real Builds need these, once (ADR 0005). `pnpm check` and `--dry-run` need none 
 The `Brain` interface is the single seam for all LLM work. Callers ask for a task and get structured output plus cost.
 
 ```ts
-type BrainTask = 'judge' | 'propose' | 'spec' | 'build';
+type BrainTask = 'judge' | 'propose' | 'spec' | 'build' | 'study';
 
 interface BrainRun<T> {
   output: T;
@@ -211,8 +227,11 @@ Routing is data (config file, overridable per task), not code branching:
 | propose | claude-code | sonnet |
 | spec | claude-code | sonnet |
 | build | claude-code | sonnet |
+| study | claude-code | haiku or sonnet, set in its ticket |
 
-Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec` and `build` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
+The `study` task (phase 3a) reads one frozen Snapshot as delimited untrusted data, with no tools, web or `--chrome`, never sees the label, and returns fixed JSON notes per axis (Narrative, Identity, Tech), validated like a Score. It has its own caps: a rolling-24h run cap (about 100 runs a day, config, lowerable; raising is a reviewed code change) and a per-run `--max-budget-usd`. It never borrows from the judge's or propose's budgets or from Builds, and has no API fallback.
+
+Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec`, `build` and `study` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
 
 The fallback is **off by default**: `ARGUS_API_FALLBACK=1` turns it on (and needs a key, else the worker says so and stays off). It is a `FallbackBrain` (`api-fallback.ts`) around the two backends. Claude is always asked first. A `rate-limited` claude run of any task (the window is one window) starts a hold: until the reset time claude reported (a rejected `rate_limit_event`'s `resetsAt`, or the epoch after `usage limit reached|`), never more than 6 hours ahead, else for 15 minutes. The run that hit the limit and every judge or propose run during the hold are served by the API; `routeFor` reports the API route meanwhile, so the in-flight row is opened as `api`; and the run that hits the limit (whose row was opened as `claude-code`), like any run whose hold began after its row was opened, is announced through `BrainRunOptions.onBackend` and booked as an `api` run (`Datastore.setBrainRunBackend`) BEFORE the request is sent, with no await between that and the cap check. From then on the row counts in the real-dollar ledger at its task's per-run cap, so overlapping passes see each other's runs and a crash leaves the charge standing (an orphaned row is swept to `interrupted` and is still charged at that cap). If the switch cannot be recorded, nothing is sent. When the hold is over claude is asked again, and a hold never shortens a running one. A plain failure, a budget stop or a timeout of claude never falls back. If the API refuses (its cap) the run fails as the rate limit it was, which ends the pass and leaves the Narrative queued, so reaching the cap stops research for the day without marking anything as failed. Judge and propose passes are otherwise unchanged. The War Room shows each run's backend (Proposal details, Narrative details), the Proposal's API spend, and on the home page today's API spend against its cap, apart from Est. usage.
 
@@ -232,7 +251,14 @@ All v1 Sources are unauthenticated and sit behind the `Source` interface (`id`, 
 | DexScreener trending | launchpad/market | New; `sources/dexscreener.ts`: top boosts for Solana, named through the token lookup. `DexScreenerClient` (with `search`) is the client the collision checks reuse. Google Trends and DexScreener are wrapped in `BackoffSource` (doubling wait, honours Retry-After). |
 | GitHub trending | tech | New; `sources/github-trending.ts`: the public search API, repos created in the last 7 days by stars, keyless, 10 requests a minute (ADR 0008). Wrapped in `BackoffSource`. |
 
-No X in v1. The helios cookie scraper is not ported. X returns later through the official API as another `Source` implementation; nothing downstream changes.
+No X as a Source. The helios cookie scraper is not ported. X data enters only through the Study's dedicated, read-only, logged-in browser capture (ADR 0009, Playwright in a dedicated Chrome directory, about 200 captures a day, saved as untrusted text in Snapshots); it is not a `Source` and produces no Signals.
+
+Read-only data sources of the Study (not `Source`s; they produce no Signals and sit behind the Study's own readers):
+
+- **Helius** (RPC, Free plan first, key in `HELIUS_API_KEY`): event times and labels from chain, curve `complete` reads at 24h and 7d, wallet analysis for migrators only. Credits are counted per run and per day against a cap in code.
+- **Our own Helius-based chain labeller** produces the on-chain risk labels and the bot-filter raw metrics. No third-party risk-scoring API is used.
+- **PumpPortal** create and migrate events, over the existing `PumpPortalSource` connection (only one WebSocket is allowed, so the Study opens no second one).
+- **DexScreener** market data for own-launch outcomes and post-migration price change.
 
 ## 7. Rubric
 
@@ -250,6 +276,10 @@ Load limits, all in code and none raised silently:
 - **Per pass and per day**: 3 Narratives per pass and 45 propose runs per rolling 24 hours (so 30 new Proposals a day stay reachable when some runs are refused or fail), refused and failed runs included (`ARGUS_PROPOSE_MAX_PER_PASS`, `ARGUS_PROPOSE_MAX_RUNS_PER_DAY`); per run, the route's `--max-budget-usd` of $1.
 - **Research share (judge plus propose): one rolling 24 hour budget of Est. usage**, `ARGUS_DAILY_QUOTA_USD` x `ARGUS_RESEARCH_SHARE` (defaults $20 x 0.3 = $6; the quota must be a positive number and the share in (0, 1], else an error). Both passes check it before every run, summing the `total_cost_usd` of every judge and propose run started in the last 24 hours; at or above the budget they stop (`research-cap`) and wait until older runs age out. A run that ends without printing a result (killed by its wall clock or a shutdown, or left in flight by a dead worker) reports $0, so for the budget it is charged at its route's per-run cap (judge $0.10, propose $1), a ceiling on what it can have used; the reported cost is kept separately (`brain_runs.total_cost_usd`), and a plain `failed` run, which is also what a claude that never started looks like, is charged only what it reported. A run in progress may overshoot by up to its own per-run cap. The judge's own $2 a day leaves the propose pass at least $4 of the default. This approximates "about 30% of the daily subscription quota" only as well as the quota figure does: the plan's real limits are not readable by argus (section 13), so `ARGUS_DAILY_QUOTA_USD` is the Operator's estimate of the Est. usage the plan allows per day and the $20 default is a placeholder to be replaced once real usage is measured. Builds are not counted in it and have no cap of this kind. The War Room's home page shows the usage, the budget, the share of the assumed quota and the new-Proposal count (`/api/research`).
 
+Playbook block (phase 3a): the judge and propose prompts carry, besides the Rubric, an approved-lessons block that argus renders at call time (judge: lessons on Narrative and Tech; propose: lessons on Identity and Tech). It holds at most 10 active lessons, sanitised like other prompt data and framed as hints that never override the output contract, and each Score and Proposal records the Playbook version next to the Rubric version. A Playbook change never re-judges old Narratives.
+
+Study caps sit beside the research share and are separate from it: the `study` task has its own rolling-24h run cap (about 100 runs a day) and per-run budget, plus a daily X capture cap (about 200) and a daily Helius credit cap, all in code and lowerable only by configuration (invariant 3). Claude runs stay on the subscription; only real cash (Helius, Cloudflare Browser Rendering and the like) counts against the $100/mo.
+
 Score scale: each dimension is scored 0 to 10 (`RUBRIC_MAX_SCORE`), and the default buildability gate is 5 (`SEED_GATE_MIN_SCORE`), both in `packages/core/src/rubric.ts`; the `judge` task follows them.
 
 ## 8. War Room
@@ -263,6 +293,10 @@ Localhost only, single Operator, no auth in v1.
 **Spec editor**: a textarea over `spec.md` plus "ask the agent to revise" (each turn is `claude -p --resume <session_id>` against the Spec session).
 
 **Actions**: shortlist (after a confirmation modal, since it starts a paid Spec run), undo shortlist (while shortlisted or spec-drafted), approve, dismiss (with a reason), Launch (opens newpairspam with the form prefilled from name, ticker, description, logo and preview link), mark launched (records the mint). The Launch button is enabled only in `built`.
+
+**Study page** (phase 3a): Study health (tokens seen, in population, Snapshots, labelled, missed creates, gaps), bucket counts (control, organic migrator, bot-driven migrator, Fast flag, with the Fast by bot-driven cross-tab), Study spend (runs against cap, Est. usage as information, Helius credits against the Free budget, X captures against cap), and the Operator's own Launches with their outcomes.
+
+**Weekly Playbook review** (phase 3a): a page listing suggested lessons and suggested Rubric changes (shown as a diff, applied through the Rubric editor and versioning) with their evidence: Cases counted, organic against control rate with weights, lift, Cohorts held in. The Operator approves, edits, rejects or retires each. Separate sections show dismissal reasons and the Operator's own Launches. Confounder findings (Presence, Launch mechanics, Timing) are shown but never approved into a prompt.
 
 **Telegram**: one bot, one Team chat, notifications only (no commands, no reply-to-approve): new Proposal cards, build start, build done, build failed.
 
@@ -278,9 +312,11 @@ argus/
   packages/
     core/          datastore, sources, brain (interface + backends), build runner, rubric
   .claude/skills/  judge, propose, spec (ClaudeCodeBrain skills)
-  .data/           gitignored: argus.db, proposals/<id>/{spec.md,build.log}
+  .data/           gitignored: argus.db, proposals/<id>/{spec.md,build.log}, study capture artefacts (saved X HTML and screenshots)
   docs/  GLOSSARY.md  .scratch/
 ```
+
+The Study's tables (tokens seen, Snapshots, labels, Cases, Cohorts, Playbook lessons, Study runs) live in the same SQLite database. The dedicated Chrome user-data directory for X capture (`ARGUS_CHROME_DIR`, default `~/.local/share/argus/chrome`) is outside the repo.
 
 - Datastore: SQLite via `node:sqlite`, WAL so the worker writes while the War Room reads, additive idempotent migrations (`ensureColumn` pattern from helios).
 - Specs are markdown files at `.data/proposals/<id>/spec.md`; the database stores path and hash.
@@ -293,12 +329,12 @@ argus/
 
 Carried from the superseded launch pipeline plan (section 3) and adapted:
 
-1. **Keys never in the repo.** Claude OAuth token, Telegram token, the optional Anthropic API key (read only by the worker's ApiBrain, never passed to a child), GitHub and Cloudflare credentials live in git-ignored `.env` or the OS secret store. Agents never print them. Build agents run in a rootless podman container (ADR 0005) whose environment is an allowlist: the only credential inside is the separate Build token (`CLAUDE_CODE_OAUTH_TOKEN`, inference only, `agent` container only); no GitHub, Cloudflare, npm or brain credential is mounted or passed, and the container's only network path is the allowlisted egress proxy. There is no uncontained Build mode.
+1. **Keys never in the repo.** Claude OAuth token, Telegram token, the optional Anthropic API key (read only by the worker's ApiBrain, never passed to a child), GitHub, Cloudflare and Helius (`HELIUS_API_KEY`) credentials live in git-ignored `.env` or the OS secret store. Agents never print them. The dedicated Chrome directory used for X capture holds the Argus X account's cookies: it stays outside git and outside shared backups, mode 700. Build agents run in a rootless podman container (ADR 0005) whose environment is an allowlist: the only credential inside is the separate Build token (`CLAUDE_CODE_OAUTH_TOKEN`, inference only, `agent` container only); no GitHub, Cloudflare, npm or brain credential is mounted or passed, and the container's only network path is the allowlisted egress proxy. There is no uncontained Build mode.
 2. **Dry-run on anything that spends.** Brain runs, Builds, repo creation and deploys all support `--dry-run` (log the command, spawn nothing). Exercised before real runs.
-3. **Spend caps in code.** Per brain run `--max-budget-usd`; a daily research share of about 30% of the subscription; per-Build budget and the 4 h wall clock; and, for the optional API fallback, a daily cap in real dollars (`MAX_API_DAILY_USD`) that configuration can only lower. Hitting a cap fails the run; it is never silently raised.
+3. **Spend caps in code.** Per brain run `--max-budget-usd`; a daily research share of about 30% of the subscription; per-Build budget and the 4 h wall clock; and, for the optional API fallback, a daily cap in real dollars (`MAX_API_DAILY_USD`) that configuration can only lower; for the Study, its own run cap, the daily X capture cap and the Helius credit budget (daily cap), also in code. Hitting a cap fails the run; it is never silently raised.
 4. **Disclosure on every Build.** The template carries a footer stating the project was created by argus and the creator may sell; the Build Runner verifies it exists before `built`.
-5. **Argus never deploys tokens.** No wallet, no pump.fun calls, no keys for chains. Launch is manual in newpairspam (ADR 0002).
-6. **No fake organic interest.** Argus does no posting, botting or promotion.
+5. **Argus never deploys tokens.** No wallet, no keys for chains, no transactions. Read-only chain reads (Helius) and public-API reads (PumpPortal events, DexScreener) are allowed. Launch is manual in newpairspam (ADR 0002, amended).
+6. **No fake organic interest.** Argus does no posting, botting or promotion. The Argus X account never posts, likes, follows or messages; it is only logged in so the capture can read.
 
 ## 11. Ported from helios, and not
 
@@ -314,7 +350,7 @@ Ported (copied and adapted, not forked or shared as a package):
 
 Not ported:
 
-- X cookie scraper and burner-account machinery (helios ADR-0002 territory).
+- The helios X cookie scraper and burner-account machinery (helios ADR-0002 territory). Argus's X capture is a different thing: a dedicated, read-only, logged-in browser on the dedicated Argus X account, run as a Playwright script (ADR 0009), not the helios cookie scraper.
 - Grok / OpenRouter judge (replaced by the Brain).
 - The launcher and launch profiles (newpairspam's job).
 - Helios `Event` naming; argus uses Narrative.
@@ -325,7 +361,7 @@ Status as of 2026-11-07 (the journal `.scratch/cos.md` is the live record):
 
 - **Phase 1**: tickets 01-20 done, including containment (15-17, ADR 0005). Open: ticket 10 (acceptance run) and the second acceptance point of ticket 12, both needing the Operator present and the Build token, which is not yet minted. No real Build has run; Builds are exercised only by fakes, `--dry-run`, `verify:boot` and `verify:contain`.
 - **Phase 2**: all tickets done except P2-14 (the 48 h acceptance run) and P2-17 (PumpPortal market evidence, ticket written, not built, waits for P2-14). The acceptance run is live as a research-only run with the API fallback off; it was restarted after a lid-close suspend and now runs under a systemd sleep lock, with a planned end on 2026-11-08. Still open inside it: the forced-exhaustion fallback check and the card-to-launched check. Also merged: the Activity page (P2-16), Atom feeds (P2-15), the Soft Rows War Room redesign with Narratives sort and filter (ticket 18). A Proposals sort and filter ticket is in progress.
-- **Phase 3**: not started.
+- **Phase 3**: specified (`.scratch/phase-3-feedback/spec.md`); slice 1 (measurements) done, the rest not started.
 
 **Phase 1 - Build path end to end with a hand-entered Proposal.**
 Scope: monorepo skeleton and tooling; datastore with Proposal, Spec, brain-run and Build tables; Proposal lifecycle module with `approve()`; War Room list, Proposal card and details view, Spec editor (textarea plus revise via `--resume`); `argus-build-template` repo (Workers web app, `/implement-spec` skill, lint, CI, disclosure footer); Build Runner (clone, `gh repo create`, spawn, stream-json log, retry, build-failed with `session_id`, FIFO queue, 4 h cap); `wrangler deploy` preview; cost capture from `total_cost_usd`; Brain interface with ClaudeCodeBrain only. Telegram is phase 2.
@@ -335,9 +371,13 @@ Definition of done: the Operator enters a Proposal by hand, shortlists it, edits
 Scope: Sources (RSS, Google Trends, PumpPortal, DexScreener, GitHub trending), Signal dedupe and clustering into Narratives, Rubric storage and War Room editor, brain `judge` and `propose` with the ApiBrain fallback and routing config, 30 min delta pass with the 30 per day cap, collision checks, Telegram new-Proposal notifications, expiry (48 h and 7 d), re-score with history, Launch handoff and mark launched.
 Definition of done: left running for 48 h unattended, argus produces at most 30 Proposals per day from live Sources, every card shows all fields from section 8, stale Proposals close on schedule, a forced subscription exhaustion switches judge/propose to the API and builds wait, and a Proposal can go from card to marked launched using only the War Room and newpairspam.
 
-**Phase 3 - Feedback and the auto-ladder.**
-Scope: Dismissal with reason feeding a Rubric review loop, outcome entry (price or holder snapshot after a Launch) to close Proposals, auto-spec for top-scored Proposals, auto-approve above a Score threshold through the same `approve()`.
-Definition of done: dismissal reasons visibly adjust the suggested Rubric; outcomes are recorded for launched Proposals; auto-spec and auto-approve are each behind an off-by-default config switch with a daily cap. Auto-launch through a newpairspam API is explicitly out of scope.
+**Phase 3a - The Study and the Playbook.**
+Scope: the Study pipeline (section 2): Snapshots at fixed ages (metadata and website 60 s, X 5 min), chain labels at 24h and 7d, Organic migration bot filter and Fast flag (migrated within 60 s), Cases and Cohorts, blind `study` runs inside their own caps, lesson aggregation, the Playbook with the weekly War Room review, approved lessons rendered into the judge and propose prompts (Playbook version stored), Rubric changes through Rubric versioning, and read-only own-launch tracking that closes `launched` Proposals at 7d. Dismissal reasons get their own review section.
+Definition of done (all of): the Study ran 14 days unattended; Snapshots were taken daily and chain labels written at 24h and 7d; at least 50 migrator Cases and 50 control Cases have final labels, produced within 100 Study runs a day; the first Playbook review took place in the War Room; at least one approved lesson is in the live judge or propose prompt, visible as a Playbook version on a stored Score or Proposal.
+
+**Phase 3b - The auto-ladder.**
+Scope: a backtest harness, then auto-spec for top-scored Proposals and auto-approve above a Score threshold through the same `approve(store, id, "system", reason)`, each as a separate ticket behind an off-by-default config switch with a daily cap in code.
+Gate (3b may start only when it passes): the brain's own score, computed on a later Cohort blind to labels, puts a top decile whose organic migration rate is at least 3 times that Cohort's population base rate (with sampling weights, not the oversampled 1:1 rate), in two consecutive later Cohorts (consecutive calendar weeks). Auto-launch through a newpairspam API is explicitly out of scope.
 
 ## 13. Open questions
 
@@ -347,4 +387,11 @@ Definition of done: dismissal reasons visibly adjust the suggested Rubric; outco
 - Real-claude paths that only fakes cover: budget-exceeded, 429 and rejected rate-limit handling. First real Builds wait for the Build token.
 - Narrative clustering margin: the 0.90 threshold of the in-process `gte-small` embedder holds on a fresh holdout but the margin is thin; re-measure on a larger, later-week sample before changing any feed or model.
 - PumpPortal market evidence (P2-17): decided as B+C, not built, after P2-14.
+- Phase 3, open after the slice 1 measurements and the Operator's review (`.scratch/phase-3-feedback/spec.md` section 14 has the detail):
+  - Bot-filter thresholds are hypotheses, validated on no pump.fun migrators; they are calibrated on post-migration crash and re-checked on a later Cohort.
+  - Which crash measure to use (DexScreener `priceChange` windows first) and how the brain's cheap score for the 3b gate is computed (decided in the first 3b ticket).
+  - The X-capture selection rule under the 200 a day cap, headless against headed Playwright, and the lock and challenge signals (X capture spike).
+  - The share of website Snapshots that are an empty app shell, which decides whether Cloudflare Browser Rendering is added for flagged sites (Operator approval first).
+  - Helius Free against the $49 Developer plan: decided by measured credits (the Operator is asked before moving).
+  - Fewer than expected organic migrators with links: 50 Cases in 14 days is the floor, not a result.
 - Resolved: the newpairspam prefill mechanism (P2-13) is built and merged in both repos.
