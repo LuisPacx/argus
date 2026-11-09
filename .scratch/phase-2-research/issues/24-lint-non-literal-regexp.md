@@ -12,6 +12,8 @@
 - Existing hits refactored to literals: `sources/rss.ts` `attr()` (one literal pattern per attribute), `spec-drafting.ts` (line compare instead of per-heading regex), `containment-policy.ts` (`--tmpfs` value checked with a literal regex after the validated dir), `scripts/warroom-pages.mjs` (one literal h3 regex, compare texts).
 - `docs/agents/worker-rules.md`: one line for reviewers.
 
+The rule also flags `globalThis.RegExp(x)` / `window.RegExp(x)` (any member access named `RegExp`). Known gap: an alias such as `const R = RegExp; new R(x)` is not caught.
+
 ## Acceptance criteria
 
 - [x] A temporary `new RegExp(someVar)` in a production file fails `pnpm lint` with a message saying why and what to do.

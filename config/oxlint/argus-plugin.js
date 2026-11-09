@@ -10,7 +10,12 @@ function isLiteralPattern(node) {
 }
 
 function check(context, node) {
-  if (node.callee.type !== 'Identifier' || node.callee.name !== 'RegExp') return;
+  const c = node.callee;
+  const isRegExp =
+    (c.type === 'Identifier' && c.name === 'RegExp') ||
+    (c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' && c.property.name === 'RegExp') ||
+    (c.type === 'MemberExpression' && c.computed && c.property.type === 'Literal' && c.property.value === 'RegExp');
+  if (!isRegExp) return;
   const first = node.arguments[0];
   if (first && !isLiteralPattern(first)) context.report({ node, message: MESSAGE });
 }
