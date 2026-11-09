@@ -4,6 +4,7 @@ const NAV = [
   { to: "/", label: "Proposals" },
   { to: "/narratives", label: "Narratives" },
   { to: "/activity", label: "Activity" },
+  { to: "/study", label: "Study" },
   { to: "/rubric", label: "Rubric" },
 ];
 // Proposals stays lit on a Proposal's own page, Narratives on a Narrative's.

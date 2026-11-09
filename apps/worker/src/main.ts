@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import {
   ApiBrain,
   BackoffSource,
+  captureDueSnapshots,
+  captureRunCap,
   FallbackBrain,
   announceNewProposals,
   anthropicKeyFromEnv,
@@ -190,8 +192,21 @@ const standingSources: Source[] = standingOn
 // PumpPortal keeps a websocket open, so it exists only in the long-running daemon: never in a dry run or a one-shot `--once`,
 // where an open socket would keep the process alive. Its events wait in a buffer that each ingest pass drains.
 // ARGUS_PUMPPORTAL_URL exists for tests; empty or unset means the real endpoint.
-const pumpPortal = standingOn && !once && !dryRun ? new PumpPortalSource({ url: process.env.ARGUS_PUMPPORTAL_URL || undefined, log: console.error }) : undefined;
-if (pumpPortal) standingSources.push(pumpPortal);
+// The Study (phase 3) reads the same connection: every create and migrate goes into the Study's tables as it arrives, and the
+// connection going down or up is kept as a gap marker. A failed write is logged by the Source and never reaches the Signals.
+const pumpPortal =
+  standingOn && !once && !dryRun
+    ? new PumpPortalSource({
+        url: process.env.ARGUS_PUMPPORTAL_URL || undefined,
+        log: console.error,
+        onToken: (e) => store.study.recordTokenEvent(e),
+        onConnection: (e) => store.study.recordConnection(e),
+      })
+    : undefined;
+if (pumpPortal) {
+  store.study.recordBoot(new Date());
+  standingSources.push(pumpPortal);
+}
 console.log(`[worker] ingest sources: RSS catalog${standingOn ? `, ${standingSources.map((s) => s.id).join(", ")}` : " (standing Sources off: ARGUS_INGEST_STANDING=0; only the exact string 0 turns them off)"}`);
 // Narratives are clustered with a semantic model run in this process (docs/adr/0007), loaded in the background after the first ingest,
 // which downloads it from huggingface.co if `pnpm models:fetch` has not. Ingest never waits for it: until the model is ready (or if it
@@ -263,6 +278,21 @@ const proposeTick = reentrant(
   },
   () => console.log("[worker] propose tick skipped: previous propose pass still running"),
 );
+// The Study's capture job (phase 3 ticket 02): Snapshots of new tokens at the fixed age (60 s), a metadata fetch and one website fetch
+// each, no brain or LLM. Its own run cap is counted in code (ARGUS_STUDY_CAPTURES_PER_DAY can only lower it). A dry run reports
+// what is due and fetches and writes nothing. It runs only in the long-running daemon, where PumpPortal feeds it.
+const STUDY_TICK_MS = 10_000;
+const studyTick = reentrant(
+  async () => {
+    const r = await captureDueSnapshots(store.study, { dryRun, runCap: captureRunCap(process.env), log: console.error });
+    if (r.dryRun) {
+      if (r.due > 0) console.log(`[worker] study tick: dry-run, ${r.due} token(s) due, would capture ${r.wouldCapture ?? 0}`);
+    } else if (r.due > 0) {
+      console.log(`[worker] study tick: ${r.due} due, ${r.captured} captured, ${r.counted} without links, ${r.late} late, ${r.capped} capped, ${r.unreadable} unreadable, ${r.retrying} retrying`);
+    }
+  },
+  () => {}, // a slow site is still being fetched: the next tick takes what is due then
+);
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()
@@ -276,6 +306,7 @@ const runBuildTick = () => track(buildTick, "build pass");
 const runIngestTick = () => track(ingestTick, "ingest tick");
 const runJudgeTick = () => track(judgeTick, "judge tick");
 const runProposeTick = () => track(proposeTick, "propose tick");
+const runStudyTick = () => track(studyTick, "study tick");
 // Research is one sequence: score what changed, then propose from the Scores.
 const runResearchTick = async () => {
   await runJudgeTick();
@@ -286,6 +317,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 let commandTimer: ReturnType<typeof setInterval> | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
+let studyTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -293,6 +325,7 @@ const stop = async () => {
   clearInterval(timer);
   clearInterval(commandTimer);
   clearInterval(ingestTimer);
+  clearInterval(studyTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
@@ -339,5 +372,6 @@ if (once) {
     }
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
+  if (standingOn) studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
   judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
 }

@@ -6,6 +6,7 @@ import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
+import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { isMaterialJoin } from "./narratives.ts";
 import {
   type DimensionScores,
@@ -358,6 +359,8 @@ export function migrate(db: DatabaseSync): void {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL");
   // Collision results (ticket 09): JSON of { dex, github }, each with status, detail, source and check time; NULL means never checked.
   ensureColumn(db, "proposals", "collision_checks", "TEXT");
+  // The Study (phase 3 ticket 02): additive tables for tokens seen, capture runs, gap markers and frozen Snapshots.
+  migrateStudy(db);
 }
 
 export function slugify(text: string): string {
@@ -475,6 +478,7 @@ export type WarRoomStore = Pick<
   | "sourceHealth"
   | "newestNarratives"
   | "recentBrainRuns"
+  | "studyStats"
 >;
 
 /** A stored Signal: the Source's item plus when argus first saw it. */
@@ -663,9 +667,17 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 
 export class Datastore {
   private readonly db: DatabaseSync;
+  /** The Study's tables (phase 3). The worker writes through this; the War Room reads only `studyStats`. */
+  readonly study: StudyStore;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
+    this.study = new StudyStore(db);
+  }
+
+  /** The Study page's health numbers (see StudyStats); `since` (ISO) limits them to tokens first seen at or after it. */
+  studyStats(now: Date = new Date(), since?: string, captureRunCap?: number): StudyStats {
+    return this.study.stats(now, since, captureRunCap);
   }
 
   /** Opens (creating if needed) the database in WAL mode and applies migrations. */

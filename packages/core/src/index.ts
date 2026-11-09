@@ -30,4 +30,7 @@ export * from "./sources/google-trends.ts";
 export * from "./sources/dexscreener.ts";
 export * from "./sources/github-trending.ts";
 export * from "./sources/pumpportal.ts";
+export * from "./study/config.ts";
+export * from "./study/store.ts";
+export * from "./study/capture.ts";
 export * from "./launch.ts";

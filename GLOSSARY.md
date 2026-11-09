@@ -74,7 +74,7 @@ Real dollars billed by the Anthropic API when the optional API fallback serves a
 The standing, unattended programme that watches new pump.fun tokens that have a website or X link, records how each looked early, finds out later which ones migrated organically, and learns from the difference. It studies other people's tokens, never argus's own Launches.
 
 **Snapshot**:
-The frozen record of one studied token's website, X account, metadata and launch figures, taken once at a fixed early age and never edited, so that later analysis cannot see the outcome.
+The frozen record of one studied token's website, X account, metadata and launch figures, taken once at a fixed early age and never edited, so that later analysis cannot see the outcome. The metadata and website part is taken at 60 seconds after the create, the X part at 5 minutes (capture rule version 1, `packages/core/src/study/config.ts`).
 
 **Case**:
 A studied token whose outcome is final, pairing its Snapshot with that outcome. Cases are analysed without the outcome shown, and the outcome is joined afterwards.
@@ -92,4 +92,4 @@ A token's bonding curve completing and moving to a swap pool, where the buying l
 _Avoid_: Graduation, bonding, success
 
 **Fast migration**:
-A migration that happens within 60 seconds of the token's creation (the Operator's decision on 2026-11-08, from the first slice's measurement). Fast migrations are kept and counted, but the Playbook learns no lessons from them.
+A migration that happens within 60 seconds of the token's creation (event times), the same age as the website Snapshot (the Operator's decision on 2026-11-08, from the first slice's measurement; the earlier 30-minute starting value would have flagged 86% of migrators). Fast migrations are kept and counted, but the Playbook learns no lessons from them.

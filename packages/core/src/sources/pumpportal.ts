@@ -1,5 +1,6 @@
-import { safeUrl, stripHtml } from "./rss.ts";
+import { safeUrl } from "./rss.ts";
 import type { Signal, Source } from "./source.ts";
+import { cleanLink, cleanText, isRecord } from "./untrusted-text.ts";
 
 /** PumpPortal's data stream is free and needs no account or key (only its separate trading API does). */
 const STREAM_URL = "wss://pumpportal.fun/api/data";
@@ -13,6 +14,40 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 5 * 60_000;
 /** Solana addresses are base58, 32 to 44 characters. The mint also goes into a link, so nothing else is accepted. */
 const MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** A transaction signature is base58, 64 bytes: 86 to 88 characters. */
+const SIGNATURE_RE = /^[1-9A-HJ-NP-Za-km-z]{80,90}$/;
+const MAX_POOL_CHARS = 30;
+
+/**
+ * One create or migrate event as the Study keeps it: the Source's own Signals carry only a title and summary, but the Study needs the
+ * metadata `uri`, the creator and the receipt time too. `receivedAt` is when this process got the event; ticket 01 measured it at 0.2 to
+ * 1.3 s after the chain time, so it stands in for the chain event time. All text is untrusted and sanitised as the Signals are; a field
+ * the event lacked is the empty string.
+ */
+export interface PumpTokenEvent {
+  kind: "create" | "migrate";
+  mint: string;
+  receivedAt: string;
+  signature: string;
+  name: string;
+  symbol: string;
+  creator: string;
+  uri: string;
+  /** PumpPortal's launchpad/venue tag: `pump` and `bonk` on creates, `pump-amm` on the migrations seen. */
+  pool: string;
+}
+
+/** The websocket going up or down, for the Study's gap markers: events are missing while it is down. */
+export interface PumpConnectionEvent {
+  state: "up" | "down";
+  at: string;
+}
+
+interface ParsedEvent {
+  msg: Record<string, unknown>;
+  kind: "create" | "migrate";
+  mint: string;
+}
 
 /** The part of the WebSocket API used here (Node's global `WebSocket` fits). */
 export interface SocketLike {
@@ -34,6 +69,10 @@ export interface PumpPortalOptions {
   maxBuffered?: number;
   maxMessageChars?: number;
   log?: (line: string) => void;
+  /** Called synchronously for every create and migrate event, on the one connection this Source holds (the Study's feed). */
+  onToken?: (event: PumpTokenEvent) => void;
+  /** Called when the connection comes up and when an established one goes down (a drop or `close()`). */
+  onConnection?: (event: PumpConnectionEvent) => void;
 }
 
 const defaultSchedule = (fn: () => void, ms: number) => {
@@ -42,9 +81,8 @@ const defaultSchedule = (fn: () => void, ms: number) => {
   return () => clearTimeout(t);
 };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-/** Remote text: markup removed, trimmed, cut to `max`. */
-const str = (v: unknown, max: number): string => (typeof v === "string" ? stripHtml(v).trim().slice(0, max) : "");
+/** Remote text: markup removed, trimmed, cut to `max` (the rules the Study's Snapshots share, see untrusted-text.ts). */
+const str = cleanText;
 
 /**
  * New pump.fun launches and bonding-curve completions ("migrations"), pushed over PumpPortal's websocket.
@@ -61,6 +99,10 @@ export class PumpPortalSource implements Source {
   private readonly maxBuffered: number;
   private readonly maxMessageChars: number;
   private readonly log: (line: string) => void;
+  private readonly onToken: ((event: PumpTokenEvent) => void) | undefined;
+  private readonly onConnection: ((event: PumpConnectionEvent) => void) | undefined;
+  /** The open socket has reported `up`, so letting go of it reports `down`. */
+  private reportedUp = false;
   /** Keyed by Signal id, so the same token event arriving twice is held once. */
   private buffer = new Map<string, Signal>();
   private socket: SocketLike | undefined;
@@ -76,6 +118,8 @@ export class PumpPortalSource implements Source {
     this.maxBuffered = opts.maxBuffered ?? MAX_BUFFERED;
     this.maxMessageChars = opts.maxMessageChars ?? MAX_MESSAGE_CHARS;
     this.log = opts.log ?? (() => {});
+    this.onToken = opts.onToken;
+    this.onConnection = opts.onConnection;
   }
 
   /** Opens the connection (and keeps it open). Calling it again does nothing. */
@@ -92,6 +136,7 @@ export class PumpPortalSource implements Source {
     this.cancelRetry = undefined;
     const ws = this.socket;
     this.socket = undefined;
+    this.reportDown();
     if (ws) {
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
       try {
@@ -123,6 +168,8 @@ export class PumpPortalSource implements Source {
     this.socket = ws;
     ws.onopen = () => {
       if (this.socket !== ws) return;
+      this.reportedUp = true;
+      this.emitConnection("up");
       try {
         ws.send(JSON.stringify({ method: "subscribeNewToken" }));
         ws.send(JSON.stringify({ method: "subscribeMigration" }));
@@ -143,6 +190,7 @@ export class PumpPortalSource implements Source {
   private drop(ws: SocketLike): void {
     if (this.socket !== ws) return;
     this.socket = undefined;
+    this.reportDown();
     ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
     try {
       ws.close(1000);
@@ -150,6 +198,12 @@ export class PumpPortalSource implements Source {
       // already closed
     }
     this.retryLater();
+  }
+
+  private reportDown(): void {
+    if (!this.reportedUp) return;
+    this.reportedUp = false;
+    this.emitConnection("down");
   }
 
   private retryLater(): void {
@@ -167,9 +221,11 @@ export class PumpPortalSource implements Source {
       this.drop(ws);
       return;
     }
-    const signal = this.toSignal(data);
-    if (!signal) return;
+    const event = this.parseEvent(data);
+    if (!event) return;
+    const signal = this.toSignal(event);
     this.failures = 0; // a real event arrived: the next drop starts the wait from the beginning (acks and garbage do not count)
+    this.emitToken(event);
     this.buffer.delete(signal.id); // a repeat keeps one entry, at the newest position
     this.buffer.set(signal.id, signal);
     while (this.buffer.size > this.maxBuffered) {
@@ -179,7 +235,7 @@ export class PumpPortalSource implements Source {
     }
   }
 
-  private toSignal(raw: string): Signal | undefined {
+  private parseEvent(raw: string): ParsedEvent | undefined {
     let msg: unknown;
     try {
       msg = JSON.parse(raw);
@@ -190,6 +246,40 @@ export class PumpPortalSource implements Source {
     const kind = msg.txType === "create" ? "create" : msg.txType === "migrate" ? "migrate" : undefined;
     const mint = typeof msg.mint === "string" ? msg.mint : "";
     if (!kind || !MINT_RE.test(mint)) return undefined; // subscription acks and anything else
+    return { msg, kind, mint };
+  }
+
+  /** Hands the event to the Study's listener with the fields it keeps. A listener that throws is logged and never affects the Source. */
+  private emitToken({ msg, kind, mint }: ParsedEvent): void {
+    if (!this.onToken) return;
+    const address = (v: unknown) => (typeof v === "string" && MINT_RE.test(v) ? v : "");
+    const event: PumpTokenEvent = {
+      kind,
+      mint,
+      receivedAt: new Date(this.now()).toISOString(),
+      signature: typeof msg.signature === "string" && SIGNATURE_RE.test(msg.signature) ? msg.signature : "",
+      name: str(msg.name, MAX_NAME_CHARS),
+      symbol: str(msg.symbol, MAX_SYMBOL_CHARS),
+      creator: kind === "create" ? address(msg.traderPublicKey) : "",
+      uri: cleanLink(msg.uri),
+      pool: str(msg.pool, MAX_POOL_CHARS),
+    };
+    try {
+      this.onToken(event);
+    } catch (e) {
+      this.log(`[pumpportal] token listener failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private emitConnection(state: "up" | "down"): void {
+    try {
+      this.onConnection?.({ state, at: new Date(this.now()).toISOString() });
+    } catch (e) {
+      this.log(`[pumpportal] connection listener failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private toSignal({ msg, kind, mint }: ParsedEvent): Signal {
     const name = str(msg.name, MAX_NAME_CHARS);
     const symbol = str(msg.symbol, MAX_SYMBOL_CHARS);
     const token = name || symbol ? `${name || symbol}${name && symbol ? ` ($${symbol})` : ""}` : `${mint.slice(0, 4)}...${mint.slice(-4)}`;

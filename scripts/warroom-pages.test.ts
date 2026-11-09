@@ -8,7 +8,7 @@ const PAGES = path.resolve(import.meta.dirname, "../apps/warroom/app/pages");
 
 describe("warroom pages", () => {
   it("lists every page route, filling dynamic segments by section", () => {
-    expect(pageRoutes(PAGES, { narratives: 4, proposals: 7 })).toEqual(["/", "/activity", "/narratives", "/narratives/4", "/proposals/7", "/rubric"]);
+    expect(pageRoutes(PAGES, { narratives: 4, proposals: 7 })).toEqual(["/", "/activity", "/narratives", "/narratives/4", "/proposals/7", "/rubric", "/study"]);
   });
 
   it("requires the four /activity section headings in the SSR HTML and flags nitro errors in the server output", () => {
