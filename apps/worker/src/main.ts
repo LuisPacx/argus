@@ -296,7 +296,9 @@ const studyTick = reentrant(
   () => {}, // a slow site is still being fetched: the next tick takes what is due then
 );
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
-console.log(startupConfigLine(process.env, { apiKeySet: apiKey !== undefined, telegramOn: notifier.enabled, studyOn: pumpPortal !== undefined && standingOn }));
+// The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
+const studyOn = standingOn && !once;
+console.log(startupConfigLine(process.env, { apiKeySet: apiKey !== undefined, telegramOn: notifier.enabled, studyOn }));
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()
@@ -377,7 +379,7 @@ if (once) {
     }
   }, TICK_MS);
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
-  if (standingOn) {
+  if (studyOn) {
     studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
     console.log(`[worker] Study started: capture tick every ${STUDY_TICK_MS / 1000}s, rule v${STUDY_CAPTURE_RULE.version}`);
   }
