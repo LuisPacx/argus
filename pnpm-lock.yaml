@@ -74,6 +74,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5
+      playwright-core:
+        specifier: 1.65.0
+        version: 1.65.0
 
 packages:
 
@@ -3551,6 +3554,11 @@ packages:
 
   pkg-types@2.4.0:
     resolution: {integrity: sha512-07Fys7iVx0X6TcviMOgogM1Lk33ZyqOezMnU79S+kffWqwolG/5W9V8EgQSeYCIfFTYVgssRbnH630Oa2+soBA==}
+
+  playwright-core@1.65.0:
+    resolution: {integrity: sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   postcss-calc@11.2.3:
     resolution: {integrity: sha512-pFW3MR2a4W7uHcSGUiyQGGXZWHon83ljbNwnUJ1mRKublWQbv+3o9NiqhlV4TJfNby+U+zLY2OgiywzhA5eFqw==}
@@ -8249,6 +8257,8 @@ snapshots:
       confbox: 0.3.2
       exsolve: 1.2.0
       pathe: 2.0.3
+
+  playwright-core@1.65.0: {}
 
   postcss-calc@11.2.3(postcss@8.5.32):
     dependencies:

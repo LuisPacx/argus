@@ -8,10 +8,10 @@ Spec: sections 6, 13, 14, 15 (slice 6).
 
 **Status:** ready-for-agent
 
-- [ ] The script opens the dedicated directory as a persistent context and refuses to start if Chrome already holds it (one process per directory, lock tested)
-- [ ] Headless and headed (virtual display) are each tried over a small number of captures, with the result recorded for each
-- [ ] Detection signals for login wall, challenge, lock and suspension are written down, and the script stops on any of them without retrying
-- [ ] Saved fields are listed: profile fields, recent posts with time and counts, ticker and name mentions, capture status, plus a raw HTML or screenshot artefact
-- [ ] Total captures during the spike stay under a small stated number and are paced and jittered
-- [ ] The directory is outside git and has mode 700 (checked and noted); no cookie or credential appears in the note or the repo
-- [ ] An outcome note states: headless or headed, detection signals, observed risk to the account, and a clear verdict "X stays in 3a" or "X leaves 3a"
+- [x] The script opens the dedicated directory as a persistent context and refuses to start if Chrome already holds it (one process per directory, lock tested)
+- [x] Headless and headed (virtual display) are each tried over a small number of captures, with the result recorded for each (headed ran on Chrome's headless Ozone platform; Xvfb is not installed, see 05-outcome.md)
+- [ ] Detection signals for login wall, challenge, lock and suspension are written down, and the script stops on any of them without retrying (written down and coded; the stop path was never triggered live, so left open)
+- [x] Saved fields are listed: profile fields, recent posts with time and counts, ticker and name mentions, capture status, plus a raw HTML or screenshot artefact
+- [x] Total captures during the spike stay under a small stated number and are paced and jittered
+- [x] The directory is outside git and has mode 700 (checked and noted); no cookie or credential appears in the note or the repo
+- [x] An outcome note (issues/05-outcome.md) states: headless or headed, detection signals, observed risk to the account, and a clear verdict "X stays in 3a" or "X leaves 3a"
