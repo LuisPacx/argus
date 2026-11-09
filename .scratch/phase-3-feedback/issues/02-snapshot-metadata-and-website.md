@@ -28,5 +28,5 @@ Spec: sections 5, 6, 13, 15 (slices 2-3).
 - [x] All fetched text is stored as untrusted data, sanitised with the same rules as the PumpPortal Source
 - [x] A missed create is recorded as missed and no later-age Snapshot is ever written for it (tested)
 - [x] The capture job has its own run cap counted in code and supports --dry-run, which fetches nothing and writes nothing
-- [ ] War Room Study page shows seen, in population, captured, missed and the empty-shell share; checked in a browser against seeded data
+- [x] War Room Study page shows seen, in population, captured, missed and the empty-shell share; checked in a browser against seeded data (checked 2026-11-08 at :3199 against seed-study.mjs data: 71 seen / 35 population / 35 captured / 6 missed / 23% empty shells; nav link OK; no console errors after load)
 - [x] Full test suite and type-check pass once before the commit (run on the committed tree)
