@@ -62,6 +62,16 @@ export interface MigratedExample {
   siteTitle: string;
 }
 
+/** A pump.fun token as the Meta ranking reads it: untrusted text, a create time, and the migrate time when one was seen. */
+export interface LaunchedToken {
+  mint: string;
+  name: string;
+  symbol: string;
+  creator: string;
+  createdAt: string;
+  migratedAt: string | null;
+}
+
 export interface NewSnapshot {
   mint: string;
   description: string;
@@ -400,6 +410,28 @@ export class StudyStore {
       out.push({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "", siteTitle: (r.site_title as string | null) ?? "" });
     }
     return out;
+  }
+
+  /**
+   * READ ONLY. The pump.fun tokens whose create was seen from `fromIso` to `toIso` (both ISO, inclusive), for the Meta ranking (viral
+   * sources ticket 03). Other launchpads' creates (`out-of-scope`) and migrations whose create was never seen (`missed`, no create time)
+   * are left out. Text fields are creator-written. One indexed pass; nothing is written.
+   */
+  createdBetween(fromIso: string, toIso: string): LaunchedToken[] {
+    const rows = this.db
+      .prepare(
+        `SELECT mint, name, symbol, creator, created_at, migrated_at FROM study_tokens
+         WHERE first_seen_at >= ? AND created_at >= ? AND created_at <= ? AND status <> 'out-of-scope'`,
+      )
+      .all(fromIso, fromIso, toIso) as Row[];
+    return rows.map((r) => ({
+      mint: r.mint as string,
+      name: r.name as string,
+      symbol: r.symbol as string,
+      creator: r.creator as string,
+      createdAt: r.created_at as string,
+      migratedAt: r.migrated_at as string | null,
+    }));
   }
 
   /** Pending tokens whose age has reached the Snapshot age at `now`, oldest create first. */

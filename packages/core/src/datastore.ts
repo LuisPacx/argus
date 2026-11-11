@@ -6,6 +6,8 @@ import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
+import { MetaStore, migrateMeta, type MetaRun } from "./meta/store.ts";
+import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { isMaterialJoin } from "./narratives.ts";
 import {
@@ -371,6 +373,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "collision_checks", "TEXT");
   // The Study (phase 3 ticket 02): additive tables for tokens seen, capture runs, gap markers and frozen Snapshots.
   migrateStudy(db);
+  // Meta runs and ranked rows (viral sources ticket 03): additive tables, nothing existing is altered.
+  migrateMeta(db);
 }
 
 export function slugify(text: string): string {
@@ -683,10 +687,18 @@ export class Datastore {
   private readonly db: DatabaseSync;
   /** The Study's tables (phase 3). The worker writes through this; the War Room reads only `studyStats`. */
   readonly study: StudyStore;
+  /** The Meta ranking's tables (viral sources ticket 03). The worker writes through this; readers use `latestMetas`. */
+  readonly meta: MetaStore;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
     this.study = new StudyStore(db);
+    this.meta = new MetaStore(db);
+  }
+
+  /** The newest Meta ranking run's top `limit` rows for a window; undefined before the first run. */
+  latestMetas(window: MetaWindow, limit: number): MetaRun | undefined {
+    return this.meta.latest(window, limit);
   }
 
   /** The Study page's health numbers (see StudyStats); `since` (ISO) limits them to tokens first seen at or after it. */

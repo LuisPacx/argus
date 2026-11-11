@@ -14,6 +14,11 @@ export * from "./startup-config.ts";
 export * from "./research-budget.ts";
 export * from "./propose.ts";
 export * from "./collision.ts";
+export * from "./meta/key.ts";
+export * from "./meta/group.ts";
+export * from "./meta/config.ts";
+export * from "./meta/store.ts";
+export * from "./meta/compute.ts";
 
 export * from "./disclosure.ts";
 export * from "./build-runner.ts";

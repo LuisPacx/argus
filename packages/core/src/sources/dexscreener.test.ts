@@ -41,6 +41,21 @@ describe("DexScreenerClient", () => {
     expect(pairs[1]).toMatchObject({ name: "Moon Cat", symbol: "MCAT", tokenAddress: MOON, liquidityUsd: 98765, volume24hUsd: 1234567.8, priceChange24hPct: -12.5, url: "https://dexscreener.com/solana/PairBig" });
   });
 
+  it("reads market cap and FDV when DexScreener gives them, and leaves them absent (not 0) when it does not", async () => {
+    const base = { chainId: "solana", url: "https://dexscreener.com/solana/P", baseToken: { address: MOON, name: "Moon Cat", symbol: "MCAT" } };
+    const body = JSON.stringify([
+      { ...base, marketCap: 13_000_000, fdv: 13_500_000 },
+      { ...base, marketCap: "13M", fdv: Number.NaN },
+      { ...base, fdv: 7 },
+    ]);
+    const pairs = await new DexScreenerClient({ fetchText: async () => body }).tokenPairs("solana", [MOON]);
+    expect(pairs[0]).toMatchObject({ marketCapUsd: 13_000_000, fdvUsd: 13_500_000 });
+    expect("marketCapUsd" in pairs[1]!).toBe(false);
+    expect("fdvUsd" in pairs[1]!).toBe(false);
+    expect(pairs[2]).toMatchObject({ fdvUsd: 7 });
+    expect("marketCapUsd" in pairs[2]!).toBe(false);
+  });
+
   it("searches pairs by name or ticker, URL-encoded (for the collision checks)", async () => {
     const api = fakeApi({ "https://api.dexscreener.com/latest/dex/search?q=moon%20cat%26x": JSON.stringify({ schemaVersion: "1.0.0", pairs: JSON.parse(fixture("dexscreener-pairs.json")) }) });
     const pairs = await new DexScreenerClient({ fetchText: api.fetchText }).search("moon cat&x");

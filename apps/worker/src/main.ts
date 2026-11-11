@@ -6,6 +6,9 @@ import {
   BackoffSource,
   captureDueSnapshots,
   captureRunCap,
+  metaConfigFromEnv,
+  metaIntervalMinutes,
+  recomputeMetas,
   FallbackBrain,
   announceNewProposals,
   anthropicKeyFromEnv,
@@ -295,6 +298,20 @@ const studyTick = reentrant(
   },
   () => {}, // a slow site is still being fetched: the next tick takes what is due then
 );
+// The Meta ranking (viral sources ticket 03): groups the last 24 h of launchpad creates into clone clusters, ranks them for the 6 h and 24 h
+// windows and stores the run. Plain code, no LLM. DexScreener market cap for the top groups only, within a call budget (ARGUS_META_DEX_*).
+// Every ARGUS_META_INTERVAL_MINUTES (default 15). The lookup uses the collision checks' DexScreener URL override, so a test run never reaches
+// the real API. A dry run does not run it (it writes a run row).
+const META_TICK_MS = metaIntervalMinutes(process.env) * 60_000;
+const metaConfig = metaConfigFromEnv(process.env);
+const metaDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });
+const metaTick = reentrant(
+  async () => {
+    const r = await recomputeMetas(store, { dex: metaDex, config: metaConfig, log: console.error });
+    console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s), ${r.dexFailures} failed`);
+  },
+  () => {}, // a slow lookup is still running: the next tick starts fresh
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -313,6 +330,7 @@ const runIngestTick = () => track(ingestTick, "ingest tick");
 const runJudgeTick = () => track(judgeTick, "judge tick");
 const runProposeTick = () => track(proposeTick, "propose tick");
 const runStudyTick = () => track(studyTick, "study tick");
+const runMetaTick = () => track(metaTick, "meta tick");
 // Research is one sequence: score what changed, then propose from the Scores.
 const runResearchTick = async () => {
   await runJudgeTick();
@@ -324,6 +342,7 @@ let commandTimer: ReturnType<typeof setInterval> | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let studyTimer: ReturnType<typeof setInterval> | undefined;
+let metaTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -333,6 +352,7 @@ const stop = async () => {
   clearInterval(ingestTimer);
   if (studyTimer) console.log("[worker] Study stopped");
   clearInterval(studyTimer);
+  clearInterval(metaTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
@@ -382,6 +402,11 @@ if (once) {
   if (studyOn) {
     studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
     console.log(`[worker] Study started: capture tick every ${STUDY_TICK_MS / 1000}s, rule v${STUDY_CAPTURE_RULE.version}`);
+    if (!dryRun) {
+      void runMetaTick();
+      metaTimer = setInterval(() => void runMetaTick(), META_TICK_MS);
+      console.log(`[worker] Meta ranking started: every ${META_TICK_MS / 60_000} min, rank order ${metaConfig.rankOrder.join(" > ")}`);
+    }
   }
   judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
 }

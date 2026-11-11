@@ -37,6 +37,10 @@ export interface DexPair {
   priceChange24hPct: number;
   /** Epoch ms the pair was created, when known. */
   pairCreatedAt?: number;
+  /** Market cap in USD, absent when DexScreener gave none (never 0 for "unknown"). */
+  marketCapUsd?: number;
+  /** Fully diluted valuation in USD, absent when none was given. */
+  fdvUsd?: number;
 }
 
 export interface DexScreenerClientOptions {
@@ -109,6 +113,8 @@ export class DexScreenerClient {
       const tokenAddress = str(base.address, 80);
       if (strictIds && (!CHAIN_RE.test(chainId) || !ADDRESS_RE.test(tokenAddress))) continue;
       const createdAt = num(entry.pairCreatedAt);
+      const marketCap = num(entry.marketCap);
+      const fdv = num(entry.fdv);
       out.push({
         chainId,
         tokenAddress,
@@ -119,6 +125,8 @@ export class DexScreenerClient {
         volume24hUsd: (isRecord(entry.volume) ? num(entry.volume.h24) : undefined) ?? 0,
         priceChange24hPct: (isRecord(entry.priceChange) ? num(entry.priceChange.h24) : undefined) ?? 0,
         ...(createdAt !== undefined ? { pairCreatedAt: createdAt } : {}),
+        ...(marketCap !== undefined ? { marketCapUsd: marketCap } : {}),
+        ...(fdv !== undefined ? { fdvUsd: fdv } : {}),
       });
     }
     return out;

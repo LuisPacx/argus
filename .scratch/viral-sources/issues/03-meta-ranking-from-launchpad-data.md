@@ -94,6 +94,7 @@ Offline in `pnpm check` (recorded fixtures and fake clients); the DB-copy replay
 ## Open questions for the Operator
 
 1. **Rank order.** Suggested: distinct creators, then migrations, then market cap, then token count. Is "demand" (many different creators) the right first key, or do you rank by market cap first, as the market's own Meta lists do?
+   **Decided (user, 2026-11-11):** distinct creators, then migrations, then market cap, then token count. "Migrations" in the rank is `migrationsAfter60s` (the organic proxy: more than 60 s after the create); the unfiltered `migrations` count is still stored and shown on every row, and `ARGUS_META_RANK_ORDER` can rank on it instead. The rule lives in `META_RULE.rankOrder` in `packages/core/src/meta/config.ts`. Momentum and a Rubric v3 are not in scope (question 2 stays open).
 2. **Should a Meta match feed `momentum`?** This ticket only shows it. Changing how the Rubric uses it is yours (Rubric v3).
 3. **A War Room view?** This ticket ships the API and the prompt block; the home-page section "Current Meta (last 24h)" is `.scratch/warroom-redesign/issues/03-current-meta-on-home.md`, blocked by this ticket. A separate Metas page is not planned.
 4. **Carrier themes** (cat, dog, AI) are not Metas. The generic-key stoplist handles single words; whether a "cat" group should be shown at all (it is the carrier of the ni hao Meta) is a judgement to review in the replay's top 20.
