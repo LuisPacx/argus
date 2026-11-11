@@ -19,6 +19,14 @@ import { describe, expect, it } from "vitest";
  * The one exception is the ADR 0002 Amendment (Phase 3, 2026-11-07): read-only chain reads. It is granted to exactly one file,
  * READ_ONLY_RPC_MODULE, and only for READ_ONLY_RPC_HOST (https, path "/") and READ_ONLY_RPC_METHODS. Everything else in rules 1-4 still
  * applies in that file (no SDK, no key, no write or signing method, no other host), and nothing is allowed anywhere else.
+ *
+ * This is a tripwire, not a proof. A banned host is caught as a URL (literal scheme) and, since ticket 23, as a bare hostname in the text
+ * whatever precedes it (`${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a constant), after undoing escapes, percent-encoding, case, full-width
+ * and zero-width forms, and after joining adjacent string literals. Still uncovered: a host or URL read from a file, the network, config
+ * or a lookup table; base64 or any other encoding the code decodes at run time (`atob`, `Buffer.from`, `.reverse()`, `.replace()`); a host
+ * assembled from a variable (`"api." + vendor + ".xyz"`); an IP address or a CNAME of a banned host; a local validator on a non-default
+ * port or a non-canonical loopback spelling (`[::ffff:127.0.0.1]`); a loopback port variable that holds `8899` at run time; any file that
+ * is not scanned (JSON, Markdown, config); and obfuscation outside the transforms above (octal escapes, a line comment between joined literals).
  */
 
 const BANNED_PACKAGES = [
@@ -90,9 +98,13 @@ const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
 // A URL whose host is built at run time (`https://${h}/`, `https://api.${d}/`, `"https://" + h`, `["https://", h].join("")`) is
 // invisible to the host bans. A bare scheme literal on its own (`startsWith("https://")`) is not a URL and is ignored; a loopback
 // host with an interpolated port (`http://127.0.0.1:${port}`) is fine.
-const DYNAMIC_HOST = /\b(?:https?|wss?):\/\/(?!(?:localhost|127\.0\.0\.1):\$\{)(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
+// The scheme may itself be missing or built (`${scheme}://${h}/`, `"//" + h`, `scheme + "://" + h`). The loopback exemption holds only
+// when the closing `}` of the port interpolation is followed by a path, query, fragment, quote, whitespace or the end: `@`, `.`, a
+// letter, `\` or another `${` after it would make the interpolation userinfo (`http://127.0.0.1:${p}@api.helius.xyz/`) or a longer host.
+const DYNAMIC_HOST = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?!(?:localhost|127\.0\.0\.1):\$\{[^}]*\}(?:[/?#\s"'`)<>]|$))(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
 // Stricter, for the read-only module: also no bare scheme literal.
-const DYNAMIC_HOST_STRICT = /\b(?:https?|wss?):\/\/(?:["'`]|[^/?#\s"'`]*(?:\$\{|["'`]\s*\+))/i;
+// (also a bare `"://"` or `"//"` literal, the separator in `[scheme, host].join("://")`).
+const DYNAMIC_HOST_STRICT = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?:["'`]|[^/?#\s"'`]*(?:\$\{|["'`]\s*\+))/i;
 // Files that already build a URL host at run time (test servers on a loopback port, fake hosts, a link normaliser). Frozen: a new
 // file that needs this is a change to this list, which the reviewer sees. Never the read-only module.
 const DYNAMIC_HOST_FILES = new Set<string>([
@@ -104,6 +116,19 @@ const DYNAMIC_HOST_FILES = new Set<string>([
   "packages/core/src/study/wiring.test.ts",
   "packages/core/src/testing/fake-wrangler.mjs",
   "scripts/verify-boot.mjs",
+]);
+
+// Files where the bare apex name `pump.fun` or `pumpportal.fun` appears as prose (a comment, a UI note, a test title or fixture string)
+// on the current tree. Frozen, ticket 23: the bare-host scan flags a banned hostname whatever precedes it, and these production and test
+// files cannot drop the product name. Only the bare apex with nothing attached (no path, port, subdomain or interpolation) is exempt
+// here; an RPC or trading host never is. Never the read-only module. A new file that needs this is a change to this list.
+const BARE_APEX_FILES = new Set<string>([
+  "apps/warroom/app/pages/study.vue",
+  "packages/core/src/sources/pumpportal.test.ts",
+  "packages/core/src/sources/pumpportal.ts",
+  "packages/core/src/study/metadata.test.ts",
+  "packages/core/src/study/store.test.ts",
+  "packages/core/src/study/store.ts",
 ]);
 
 // In the read-only module the word `method` may only appear as `method: "<one of the five reads>"` (or HTTP `method: "POST"`), so
@@ -124,6 +149,74 @@ const stripTrailingDots = (h: string): string => {
   return h.slice(0, end);
 };
 
+// Undo the cheap disguises of a hostname so a bare-host scan sees what DNS sees: JS and HTML escapes, percent-encoding, full-width and
+// compatibility forms, the ideographic full stop, zero-width characters. A tripwire, not a proof (see the header).
+const codePointText = (cp: number): string | undefined => (cp >= 0x20 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : undefined);
+const normalizeForHosts = (text: string): string =>
+  text
+    .replace(/\\\r?\n/g, "") // a line continuation inside a string literal
+    .replace(/&period;/gi, ".")
+    .replace(/\\\./g, ".") // "api\.helius\.xyz" is api.helius.xyz in a string, and a host in a regex
+    .replace(/\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})|\\x([0-9a-f]{2})/gi, (m, a?: string, b?: string, c?: string) => codePointText(parseInt(a ?? b ?? c ?? "0", 16)) ?? m)
+    .replace(/&#x([0-9a-f]{1,6});|&#(\d{1,7});/gi, (m, h?: string, d?: string) => codePointText(h !== undefined ? parseInt(h, 16) : Number(d)) ?? m)
+    .replace(/%([0-9a-f]{2})/gi, (m, h: string) => {
+      const c = String.fromCharCode(parseInt(h, 16));
+      return /[a-z0-9.-]/i.test(c) ? c : m;
+    })
+    .normalize("NFKC")
+    .replace(/[。｡．]/g, ".")
+    .replace(/[­​-‍⁠﻿]/g, "");
+
+// Join string literals that are adjacent in the source, so a host split across them reads whole: "a" + "b", ["a", "b"], "a".concat("b"),
+// `${"a"}b`, with a block comment in between dropped. Only literals next to each other: a variable in the middle (`"api." + sub +
+// ".xyz"`) stays uncovered. `sep` is what an array join puts between the elements: "" for join(""), "." for `["api", "helius"].join(".")`.
+const joinLiterals = (text: string, sep = ""): string =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\$\{\s*(["'])([^"'`$\\\n]*)\1\s*\}/g, "$2")
+    .replace(/["'`]\s*\.\s*concat\s*\(\s*["'`]/g, "")
+    .replace(/["'`]\s*\+\s*["'`]/g, "")
+    .replace(/["'`]\s*,\s*["'`]/g, sep);
+
+// A hostname-looking token (or `host:port`, `[::1]:port`), whatever precedes it: after a scheme, `//`, `@`, a quote, a space or nothing.
+const HOST_TOKEN = /(\[::1\]|[a-z0-9-]+(?:\.+[a-z0-9-]+)*)(\.*)(?::(\d{1,5}))?/gi;
+
+// ADR 0002 rule 2 for a banned host that is not inside a URL with a literal scheme, with the same allowances as for URLs.
+function bareHostViolations(file: string, text: string, readOnlyRpc: boolean, already: string[]): string[] {
+  const found: string[] = [];
+  for (const m of text.matchAll(HOST_TOKEN)) {
+    const host = stripTrailingDots(m[1]!.toLowerCase());
+    const port = m[3];
+    const hostPort = port === undefined ? host : `${host}:${port}`;
+    if (!host.includes(".") && port === undefined) continue;
+    if (!BANNED_HOSTS.some((r) => r.test(host) || r.test(hostPort))) continue;
+    // A URL with a literal scheme was judged already (and reported if bad): do not report it twice.
+    if (already.some((v) => v.includes(": endpoint ") && v.toLowerCase().includes(host))) continue;
+    const start = m.index;
+    const end = start + m[0].length;
+    const before = text.slice(0, start);
+    const rest = /^[^\s"'`)<>\\]*/.exec(text.slice(end))![0];
+    const path = rest.split(/[?#]/)[0]!;
+    const plain = port === undefined && m[2] === "";
+    // `pump.fun/coin/../api/trade` would normalise to /api/trade in a URL: a dot segment, a backslash or an empty segment is never the allowance.
+    const tidy = !/(?:^|\/)\.\.?(?:\/|$)|\\|\/\//.test(path);
+    const allowed =
+      port === undefined &&
+      tidy &&
+      ((host === "pumpportal.fun" && (path === "/api/data" || path.startsWith("/api/data/"))) ||
+        (host === "pump.fun" && path.startsWith("/coin/")) ||
+        // the pinned read-only host: the exact host, as a plain token or after a literal `https://` (never `//`, `${s}://` or userinfo), path "/"
+        (readOnlyRpc && plain && host === READ_ONLY_RPC_HOST && !/[@/]$/.test(before.replace(/https:\/\/$/i, "")) && /^(?:[,;!?\]}:]*|\/?(?:[?#].*)?)$/.test(rest)) ||
+        // the bare apex name as prose in a frozen file
+        (!readOnlyRpc && BARE_APEX_FILES.has(file.split(sep).join("/")) && (host === "pump.fun" || host === "pumpportal.fun") && !/[/@]$/.test(before) && /^[,;!?\]}:]*$/.test(rest)));
+    const msg = `${file}: bare banned host ${hostPort}`;
+    if (!allowed && !found.includes(msg)) found.push(msg);
+  }
+  // A local validator's port with the host built elsewhere (`${host}:8899`): the port alone is the tell.
+  if (/:(?:8899|8900)(?!\d)/.test(text) && ![...already, ...found].some((v) => /:(?:8899|8900)(?!\d)/.test(v))) found.push(`${file}: bare banned host :8899/:8900`);
+  return found;
+}
+
 export function violations(file: string, text: string): string[] {
   const out: string[] = [];
   const readOnlyRpc = file.split(sep).join("/") === READ_ONLY_RPC_MODULE;
@@ -137,27 +230,39 @@ export function violations(file: string, text: string): string[] {
   for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/g)) {
     if (BANNED_PACKAGES.some((r) => r.test(m[1]!))) out.push(`${file}: import ${m[1]}`);
   }
-  for (const m of text.matchAll(URL_RE)) {
-    // Judge the literal part before the first `${`: `https://api.helius.xyz${path}` and `https://pumpportal.fun:${port}` must not parse
-    // as an unknown host. If the interpolation follows the host or a path segment (not a `/`, `?` or `#`), it can extend them: not allowed.
-    const cut = m[0].indexOf("${");
-    const head = (cut === -1 ? m[0] : m[0].slice(0, cut)).replace(/[.,;]+$/, "");
-    const extended = cut !== -1 && !head.endsWith("/") && !head.includes("?") && !head.includes("#");
-    let u: URL;
-    try {
-      u = new URL(head);
-    } catch {
-      continue;
+  const urlEndpoints = (src: string): string[] => {
+    const bad: string[] = [];
+    for (const m of src.matchAll(URL_RE)) {
+      // Judge the literal part before the first `${`: `https://api.helius.xyz${path}` and `https://pumpportal.fun:${port}` must not parse
+      // as an unknown host. If the interpolation follows the host or a path segment (not a `/`, `?` or `#`), it can extend them: not allowed.
+      const cut = m[0].indexOf("${");
+      const head = (cut === -1 ? m[0] : m[0].slice(0, cut)).replace(/[.,;]+$/, "");
+      const extended = cut !== -1 && !head.endsWith("/") && !head.includes("?") && !head.includes("#");
+      let u: URL;
+      try {
+        u = new URL(head);
+      } catch {
+        continue;
+      }
+      // `new URL` keeps a trailing dot (`host.com.`, also from `%2e` and the ideographic full stop), which is the same host to DNS.
+      const host = stripTrailingDots(u.hostname);
+      const hostPort = u.port === "" ? host : `${host}:${u.port}`;
+      if (!BANNED_HOSTS.some((r) => r.test(host) || r.test(hostPort))) continue;
+      const ok = !extended && ((host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/")));
+      // The pinned form only: the exact host (no trailing dot), https, no port or userinfo, path "/".
+      const readOnly = readOnlyRpc && !extended && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
+      if (!ok && !readOnly) bad.push(`${file}: endpoint ${u.href}`);
     }
-    // `new URL` keeps a trailing dot (`host.com.`, also from `%2e` and the ideographic full stop), which is the same host to DNS.
-    const host = stripTrailingDots(u.hostname);
-    const hostPort = u.port === "" ? host : `${host}:${u.port}`;
-    if (!BANNED_HOSTS.some((r) => r.test(host) || r.test(hostPort))) continue;
-    const ok = !extended && ((host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/")));
-    // The pinned form only: the exact host (no trailing dot), https, no port or userinfo, path "/".
-    const readOnly = readOnlyRpc && !extended && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
-    if (!ok && !readOnly) out.push(`${file}: endpoint ${u.href}`);
-  }
+    return bad;
+  };
+  out.push(...urlEndpoints(text));
+  // The same scan on the text with adjacent string literals joined: `"https://api.helius." + "xyz/"`.
+  const joined = joinLiterals(text);
+  if (joined !== text) for (const v of urlEndpoints(joined)) if (!out.includes(v)) out.push(v);
+  // A banned hostname anywhere in the text whatever precedes it (no literal scheme: `${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a bare
+  // constant), disguised or not. Apex pump.fun and pumpportal.fun as prose are exempt only in BARE_APEX_FILES.
+  const norm = normalizeForHosts(text);
+  for (const t of new Set([norm, joinLiterals(norm), joinLiterals(norm, ".")])) for (const v of bareHostViolations(file, t, readOnlyRpc, out)) if (!out.includes(v)) out.push(v);
   const normFile = file.split(sep).join("/");
   if (readOnlyRpc ? DYNAMIC_HOST_STRICT.test(text) || DYNAMIC_HOST.test(text) : DYNAMIC_HOST.test(text) && !DYNAMIC_HOST_FILES.has(normFile)) out.push(`${file}: URL with a host built at run time`);
   if (!readOnlyRpc && /jsonrpc/i.test(text)) out.push(`${file}: JSON-RPC request outside ${READ_ONLY_RPC_MODULE}`);
@@ -203,6 +308,11 @@ describe("ADR 0002: argus never touches a chain", () => {
   it("every file on the frozen dynamic-host list still exists", () => {
     const files = new Set(sourceFiles(ROOT).map((f) => relative(ROOT, f).split(sep).join("/")));
     for (const f of DYNAMIC_HOST_FILES) expect(files.has(f), f).toBe(true);
+  });
+
+  it("every file on the frozen bare-apex list still exists", () => {
+    const files = new Set(sourceFiles(ROOT).map((f) => relative(ROOT, f).split(sep).join("/")));
+    for (const f of BARE_APEX_FILES) expect(files.has(f), f).toBe(true);
   });
 
   it("the walk covers the read-only Sources that mention pump.fun, PumpPortal and DexScreener", () => {
@@ -434,6 +544,182 @@ describe("ADR 0002: argus never touches a chain", () => {
         expect(endpoint(violations("bad.ts", "const l = `https://pump.fun/coin${x}`;"))).toBe(true);
         // the pinned URL with the key in the query is still the allowance
         expect(violations(M, "fetch(`https://mainnet.helius-rpc.com/?api-key=${key}`)")).toEqual([]);
+      });
+
+      describe("ticket 23: residual bypasses", () => {
+        const BARE = ": bare banned host ";
+        const bare = (found: string[]) => found.some((v) => v.includes(BARE));
+        // a banned host found either as a URL with a (joined) literal scheme or as a bare hostname
+        const hit = (found: string[]) => found.some((v) => v.includes(BARE) || v.includes(": endpoint "));
+        const DYN = (f: string) => `${f}: URL with a host built at run time`;
+
+        it("(a) fires for a banned host whose scheme is not a literal, in every file", () => {
+          for (const src of [
+            "fetch(`${scheme}://api.helius.xyz/`)",
+            'fetch("//api.helius.xyz/")',
+            'fetch("ht" + "tps://api.helius.xyz/")',
+            'fetch("ht" + "tps://" + "api.helius.xyz/")',
+            "const u = `${proto}//mainnet.helius-rpc.com/`;",
+            'const h = "api.mainnet-beta.solana.com"; fetch(`${s}://${h}/`);',
+          ]) {
+            expect(hit(violations("other.ts", src)), `other.ts ${src}`).toBe(true);
+            expect(hit(violations(M, src)), `${M} ${src}`).toBe(true);
+          }
+          // the pinned host is only the allowance in the module, and only as the exact host with path "/" (or a query)
+          expect(bare(violations("other.ts", `const h = "${READ_ONLY_RPC_HOST}";`))).toBe(true);
+          expect(violations(M, `const HOST = "${READ_ONLY_RPC_HOST}"; // reads ${READ_ONLY_RPC_HOST}, read-only\nconst u = \`https://${READ_ONLY_RPC_HOST}/?api-key=\${key}\`;`)).toEqual([]);
+          for (const src of ["//mainnet.helius-rpc.com/", "//mainnet.helius-rpc.com/?api-key=x", "${s}://mainnet.helius-rpc.com/", "http://mainnet.helius-rpc.com/", "https://u@mainnet.helius-rpc.com/", "/mainnet.helius-rpc.com/"]) {
+            expect(violations(M, `fetch("${src}")`).length, `${M} ${src}`).toBeGreaterThan(0);
+          }
+          for (const src of ["//mainnet.helius-rpc.com/v0/send", "//mainnet.helius-rpc.com:8899/", "//mainnet.helius-rpc.com.", "//mainnet.helius-rpc.com${path}", "//mainnet.helius-rpc.com/${path}", "//user@mainnet.helius-rpc.com/", "//devnet.helius-rpc.com/"]) {
+            expect(bare(violations(M, `fetch("${src}")`)), `${M} ${src}`).toBe(true);
+          }
+          // the other allowed uses stay allowed without a literal scheme
+          expect(violations("ok.ts", 'new WebSocket("//pumpportal.fun/api/data"); const l = `//pump.fun/coin/${m}`; const s = `${p}://pumpportal.fun/api/data`;')).toEqual([]);
+          // a dot segment or a backslash cannot ride an allowed prefix (a URL parser would normalise it away)
+          for (const src of ["//pump.fun/coin/../api/ipfs", "//pump.fun/coin/%2e%2e/api/ipfs", "//pumpportal.fun/api/data/../trade", "//pumpportal.fun/api/data/./../../api/trade", "//pump.fun/coin/..\\api/ipfs", "${s}://pump.fun/coin//x"]) {
+            expect(bare(violations("other.ts", `fetch("${src}")`)), src).toBe(true);
+          }
+          // the module takes no bare scheme separator either: [scheme, host].join("://")
+          for (const src of ['fetch([scheme, HOST].join("://"))', 'fetch(scheme + "://" + HOST)', 'const sep = "//"; fetch(scheme + sep + HOST)']) {
+            expect(violations(M, src), `${M} ${src}`).toContain(DYN(M));
+          }
+          expect(violations("other.ts", 'const [scheme, rest] = url.split("://"); const p = "//";')).toEqual([]);
+          for (const src of ["//pumpportal.fun/api/trade", "//pump.fun/api/ipfs", "//pump.fun/coin${x}", "//pumpportal.fun/api/data${x}", "//pumpportal.fun${x}", "//api.pump.fun/coin/x", "//pump.fun:443/coin/x"]) {
+            expect(bare(violations("other.ts", `fetch("${src}")`)), src).toBe(true);
+          }
+        });
+
+        it("(a) covers every banned host, not just Helius", () => {
+          for (const host of ["api.mainnet-beta.solana.com", "x.solana.org", "x.rpcpool.com", "go.getblock.io", "mainnet.infura.io", "quote-api.jup.ag", "mainnet.block-engine.jito.wtf", "api.raydium.io", "x.triton.one", "x.g.alchemy.com", "x.ankr.com", "x.quiknode.pro", "x.quicknode.com", "x.chainstack.com", "api.pump.fun", "www.pumpportal.fun", "localhost:8899", "127.0.0.1:8900", "[::1]:8899"]) {
+            expect(bare(violations("other.ts", `fetch(\`\${s}://${host}/x\`)`)), host).toBe(true);
+          }
+          // other hosts and look-alikes are not banned hosts
+          expect(violations("ok.ts", 'const a = "api.dexscreener.com"; const b = "notsolana.com"; const c = "solana.com.example.org"; const d = "localhost:3000";')).toEqual([]);
+        });
+
+        it("(a) is not fooled by case, a trailing dot, %2e, escapes, full-width forms, zero-width characters or entities", () => {
+          for (const src of [
+            'fetch("//API.HELIUS.XYZ/")',
+            'fetch("//api.helius.xyz./")',
+            'fetch("//api.helius.xyz../")',
+            'fetch("//api%2ehelius%2Exyz/")',
+            'fetch("//api.hel%69us.xyz/")',
+            'fetch("//api.\\x68elius.xyz/")',
+            'fetch("//api.\\u0068elius.xyz/")',
+            'fetch("//api.\\u{68}elius.xyz/")',
+            'fetch("//ａｐｉ．ｈｅｌｉｕｓ．ｘｙｚ/")',
+            'fetch("//api.helius。xyz/")',
+            'fetch("//api.hel​ius.xyz/")',
+            'fetch("//api.hel­ius.xyz/")',
+            '<a href="//api&#46;helius.xyz/">',
+            '<a href="//api&#x2e;helius.xyz/">',
+            'fetch("//user:pw@api.helius.xyz/")',
+            'fetch("//api.helius.xyz:443/")',
+            'fetch("//x@y:z@api.helius.xyz/")',
+            'fetch("localhost:8899")',
+            'fetch("LOCALHOST.:8899")',
+          ]) expect(bare(violations("other.ts", src)), src).toBe(true);
+          // inside a URL, a banned host in the path or query is still found
+          expect(bare(violations("other.ts", 'fetch("https://redirect.example/?to=https://api.helius.xyz/")'))).toBe(true);
+          expect(bare(violations("other.ts", 'fetch("https://redirect.example/go/api.helius.xyz")'))).toBe(true);
+        });
+
+        it("(a) is not fooled by a host split across literals or lines", () => {
+          for (const src of [
+            'fetch("//api.helius" + ".xyz/")',
+            'fetch("//api." + "helius." + "xyz/")',
+            'fetch("//api.helius" /* split */ + ".xyz/")',
+            'fetch("//api.helius\\\n.xyz/")',
+            'fetch("//api\\.helius\\.xyz/")',
+            "const re = /^https?:\\/\\/api\\.helius\\.xyz/;",
+            'fetch("//api\\u002ehelius.xyz/")',
+            '<a href="//api&period;helius.xyz/">',
+            'fetch(["api", "helius", "xyz"].join("."))',
+            'fetch(`http://${h}:8899`)',
+            "fetch(`http://${host}:8900/`)",
+            'fetch("//api.helius" +\n  ".xyz/")',
+            'fetch("//api.helius"\n  + ".xyz/")',
+            "fetch(`//api.helius` + `.xyz/`)",
+            'fetch(["//api.helius", ".xyz/"].join(""))',
+            'fetch(["//api.helius",\n ".xyz/"].join(""))',
+            'fetch("//api.helius".concat(".xyz/"))',
+            'fetch("//api.helius".concat(".", "xyz/"))',
+            'fetch(`//${"api.helius"}.${"xyz"}/`)',
+            'fetch("https://" + "api.hel" + "ius.xyz/")',
+          ]) expect(hit(violations("other.ts", src)), src).toBe(true);
+        });
+
+        it("(a) fires for a host or scheme assembled around a literal scheme separator, in every file", () => {
+          for (const src of ["fetch(`${scheme}://${host}/`)", "fetch(`${scheme}://api.${d}/`)", 'fetch(scheme + "://" + host)', 'fetch(`//${host}/`)', 'fetch("//" + host)', "fetch(`${scheme}://${host}`)"]) {
+            expect(violations("new/file.ts", src), src).toContain(DYN("new/file.ts"));
+            expect(violations(M, src), `${M} ${src}`).toContain(DYN(M));
+          }
+          // a comment's `//` and a `//` in the middle of a string are not a protocol-relative URL
+          expect(violations("t.ts", 'const a = 1; // ${not} a url\nconst re = /\\/\\/x/; const p = "a//b";')).toEqual([]);
+          expect(violations("t.ts", "const u = `${base}/x`; const w = `${a}://`.length;")).toEqual([]);
+        });
+
+        it("(a) keeps the bare apex names pump.fun and pumpportal.fun as prose only in the frozen files", () => {
+          const prose = 'const note = "pump.fun creates seen"; /** Not a pump.fun launch. */ const t = `New token on pump.fun: ${token}`; const s = "pumpportal.fun.";';
+          expect(BARE_APEX_FILES.size).toBeLessThanOrEqual(8);
+          expect(violations("other.ts", prose).some((v) => v.includes(BARE))).toBe(true);
+          expect(violations(M, prose).some((v) => v.includes(BARE))).toBe(true);
+          const [f] = [...BARE_APEX_FILES];
+          expect(violations(f!, prose)).toEqual([]);
+          // never the read-only module, and only the bare apex: no path, port, subdomain, interpolation or RPC host
+          expect(BARE_APEX_FILES.has(M)).toBe(false);
+          for (const src of ['fetch("//pump.fun/api/ipfs")', 'fetch("//pumpportal.fun/api/trade")', "fetch(`//pump.fun${p}`)", 'fetch("//pump.fun:443")', 'fetch("//api.pump.fun")', 'fetch("//api.helius.xyz")', 'fetch("//pump.fun./api/ipfs")', 'fetch("//pump.fun" + "/api/trade")']) {
+            expect(bare(violations(f!, src)) || violations(f!, src).length > 0, `${f} ${src}`).toBe(true);
+          }
+        });
+
+        it("(b) fires for userinfo smuggled after a loopback port interpolation", () => {
+          for (const src of [
+            "fetch(`http://127.0.0.1:${p}@api.helius.xyz/`)",
+            "fetch(`http://127.0.0.1:${p}@evil.example/`)",
+            "fetch(`http://localhost:${p}@evil.example/`)",
+            "fetch(`ws://localhost:${p}@evil.example`)",
+            "fetch(`http://127.0.0.1:${a}${b}/`)",
+            "fetch(`http://127.0.0.1:${a}${b}@evil.example/`)",
+            "fetch(`http://localhost:${a}:${b}@evil.example/`)",
+            "fetch(`http://127.0.0.1:${p}.evil.example/`)",
+            "fetch(`http://127.0.0.1:${p}x/`)",
+            "fetch(`http://LOCALHOST:${p}@evil.example/`)",
+            "fetch(`http://user@127.0.0.1:${p}/`)",
+            "fetch(`http://127.0.0.1:${p}\\u0040evil.example/`)",
+          ]) {
+            expect(violations("new/file.ts", src), src).toContain(DYN("new/file.ts"));
+            expect(violations(M, src), `${M} ${src}`).toContain(DYN(M));
+          }
+          expect(violations("new/file.ts", "fetch(`http://127.0.0.1:${p}@api.helius.xyz/`)").length).toBeGreaterThan(0);
+        });
+
+        it("(b) still allows a loopback test server on an interpolated port", () => {
+          for (const src of [
+            "fetch(`http://127.0.0.1:${port}/x`)",
+            "fetch(`http://127.0.0.1:${port}`)",
+            "fetch(`http://localhost:${port}?q=1`)",
+            "fetch(`http://localhost:${port}#frag`)",
+            "fetch(`ws://localhost:${port}/ws`)",
+            "const u = 'http://127.0.0.1:${port}';",
+            'const u = "http://localhost:${port}";',
+            "fetch(`http://127.0.0.1:${port}/${path}`)",
+            "fetch(`http://127.0.0.1:${port}/x?a=${b}`)",
+            "fetch(`http://127.0.0.1:${server.address().port}/x`)",
+            "log(`up at http://127.0.0.1:${port} now`)",
+          ]) expect(violations("t.ts", src), src).toEqual([]);
+        });
+
+        it("keeps every earlier ban, allowance and frozen-list rule", () => {
+          expect(violations("ok.ts", 'const STREAM_URL = "wss://pumpportal.fun/api/data"; const l = `https://pump.fun/coin/${mint}`; const a = "https://api.dexscreener.com";')).toEqual([]);
+          expect(violations(M, `fetch("https://${READ_ONLY_RPC_HOST}/?api-key=x")`)).toEqual([]);
+          // a URL with a banned host is reported once, not once per scan
+          expect(violations("e.ts", 'fetch("https://api.helius.xyz/v0")')).toHaveLength(1);
+          const endpoints = (src: string) => violations("e.ts", src).filter((v) => v.includes(": endpoint ") || v.includes(BARE));
+          expect(endpoints('fetch("https://api.helius." + "xyz/v0")')).toHaveLength(1);
+          expect(endpoints('fetch("//api.helius." + "xyz/v0")')).toHaveLength(1);
+        });
       });
 
       it("fires for a JSON-RPC request outside the module, and for an RPC endpoint read from config or env", () => {
