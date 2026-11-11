@@ -35,10 +35,18 @@ import { describe, expect, it } from "vitest";
  *     an escaped quote right after a host ends it (harmless: a quote is no host character);
  *   - a signing primitive reached through an alias or a bracket (`const c = require("node:crypto"); c.sign(...)`, `crypto["sign"](...)`),
  *     a destructuring with a nested brace before it (`const { a = {}, sign } = require("node:crypto")`), or a split `"ed" + "25519"`;
+ *   - a loopback port interpolation whose `}` comes from a regex literal or a line comment inside it, outside the module (the interpolation
+ *     may hold no brace, quote or backtick, but these still pass): `${p.replace(/}/g,x)}@${h}/`, `${ /}/.source }@${h}/`, and `${p // }/`
+ *     + newline + `}@${h}/` (same on main, not a regression); a port variable whose run-time value contains `@host` (not only 8899);
+ *   - import and signing spellings (same on main): `import c, { sign } from "node:crypto"`; `export { sign } from "node:crypto"`;
+ *     `const { sign } = await import("node:crypto")`; a line comment inside the import braces before `sign`; a comment between `import` and
+ *     `(` in a dynamic import of a banned package;
  *   - any file that is not scanned (JSON, Markdown, config, anything under `fixtures/`).
- * Cost: on 20k characters of adversarial input every scan measures under about 100 ms. The one known quadratic is the module's computed-key
- * rule (`["` repeated: about 150 ms at 20k, 400 ms at 40k). The test "no scan goes super-linear" feeds `violations()` 20k-character runs of
- * every character the scans quantify over (after a small probe, because a cubic scan would not finish); keep it green when a normaliser or
+ * Cost: on 20k characters of adversarial input every scan measures under about 100 ms. Five small quadratic scans are known (all under
+ * roughly 100 ms at 40k characters): the module's computed-key rule (`["` repeated), `import {sign ` repeated, `const { a, ` repeated,
+ * `"//", [` repeated, and the pinned host followed by `.,` repeated. The test "no scan goes cubic or worse" feeds `violations()`
+ * 20k-character runs of every character the scans quantify over (after a small probe, because a cubic scan would not finish). It catches
+ * cubic or worse; it does not catch a quadratic scan, which stays small at these sizes. Keep it green when a normaliser or
  * a scanner changes, and never put two quantified runs of one character class next to each other (`\s*\)?\s*` was cubic: a quote and 4000
  * spaces took 36 s).
  *
@@ -139,6 +147,8 @@ const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
 // when the closing `}` of the port interpolation is followed by `/`, `?`, `#`, a closing backtick or the end: anything else (`@`, `.`, a
 // letter, `\`, whitespace, a quote, another `${`) would make the interpolation userinfo (`http://127.0.0.1:${p}@api.helius.xyz/`) or a longer host.
 // The interpolation itself may hold no `{`, `}`, quote or backtick (`${`${a}`}`, `${ {}/1 }` end at an inner `}`): a plain expression only.
+// This stops the nested forms, not every `}`: one supplied by a regex literal or a line comment inside the interpolation still passes
+// outside the module (`${p.replace(/}/g,x)}@${h}/`); it is a documented residual in the header.
 const DYNAMIC_HOST = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?!(?:localhost|127\.0\.0\.1):\$\{[^}`'"{]*\}(?:[/?#`]|$))(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
 // Stricter, for the read-only module: also no bare scheme literal.
 // (also a bare `"://"` or `"//"` literal, the separator in `[scheme, host].join("://")`).
@@ -1006,7 +1016,8 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(flagged(HM, `${moduleSrc}\nexport const rpc = (method: string) => method;`)).toBe(true);
         });
 
-        it("no scan goes super-linear: long runs of every character the normalisers and scanners quantify over stay fast, in any file and in the module", () => {
+        // Catches cubic or worse, not quadratic: a quadratic scan stays under about 100 ms at these sizes (five are known, see the header).
+        it("no scan goes cubic or worse: long runs of every character the normalisers and scanners quantify over stay fast, in any file and in the module", () => {
           const run = (unit: string) => (n: number) => unit.repeat(Math.ceil(n / unit.length));
           const after = (head: string, tail: string) => (n: number) => head + tail.repeat(n);
           const CASES: [string, (n: number) => string][] = [
