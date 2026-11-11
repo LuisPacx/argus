@@ -442,3 +442,36 @@ End (T0 + 48h + downtime): 2026-11-12T03:40:11.800Z (2026-11-12T00:40:11-03:00)
 ```
 
 New End: 2026-11-12T03:40:11.800Z (2026-11-12T00:40:11-03:00). Recompute with `node scripts/tick-gaps.mjs 2026-11-09T16:28:34.799Z` at the check-in; any further gap moves it.
+
+### Final check-in 2026-11-11T23:32Z (20:32 -03): run ended early at the Operator's request
+
+The run ended early at the Operator's request, at the probe time 2026-11-11T20:32:15-03:00 (23:32:15Z), to deploy new work. The planned End was 2026-11-12T00:40:11-03:00 (03:40:11Z), so the run stopped about 4h08m before it. Read-only probe: nothing was stopped, restarted or written.
+
+- Probe: last worker tick 2026-11-11T23:32:12.393Z, 3 s before the probe. `dev:status`: warroom running (pid 70628, port 3100), worker running (pid 71260), "sleep lock: held (2 argus locks, handle-lid-switch:sleep)". PIDs 70628, 70660 (nuxt) and 71260 alive, about 9h41m of elapsed time since the restart.
+- Run length: wall time 55h03m38s from T0, of which 11h11m37s was downtime (one gap, the deliberate reboot logged above) and 43h52m01s was uptime. That is 4h08m less than the 48h of uptime the run planned.
+- Proposals (read-only DB, probe time): 147 in total (93 `closed`, 54 `new`). 78 were created since T0. 72 status changes to `closed` since T0, the first at 2026-11-09T19:02:22Z (Proposal 22 was due at 19:02:17Z). Last close 2026-11-11T23:30:07Z.
+- Check-ins: the cos session holding the crons died after the h0 baseline, so no h6 to h42 check-ins exist (see the Restart entry). This final check-in is the only whole-run record besides the DB and worker.log.
+
+```
+T0: 2026-11-09T16:28:34.799Z
+Last tick: 2026-11-11T23:32:12.393Z
+Total wall time: 55h03m38s
+Gaps over 10 min: 1
+  2026-11-11T02:39:41.138Z -> 2026-11-11T13:51:18.139Z  11h11m37s
+Total downtime: 11h11m37s
+Uptime: 43h52m01s
+End (T0 + 48h + downtime): 2026-11-12T03:40:11.800Z (2026-11-12T00:40:11-03:00)
+```
+
+Per-AC verdicts for the re-run:
+
+| AC | Verdict | Evidence |
+|---|---|---|
+| AC1 (at most 30 Proposals per day, unattended 48 h) | Partial | 43h52m of uptime, not 48 h, because the Operator ended the run early. The 30 per rolling 24 h cap held at the h0 baseline (30 in the 24 h before T0); no later per-day count was recorded in this run. |
+| AC2 (every card shows all architecture section 8 fields) | Not evidenced | The h6 and h42 card checks and screenshots were never taken (no check-ins after h0). |
+| AC3 (stale Proposals close on schedule) | Exercised | 72 closes since T0, the first at 19:02:22Z against an expected 19:02:17Z for Proposal 22. A full scheduled-vs-actual comparison for all 48 carried-over Proposals was not recorded. |
+| AC4 (forced subscription exhaustion switches to the API) | Not tested, by Operator decision | API fallback off for the whole run, no forced window. |
+| AC5 (card to marked launched) | Not done in this run, by Operator decision | The build test with the Operator was not run; it moves to the deploy that follows. |
+| AC6 (evidence recorded in the ticket) | Partial | Run start, h0 baseline, restart and this final check-in are recorded; no h6 to h42 check-ins and no screenshots. |
+
+No boxes are ticked.
