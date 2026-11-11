@@ -418,3 +418,27 @@ Total downtime: 0h00m00s
 Uptime: 0h03m10s
 End (T0 + 48h + downtime): 2026-11-11T16:28:34.799Z (2026-11-11T13:28:34-03:00)
 ```
+
+### Restart 2026-11-11 (downtime logged)
+
+- Gap: last tick 2026-11-11T02:39:41.138Z (23:39-03 11-10) -> first tick after restart 2026-11-11T13:51:18.139Z (10:51-03 11-11).
+- Cause: user reboot 23:39-03 11-10 (deliberate). The machine came back up at 10:27-03 11-11; argus has no systemd unit, so nothing restarted it until this restart (24 min later).
+- Downtime: 11h11m37s (counted by `scripts/tick-gaps.mjs`).
+- Restart: `pnpm dev:start` on main 70467b4, no code changes, no extra env. New PIDs: warroom 70628 (port 3100), worker 71260. `dev:status`: "sleep lock: held (2 argus locks, handle-lid-switch:sleep)".
+- `[config]` line unchanged from T0 (identical string).
+- PumpPortal: `[pumpportal] connect conn=1 open=1` after restart; max `open` 1 over the whole log. War Room answers on http://localhost:3100 (`/api/research` 200).
+- Operator decision (restart-and-extend): the run continues and the End moves by the downtime.
+- 6h check-ins: none were recorded for h6 to h30 (and none after) because the cos session holding the crons died. The data stays in the DB and worker.log, so the final check-in covers the whole run from them.
+
+```
+T0: 2026-11-09T16:28:34.799Z
+Last tick: 2026-11-11T13:51:28.377Z
+Total wall time: 45h22m54s
+Gaps over 10 min: 1
+  2026-11-11T02:39:41.138Z -> 2026-11-11T13:51:18.139Z  11h11m37s
+Total downtime: 11h11m37s
+Uptime: 34h11m17s
+End (T0 + 48h + downtime): 2026-11-12T03:40:11.800Z (2026-11-12T00:40:11-03:00)
+```
+
+New End: 2026-11-12T03:40:11.800Z (2026-11-12T00:40:11-03:00). Recompute with `node scripts/tick-gaps.mjs 2026-11-09T16:28:34.799Z` at the check-in; any further gap moves it.
