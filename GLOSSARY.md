@@ -53,6 +53,9 @@ A Narrative's Rubric result (a Proposal carries its Narrative's latest), re-comp
 The narrative currently trending on the market, as the market itself names it. One Meta holds several tokens with different names and tickers, and the contest is over which token carries the best narrative; normally one or two go far higher than the rest. A Meta is observed on the market, whereas a Narrative is argus's own cluster of Signals from Sources, and a Proposal is argus's pairing of a Narrative with a Tech. A Narrative may match a Meta, but the two are not the same thing.
 _Avoid_: Trend (reserved against Narrative), Narrative (when meaning a Meta)
 
+**Meta ranking**:
+The worker's periodic list of live Metas, grouped and ranked from launchpad tokens by plain code (distinct creators first, then migrations more than 60 s after the create, market cap, then token count), for the last 6 h and 24 h. Migrations are unfiltered until the bot filter exists. Each Meta in the top five carries a one-line summary, written by the Brain within a daily cap and shown with a templated numbers line when there is none. The War Room's "Current Meta (last 24h)" section shows it; it is context, not a Narrative and not a Proposal.
+
 **Beta**:
 A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it.
 

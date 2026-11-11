@@ -504,6 +504,7 @@ export type WarRoomStore = Pick<
   | "newestNarratives"
   | "recentBrainRuns"
   | "studyStats"
+  | "latestMetas"
 >;
 
 /** A stored Signal: the Source's item plus when argus first saw it. */
