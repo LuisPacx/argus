@@ -21,14 +21,26 @@ import { describe, expect, it } from "vitest";
  * applies in that file (no SDK, no key, no write or signing method, no other host), and nothing is allowed anywhere else.
  *
  * This is a tripwire, not a proof. A banned host is caught as a URL (literal scheme) and, since ticket 23, as a bare hostname in the text
- * whatever precedes it (`${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a constant), after undoing escapes, percent-encoding, case, full-width
- * and zero-width forms, and after joining adjacent string literals. Still uncovered: a host or URL read from a file, the network, config
- * or a lookup table; base64 or any other encoding the code decodes at run time (`atob`, `Buffer.from`, `.reverse()`, `.replace()`); a host
- * assembled from a variable (`"api." + vendor + ".xyz"`); an IP address or a CNAME of a banned host; a local validator on a non-default
- * port or a non-canonical loopback spelling (`[::ffff:127.0.0.1]`); a loopback port variable that holds `8899` at run time; any file that
- * is not scanned (JSON, Markdown, config); and obfuscation outside the transforms above (octal escapes, a line comment between joined literals,
- * chaining after a closing quote such as `` `http://127.0.0.1:${p}` + "@" + h ``; a backslash that starts `\n`, `\r`, `\t` or an escaped
- * quote right after a host is read as that escape, not as a path separator).
+ * whatever precedes it (`${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a constant), after undoing escapes (a `\n`, `\r` or `\t` escape too: a
+ * URL parser drops LF, CR and TAB), percent-encoding, case, full-width and zero-width forms, and after joining adjacent string literals.
+ * Each of these views of the text is scanned on its own and can only add findings.
+ * Still uncovered (each of these passes today):
+ *   - a host or URL read from a file, the network, config or a lookup table; base64 or any other encoding the code decodes at run time
+ *     (`atob`, `Buffer.from`, `.reverse()`, `.replace()`); a host assembled from a variable (`"api." + vendor + ".xyz"`); an IP address or a
+ *     CNAME of a banned host;
+ *   - a local validator on a non-default port or a non-canonical loopback spelling (`[::ffff:127.0.0.1]`, `0.0.0.0`); a loopback port
+ *     variable that holds `8899` at run time; chaining after the closing quote of a loopback template (`` `http://127.0.0.1:${p}` + "@" + h ``);
+ *   - a line break or tab spelled any way but a `\n`, `\r` or `\t` escape: raw inside a template literal or string (`` `https://api.hel<LF>ius.xyz/` ``),
+ *     `\x0a`, `\u000a`, `\u{a}`, `&#10;`, `&Tab;`, `&NewLine;`; octal escapes (`\011`, `\150`); a line comment between joined literals;
+ *     an escaped quote right after a host ends it (harmless: a quote is no host character);
+ *   - a signing primitive reached through an alias or a bracket (`const c = require("node:crypto"); c.sign(...)`, `crypto["sign"](...)`),
+ *     a destructuring with a nested brace before it (`const { a = {}, sign } = require("node:crypto")`), or a split `"ed" + "25519"`;
+ *   - any file that is not scanned (JSON, Markdown, config, anything under `fixtures/`).
+ * Cost: on 20k characters of adversarial input every scan measures under about 100 ms. The one known quadratic is the module's computed-key
+ * rule (`["` repeated: about 150 ms at 20k, 400 ms at 40k). The test "no scan goes super-linear" feeds `violations()` 20k-character runs of
+ * every character the scans quantify over (after a small probe, because a cubic scan would not finish); keep it green when a normaliser or
+ * a scanner changes, and never put two quantified runs of one character class next to each other (`\s*\)?\s*` was cubic: a quote and 4000
+ * spaces took 36 s).
  *
  * Rule for whoever writes or tests packages/core/src/study/helius.ts: the bare-host scan reads comments, docs and fixtures too, and there
  * is no exemption for prose or test files. The test "guidance for helius.ts and its test" below proves the recipe with a sample module and
@@ -38,12 +50,17 @@ import { describe, expect, it } from "vitest";
  *      end of the text and not directly after `/`, `@` or a quote (so `// Calls mainnet.helius-rpc.com. Read-only.` and
  *      `" mainnet.helius-rpc.com. "` pass; `"mainnet.helius-rpc.com."` and `https://mainnet.helius-rpc.com./` do not).
  *  (2) Tests of that module must not spell the host. Export the whole endpoint from helius.ts under a name that is NOT an RPC endpoint
- *      setting: `HELIUS_RPC_URL`, `RPC_URL`, `RPC_HOST`, `RPC_ENDPOINT` and anything starting `HELIUS_` are flagged by RPC_ENDPOINT_SETTING,
- *      both where they are declared and in a test that imports them; `PINNED_ENDPOINT` is fine. The scan does not ban `import ... from
+ *      setting. RPC_ENDPOINT_SETTING is case-insensitive and matches any prefix or suffix: every name with `rpc`, an optional `_` and `url`,
+ *      `uri`, `endpoint` or `host` in it (`HELIUS_RPC_URL`, `RPC_URL`, `RPC_ENDPOINT`, `rpcUrl`, `rpcEndpoint`, `heliusRpcHost`, `MY_RPC_URI_2`)
+ *      and every name starting `HELIUS_` except `HELIUS_API_KEY` is flagged, both where it is declared and in a test that imports it;
+ *      `PINNED_ENDPOINT` (no `rpc` in it) is fine. The scan does not ban `import ... from
  *      "./helius.ts"` (it bans only chain, wallet and key packages). Do not rebuild a URL from a host constant in a test (`https://${HOST}/`,
  *      `"https://" + HOST`): that is "a host built at run time" and would need a DYNAMIC_HOST_FILES entry, which is the Operator's call.
  *  (3) Only helius.ts itself may contain `jsonrpc` or one of the quoted RPC method names, so a test asserts the method by importing a verb
  *      constant exported from the module (`TX_VERB = "getTransaction"`), never by spelling it, and builds no JSON-RPC envelope by hand.
+ *      Inside the module, `method:` must be followed by the literal: `method: TX_VERB` is flagged as a method that is not a literal, so the
+ *      module writes `method: "getTransaction"` in the request next to the exported `TX_VERB = "getTransaction"` (the module's own test can
+ *      assert that the two agree, by reading the sent body's method and comparing it to TX_VERB).
  *  (4) Comments and fixtures must not name any other banned host (an RPC provider, a swap or relay host); write "an RPC provider".
  *  (5) Prose naming `pump.fun` is allowed only in the frozen BARE_APEX_FILES.
  * Response fixtures can sit in a .json file under a fixtures/ directory, which this walk does not read.
@@ -108,7 +125,7 @@ const KEY_WORDS = /\b(Keypair|secretKey|privateKey|PRIVATE_KEY|mnemonic)\b/;
 const SIGNING_PRIMITIVES = /\b(?:createPrivateKey|createSign|generateKeyPair(?:Sync)?|diffieHellman|webcrypto)\b|\bcrypto\.sign\s*\(|\bsubtle\.(?:sign|importKey|generateKey)\b|["'`]ed25519["'`]/i;
 
 // A named import or destructuring of a signing primitive: `import { sign } from "node:crypto"`, `const { sign } = require("crypto")`.
-const SIGNING_IMPORT = /\b(?:import|const|let|var)\s*\{[^}]*\b(?:sign|createSign|createPrivateKey|generateKeyPair(?:Sync)?|diffieHellman|webcrypto|subtle)\b[^}]*\}\s*(?:from\s*["'](?:node:)?crypto["']|=\s*(?:require\s*\(\s*["'](?:node:)?crypto["']\s*\)|(?:globalThis\.)?(?:web)?crypto\b))/;
+const SIGNING_IMPORT = /\b(?:import|const|let|var)\s*\{(?=[^}]*\b(?:sign|createSign|createPrivateKey|generateKeyPair(?:Sync)?|diffieHellman|webcrypto|subtle)\b)[^}]*\}\s*(?:from\s*["'](?:node:)?crypto["']|=\s*(?:require\s*\(\s*["'](?:node:)?crypto["']\s*\)|(?:globalThis\.)?(?:web)?crypto\b))/;
 
 // An RPC endpoint or a Helius setting read from the environment or config: the RPC host is pinned in the module, never configured.
 const RPC_ENDPOINT_SETTING = /\b\w*RPC_?(?:URL|URI|ENDPOINT|HOST)\w*\b|\bHELIUS_(?!API_KEY\b)\w+/i;
@@ -119,9 +136,10 @@ const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
 // invisible to the host bans. A bare scheme literal on its own (`startsWith("https://")`) is not a URL and is ignored; a loopback
 // host with an interpolated port (`http://127.0.0.1:${port}`) is fine.
 // The scheme may itself be missing or built (`${scheme}://${h}/`, `"//" + h`, `scheme + "://" + h`). The loopback exemption holds only
-// when the closing `}` of the port interpolation is followed by a path, query, fragment, quote, whitespace or the end: `@`, `.`, a
-// letter, `\` or another `${` after it would make the interpolation userinfo (`http://127.0.0.1:${p}@api.helius.xyz/`) or a longer host.
-const DYNAMIC_HOST = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?!(?:localhost|127\.0\.0\.1):\$\{[^}]*\}(?:[/?#`]|$))(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
+// when the closing `}` of the port interpolation is followed by `/`, `?`, `#`, a closing backtick or the end: anything else (`@`, `.`, a
+// letter, `\`, whitespace, a quote, another `${`) would make the interpolation userinfo (`http://127.0.0.1:${p}@api.helius.xyz/`) or a longer host.
+// The interpolation itself may hold no `{`, `}`, quote or backtick (`${`${a}`}`, `${ {}/1 }` end at an inner `}`): a plain expression only.
+const DYNAMIC_HOST = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?!(?:localhost|127\.0\.0\.1):\$\{[^}`'"{]*\}(?:[/?#`]|$))(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
 // Stricter, for the read-only module: also no bare scheme literal.
 // (also a bare `"://"` or `"//"` literal, the separator in `[scheme, host].join("://")`).
 const DYNAMIC_HOST_STRICT = /(?:\b(?:https?|wss?):\/\/|\}:\/\/|["'`]:?\/\/)(?:["'`]|[^/?#\s"'`]*(?:\$\{|["'`]\s*\+))/i;
@@ -195,7 +213,9 @@ const normalizeForHosts = (text: string, identityEscapes = true): string =>
 // ".xyz"`) stays uncovered. `sep` is what an array join puts between the elements: "" for join(""), "." for `["api", "helius"].join(".")`.
 const joinLiterals = (text: string, sep = ""): string => {
   let t = stripBlockComments(text)
-    .replace(/["'`]\s*\)?\s*(?:\??\.\s*concat|\??\.?\s*\[\s*["'`]concat["'`]\s*\])\s*\(\s*["'`]/g, "") // also chained: 'a'.concat('b').concat('c'), ?.concat(
+    // also chained ('a'.concat('b').concat('c')), optional-chained (?.concat) and bracketed (['concat']). One `\s*` before each token, so
+    // that no two whitespace runs are adjacent: a quote followed by n spaces costs O(n), not O(n^3).
+    .replace(/["'`]\s*(?:\)\s*)?(?:\??\.\s*)?(?:concat|\[\s*["'`]concat["'`]\s*\])\s*\(\s*["'`]/g, "")
     .replace(/["'`]\s*\+\s*["'`]/g, "")
     .replace(/["'`]\s*,\s*["'`]/g, sep);
   // `${"a"}`, `${`a`}` and `${"a" + "b"}` (joined above), a few levels deep
@@ -273,7 +293,7 @@ export function violations(file: string, text: string): string[] {
     }
     return out;
   }
-  for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/g)) {
+  for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"']+)["']/g)) {
     if (BANNED_PACKAGES.some((r) => r.test(m[1]!))) out.push(`${file}: import ${m[1]}`);
   }
   const urlEndpoints = (src: string): string[] => {
@@ -307,8 +327,12 @@ export function violations(file: string, text: string): string[] {
   if (joined !== text) for (const v of urlEndpoints(joined)) if (!out.includes(v)) out.push(v);
   // A banned hostname anywhere in the text whatever precedes it (no literal scheme: `${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a bare
   // constant), disguised or not. Apex pump.fun and pumpportal.fun as prose are exempt only in BARE_APEX_FILES.
+  // Views of the text, each scanned on its own (a view only ever ADDS findings): with the identity escapes kept (a backslash stays a path
+  // separator), and, with them undone, as is and with `\n`, `\r` and `\t` escapes dropped (a URL parser drops LF, CR and TAB from a URL), each
+  // joined across adjacent literals with "" and with ".".
   const norm = normalizeForHosts(text);
-  for (const t of new Set([normalizeForHosts(text, false), norm, joinLiterals(norm), joinLiterals(norm, ".")])) for (const v of bareHostViolations(file, t, readOnlyRpc, out)) if (!out.includes(v)) out.push(v);
+  const views = [norm, norm.replace(/\\[nrt]/g, "")].flatMap((t) => [t, joinLiterals(t), joinLiterals(t, ".")]);
+  for (const t of new Set([normalizeForHosts(text, false), ...views])) for (const v of bareHostViolations(file, t, readOnlyRpc, out)) if (!out.includes(v)) out.push(v);
   const normFile = file.split(sep).join("/");
   if (readOnlyRpc ? DYNAMIC_HOST_STRICT.test(text) || DYNAMIC_HOST.test(text) : DYNAMIC_HOST.test(text) && !DYNAMIC_HOST_FILES.has(normFile)) out.push(`${file}: URL with a host built at run time`);
   if (!readOnlyRpc && /jsonrpc/i.test(text)) out.push(`${file}: JSON-RPC request outside ${READ_ONLY_RPC_MODULE}`);
@@ -749,6 +773,30 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(violations("new/file.ts", "fetch(`http://127.0.0.1:${p}@api.helius.xyz/`)").length).toBeGreaterThan(0);
         });
 
+        it("(b) does not exempt a port interpolation that contains a brace, a quote or a backtick (its first `}` is not its end)", () => {
+          // `${`${a}`}` and `${ {}/1 }` close at an inner `}`, so a regex that stops at the first `}` sees `/` or a backtick after it
+          for (const src of [
+            "fetch(`http://127.0.0.1:${`${a}`}@${h}/`)",
+            "fetch(`http://127.0.0.1:${ {}/1 }@${h}/`)",
+            "fetch(`http://localhost:${`${a}`}@${h}/`)",
+            "fetch(`http://localhost:${ {}/1 }@${h}/`)",
+            "fetch(`http://127.0.0.1:${`${a}`}@api.helius.xyz/`)",
+            "fetch(`ws://127.0.0.1:${ {} }@${h}`)",
+            "fetch(`http://127.0.0.1:${'8'}@${h}/`)",
+            'fetch(`http://127.0.0.1:${"8"}@${h}/`)',
+            'fetch(`http://127.0.0.1:${"@x"}/`)', // an interpolation whose own text is userinfo
+            "fetch(`http://127.0.0.1:${`8`}/x`)",
+            "fetch(`http://127.0.0.1:${{ p: 1 }.p}/x`)",
+          ]) {
+            expect(violations("new/file.ts", src), src).toContain(DYN("new/file.ts"));
+            expect(violations(M, src), `${M} ${src}`).toContain(DYN(M));
+          }
+          // an ordinary expression in the port stays exempt
+          for (const src of ["fetch(`http://127.0.0.1:${server.address().port}/x`)", "fetch(`http://localhost:${opts.port ?? 3000}`)", "fetch(`ws://127.0.0.1:${port + 1}/ws`)", "fetch(`http://127.0.0.1:${(s.address() as AddressInfo).port}/x`)"]) {
+            expect(violations("t.ts", src), src).toEqual([]);
+          }
+        });
+
         it("(b) still allows a loopback test server on an interpolated port", () => {
           for (const src of [
             "fetch(`http://127.0.0.1:${port}/x`)",
@@ -852,8 +900,42 @@ describe("ADR 0002: argus never touches a chain", () => {
           for (const src of ['fetch("https://mainnet.helius-rpc.com\\v0\\x")', 'fetch("https:\\\\mainnet.helius-rpc.com\\")', 'const u = "https://mainnet.helius-rpc.com\\send";']) {
             expect(violations(M, src).length, `${M} ${src}`).toBeGreaterThan(0);
           }
-          // a JS newline/tab escape right after the name is an escape, not a path (ambiguous; documented as residual)
+          // a JS newline/tab escape right after the name is an escape, not a path: prose stays clean (the escape-free view reads "pump.funMint")
           expect(violations(f!, 'const s = "launched on pump.fun\\nMint";')).toEqual([]);
+        });
+
+        it("(a) is not fooled by a \\n, \\r or \\t escape before or inside a host (a URL parser drops LF, CR and TAB from a URL)", () => {
+          const [f] = [...BARE_APEX_FILES];
+          for (const src of [
+            'fetch("https://\\npump.fun/api/trade")',
+            'fetch("//\\npump.fun/api/trade")',
+            'fetch("api.hel\\nius.xyz")',
+            'fetch("https://\\rpump.fun/api/trade")',
+            'fetch("https://\\tpump.fun/api/trade")',
+            'fetch("//api.hel\\r\\nius.xyz/")',
+            'fetch("//api.\\thelius.xyz/")',
+            'fetch("//api.\\n\\n\\r\\thelius.xyz/")',
+            'fetch("//api.hel" + "\\nius.xyz/")',
+            'fetch(["//api.hel", "\\nius.xyz/"].join(""))',
+            'fetch(["api", "hel\\nius", "xyz"].join("."))',
+            "fetch(`${scheme}://\\npump.fun/api/trade`)",
+            'fetch("https://pump.fun/coin/\\n../api/trade")',
+            'fetch("wss://pumpportal.fun/api/data/\\t../trade")',
+          ]) {
+            expect(hit(violations("other.ts", src)), `other.ts ${src}`).toBe(true);
+            expect(hit(violations(M, src)), `${M} ${src}`).toBe(true);
+          }
+          // in a frozen file, the bare apex name followed by an escape and then a path is the path
+          expect(bare(violations(f!, 'const s = "pump.fun\\n/api/trade";'))).toBe(true);
+          expect(bare(violations(f!, 'const s = "//pump.fun\\n/api/trade";'))).toBe(true);
+          // in the module, the pinned host may not pick up a path after an escape either
+          for (const src of ['fetch("https://mainnet.helius-rpc.com/\\nv0/send")', 'fetch("https://mainnet.helius-rpc.com\\n/v0/send")', 'fetch("https://mainnet.helius-rpc.com\\t:8899/")']) {
+            expect(violations(M, src).length, `${M} ${src}`).toBeGreaterThan(0);
+          }
+          // no new false positives: an escape between words, and the allowed uses with an escape around them
+          expect(violations(f!, 'const s = "launched on pump.fun\\nMint"; const t = "x\\npump.fun\\ny"; const u = "pump.fun\\n";')).toEqual([]);
+          expect(violations("ok.ts", 'const a = "Visit\\npump.fun/coin/x"; const b = "wss://pumpportal.fun/api/data\\n"; const c = "notsolana\\n.com";')).toEqual([]);
+          expect(violations(M, 'const a = "https://mainnet.helius-rpc.com/\\n"; // reads mainnet.helius-rpc.com\\n')).toEqual([]);
         });
 
         it("guidance for helius.ts and its test: written the recommended way both are clean, the tempting ways are flagged", () => {
@@ -899,6 +981,18 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(flagged(HM, moduleSrc.replaceAll("PINNED_ENDPOINT", "RPC_HOST"))).toBe(true);
           expect(flagged(HT, testSrc.replaceAll("PINNED_ENDPOINT", "HELIUS_RPC_URL"))).toBe(true);
           expect(flagged(HT, testSrc.replaceAll("PINNED_ENDPOINT", "RPC_ENDPOINT"))).toBe(true);
+          // RPC_ENDPOINT_SETTING is case-insensitive and matches any prefix or suffix, so camelCase and decorated names are flagged too;
+          // a name with no `rpc` in it is fine
+          for (const name of ["rpcUrl", "rpcEndpoint", "rpcHost", "heliusRpcUrl", "MY_RPC_URL_2", "rpc_endpoint", "HELIUS_ENDPOINT"]) {
+            expect(flagged(HM, moduleSrc.replaceAll("PINNED_ENDPOINT", name)), `${HM} ${name}`).toBe(true);
+            expect(flagged(HT, testSrc.replaceAll("PINNED_ENDPOINT", name)), `${HT} ${name}`).toBe(true);
+          }
+          for (const name of ["PINNED_URL", "READ_ENDPOINT", "pinnedEndpoint", "ENDPOINT"]) {
+            expect(violations(HM, moduleSrc.replaceAll("PINNED_ENDPOINT", name)), `${HM} ${name}`).toEqual([]);
+            expect(violations(HT, testSrc.replaceAll("PINNED_ENDPOINT", name)), `${HT} ${name}`).toEqual([]);
+          }
+          // inside the module `method: TX_VERB` is "not a literal", even with TX_VERB exported next to it: write the literal in the request
+          expect(violations(HM, moduleSrc.replace('method: "getTransaction"', "method: TX_VERB"))).toEqual([`${HM}: JSON-RPC method that is not a literal`]);
           // spelling the host in the test, in code or in a comment
           expect(flagged(HT, `${testSrc}\nconst U = "https://mainnet.helius-rpc.com/";`)).toBe(true);
           expect(flagged(HT, `${testSrc}\n// posts to mainnet.helius-rpc.com`)).toBe(true);
@@ -912,13 +1006,51 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(flagged(HM, `${moduleSrc}\nexport const rpc = (method: string) => method;`)).toBe(true);
         });
 
-        it("joining literals stays linear when a file has many unclosed block comments", () => {
-          const t0 = Date.now();
-          violations("big.ts", "/*".repeat(50_000));
-          violations("big.ts", "/* x ".repeat(50_000));
-          violations("big.ts", `${"/* ".repeat(50_000)}*/ const a = "b" + "c";`);
-          expect(Date.now() - t0).toBeLessThan(3000);
-        });
+        it("no scan goes super-linear: long runs of every character the normalisers and scanners quantify over stay fast, in any file and in the module", () => {
+          const run = (unit: string) => (n: number) => unit.repeat(Math.ceil(n / unit.length));
+          const after = (head: string, tail: string) => (n: number) => head + tail.repeat(n);
+          const CASES: [string, (n: number) => string][] = [
+            ["spaces", run(" ")], ["tabs", run("\t")], ["newlines", run("\n")], ["CRLF", run("\r\n")],
+            ["double quotes", run('"')], ["single quotes", run("'")], ["backticks", run("`")], ["mixed quotes", run(`"'\``)],
+            ["block comment openers", run("/*")], ["unclosed comments with text", run("/* x ")], ["comment closers", run("*/")],
+            ["unclosed comments, one closer", (n) => `${"/* ".repeat(n / 3)}*/ const a = "b" + "c";`],
+            ["backslashes", run("\\")], ["interpolation openers", run("${")], ["quoted interpolations", run('${"')],
+            ["concat calls", run(".concat(")], ["quoted concat calls", run('".concat("')], ["bracket concat calls", run(`"?.["concat"]("`)],
+            ["dots", run(".")], ["dotted labels", run("a.")], ["percent-encoded dots", run("%2e")], ["word characters", run("a")], ["hyphens", run("-")],
+            ["a quote then spaces", after('"', " ")], ["a quote then newlines", after("'", "\n")], ["a quote then tabs", after("`", "\t")],
+            ["a quote, spaces, a paren, spaces", (n) => `"${" ".repeat(n / 2)})${" ".repeat(n / 2)}`],
+            ["a quote, spaces, a dot, spaces", (n) => `"${" ".repeat(n / 2)}.${" ".repeat(n / 2)}`],
+            ["a quote, spaces, concat, spaces", (n) => `"${" ".repeat(n / 2)}.concat${" ".repeat(n / 2)}`],
+            ["quote plus quote", run(`"+"`)], ["quote comma quote", run(`","`)], ["quote, spaces, plus", run('" +')],
+            ["import then spaces", after("import", " ")], ["from then spaces", after("from", " ")], ["require then spaces", after("require(", " ")],
+            ["destructured imports without a closing brace", run("const{sign ")], ["named imports", run("import {sign} from 'x';")],
+            ["computed key openers", run('["')], ["array join openers", run('"//", ')],
+            ["http schemes", run("http://")], ["loopback port interpolations", run("http://localhost:${")], ["scheme-less separators", run('"//')], ["a scheme then word characters", after("https://", "a")],
+            ["method keys", run("method")], ["method then spaces", after("method", " ")], ["method literals", run('method: "')],
+            ["unicode escape zeros", after("\\u{", "0")], ["hex entity zeros", after("&#x", "0")], ["decimal entity zeros", after("&#", "0")],
+            ["hex digits", run("\\x4")], ["percent signs", run("%")], ["ideographic stops", run("。")],
+            ["banned hosts", run("api.helius.xyz ")], ["banned hosts with paths", run("pump.fun/")], ["bare apex names", run("pump.fun. ")],
+            ["pinned hosts", run("mainnet.helius-rpc.com. ")], ["ports", run(":8899")], ["host and port", run("localhost:8899 ")],
+            ["setting names", run("RPC_")], ["helius names", run("HELIUS_")], ["signing calls", run("crypto.sign ")], ["signing then spaces", after("crypto.sign", " ")],
+            ["everything at once", run(`"'\`/*\${.concat(%2e. \n\\`)],
+          ];
+          const slow: string[] = [];
+          for (const file of ["big.ts", M]) {
+            for (const [name, make] of CASES) {
+              // a cubic scan needs about an hour on 20k characters, so a small probe goes first; a pass needs both sizes to be fast
+              for (const [n, limit] of [[2_000, 300], [20_000, 3_000]] as const) {
+                const t0 = performance.now();
+                violations(file, make(n));
+                const ms = performance.now() - t0;
+                if (ms > limit) {
+                  slow.push(`${file}: ${name} x${n}: ${Math.round(ms)} ms (limit ${limit})`);
+                  break;
+                }
+              }
+            }
+          }
+          expect(slow).toEqual([]);
+        }, 300_000);
 
         it("keeps every earlier ban, allowance and frozen-list rule", () => {
           expect(violations("ok.ts", 'const STREAM_URL = "wss://pumpportal.fun/api/data"; const l = `https://pump.fun/coin/${mint}`; const a = "https://api.dexscreener.com";')).toEqual([]);
