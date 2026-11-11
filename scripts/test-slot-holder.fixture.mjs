@@ -26,6 +26,7 @@ if (mode === 'race') {
     onSignal: (name) => (stopping = true) && killTree(step.child, name, { graceMs: Number(process.env.ARGUS_FIXTURE_GRACE_MS) || 5000 }),
   });
   step = spawnStep(process.execPath, [process.argv[1], 'mid', mode === 'tree-stubborn' ? 'stubborn' : 'polite'], { stdio: 'inherit' });
+  writeFileSync(join(dir, 'mid.pid'), String(step.child.pid)); // the step leader (= its process group id), for test cleanup
   console.log('ready');
   await step.closed;
   if (stopping) await new Promise(() => {}); // as check.mjs: the signal handler exits

@@ -248,11 +248,14 @@ async function groupGone(pgid, ms, sleep) {
 
 /**
  * Signal a step's whole process group and resolve once no process of it is left: `signal` first, then SIGKILL after
- * `graceMs` for anything that ignored it. Never rejects; gives up (resolves) if even SIGKILL leaves something after 5 s.
+ * `graceMs` for anything that ignored it. Never rejects. Bounds: a process that left the group (setsid/setpgid) is neither
+ * signalled nor awaited, and if the group still has members 5 s after SIGKILL this resolves anyway, so the slot is
+ * released even then.
  */
 export async function killTree(child, signal = 'SIGTERM', { graceMs = 5000, sleep = realSleep } = {}) {
   const pgid = child.pid;
-  if (!pgid) return;  const send = (sig) => {
+  if (!pgid) return;
+  const send = (sig) => {
     try {
       process.kill(-pgid, sig);
     } catch {
@@ -268,7 +271,7 @@ export async function killTree(child, signal = 'SIGTERM', { graceMs = 5000, slee
 /**
  * Acquire, and guarantee release on process exit, an uncaught error and SIGINT/SIGTERM/SIGHUP.
  * On a signal `onSignal(name)` runs first and is awaited (e.g. `killTree` of the running step, so the slot is not
- * released while the suite is still running); then the slot is released and the process exits 128+signal.
+ * released while the step group is still running; see its bounds); then the slot is released and the process exits 128+signal.
  */
 export async function holdSlot({ onSignal, ...opts } = {}) {
   const got = await acquire(opts);

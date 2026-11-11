@@ -12,7 +12,8 @@ const fast = process.argv.includes('--fast');
 // killed check is reclaimed by the stale-holder check, so it can never be held forever.
 // Steps run as their own process group (spawnStep). pnpm does not forward signals, so on SIGINT/SIGTERM/SIGHUP (a
 // detached group no longer gets the terminal's Ctrl-C itself) the whole group is signalled and awaited before the slot
-// is released: a stopped check never leaves a suite running with no slot held.
+// is released, so a stopped check keeps its slot until the step tree is gone. Bounds: a process that left the group
+// (setsid/setpgid) is not signalled or awaited, and a group that survives SIGKILL for 5 s no longer holds the slot.
 let child = null;
 let slot = null;
 let stopping = false; // a signal arrived: the signal handler owns the exit (after the tree is gone and the slot released)

@@ -266,16 +266,26 @@ describe("a signalled check stops its whole step tree before releasing the slot"
     });
     let gc = 0;
     cleanup.push(() => {
-      if (gc && alive(gc)) process.kill(gc, "SIGKILL"); // never leave the grandchild behind, even when the test fails
+      // Works from whatever exists, however early the test failed: kill the parent, then the step's whole process group
+      // (mid.pid is its leader; the grandchild is in it), then the grandchild on its own in case it left the group.
       if (parent.exitCode === null) parent.kill("SIGKILL");
+      for (const [file, target] of [["mid.pid", -1], ["gc.pid", 1]] as const) {
+        const path = join(work, file);
+        const pid = existsSync(path) ? Number(readFileSync(path, "utf8")) : 0;
+        if (!Number.isInteger(pid) || pid <= 0) continue;
+        try {
+          process.kill(target * pid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
     });
     const exited = new Promise<void>((resolve) => parent.on("exit", () => resolve()));
     await until("grandchild pid", () => existsSync(join(work, "gc.pid")) && readFileSync(join(work, "gc.pid"), "utf8") !== "");
     gc = Number(readFileSync(join(work, "gc.pid"), "utf8")); // known early, for cleanup
     await until("grandchild ready", () => existsSync(join(work, "gc.ready"))); // its signal handler is installed
     await until("slot file", () => existsSync(join(slots, "slot-0.json")));
-    expect(alive(gc)).toBe(true);
-    return { parent, exited, gc: () => gc, slotFile: join(slots, "slot-0.json"), exitedFile: join(work, "gc.exited") };
+    expect(alive(gc)).toBe(true);    return { parent, exited, gc: () => gc, slotFile: join(slots, "slot-0.json"), exitedFile: join(work, "gc.exited") };
   }
 
   it("SIGTERM: the grandchild is gone, and the slot is never free while it is still running", async () => {
