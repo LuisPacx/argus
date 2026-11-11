@@ -3,7 +3,7 @@
 
 **What to build:** the home page's "Latest Signals" section (a feed of 50 raw Signals) goes, and in its place sits **Current Meta (last 24h)**: the live Metas, ranked, each row giving context and not only a name. The Operator calls this key: the first thing the page should say is what the market is doing now.
 
-**Status:** ready-for-agent
+**Status:** deployed 2026-11-11 (main 1270357)
 
 **Blocked by:** `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`, Part B (slices 4 and 5: `GET /api/metas` and the LLM summary). It renders that ticket's stored ranking and has no ranking logic of its own. Order (Operator priority, 2026-11-11): viral-sources 03 Part A, then viral-sources 04 (Beta finder), then this ticket, then viral-sources 01 and 02. Overlap with `02-safe-links-everywhere.md`: see Interplay.
 
@@ -40,8 +40,8 @@ The plain-language line, for example "Chinese-cat 'ni hao' theme around Ansem's 
 - [x] Hostile payload test: token names, labels and a summary containing markup, `</script>`, a `javascript:` URL and 10,000 characters render as text, clamped, with no `<a>` carrying an unsafe `href` and no raw HTML.
 - [x] Every link in the section goes through `safeHttpUrl` / the safe-link component of `02-safe-links-everywhere.md`; the lint rule of that ticket (`argus/no-raw-href`), if merged, passes without a disable.
 - [x] Empty (no run yet) and stale (older than 2 hours) states render their messages; the fetch polls every 60 s and not every 3 s (tested at the component level or by asserting the interval constant).
-- [ ] `verify:boot` still GETs `/` healthily on the real dev server (its page list is generated from `app/pages`, nothing to add).
-- [ ] **Browser check:** start the dev server from the worktree against a `.backup` copy of the live DB that has a stored Meta run (viral-sources/03 populated on the copy), open `/` in Chrome with the Chrome tooling, and save a screenshot of the section with real data at desktop and at phone width under `.scratch/warroom-redesign/`, cited in the ticket's Comments; confirm by eye that rows are legible, nothing overflows and the summary line is not truncated mid-word. Stop the server by PID and delete the DB copy afterwards.
+- [x] `verify:boot` still GETs `/` healthily on the real dev server (its page list is generated from `app/pages`, nothing to add).
+- [x] **Browser check:** start the dev server from the worktree against a `.backup` copy of the live DB that has a stored Meta run (viral-sources/03 populated on the copy), open `/` in Chrome with the Chrome tooling, and save a screenshot of the section with real data at desktop and at phone width under `.scratch/warroom-redesign/`, cited in the ticket's Comments; confirm by eye that rows are legible, nothing overflows and the summary line is not truncated mid-word. Stop the server by PID and delete the DB copy afterwards.
 - [x] Full `pnpm check` passes once before the commit.
 
 ## Interplay
@@ -74,4 +74,10 @@ This ticket file was copied from `main` into the branch to edit it, so expect an
 - **Links:** none are built in the page. A token links only when the API row carries a `url` (set by `/api/metas` for tokens DexScreener answered for), and only through `UrlLink` after `safeHttpUrl` accepts it. `CurrentMeta.vue` has no `<a>` and no `href` of its own (tested), so the no-raw-href lint of `02-safe-links-everywhere.md` has nothing to flag.
 - **Test style:** the render test compiles the real template and server-renders it (as `why-panel.test.ts` does), with `UrlLink` stubbed to the anchor it draws. The fixtures are typed as the API's own `MetasResponse`, and `metaView` takes that type, so a renamed field is a type error in `pnpm typecheck`.
 - **Left open:** the `verify:boot` box and the browser-check box. Both need a dev server on a `.backup` copy with a stored Meta run; the chief of staff does them after tonight's restart (no server was started here). `verify:boot` lists pages from `app/pages`, so nothing needed adding.
-- Full `pnpm check` on this tree before the commits: 104 files, 1709 tests, passed. It did not stamp (dirty tree), so the boxes are ticked in the commit. One check covered the API commit and this one (both were on the tree); the API commit was made first and is a subset of it.
+- Full `pnpm check` on this tree before the commits: 104 files, 1709 tests, passed. It did not stamp (dirty tree), so the boxes are ticked in the commit.
+
+### Ticked on deploy 2026-11-11 (`.scratch/cos.md`)
+
+- `verify:boot` box — "RESTARTED 20:45-03" on 1270357: warroom up on :3100 (pid 46564), `/api/metas` 200, `/api/signals` 404 (route deleted as intended); "DEPLOYED": the home page served in Chrome.
+- Browser check box — "DEPLOYED" (~20:50): Chrome check by the chief of staff of the live home page: "Current Meta (last 24h)" with LLM summary lines on ranks 1-4 (ni hao cat, GTA VI, Bernie, BAG), counts, top tokens with links, no Latest signals. Screenshots (outside the repo): `/var/tmp/claude-chrome-screenshots-HRLqut/screenshot-1794440795111-0.jpg` and `-1794440807808-1.jpg`.
+- Deviations from the box text, kept honest: the check ran against the live deployed server, not a worktree dev server on a `.backup` copy; no phone-width screenshot and no explicit "nothing overflows / no mid-word truncation" note is recorded; the screenshots are not saved under `.scratch/warroom-redesign/`. A phone-width look is still worth doing. One check covered the API commit and this one (both were on the tree); the API commit was made first and is a subset of it.

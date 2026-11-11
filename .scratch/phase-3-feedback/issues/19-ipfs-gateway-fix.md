@@ -1,7 +1,7 @@
 # 19: Fix Study metadata capture on the ipfs.io gateway
 **Model:** sonnet / medium — small, well-bounded change in the capture job; the tests pin the behaviour.
 
-**Status:** done (branch `ipfs-gateway`, not merged)
+**Status:** done, deployed 2026-11-11 (main 1270357)
 
 **What to build:** Study metadata capture fails for most tokens because nearly every PumpPortal `uri` is `https://ipfs.io/ipfs/<cid>` and ipfs.io throttles us.
 Evidence: `.scratch/phase-3-feedback/research/new-phase-gap-2026-11-11.md` (coverage section): only 130 of 1,614 seen migrations have a Snapshot; 402 failed with `metadata: HTTP 429`; ipfs.io fails for 9,877 of 13,020 ipfs.io uris (76%) while other gateways fail 0%; retries burn the capture cap, which causes most `capped` rows.
@@ -31,3 +31,4 @@ Default order (live probe 2026-11-11 from the dev machine, one fetch of the fixt
 - Open: the 20,000/day run cap is still the cap for new tokens; with retries no longer counted it should stop producing `capped` rows, but re-measure on the next live run.
 - Open: tokens whose first gateway always 429s still cost one wasted request each; a per-gateway cooldown would save it, not built (YAGNI until the logged counts show it matters).
 - Dropped from the recognised-host list (`PUBLIC_GATEWAY_HOSTS`): the IPFS gateway of an Infura-branded RPC provider. The containment scan (`adr-0002.test.ts`) bans that provider's whole domain suffix and the gateway host sits under it, so the entry failed the scan. Uris on that host now behave as on `main`: fetched once, as given, with no CID rewrite and no fallback (tested in general form: a gateway-shaped uri on an unrecognised host is left alone; the host itself cannot be spelled in a test). Whether argus may contact that host at all, or its uris should be CID-rewritten to the working gateways instead, is an open question for `.scratch/hardening/issues/06-runtime-egress-allowlist.md` (its socket ban shares the banned list). `.scratch` is not scanned by the containment test; the note avoids the host name anyway.
+- Deploy 2026-11-11 (`.scratch/cos.md`): all acceptance boxes were already ticked; nothing to tick. Deployed per "DEPLOYED" (main 1270357), stack verified per "STACK TIP VERIFIED" and "TIP VERIFIED"; "MIGRATION REHEARSAL" records no schema change for 19; "RESTARTED" confirms the worker restart. The open measurement above (`capped` rows with retries uncounted) still needs the next live run.

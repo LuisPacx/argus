@@ -3,7 +3,7 @@
 
 **What to build:** Argus does not know what the market's live Metas are. The term exists only in `GLOSSARY.md:48`; there is no Meta code. Add a periodic job that groups launchpad tokens (pump.fun creates and migrations, from `study_tokens` and the stored launchpad Signals) into Metas by shared name, ticker and description, ranks the groups by distinct tokens, distinct creators, migrations and market cap, and makes the ranking available to the judge and propose steps, so a Proposal can ride a Meta that is live now and not only a Google Trends or news item.
 
-**Status:** ready-for-agent
+**Status:** Part A, `GET /api/metas` and slice 5 deployed 2026-11-11 (main 1270357); slice 2, slice 4's prompt block and the ADR remain open
 
 **Blocked by:** nothing in the code. Start after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it (see Interplay).
 
@@ -167,3 +167,7 @@ Full `pnpm check` before the commit: 102 files, 1689 tests, passed; it did not s
 ### `GET /api/metas` done (the API part of slice 4), branch `meta-home`
 
 `apps/warroom/server/api/metas.get.ts` over `packages/core/src/meta/api.ts` (`metasResponse`, the `MetasResponse` type): query `window` (6h or 24h, default 24h) and `limit` (1 to 50, default 10), 400 on anything else, and an empty list with `computedAt: null` before the first run. A row carries `rank`, `label`, `firstSeenAt`, `counts` for both windows (`migrations` unfiltered and `migrationsAfter60s`), `migrationRate`, `createsPerMigration`, `topTokens`, `marketCapUsd?`, `summary` and `summarySource`; the response carries `computedAt`, `note` and the run's base rate. The summary is the stored LLM line, else the templated line (built at read time). Added beyond the ticket: a top token gets a `url` (its DexScreener page) only when it has a market cap (DexScreener answered for it) and its mint is a plain base58 address, so the page can link without building a URL from creator text. `latestMetas` was added to the `WarRoomStore` pick (a read). **Still open in slice 4:** the judge and propose prompt block ("Judge and Propose see it"), which was out of scope for this branch.
+
+### Deploy 2026-11-11 (`.scratch/cos.md`)
+
+Part A, the API and slice 5 were already ticked by their workers; nothing new to tick. Evidence: "MIGRATION REHEARSAL 2" (meta_runs, meta_rows, meta_summaries added, idempotent on second open, first recompute on a DB copy 7506 tokens), "TIP VERIFIED" (112/1790, stamp c8bb0d433e), "RESTARTED 20:45-03" (`/api/metas` 200, first Meta run in 5 s with 14 dex calls, ranks 1-5 ni hao cat, GTA VI, Bernie, BAG, ELYSION; LLM line on rank 1 at report time), "DEPLOYED" (LLM lines on ranks 1-4 in Chrome). Left open: Theme Metas (slice 2), Judge and Propose see it (slice 4 prompt block), Docs/ADR, and "Full `pnpm check` passes once before each commit" (covers the unbuilt slices' commits).

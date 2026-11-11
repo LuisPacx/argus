@@ -13,7 +13,7 @@
 
 **Blocked by:** 17 Proposal Tech value and reason (branch `proposal-tech-value`)
 
-**Status:** implemented on branch `migrated-examples` (stacked on `proposal-tech-value`); not merged
+**Status:** deployed 2026-11-11 (main 1270357); worker restarted ("RESTARTED 20:45-03")
 
 **Open for the Operator:** whether to accept receipt-time, unfiltered migrations as hints until ticket 04 exists (the research note asks for this decision). Needs a worker restart; merge between runs.
 
@@ -25,3 +25,7 @@
 - [x] The repair and name-retry prompts carry the same block; caps and validator unchanged (tested)
 - [x] `propose` SKILL.md explains the block (untrusted hints, `reason` names the example); `.env.example` and `docs/architecture.md` mention the variable
 - [x] No write to `.data/argus.db`; tests use their own DB. `pnpm check` passes once before the commit
+
+## Comments
+
+Deploy 2026-11-11 (`.scratch/cos.md`): all acceptance boxes were already ticked; nothing to tick. Evidence for the record: DEPLOY STACK entry (this level 94/1585, stamp 5927964338), "STACK TIP VERIFIED" (95/1597), "TIP VERIFIED" (112/1790), "DEPLOYED" (main 1270357), "RESTARTED 20:45-03" (propose runs since start use the new prompt; no schema change for 22 per "MIGRATION REHEARSAL").
