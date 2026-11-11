@@ -79,15 +79,23 @@ const form = reactive(blank());
 const error = ref("");
 
 const { data: commands, refresh: refreshCommands } = await useFetch("/api/commands", { default: () => [] });
-const { data: signals, refresh: refreshSignals } = await useFetch("/api/signals", { default: () => [] });
 const { data: research, refresh: refreshResearch } = await useFetch("/api/research");
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  timer = setInterval(() => void Promise.all([refresh(), refreshCommands(), refreshSignals(), refreshResearch()]), 3000);
+  timer = setInterval(() => void Promise.all([refresh(), refreshCommands(), refreshResearch()]), 3000);
 });
 onBeforeUnmount(() => clearInterval(timer));
 
+// The Meta ranking changes every 15 minutes at most, so it has its own, slower poll.
+const { data: metas, refresh: refreshMetas } = await useFetch("/api/metas", { query: { window: "24h", limit: META_ROWS }, default: () => null });
+let metaTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  metaTimer = setInterval(() => void refreshMetas(), META_POLL_MS);
+});
+onBeforeUnmount(() => clearInterval(metaTimer));
+
 const nowMs = ref(Date.now());
+const metaSection = computed(() => metaView(metas.value, nowMs.value));
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
@@ -250,20 +258,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         <p v-if="research.api.exhausted" class="note note-amber">API daily cap reached: the fallback sends nothing until older spend leaves the 24 hours.</p>
       </div>
 
-      <div class="surface grid content-start gap-4" :class="{ 'lg:col-span-2': !research }">
-        <h3 class="section-title">Latest Signals</h3>
-        <p v-if="!signals.length" class="note muted">No Signals yet. The worker polls its Sources (RSS, Google Trends, DexScreener) every 5 minutes.</p>
-        <ul class="grid max-h-[13.5rem] gap-x-6 gap-y-4 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
-          <li v-for="s in signals" :key="s.id" class="grid min-w-0 content-start gap-1.5 text-sm">
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span class="pill">{{ s.sourceLabel }}</span>
-              <time class="faint text-xs" :datetime="s.publishedAt">{{ fmtWhen(s.publishedAt) }}</time>
-            </div>
-            <a v-if="s.url" class="link line-clamp-2" :href="s.url" :title="s.title" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>
-            <span v-else class="line-clamp-2" :title="s.title">{{ s.title }}</span>
-          </li>
-        </ul>
-      </div>
+      <CurrentMeta :view="metaSection" :wide="!research" />
     </section>
 
     <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="proposal-controls" @select="choose" />

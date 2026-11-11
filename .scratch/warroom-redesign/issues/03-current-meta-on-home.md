@@ -33,16 +33,16 @@ The plain-language line, for example "Chinese-cat 'ni hao' theme around Ansem's 
 
 ## Acceptance
 
-- [ ] The "Latest Signals" section, its `useFetch("/api/signals")` and `refreshSignals()` are gone from `index.vue`; no heading or test id from the old section remains (grep clean); `/api/signals` (`signals.get.ts`) and its test `signals.test.ts` are deleted because nothing renders them; `Datastore.latestSignals` stays.
-- [ ] The new section is titled exactly "Current Meta (last 24h)" and takes the old section's place in the layout (same grid cell, same `lg:col-span-2` behaviour when the research panel is absent).
-- [ ] Each of the top 5 rows shows name, distinct tokens, distinct creators, migrations marked unfiltered, creates per migration, the 6 h versus 24 h trend word with the counts, first seen, up to three top tokens with ticker and market cap when known, and the summary line (render test over a fixture API payload for the ni hao, GTA VI and DeepSeek shapes; fields absent in the payload are omitted, never shown as `undefined` or `NaN`).
-- [ ] The trend word and the age text come from small pure functions in `apps/warroom/app/utils/` with unit tests at their thresholds (accelerating, steady, fading; 0 tokens; first seen in the future clamps to "just now").
-- [ ] Hostile payload test: token names, labels and a summary containing markup, `</script>`, a `javascript:` URL and 10,000 characters render as text, clamped, with no `<a>` carrying an unsafe `href` and no raw HTML.
-- [ ] Every link in the section goes through `safeHttpUrl` / the safe-link component of `02-safe-links-everywhere.md`; the lint rule of that ticket (`argus/no-raw-href`), if merged, passes without a disable.
-- [ ] Empty (no run yet) and stale (older than 2 hours) states render their messages; the fetch polls every 60 s and not every 3 s (tested at the component level or by asserting the interval constant).
+- [x] The "Latest Signals" section, its `useFetch("/api/signals")` and `refreshSignals()` are gone from `index.vue`; no heading or test id from the old section remains (grep clean); `/api/signals` (`signals.get.ts`) and its test `signals.test.ts` are deleted because nothing renders them; `Datastore.latestSignals` stays.
+- [x] The new section is titled exactly "Current Meta (last 24h)" and takes the old section's place in the layout (same grid cell, same `lg:col-span-2` behaviour when the research panel is absent).
+- [x] Each of the top 5 rows shows name, distinct tokens, distinct creators, migrations marked unfiltered, creates per migration, the 6 h versus 24 h trend word with the counts, first seen, up to three top tokens with ticker and market cap when known, and the summary line (render test over a fixture API payload for the ni hao, GTA VI and DeepSeek shapes; fields absent in the payload are omitted, never shown as `undefined` or `NaN`).
+- [x] The trend word and the age text come from small pure functions in `apps/warroom/app/utils/` with unit tests at their thresholds (accelerating, steady, fading; 0 tokens; first seen in the future clamps to "just now").
+- [x] Hostile payload test: token names, labels and a summary containing markup, `</script>`, a `javascript:` URL and 10,000 characters render as text, clamped, with no `<a>` carrying an unsafe `href` and no raw HTML.
+- [x] Every link in the section goes through `safeHttpUrl` / the safe-link component of `02-safe-links-everywhere.md`; the lint rule of that ticket (`argus/no-raw-href`), if merged, passes without a disable.
+- [x] Empty (no run yet) and stale (older than 2 hours) states render their messages; the fetch polls every 60 s and not every 3 s (tested at the component level or by asserting the interval constant).
 - [ ] `verify:boot` still GETs `/` healthily on the real dev server (its page list is generated from `app/pages`, nothing to add).
 - [ ] **Browser check:** start the dev server from the worktree against a `.backup` copy of the live DB that has a stored Meta run (viral-sources/03 populated on the copy), open `/` in Chrome with the Chrome tooling, and save a screenshot of the section with real data at desktop and at phone width under `.scratch/warroom-redesign/`, cited in the ticket's Comments; confirm by eye that rows are legible, nothing overflows and the summary line is not truncated mid-word. Stop the server by PID and delete the DB copy afterwards.
-- [ ] Full `pnpm check` passes once before the commit.
+- [x] Full `pnpm check` passes once before the commit.
 
 ## Interplay
 
@@ -63,3 +63,15 @@ The plain-language line, for example "Chinese-cat 'ni hao' theme around Ansem's 
 One commit, after a full `pnpm check`. Subject `War Room ticket 03: <what changed>` (the earlier redesign tickets use `War Room: ...`), body ending with `Ticket: .scratch/warroom-redesign/issues/03-current-meta-on-home.md` before the trailers. Tick the boxes in the commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+### Built, 2026-11-11, branch `meta-home` (on `meta-ranking`, which carries viral-sources/03 Part A)
+
+This ticket file was copied from `main` into the branch to edit it, so expect an add/add on merge: take this version.
+
+- **Depends on** viral-sources/03 slice 5 (the `meta-summary` task, commit `2ced44b`) and its `GET /api/metas` (next commit). Not included: viral-sources/03 slice 2 (theme Metas) and slice 4's judge and propose prompt block; the page shows clone clusters only until slice 2 lands (woohao, 咪好 and NIHAO are separate rows).
+- **Files:** `apps/warroom/app/components/CurrentMeta.vue` (template only, rendered by `server/test/current-meta.test.ts`), `app/utils/meta.ts` (trend word, age text, `metaView`, the constants `META_POLL_MS` 60 s, `META_STALE_MS` 2 h, `META_TREND` 0.4 and 0.15), `app/pages/index.vue` (the old section, its `useFetch` and `refreshSignals()` removed; a separate 60 s poll). `server/api/signals.get.ts` and `server/test/signals.test.ts` deleted; `Datastore.latestSignals` stays.
+- **Trend word:** the share of the day's launches that fell in the last 6 h; an even rate is 25%, so 40% or more reads accelerating, 15% or less fading, else steady. A Meta first seen 3 hours ago reads accelerating by construction.
+- **Links:** none are built in the page. A token links only when the API row carries a `url` (set by `/api/metas` for tokens DexScreener answered for), and only through `UrlLink` after `safeHttpUrl` accepts it. `CurrentMeta.vue` has no `<a>` and no `href` of its own (tested), so the no-raw-href lint of `02-safe-links-everywhere.md` has nothing to flag.
+- **Test style:** the render test compiles the real template and server-renders it (as `why-panel.test.ts` does), with `UrlLink` stubbed to the anchor it draws. The fixtures are typed as the API's own `MetasResponse`, and `metaView` takes that type, so a renamed field is a type error in `pnpm typecheck`.
+- **Left open:** the `verify:boot` box and the browser-check box. Both need a dev server on a `.backup` copy with a stored Meta run; the chief of staff does them after tonight's restart (no server was started here). `verify:boot` lists pages from `app/pages`, so nothing needed adding.
+- Full `pnpm check` on this tree before the commits: 104 files, 1709 tests, passed. It did not stamp (dirty tree), so the boxes are ticked in the commit. One check covered the API commit and this one (both were on the tree); the API commit was made first and is a subset of it.
