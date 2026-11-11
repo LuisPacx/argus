@@ -177,6 +177,9 @@ it("the same one-shot tick then judges and proposes only the Narratives with a m
   expect(proposals).toHaveLength(market.length);
   expect(proposals.every((p) => p.status === "new" && p.name === "Stock Paws" && p.narrativeId !== null && p.scoreId !== null)).toBe(true);
   expect(new Set(proposals.map((p) => p.narrativeId))).toEqual(new Set(market.map((n) => n.id)));
+  // The test run points DexScreener and GitHub at a dead port: the checks failed, and a failed check is stored as unknown, never clear.
+  expect(proposals.every((p) => p.collisions?.dex.status === "unknown" && p.collisions.github.status === "unknown")).toBe(true);
+  expect(proposals.every((p) => p.collisions!.dex.source === "DexScreener" && p.collisions!.github.source === "GitHub")).toBe(true);
 }, 60_000);
 
 it("a rate-limited DexScreener does not stop the other Sources", async () => {

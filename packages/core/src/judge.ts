@@ -210,8 +210,14 @@ export async function judgePendingNarratives(
     const narrative = store.getNarrative(candidate.id);
     if (!narrative) continue;
     const rubric = store.getRubric(); // read at call time: an edit applies to the next run
-    const contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...opts.context };
-    const context = contextLines(selectContext(store, embedder, clock(), contextConfig), contextConfig);
+    // A failed context read means no block, never a failed pass (as in propose).
+    let context: string[] = [];
+    try {
+      const contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...opts.context };
+      context = contextLines(selectContext(store, embedder, clock(), contextConfig), contextConfig);
+    } catch (e) {
+      log(`[worker] judge: world context not read, prompting without it: ${e instanceof Error ? e.message : String(e)}`);
+    }
     const runId = store.startBrainRun({ proposalId: 0, narrativeId: narrative.id, task: "judge", ...brain.routeFor("judge") }, clock());
     let run;
     try {

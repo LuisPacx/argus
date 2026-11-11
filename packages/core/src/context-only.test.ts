@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
 import type { Brain } from "./brain.ts";
 import { DEFAULT_JUDGE_CONFIG, judgePendingNarratives } from "./judge.ts";
@@ -64,6 +64,27 @@ describe("context-only Narratives are neither judged nor proposed (ticket 24)", 
     expect(out).toMatchObject({ judged: 0, refused: 0, failed: 0 });
     expect(calls).toEqual([]);
     expect(store.recentBrainRuns()).toEqual([]);
+  });
+
+  it("a failed world-context read does not fail the judge pass: it logs and judges without the block", async () => {
+    const store = Datastore.open(":memory:");
+    addNarrative(store, "Market only", "dexscreener:trending");
+    vi.spyOn(store, "contextNarratives").mockImplementation(() => {
+      throw new Error("db locked");
+    });
+    const prompts: string[] = [];
+    const brain: Brain = {
+      routeFor: () => ({ backend: "claude-code", model: "m" }),
+      run: async (_task, input) => {
+        prompts.push((input as { prompt: string }).prompt);
+        throw new Error("stop here");
+      },
+    };
+    const lines: string[] = [];
+    const out = await judgePendingNarratives(store, brain, CUR, { now: NOW, config: { minSignals: 1 }, log: (l) => lines.push(l) });
+    expect(prompts).toHaveLength(1);
+    expect(out.failed).toBe(1);
+    expect(lines.some((l) => l.includes("world context not read") && l.includes("db locked"))).toBe(true);
   });
 
   it("a Narrative whose Signals are all context is not judged; a mixed one and a market-only one are", () => {
