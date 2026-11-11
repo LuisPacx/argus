@@ -15,14 +15,25 @@ Shape (check against `scripts/check.mjs` and `package.json`; the code agrees wit
 **In scope:** the full `pnpm check`. `pnpm check:fast` also takes a slot only if the measured load of the fast tier justifies it; default is that it does not (it is the ~1-2 minute iteration tier), and the choice is recorded in Comments.
 **Out of scope:** stress loops (these already follow the one-loop, `--maxWorkers=2` rule in the Operator's global instructions and are not `pnpm check`); single-file or `pnpm test:fast` vitest runs; a bare `pnpm typecheck`, `pnpm lint` or `pnpm test` run directly (they bypass the slot, and the worker rule still says to use `pnpm check`); limiting the slot count by CPU or memory; non-Linux machines beyond not crashing.
 
-- [ ] `scripts/test-slot.mjs` exports acquire, release and status helpers and has the `status` and `wait` commands; slot state lives under the home-disk directory above, shared by all worktrees, never `/tmp`
-- [ ] `scripts/check.mjs` takes a slot before its first step and releases it on success, on a failing step, on SIGINT/SIGTERM and on an uncaught error
-- [ ] When both slots are held, `pnpm check` prints a "waiting for a test slot" line naming the holders, keeps waiting, and proceeds when one frees; it times out with a non-zero exit and a message naming the holders
-- [ ] Stale holders are reclaimed: a slot file whose pid is dead, or whose pid is alive but has a different start time, does not count as held (tested)
-- [ ] A third concurrent acquirer does not get a slot while two live holders exist, and two acquirers racing for the last slot cannot both win (tested with the slot directory and a short timeout overridden through env, with real child processes or injected liveness checks; no real suite is run)
-- [ ] `status` output and exit code are correct for 0, 1 and 2 held slots (tested)
-- [ ] Tests sit beside the script as `scripts/test-slot.test.ts`, like the other `scripts/*.test.ts`; temp dirs go through `packages/core/src/testing/temp.ts` and are removed; the file is in exactly one tier (`scripts/test-tiers.test.ts` guards it)
-- [ ] `docs/agents/worker-rules.md` has the one new line, and the existing "At most two full suites run on this machine at once" sentence points at it
-- [ ] Full `pnpm check` passes once before the commit (it takes a slot itself, which shows the path works)
+- [x] `scripts/test-slot.mjs` exports acquire, release and status helpers and has the `status` and `wait` commands; slot state lives under the home-disk directory above, shared by all worktrees, never `/tmp`
+- [x] `scripts/check.mjs` takes a slot before its first step and releases it on success, on a failing step, on SIGINT/SIGTERM and on an uncaught error
+- [x] When both slots are held, `pnpm check` prints a "waiting for a test slot" line naming the holders, keeps waiting, and proceeds when one frees; it times out with a non-zero exit and a message naming the holders
+- [x] Stale holders are reclaimed: a slot file whose pid is dead, or whose pid is alive but has a different start time, does not count as held (tested)
+- [x] A third concurrent acquirer does not get a slot while two live holders exist, and two acquirers racing for the last slot cannot both win (tested with the slot directory and a short timeout overridden through env, with real child processes or injected liveness checks; no real suite is run)
+- [x] `status` output and exit code are correct for 0, 1 and 2 held slots (tested)
+- [x] Tests sit beside the script as `scripts/test-slot.test.ts`, like the other `scripts/*.test.ts`; temp dirs go through `packages/core/src/testing/temp.ts` and are removed; the file is in exactly one tier (`scripts/test-tiers.test.ts` guards it)
+- [x] `docs/agents/worker-rules.md` has the one new line, and the existing "At most two full suites run on this machine at once" sentence points at it
+- [x] Full `pnpm check` passes once before the commit (it takes a slot itself, which shows the path works)
 
 Note for the implementer: a test of `check.mjs` must not start a real `pnpm check`; test the slot module and keep the `check.mjs` change thin (acquire, run, release).
+
+## Comments
+
+- Slot module: `scripts/test-slot.mjs` (API: `slotDir`, `readStartTime`, `status`, `formatStatus`, `tryAcquire`, `acquire`, `waitForFree`, `holdSlot`). `holdSlot` = acquire + release on `exit` (covers `process.exit`, uncaught errors), SIGINT, SIGTERM, SIGHUP.
+- Stale holders: dead pid (`process.kill(pid,0)`, EPERM counts as alive) or a `/proc/<pid>/stat` start time (field 22) that differs from the recorded one. Start time is Linux-only; elsewhere it is null and a null on either side skips that comparison, so only the pid check applies (no crash, PID reuse undetected). A crashed or `kill -9` holder frees its slot by itself. Tests plant slot files with a dead pid (a child that already exited) and with our own live pid plus a wrong start time, so nothing depends on timing.
+- An unparseable slot file (creator crashed between create and write) counts as held for 5 s, then stale, so a reader never mistakes a half-written live file for a free slot.
+- Races: all acquire attempts run under a `mkdir` lock (`lock` dir in the slot dir, broken if older than 10 s), so two reclaimers of one stale slot cannot delete each other's fresh file; the `wx` create stays as a second guard. Release only deletes the file if it still names our pid. Tested in-process and with four real racing child processes (`scripts/test-slot-holder.fixture.mjs`).
+- `check.mjs` now spawns steps asynchronously (was `spawnSync`): a blocking `spawnSync` never lets a SIGTERM handler run, so the slot could not be released on a signal. On a signal the current step child is sent SIGTERM and the process exits 128+n. The git snapshot for stamping is now taken after the wait, so the stamp describes the tree the steps ran on.
+- `pnpm check:fast` does not take a slot (default from the ticket; not measured). Only the full run does.
+- Wait line: `check: waiting for a test slot (2 of 2 held: <worktree> pid N since HH:MM, ...)`, printed at once and every 30 s; timeout (`ARGUS_TEST_SLOT_TIMEOUT_MS`, default 45 min) rejects with `timed out ... (holders)` and `check` exits 1.
+- Tests: the waiting line, proceed-when-freed and timeout are tested on the module (injected `sleep`, short timeout), not by running `check.mjs`; the full `pnpm check` run before the commit exercises the `check.mjs` path. Tests use `tempDir` and pass the dir explicitly, never the real slot dir. The file stays in the fast tier: its child processes are one-line node scripts that finish in well under a second.

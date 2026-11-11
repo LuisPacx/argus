@@ -1,22 +1,44 @@
 // `pnpm check`: typecheck, lint, test, in order, stopping at the first failure with its exit code.
 // On success it stamps HEAD's tree (see check-stamp.mjs) so the pre-push hook can skip a re-run, but only if the worktree was
 // clean and HEAD's tree unchanged for the whole run (snapshot taken before the first step).
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { checkEnv } from '../vitest.tiers.mjs';
 import { snapshot, stampIfClean, unstampableReason } from './check-stamp.mjs';
+import { holdSlot } from './test-slot.mjs';
 
 // `pnpm check:fast` (--fast) runs the fast test tier instead and never stamps: a stamp must mean the full suite passed.
 const fast = process.argv.includes('--fast');
+// The full run takes one of two machine-wide test slots (test-slot.mjs) for all three steps and waits, loudly, when both
+// are taken. check:fast does not: it is the short iteration tier. The slot is released on exit, errors and signals, and a
+// killed check is reclaimed by the stale-holder check, so it can never be held forever.
+let child = null;
+let slot = null;
+if (!fast) {
+  try {
+    slot = await holdSlot({ worktree: process.cwd(), command: 'pnpm check', onSignal: () => child?.kill('SIGTERM') });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+// Snapshot after the wait: the tree may have changed while queued, and the stamp must describe what the steps ran on.
 let before = null;
 try {
   before = snapshot(process.cwd());
 } catch {
   // not a git worktree: run the check, stamp nothing
 }
+const run = (step) =>
+  new Promise((resolve) => {
+    child = spawn('pnpm', [step], { stdio: 'inherit', env: checkEnv(fast) });
+    child.on('error', () => resolve(1));
+    child.on('close', (code) => resolve(code ?? 1));
+  });
 for (const step of ['typecheck', 'lint', fast ? 'test:fast' : 'test']) {
-  const r = spawnSync('pnpm', [step], { stdio: 'inherit', env: checkEnv(fast) });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  const status = await run(step);
+  if (status !== 0) process.exit(status); // 'exit' handler releases the slot
 }
+slot?.release();
 if (fast) {
   console.log('check:fast: passed (fast tier only, not stamped; run pnpm check before committing)');
   process.exit(0);
