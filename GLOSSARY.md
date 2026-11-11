@@ -43,6 +43,18 @@ The editable dimensions (momentum, novelty, buildability, hook, legitimacy) by w
 **Score**:
 A Narrative's Rubric result (a Proposal carries its Narrative's latest), re-computed when the Narrative changes materially; each is stored with the Rubric version it used, and its history is kept.
 
+## Market
+
+**Meta**:
+The narrative currently trending on the market, as the market itself names it. One Meta holds several tokens with different names and tickers, and the contest is over which token carries the best narrative; normally one or two go far higher than the rest. A Meta is observed on the market, whereas a Narrative is argus's own cluster of Signals from Sources, and a Proposal is argus's pairing of a Narrative with a Tech. A Narrative may match a Meta, but the two are not the same thing.
+_Avoid_: Trend (reserved against Narrative), Narrative (when meaning a Meta)
+
+**Beta**:
+A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it.
+
+**Vamping**:
+Launching a token to take the volume of a token that is rising in market cap but has a mistake in its ticker, name, links or image, or in the type of token it was created as (for example one that was meant to have fee sharing, holder rewards, or a stock pairing). Unlike a Beta, which imitates a narrative, a vamp targets one specific token's flaw. When the Operator does this it is a Launch.
+
 ## People
 
 **Operator**:
