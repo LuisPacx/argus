@@ -66,13 +66,13 @@ Out of scope: trading, wallets, signing or any chain call (ADR 0002; this reads 
 
 Offline in `pnpm check` (recorded fixtures and fake clients); the DB-copy replay is an opt-in script.
 
-- [ ] **Clone clusters (slice 1).** A fixture of tokens with the real 11-11 shapes (11 `DeepSeek` creates of which 10 migrated, 11 `IShowSpeed`, `米苏 ($MISU)` and `Misu ($Misu)` meeting through the ticker, 40 unrelated names) groups into the expected groups, and a generic key (`$BTC`, `coin`, `ai`) does not merge unrelated groups (tested, failing first on `main`).
-- [ ] **The key is safe.** Names with RegExp metacharacters, zero-width and bidi characters, 10,000-character names and mixed scripts are normalised in linear time without a dynamic RegExp (tested; `pnpm lint` clean).
+- [x] **Clone clusters (slice 1).** A fixture of tokens with the real 11-11 shapes (11 `DeepSeek` creates of which 10 migrated, 11 `IShowSpeed`, `米苏 ($MISU)` and `Misu ($Misu)` meeting through the ticker, 40 unrelated names) groups into the expected groups, and a generic key (`$BTC`, `coin`, `ai`) does not merge unrelated groups (tested, failing first on `main`).
+- [x] **The key is safe.** Names with RegExp metacharacters, zero-width and bidi characters, 10,000-character names and mixed scripts are normalised in linear time without a dynamic RegExp (tested; `pnpm lint` clean).
 - [ ] **Theme Metas (slice 2).** On a labelled set built from the DB copy (at least the ni hao and GTA VI groups, each with at least 10 tokens, plus 5 clone clusters that must stay separate), the chosen rule merges woohao, 咪好 and NIHAO into one group and GATO, WASTED and the other GTA names into one, with zero wrong merges among the labelled pairs; the set, the rule and the numbers are in Comments. If that precision is not reached, slice 2 is dropped and the ticket says so (the other boxes still hold).
-- [ ] **Ranking is expected and distinct-creator aware (slice 3).** A fixture with clone clusters yields the expected order under the documented rule; one creator spamming 50 same-name tokens ranks below 10 creators with 10 same-name tokens each; a group with fewer tokens but more migrations ranks above a larger group with none; a missing market cap neither drops nor invents a figure (tested, including the 6 h and 24 h windows).
+- [x] **Ranking is expected and distinct-creator aware (slice 3).** A fixture with clone clusters yields the expected order under the documented rule; one creator spamming 50 same-name tokens ranks below 10 creators with 10 same-name tokens each; a group with fewer tokens but more migrations ranks above a larger group with none; a missing market cap neither drops nor invents a figure (tested, including the 6 h and 24 h windows).
 - [ ] **Replay on a DB copy surfaces the real Metas.** On a `sqlite3 .data/argus.db ".backup <home-disk path>"` copy (the live file is never opened by argus code; delete the copy afterwards), recompute for 2026-11-11 20:00 UTC with the 24 h window: the ni hao group and the GTA VI group are each in the top 10, and the DeepSeek and IShowSpeed clone clusters are each in the top 10 (market cap absent in the replay unless recorded DexScreener JSON is supplied; say which). The top 20 with their counts go in Comments and are read by hand.
-- [ ] **Stable and cheap.** A recompute over the 24 h window of a real day (about 12k creates) takes under 5 s of CPU on the DB copy and does not hold a write transaction longer than the insert of its rows; DexScreener calls per run never exceed the configured budget (tested with a counting fake client).
-- [ ] **Persistence.** The migration is additive and idempotent, a second open changes nothing, a run is stored and `latestMetas` returns the newest, and rows older than 14 days are pruned (tested; rehearsed on a `.backup` copy).
+- [x] **Stable and cheap.** A recompute over the 24 h window of a real day (about 12k creates) takes under 5 s of CPU on the DB copy and does not hold a write transaction longer than the insert of its rows; DexScreener calls per run never exceed the configured budget (tested with a counting fake client).
+- [x] **Persistence.** The migration is additive and idempotent, a second open changes nothing, a run is stored and `latestMetas` returns the newest, and rows older than 14 days are pruned (tested; rehearsed on a `.backup` copy).
 - [ ] **Judge and Propose see it (slice 4).** With Metas present, the judge and propose prompts contain the block inside a random boundary, hostile names (`</boundary>`, "ignore previous instructions", control characters, 10,000 characters) cannot end it or exceed their cap, and a Narrative whose launchpad Signals share a key with the top Meta carries the "matches" line; with none present, both prompts are byte-for-byte today's (tested).
 - [ ] **API.** `GET /api/metas` returns the stored latest run for the window, 400 on an unknown window, and escapes nothing a client would render as markup because it returns JSON text only (tested in `apps/warroom/server/test`). Each row carries `label`, `rank`, `firstSeenAt`, the 6 h and 24 h counts, `topTokens` (up to three, `{mint, name, symbol, marketCapUsd?}`), `summary` and the run's `computedAt`; the response also carries the run's `computedAt` and an empty list (not an error) before the first run (tested).
 - [ ] **The fallback line.** The templated line is a pure function of the row's numbers, states "(unfiltered)" next to migrations, omits market cap when absent, truncates hostile names to the cap, and contains no markup (tested on the ni hao, GTA VI and DeepSeek fixtures).
@@ -104,3 +104,45 @@ Offline in `pnpm check` (recorded fixtures and fake clients); the DB-copy replay
 One commit per slice, in order, each after a full `pnpm check`. Subject `Viral sources ticket 03: <slice and what changed>` (for example `Viral sources ticket 03: slice 1, token subject key and clone clusters`), body ending with `Ticket: .scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md` before the trailers. Tick a slice's boxes in its commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+### Part A done (slices 1 and 3), 2026-11-11
+
+Commit `eed144c` on branch `meta-ranking` (based on `ipfs-gateway` 95d6c79; this ticket file was copied from `main` bfee8bf into the branch to edit it, so expect an add/add on merge: take this version). Full `pnpm check` on the clean committed tree: 100 files, 1643 tests, stamped tree `6d4d5acdb5`. Ticked above: clone clusters, key safe, ranking, stable and cheap, persistence. Left open: theme Metas (slice 2), slices 4 and 5 and their boxes, the Docs/ADR box, the replay box (see below), and the standing `pnpm check` box.
+
+What was built: `packages/core/src/meta/` (`key.ts` subjectKey; `group.ts` groupTokens, stoplist, hub guard; `config.ts` the rule, one place; `compute.ts` recomputeMetas; `store.ts` meta_runs and meta_rows, 14-day prune), `Datastore.latestMetas(window, limit)`, `StudyStore.createdBetween`, `DexPair.marketCapUsd/fdvUsd`, a worker tick every `ARGUS_META_INTERVAL_MINUTES` (default 15, off in `--dry-run` and one-shot), and the opt-in `scripts/meta-replay.mjs`. Env knobs: `ARGUS_META_RANK_ORDER`, `ARGUS_META_DEX_GROUPS` (10), `ARGUS_META_DEX_CALLS` (20 per run). Not in Part A: `summary` and `summarySource` columns (slice 5 adds them additively), prompt block, API.
+
+Choices to know about:
+- Rank order is the user's decision above: creators, then `migrationsAfter60s`, then summed market cap (absent sorts after present), then tokens, then the group key. Both migration counts are stored and shown.
+- One key space for names and tickers. Whitespace is collapsed to one space (so `Deep Seek` and `DeepSeek` are different keys; a theme rule in slice 2 can join them).
+- A group needs at least 2 distinct tokens in the window to be a row; rows are capped at 50 per window per run. Out-of-scope creates (other launchpads) are excluded from the base rate.
+- DexScreener: one `tokenPairs` call per group (up to 30 candidate mints, migrated first), top 10 groups per window, hard cap 20 calls a run. The write transaction holds only the inserts (tested with a second connection writing during the lookup).
+- Hub guard (`maxPartners` 200): measured max on the DB copy is 72 partner keys (the DacityCoin spam name), so it never fires on this data. The stoplist is `coin, token, ai, the, sol, btc, eth, cat, dog, meme, test, ...` plus any single character.
+
+### Replay on a DB copy (as of 2026-11-11 20:00 UTC, 24 h window, no market cap: no recorded DexScreener JSON was supplied)
+
+Copy made with `sqlite3 .data/argus.db ".backup ~/.cache/argus-scratch/meta-replay.db"` (also the migration rehearsal: `Datastore.open` on the copy migrated it), deleted afterwards. 7,777 pump tokens read, 3,229 groups, 165 ms CPU for the recompute including the insert. Base migration rate 24 h: 3.1% (240/7,777, unfiltered); 6 h: 3.3%.
+
+| rank | tokens | creators | migr (after 60 s) | label |
+|---|---|---|---|---|
+| 1 | 144 | 82 | 6 (4) | ni hao cat |
+| 2 | 62 | 62 | 0 (0) | ELYSION |
+| 3 | 78 | 56 | 29 (0) | GTA VI |
+| 4 | 54 | 39 | 1 (0) | Bernie |
+| 5 | 63 | 37 | 0 (0) | Bugles Cat |
+| 6 | 64 | 29 | 1 (1) | BAG |
+| 7 | 45 | 29 | 0 (0) | FORK |
+| 8 | 51 | 26 | 4 (2) | Justice For Daniela Bittler |
+| 9 | 28 | 21 | 4 (1) | fomocat |
+| 10 | 20 | 20 | 2 (2) | Greg |
+| 11 | 32 | 20 | 1 (0) | Hope |
+| 12 | 33 | 19 | 0 (0) | Claudia |
+| 13 | 47 | 16 | 6 (5) | TRUPM |
+| 14 | 33 | 15 | 0 (0) | GIF |
+| 15 | 29 | 15 | 1 (0) | Elon Coin |
+| 16 | 22 | 15 | 0 (0) | Qi |
+| 17 | 19 | 14 | 1 (1) | Attention Coin |
+| 18 | 17 | 13 | 1 (1) | Hold |
+| 19 | 17 | 13 | 0 (0) | Māo |
+| 20 | 16 | 13 | 1 (0) | boxing cat |
+
+Read by hand: the ni hao group (#1) and the GTA VI group (#3) are in the top 10. The DeepSeek (11 tokens, 11 creators, 10 migrations, all within 60 s of the create) and IShowSpeed (11 tokens, 10 creators, 11 migrations, all within 60 s) clusters are NOT in the top 10: they rank 34 and 40 under the decided order (25 under creators-then-unfiltered-migrations), and the decided order cannot lift them: they have 10 to 11 creators against 13 to 82 for the groups above them, and their migrations are bundled with the create. So the replay box is not ticked: it asks for DeepSeek and IShowSpeed in the top 10, which the decided rule does not give. For comparison, `ARGUS_META_RANK_ORDER=migrations,creators,marketCapUsd,tokens` puts GTA VI #1, IShowSpeed #2, DeepSeek #3, ni hao #4. The ni hao group here is the clone cluster only (the `nihao` ticker links 16 names); woohao and 咪好 need slice 2. Carrier-theme groups (cat names: Bugles Cat, fomocat, boxing cat) do appear; judge in the review whether to hide them (question 4). ELYSION, FORK and Claudia are many creators with no migrations: probably coordinated or bot launches, which the base rate and `createsPerMigration` make visible.
