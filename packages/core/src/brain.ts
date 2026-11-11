@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
-export type BrainTask = "judge" | "propose" | "spec" | "build";
+export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary";
 export type BrainBackend = "claude-code" | "api";
 
 /** What a task needs to run: free-form text handed to the skill. */
@@ -142,6 +142,8 @@ export const DEFAULT_ROUTING: Routing = {
   judge: { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.1, timeoutMs: 5 * MINUTE, tools: [] },
   propose: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 1, timeoutMs: 15 * MINUTE, tools: ["WebSearch", "WebFetch"] },
   spec: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 2, timeoutMs: 10 * MINUTE, tools: [] },
+  // One short line about a Meta (viral sources ticket 03, slice 5): a judge-sized haiku run, no tools, and no API fallback (it waits out a rate limit).
+  "meta-summary": { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.05, timeoutMs: 3 * MINUTE, tools: [] },
   build: {
     backend: "claude-code",
     model: "sonnet",

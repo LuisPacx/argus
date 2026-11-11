@@ -1349,9 +1349,14 @@ export class Datastore {
     return this.spendSince(["propose"], since, caps);
   }
 
-  /** What research (judge plus propose) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
+  /** What the Meta summary task has spent since `since` (ISO), as for `judgeSpendSince`. */
+  metaSummarySpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["meta-summary"], since, caps);
+  }
+
+  /** What research (judge, propose and the Meta summary line) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary"], since, caps);
   }
 
   /**

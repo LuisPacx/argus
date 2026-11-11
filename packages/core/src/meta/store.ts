@@ -63,6 +63,22 @@ export interface MetaRow extends NewMetaRow {
   migrationRate: number;
   /** tokens / migrations in the ranked window; null when none migrated. */
   createsPerMigration: number | null;
+  /** The stored one-line LLM summary for this group (meta_summaries); absent until one was made. Model text from creator-written input: untrusted. */
+  summary?: string;
+  /** When that summary was made. */
+  summaryAt?: string;
+}
+
+/** One group's summary state: the line, the input it was made for, and the last attempt (kept even when the answer was refused, so a poison input is not retried at once). */
+export interface MetaSummaryRecord {
+  key: string;
+  /** The accepted line; null when no attempt has produced one yet. */
+  summary: string | null;
+  summaryAt: string | null;
+  /** Hash of the input the summary was made for. */
+  inputHash: string;
+  /** Last attempt, accepted or refused. */
+  triedAt: string;
 }
 
 export interface MetaRun {
@@ -117,6 +133,14 @@ export function migrateMeta(db: DatabaseSync): void {
     top_market_cap_usd REAL,
     market_cap_usd REAL,
     PRIMARY KEY (run_id, win, rank)
+  )`);
+  // Ticket 03, slice 5: the one-line summary of a Meta, by group key, so it survives from one run to the next while its input holds.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_summaries (
+    key TEXT PRIMARY KEY,
+    summary TEXT,
+    summary_at TEXT,
+    input_hash TEXT NOT NULL,
+    tried_at TEXT NOT NULL
   )`);
 }
 
@@ -217,6 +241,38 @@ export class MetaStore {
     const cutoff = new Date(beforeMs).toISOString();
     this.db.prepare("DELETE FROM meta_rows WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
+    this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
+  }
+
+  /** The summary records of these group keys (those that have one). READ ONLY. */
+  summaries(keys: readonly string[]): Map<string, MetaSummaryRecord> {
+    const out = new Map<string, MetaSummaryRecord>();
+    const get = this.db.prepare("SELECT * FROM meta_summaries WHERE key = ?");
+    for (const key of new Set(keys)) {
+      const r = get.get(key) as Row | undefined;
+      if (r) out.set(key, { key, summary: r.summary as string | null, summaryAt: r.summary_at as string | null, inputHash: r.input_hash as string, triedAt: r.tried_at as string });
+    }
+    return out;
+  }
+
+  /** WORKER ONLY. Stores an accepted summary for a group, replacing the earlier one. */
+  saveSummary(key: string, summary: string, inputHash: string, at: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO meta_summaries (key, summary, summary_at, input_hash, tried_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET summary = excluded.summary, summary_at = excluded.summary_at, input_hash = excluded.input_hash, tried_at = excluded.tried_at`,
+      )
+      .run(key, summary, at, inputHash, at);
+  }
+
+  /** WORKER ONLY. Records a refused attempt without touching an earlier accepted line, so the same input is not tried again before the retry gap. */
+  markTried(key: string, inputHash: string, at: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO meta_summaries (key, summary, summary_at, input_hash, tried_at) VALUES (?, NULL, NULL, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET tried_at = excluded.tried_at`,
+      )
+      .run(key, inputHash, at);
   }
 
   /** The newest run's top `limit` rows for one window, ranked; undefined before the first run. READ ONLY. */
@@ -227,6 +283,14 @@ export class MetaStore {
     const rows = (this.db.prepare("SELECT * FROM meta_rows WHERE run_id = ? AND win = ? AND rank <= ? ORDER BY rank").all(r.id as number, window, n) as Row[]).map((x) => toRow(x, window));
     const windowTokens = r[`base_tokens_${window}`] as number;
     const windowMigrations = r[`base_migrations_${window}`] as number;
+    const summaries = this.summaries(rows.map((x) => x.key));
+    for (const row of rows) {
+      const s = summaries.get(row.key);
+      if (s?.summary != null && s.summaryAt != null) {
+        row.summary = s.summary;
+        row.summaryAt = s.summaryAt;
+      }
+    }
     return {
       id: r.id as number,
       computedAt: r.computed_at as string,

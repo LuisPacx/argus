@@ -8,7 +8,9 @@ import {
   captureRunCap,
   metaConfigFromEnv,
   metaIntervalMinutes,
+  metaSummaryConfigFromEnv,
   recomputeMetas,
+  summariseMetas,
   FallbackBrain,
   announceNewProposals,
   anthropicKeyFromEnv,
@@ -312,6 +314,17 @@ const metaTick = reentrant(
   },
   () => {}, // a slow lookup is still running: the next tick starts fresh
 );
+// The one-line summary of the top Metas (slice 5): the Brain task `meta-summary`, after each ranking refresh and as its own pass, so a slow
+// claude call never delays the next ranking. Bounded and cached (ARGUS_META_SUMMARY_MAX_PER_DAY, ARGUS_META_SUMMARY_MAX_DAILY_USD); counts in
+// the research share. When it makes no line the War Room shows the templated numbers line.
+const metaSummaryConfig = metaSummaryConfigFromEnv(process.env);
+const metaSummaryTick = reentrant(
+  async () => {
+    const r = await summariseMetas(store, brain, { config: metaSummaryConfig, research: researchBudget, log: console.log, signal: shutdown.signal });
+    if (r.called > 0) console.log(`[worker] meta summary: ${r.accepted} written, ${r.refused} refused, ${r.failed} failed${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+  },
+  () => {}, // the previous pass is still waiting on claude: the next refresh picks up what is left
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -330,7 +343,12 @@ const runIngestTick = () => track(ingestTick, "ingest tick");
 const runJudgeTick = () => track(judgeTick, "judge tick");
 const runProposeTick = () => track(proposeTick, "propose tick");
 const runStudyTick = () => track(studyTick, "study tick");
-const runMetaTick = () => track(metaTick, "meta tick");
+const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
+const runMetaTick = () =>
+  track(async () => {
+    await metaTick();
+    void runMetaSummaryTick();
+  }, "meta tick");
 // Research is one sequence: score what changed, then propose from the Scores.
 const runResearchTick = async () => {
   await runJudgeTick();

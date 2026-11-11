@@ -20,6 +20,8 @@ export * from "./meta/group.ts";
 export * from "./meta/config.ts";
 export * from "./meta/store.ts";
 export * from "./meta/compute.ts";
+export * from "./meta/summary.ts";
+export * from "./meta/summary-pass.ts";
 
 export * from "./disclosure.ts";
 export * from "./build-runner.ts";

@@ -52,14 +52,20 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
  */
 export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor">): RunCaps {
   // The subscription's caps, even while the API fallback is serving: Est. usage is charged at the subscription's per-run cap.
-  const route = (task: "judge" | "propose") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
+  const route = (task: "judge" | "propose" | "meta-summary") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
   return {
     judge: route("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
     propose: route("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
+    // The Meta summary line counts in the research share too (viral sources ticket 03, slice 5).
+    "meta-summary": route("meta-summary").maxBudgetUsd ?? DEFAULT_ROUTING["meta-summary"].maxBudgetUsd,
   };
 }
 
-export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = { judge: DEFAULT_ROUTING.judge.maxBudgetUsd, propose: DEFAULT_ROUTING.propose.maxBudgetUsd };
+export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = {
+  judge: DEFAULT_ROUTING.judge.maxBudgetUsd,
+  propose: DEFAULT_ROUTING.propose.maxBudgetUsd,
+  "meta-summary": DEFAULT_ROUTING["meta-summary"].maxBudgetUsd,
+};
 
 export interface ResearchUsage {
   /**
