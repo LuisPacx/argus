@@ -152,6 +152,9 @@ export class SnapshotNotAllowedError extends DomainError {
 
 const DAY_MS = 24 * 3_600_000;
 const MINT_PUMP_RE = /pump$/;
+/** Dedupe key for names and symbols: NFKC, lowercase, letters and digits only. */
+const NON_KEY_CHARS_RE = /[^\p{L}\p{Nd}]/gu;
+const normaliseKey = (s: string): string => s.normalize("NFKC").toLowerCase().replace(NON_KEY_CHARS_RE, "");
 
 export function migrateStudy(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS study_tokens (
@@ -172,6 +175,7 @@ export function migrateStudy(db: DatabaseSync): void {
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS study_tokens_due ON study_tokens (status, created_at)");
   db.exec("CREATE INDEX IF NOT EXISTS study_tokens_first_seen ON study_tokens (first_seen_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS study_tokens_migrated_at ON study_tokens (migrated_at)");
   db.exec(`CREATE TABLE IF NOT EXISTS study_capture_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     mint TEXT NOT NULL,
@@ -375,11 +379,27 @@ export class StudyStore {
     if (!(n > 0)) return [];
     const rows = this.db
       .prepare(
-        `SELECT t.mint, t.name, t.symbol, t.migrated_at, s.description, s.site_title FROM study_tokens t LEFT JOIN study_snapshots s ON s.mint = t.mint
+        `SELECT t.mint, t.name, t.symbol, t.creator, t.migrated_at, s.description, s.site_title FROM study_tokens t LEFT JOIN study_snapshots s ON s.mint = t.mint
          WHERE t.migrated_at IS NOT NULL AND TRIM(t.name) <> '' ORDER BY t.migrated_at DESC, t.mint LIMIT ?`,
       )
-      .all(n) as Row[];
-    return rows.map((r) => ({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "", siteTitle: (r.site_title as string | null) ?? "" }));
+      .all(Math.min(100, n * 5)) as Row[];
+    // One example per creator, per normalised name and per normalised symbol (ticket 22); empty keys are not deduped.
+    const seenCreators = new Set<string>();
+    const seenNames = new Set<string>();
+    const seenSymbols = new Set<string>();
+    const out: MigratedExample[] = [];
+    for (const r of rows) {
+      if (out.length >= n) break;
+      const creator = r.creator as string;
+      const name = normaliseKey(r.name as string);
+      const symbol = normaliseKey(r.symbol as string);
+      if ((creator !== "" && seenCreators.has(creator)) || (name !== "" && seenNames.has(name)) || (symbol !== "" && seenSymbols.has(symbol))) continue;
+      if (creator !== "") seenCreators.add(creator);
+      if (name !== "") seenNames.add(name);
+      if (symbol !== "") seenSymbols.add(symbol);
+      out.push({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "", siteTitle: (r.site_title as string | null) ?? "" });
+    }
+    return out;
   }
 
   /** Pending tokens whose age has reached the Snapshot age at `now`, oldest create first. */

@@ -162,7 +162,7 @@ describe("migrated-token examples in the prompt (ticket 22)", () => {
     signature: "",
     name: kind === "create" ? name : "",
     symbol: kind === "create" ? `T${n}` : "",
-    creator: "C".repeat(44),
+    creator: `Creator${n}`.padEnd(44, "1"),
     uri: kind === "create" ? `https://ipfs.io/ipfs/m${n}` : "",
     pool: kind === "create" ? "pump" : "pump-amm",
   });

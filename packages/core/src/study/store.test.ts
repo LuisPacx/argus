@@ -343,9 +343,9 @@ describe("Study stats", () => {
 describe("recentMigrated (the propose prompt's examples, ticket 22)", () => {
   it("returns the newest migrated tokens that have a name, with the Snapshot's description and site title when there is one", () => {
     const store = open();
-    store.study.recordTokenEvent(create(1, 0, { name: "Moon Cat", symbol: "MCAT" }));
+    store.study.recordTokenEvent(create(1, 0, { name: "Moon Cat", symbol: "MCAT", creator: "CreatorA" }));
     store.study.recordSnapshot(snap(1, { description: "A cat on the moon" }), at(60));
-    store.study.recordTokenEvent(create(2, 0, { name: "No Snapshot", symbol: "NS" }));
+    store.study.recordTokenEvent(create(2, 0, { name: "No Snapshot", symbol: "NS", creator: "CreatorB" }));
     store.study.recordTokenEvent(create(3, 0, { name: "Never Migrated" }));
     store.study.recordTokenEvent(create(4, 0, { name: "   " }));
     store.study.recordTokenEvent(migrate(1, 100));
@@ -362,11 +362,31 @@ describe("recentMigrated (the propose prompt's examples, ticket 22)", () => {
     const store = open();
     expect(store.study.recentMigrated(10)).toEqual([]);
     for (let n = 1; n <= 25; n++) {
-      store.study.recordTokenEvent(create(n, 0));
+      store.study.recordTokenEvent(create(n, 0, { creator: `Creator${n}` }));
       store.study.recordTokenEvent(migrate(n, 100 + n));
     }
     expect(store.study.recentMigrated(3).map((r) => r.name)).toEqual(["Token 25", "Token 24", "Token 23"]);
     expect(store.study.recentMigrated(500)).toHaveLength(20);
     for (const bad of [0, -1, Number.NaN]) expect(store.study.recentMigrated(bad)).toEqual([]);
+  });
+
+  it("keeps one row per creator, so one creator's 12 migrations yield 1 example", () => {
+    const store = open();
+    for (let n = 1; n <= 12; n++) {
+      store.study.recordTokenEvent(create(n, 0, { name: `Spam ${n}`, symbol: `S${n}`, creator: "SameCreator" }));
+      store.study.recordTokenEvent(migrate(n, 100 + n));
+    }
+    expect(store.study.recentMigrated(10).map((r) => r.name)).toEqual(["Spam 12"]);
+  });
+
+  it("dedupes by normalised name and by symbol, and an empty creator is not deduped", () => {
+    const store = open();
+    store.study.recordTokenEvent(create(1, 0, { name: "Moon Cat", symbol: "MCAT1", creator: "CreatorA" }));
+    store.study.recordTokenEvent(create(2, 0, { name: "moon  CAT!", symbol: "OTHER", creator: "CreatorB" }));
+    store.study.recordTokenEvent(create(3, 0, { name: "Dog", symbol: "MCAT1", creator: "CreatorC" }));
+    store.study.recordTokenEvent(create(4, 0, { name: "Fish", symbol: "FSH", creator: "" }));
+    store.study.recordTokenEvent(create(5, 0, { name: "Bird", symbol: "BRD", creator: "" }));
+    for (const n of [1, 2, 3, 4, 5]) store.study.recordTokenEvent(migrate(n, 200 - n)); // newest first: 1, 2, 3, 4, 5
+    expect(store.study.recentMigrated(10).map((r) => r.name)).toEqual(["Moon Cat", "Fish", "Bird"]);
   });
 });
