@@ -259,7 +259,7 @@ describe("proposePromptFor", () => {
       expect(head).toContain("untrusted data");
       expect(head).toContain(`"${boundary} END"`);
       expect(head).toContain('name that example in "reason"');
-      expect(head).toContain("2 most recently migrated pump.fun tokens");
+      expect(head).toContain("2 most recently migrated tokens");
     });
 
     it("keeps a hostile token description inside the block: newlines, a fake boundary, unicode line separators and invisible characters are flattened", () => {
@@ -291,14 +291,14 @@ describe("proposePromptFor", () => {
       const many = proposePromptFor(narrative(), score, undefined, undefined, Array.from({ length: 50 }, (_, i) => ex(i)));
       const lines = split(many).exBlock!.split("\n").filter((l) => l.startsWith("- migrated"));
       expect(lines).toHaveLength(MAX_MIGRATED_EXAMPLES);
-      expect(many).toContain(`${MAX_MIGRATED_EXAMPLES} most recently migrated pump.fun tokens`);
+      expect(many).toContain(`${MAX_MIGRATED_EXAMPLES} most recently migrated tokens`);
     });
 
     it("skips a token whose name is empty after cleaning, and leaves out an empty symbol, description and site title", () => {
       const text = proposePromptFor(narrative(), score, undefined, undefined, [ex(1, { name: `${ZWSP}${BEL} ` }), ex(2, { symbol: "" })]);
       const lines = split(text).exBlock!.split("\n").filter((l) => l.startsWith("- migrated"));
       expect(lines).toEqual(["- migrated 2026-06-14T10:30 Token 2"]);
-      expect(text).toContain("1 most recently migrated pump.fun token ");
+      expect(text).toContain("1 most recently migrated token ");
     });
 
     it("with no examples there is no block, no rule and no mention: the prompt is the one without this ticket", () => {
