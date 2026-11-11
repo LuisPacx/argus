@@ -12,7 +12,7 @@ describe("uri rewrite", () => {
   });
 
   it("handles other public gateways, subdomain form, ipfs://, a sub-path and a query", () => {
-    for (const uri of [`https://dweb.link/ipfs/${CID}`, `https://${CID}.ipfs.dweb.link/`, `ipfs://${CID}`, `https://gateway.pinata.cloud/ipfs/${CID}`]) {
+    for (const uri of [`https://dweb.link/ipfs/${CID}`, "https://bafkreictddc23key7yw5gps2prjn7tuuckwokbnjzx7qwflelxcypnomz4.ipfs.dweb.link/", `ipfs://${CID}`, `https://gateway.pinata.cloud/ipfs/${CID}`]) {
       expect(metadataCandidates(uri, GW), uri).toEqual([`https://gw-a.example/ipfs/${CID}`, `https://gw-b.example/ipfs/${CID}`]);
     }
     expect(parseIpfsUri(`https://ipfs.io/ipfs/${CID}/meta.json?x=1`)).toEqual({ cid: CID, rest: "/meta.json?x=1" });
