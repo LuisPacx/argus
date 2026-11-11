@@ -44,6 +44,9 @@ export const META_NOTE =
 
 const HOUR_MS = 3_600_000;
 
+/** The market-cap lookups of one run stop after this many failures in a row (an outage or a 429 would otherwise cost every timeout). */
+const DEX_MAX_CONSECUTIVE_FAILURES = 3;
+
 interface Rec {
   token: LaunchedToken;
   createdMs: number;
@@ -197,7 +200,9 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
         const s = top[i];
         if (s && !wanted.includes(s)) wanted.push(s);
       }
+    let streak = 0;
     for (const s of wanted.slice(0, config.dexMaxCalls)) {
+      if (streak >= DEX_MAX_CONSECUTIVE_FAILURES) break; // DexScreener is down or limiting us: stop for this run, the rest keep no market cap
       dexCalls++;
       const mints = candidates(s, config.dexCandidates);
       try {
@@ -206,8 +211,10 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
           if (!asked.has(p.tokenAddress) || p.marketCapUsd === undefined || !(p.marketCapUsd > 0)) continue;
           s.caps.set(p.tokenAddress, Math.max(s.caps.get(p.tokenAddress) ?? 0, p.marketCapUsd));
         }
+        streak = 0;
       } catch (e) {
         dexFailures++;
+        streak++;
         opts.log?.(`[meta] DexScreener lookup failed for ${s.group.key}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }

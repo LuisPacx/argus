@@ -234,6 +234,21 @@ describe("recomputeMetas: market cap", () => {
     expect(rows(store).every((r) => r.marketCapUsd === undefined)).toBe(true);
   });
 
+  it("stops looking up after 3 consecutive failures, and a success resets the streak", async () => {
+    const store = Datastore.open(":memory:");
+    for (let g = 0; g < 8; g++) launchMany(store, 3, (i) => ({ name: `Group${g}`, creator: `g${g}-${i}` }));
+    const down = fakeDex(new Map(), { failOn: () => true });
+    const r = await recomputeMetas(store, { now: new Date(NOW), dex: down.client });
+    expect(down.calls.length).toBe(3);
+    expect(r.dexCalls).toBe(3);
+    expect(r.dexFailures).toBe(3);
+    expect(rows(store)).toHaveLength(8); // the groups still rank, without market cap
+
+    const flaky = fakeDex(new Map(), { failOn: (n) => n !== 3 && n !== 6 });
+    await recomputeMetas(store, { now: new Date(NOW), dex: flaky.client });
+    expect(flaky.calls.length).toBe(8); // fail, fail, ok, fail, fail, ok, fail, fail: never 3 in a row
+  });
+
   it("never makes more DexScreener calls than the budget, and never more than one per group", async () => {
     const store = Datastore.open(":memory:");
     for (let g = 0; g < 15; g++) launchMany(store, 3, (i) => ({ name: `Group${g}`, creator: `g${g}-${i}` }));
