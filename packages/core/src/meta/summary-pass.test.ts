@@ -225,6 +225,15 @@ describe("summariseMetas: caching and cost", () => {
     expect(prompts).toHaveLength(3);
   });
 
+  it("while the API fallback holds judge on the API, it spawns nothing and the templated line stands", async () => {
+    const store = await seed(2);
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    const held: Brain = { ...brain, routeFor: (task) => ({ ...brain.routeFor(task), backend: task === "judge" ? "api" : brain.routeFor(task).backend }) };
+    expect(await run(store, held)).toMatchObject({ called: 0, stoppedBy: "api-hold" });
+    expect(prompts).toHaveLength(0);
+    expect(metaLine(row(store, 0)).summarySource).toBe("template");
+  });
+
   it("before the first ranking run there is nothing to do", async () => {
     const { brain, prompts } = fakeBrain(() => GOOD);
     expect(await run(Datastore.open(":memory:"), brain)).toMatchObject({ called: 0 });

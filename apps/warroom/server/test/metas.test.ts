@@ -36,6 +36,10 @@ it("GET /api/metas is an empty list, not an error, before the first run", () => 
   expect(get()).toEqual({ window: "24h", computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, metas: [] });
 });
 
+it("GET /api/metas rejects a repeated ?window= (an array) instead of falling back to the default", () => {
+  expect(() => metas({ query: { window: ["6h", "24h"] } as unknown as Record<string, string> })).toThrow(expect.objectContaining({ statusCode: 400 }));
+});
+
 it("GET /api/metas returns the stored latest run: rank, label, first seen, both windows' counts, top tokens, summary", async () => {
   const mints: string[] = [];
   for (let i = 0; i < 12; i++) mints.push(launch("woohao", `a${i}`, { createdMin: i < 4 ? 60 : 600, migratedAfterSec: i < 3 ? 300 : undefined }));

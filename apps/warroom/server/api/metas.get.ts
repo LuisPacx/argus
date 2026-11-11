@@ -12,6 +12,7 @@ const one = (value: unknown): string | undefined => (typeof value === "string" &
  */
 export default defineEventHandler((event) => {
   const q = getQuery(event);
+  if (Array.isArray(q.window)) throw bad("window"); // a repeated ?window= is ambiguous, not the default
   const rawWindow = one(q.window) ?? "24h";
   if (!isMetaWindow(rawWindow)) throw bad("window");
   const window: MetaWindow = rawWindow;

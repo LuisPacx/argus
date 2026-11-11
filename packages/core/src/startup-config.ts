@@ -1,5 +1,7 @@
 import { apiFallbackConfigFromEnv } from "./api-fallback.ts";
 import { judgeConfigFromEnv } from "./judge.ts";
+import { metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
+import { metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { proposeConfigFromEnv } from "./propose.ts";
 import { researchConfigFromEnv } from "./research-budget.ts";
 import { captureRunCap, STUDY_CAPTURE_RULE } from "./study/config.ts";
@@ -21,6 +23,8 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
   const propose = proposeConfigFromEnv(env);
   const research = researchConfigFromEnv(env);
   const fallback = apiFallbackConfigFromEnv(env);
+  const meta = metaConfigFromEnv(env);
+  const metaSummary = metaSummaryConfigFromEnv(env);
   const rule = STUDY_CAPTURE_RULE;
   const onOff = (b: boolean) => (b ? "on" : "off");
   return [
@@ -37,6 +41,11 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
     `study_rule=v${rule.version}`,
     `study_age_s=${rule.snapshotAgeSec}/${rule.xCaptureAgeSec}`,
     `study_captures_day=${captureRunCap(env)}`,
+    `meta_every_min=${metaIntervalMinutes(env)}`,
+    `meta_rank=${meta.rankOrder.join(",")}`,
+    `meta_dex=${meta.dexGroups}/${meta.dexMaxCalls}`,
+    `meta_summary_runs_24h=${metaSummary.maxRunsPerDay}`,
+    `meta_summary_usd_24h=${metaSummary.maxDailyUsd}`,
     `telegram=${onOff(facts.telegramOn)}`,
   ].join(" ");
 }

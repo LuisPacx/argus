@@ -58,7 +58,7 @@ export interface MetaSummaryResult {
   refused: number;
   /** Runs that failed (error, budget, timeout). */
   failed: number;
-  stoppedBy?: "daily-cap" | "research-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
+  stoppedBy?: "daily-cap" | "research-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff" | "api-hold";
 }
 
 const DAY_MS = 24 * 3_600_000;
@@ -107,6 +107,9 @@ export async function summariseMetas(
   const log = opts.log ?? console.log;
   const clock = () => opts.now ?? new Date();
   const out: MetaSummaryResult = { called: 0, accepted: 0, refused: 0, failed: 0 };
+
+  // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
+  if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };
 
   const ranking = store.latestMetas("24h", config.topRows);
   if (!ranking) return out;
