@@ -28,3 +28,9 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 - **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+
+## Commits
+
+Subject: `Phase N ticket NN: <what changed>`, as in `git log --oneline`. The body ends with `Ticket: .scratch/<feature>/issues/NN-<slug>.md` before the trailers.
+
+Never write `Closes #N`: this repo has no GitHub issues, so it points at nothing.
