@@ -223,8 +223,10 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
       </section>
     </Transition>
 
-    <section class="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-      <div v-if="research" class="surface grid content-start gap-4" data-test="research-usage">
+    <MetaStrip :view="metaSection" />
+
+    <section v-if="research" class="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      <div class="surface grid content-start gap-4" data-test="research-usage">
         <h3 class="section-title">Research usage, last 24 hours</h3>
         <div class="grid gap-1.5">
           <div class="flex items-baseline justify-between gap-3 text-sm">
@@ -257,8 +259,6 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         </p>
         <p v-if="research.api.exhausted" class="note note-amber">API daily cap reached: the fallback sends nothing until older spend leaves the 24 hours.</p>
       </div>
-
-      <CurrentMeta :view="metaSection" :wide="!research" />
     </section>
 
     <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="proposal-controls" @select="choose" />

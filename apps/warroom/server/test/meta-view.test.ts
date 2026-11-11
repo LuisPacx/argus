@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { ageText, clampText, fmtUsd, META_POLL_MS, META_STALE_MS, META_TREND, metaView, trendWord } from "../../app/utils/meta.ts";
+import { ageText, clampText, fmtUsd, META_POLL_MS, META_STALE_MS, META_TREND, metaAnchor, metaView, trendWord } from "../../app/utils/meta.ts";
 
 const NOW = Date.parse("2026-11-11T20:00:00.000Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -83,14 +83,17 @@ it("metaView: a row's numbers, trend, first seen and tokens", () => {
   const v = metaView(
     {
       computedAt: ago(1),
-      metas: [row({ counts: { "6h": counts(140, 90, 4), "24h": counts(312, 190, 15) }, createsPerMigration: 20.8, topTokens: [{ name: "woohao", symbol: "woohao", marketCapUsd: 13_000_000 }, { name: "咪好", symbol: "" }] })],
+      metas: [row({ counts: { "6h": counts(140, 90, 4), "24h": { ...counts(312, 190, 15), migrationsAfter60s: 6 } }, createsPerMigration: 20.8, topTokens: [{ name: "woohao", symbol: "woohao", marketCapUsd: 13_000_000 }, { name: "咪好", symbol: "" }] })],
     },
     NOW,
   );
   expect(v.rows[0]).toEqual({
     rank: 1,
     label: "Meta",
-    numbers: ["312 tokens", "190 creators", "15 migrations (unfiltered)", "21 creates per migration"],
+    anchor: "meta-meta",
+    numbers: ["312 tokens", "190 creators", "15 migrations (unfiltered)", "6 after 60 s", "21 creates per migration"],
+    stripLine: "190 creators · 6 migrations after 60s",
+    topCap: "$13M",
     trend: { word: "accelerating", text: "140 of 312 in the last 6 h" },
     firstSeen: "first seen 14 hours ago",
     tokens: [{ text: "woohao ($woohao) $13M", href: null }, { text: "咪好", href: null }],
@@ -109,7 +112,7 @@ it("metaView: absent or broken fields are left out, never shown as undefined or 
     summary: "   ",
   };
   const v = metaView({ computedAt: ago(1), metas: [broken as never] }, NOW);
-  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null });
+  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", anchor: "meta-odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], stripLine: null, topCap: null, trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null });
   expect(JSON.stringify(v)).not.toMatch(/undefined|NaN/);
   const empty = metaView({ computedAt: ago(1), metas: [{ rank: 1, label: "Bare" } as never] }, NOW);
   expect(empty.rows[0]).toMatchObject({ label: "Bare", numbers: [], trend: null, tokens: [], summary: null });
@@ -118,6 +121,35 @@ it("metaView: absent or broken fields are left out, never shown as undefined or 
 it("metaView: a first seen time in the future reads 'just now'; zero launches in 24 h has no trend", () => {
   const v = metaView({ computedAt: ago(1), metas: [row({ firstSeenAt: ago(-30), counts: { "6h": counts(0, 0, 0), "24h": counts(0, 0, 0) }, createsPerMigration: null })] }, NOW);
   expect(v.rows[0]).toMatchObject({ firstSeen: "first seen just now", trend: null });
+});
+
+it("metaAnchor: letters and digits hyphenated, unicode kept, clamped, never empty", () => {
+  expect(metaAnchor("GTA VI")).toBe("meta-gta-vi");
+  expect(metaAnchor("  Ni Hao!! ")).toBe("meta-ni-hao");
+  expect(metaAnchor("咪好")).toBe("meta-咪好");
+  expect(metaAnchor("<img src=x onerror=alert(1)>")).toBe("meta-img-src-x-onerror-alert-1");
+  expect(metaAnchor("!!!")).toBe("meta");
+  expect(metaAnchor("")).toBe("meta");
+  expect(metaAnchor("a".repeat(500))).toBe(`meta-${"a".repeat(40)}`);
+});
+
+it("metaView: repeated labels get numbered anchors, in rank order", () => {
+  const v = metaView({ computedAt: ago(1), metas: [row({ rank: 1, label: "Cat" }), row({ rank: 2, label: "cat!" }), row({ rank: 3, label: "Cat" })] }, NOW);
+  expect(v.rows.map((r) => r.anchor)).toEqual(["meta-cat", "meta-cat-2", "meta-cat-3"]);
+});
+
+it("metaView: options pick the row count and the ranked window the numbers come from; the trend stays 6 h of 24 h", () => {
+  const rows = Array.from({ length: 9 }, (_, i) => row({ rank: i + 1, label: `M${i}`, counts: { "6h": counts(7, 3, 1), "24h": counts(20, 10, 2) } }));
+  expect(metaView({ computedAt: ago(1), metas: rows }, NOW, { rows: 50 }).rows).toHaveLength(9);
+  const six = metaView({ computedAt: ago(1), metas: rows }, NOW, { rows: 1, window: "6h" });
+  expect(six.rows[0]!.numbers.slice(0, 3)).toEqual(["7 tokens", "3 creators", "1 migration (unfiltered)"]);
+  expect(six.rows[0]!.trend!.text).toBe("7 of 20 in the last 6 h");
+});
+
+it("metaView: the strip line leaves out what the payload lacks", () => {
+  const r = metaView({ computedAt: ago(1), metas: [row({ counts: { "6h": counts(1, 1, 0), "24h": { ...counts(20, 10, 2), migrationsAfter60s: 1 } } })] }, NOW).rows[0]!;
+  expect(r.stripLine).toBe("10 creators · 1 migration after 60s");
+  expect(r.topCap).toBeNull();
 });
 
 it("metaView: a token links only when the URL is http(s) without credentials", () => {

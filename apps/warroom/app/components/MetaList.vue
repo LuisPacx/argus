@@ -1,19 +1,24 @@
 <script setup lang="ts">
-// "Current Meta (last 24h)": the live Metas, ranked, each with the numbers behind it, a trend word, its top tokens and a one-line summary.
+// The /meta page's list: every Meta of the latest run, each with the numbers behind it, a trend word, its top tokens and a one-line summary.
 // Everything in `view` is untrusted text (token names are written by token creators, the summary by a model): interpolated as text only
 // (no raw-HTML directive), clamped by `metaView`, and a link exists only where `metaView` produced an http(s) href, drawn by UrlLink.
-// Template-only on purpose: server/test/current-meta.test.ts renders it.
+// Each row's id is its `anchor`, the fragment the home strip links to. Template-only on purpose: server/test/meta-render.test.ts renders it.
 import type { MetaView } from "../utils/meta.ts";
-defineProps<{ view: MetaView; wide?: boolean }>();
+defineProps<{ view: MetaView }>();
 </script>
 
 <template>
-  <div class="surface grid content-start gap-4" :class="{ 'lg:col-span-2': wide }" data-test="current-meta">
-    <h3 class="section-title">Current Meta (last 24h)</h3>
+  <div class="grid gap-4" data-test="meta-list">
     <p v-if="view.state === 'waiting' || view.state === 'none'" class="note muted" data-test="meta-note">{{ view.note }}</p>
     <p v-else-if="view.state === 'stale'" class="note note-amber" data-test="meta-stale">{{ view.note }}</p>
     <ol v-if="view.rows.length > 0" class="grid gap-3">
-      <li v-for="r in view.rows" :key="r.rank" class="inset grid min-w-0 content-start gap-2 px-4 py-3 text-sm" :data-test="`meta-${r.rank}`">
+      <li
+        v-for="r in view.rows"
+        :id="r.anchor"
+        :key="r.anchor"
+        class="surface grid min-w-0 scroll-mt-6 content-start gap-2 text-sm target:ring-2 target:ring-[var(--wr-accent)]"
+        :data-test="`meta-${r.rank}`"
+      >
         <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <span class="pill pill-accent shrink-0 tabular-nums">{{ r.rank }}</span>
           <span class="min-w-0 break-words font-semibold" data-test="meta-label">{{ r.label }}</span>
@@ -35,6 +40,5 @@ defineProps<{ view: MetaView; wide?: boolean }>();
         </ul>
       </li>
     </ol>
-    <p v-if="view.footer" class="faint text-xs" data-test="meta-footer">{{ view.footer }}</p>
   </div>
 </template>

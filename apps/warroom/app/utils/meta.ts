@@ -101,6 +101,12 @@ export interface MetaTokenView {
 export interface MetaRowView {
   rank: number;
   label: string;
+  /** The row's element id and the `/meta#` fragment the home strip links to. */
+  anchor: string;
+  /** "190 creators · 6 migrations after 60s" (the strip's line); null when the payload has neither. */
+  stripLine: string | null;
+  /** The market cap of the first top token that has one, "$13M". */
+  topCap: string | null;
   /** "312 tokens", "190 creators", "15 migrations (unfiltered)", "12.4 creates per migration": only those the payload has. */
   numbers: string[];
   trend: { word: MetaTrendWord; text: string } | null;
@@ -119,13 +125,29 @@ export interface MetaView {
   note: string | null;
 }
 
-function rowView(m: MetaPayload["metas"][number], nowMs: number): MetaRowView {
+const ANCHOR_CHARS = 40;
+
+/** The in-page anchor (and element id) of a Meta, from its label: `meta-` plus its letters and digits, hyphenated. Only [\p{L}\p{N}-], so safe in a URL fragment. */
+export function metaAnchor(label: string): string {
+  const slug = clampText(label, ANCHOR_CHARS * 4)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  const cut = [...slug].slice(0, ANCHOR_CHARS).join("").replace(/-+$/g, "");
+  return cut === "" ? "meta" : `meta-${cut}`;
+}
+
+function rowView(m: MetaPayload["metas"][number], nowMs: number, window: "6h" | "24h", anchor: string): MetaRowView {
   const c24 = m.counts?.["24h"];
   const c6 = m.counts?.["6h"];
+  const cw = window === "6h" ? c6 : c24;
   const numbers: string[] = [];
-  if (finite(c24?.tokens)) numbers.push(plural(c24.tokens, "token"));
-  if (finite(c24?.creators)) numbers.push(plural(c24.creators, "creator"));
-  if (finite(c24?.migrations)) numbers.push(`${plural(c24.migrations, "migration")} (unfiltered)`);
+  if (finite(cw?.tokens)) numbers.push(plural(cw.tokens, "token"));
+  if (finite(cw?.creators)) numbers.push(plural(cw.creators, "creator"));
+  if (finite(cw?.migrations)) numbers.push(`${plural(cw.migrations, "migration")} (unfiltered)`);
+  if (finite(cw?.migrationsAfter60s)) numbers.push(`${cw.migrationsAfter60s} after 60 s`);
+  const strip = [finite(cw?.creators) ? plural(cw.creators, "creator") : null, finite(cw?.migrationsAfter60s) ? `${plural(cw.migrationsAfter60s, "migration")} after 60s` : null].filter((s) => s !== null);
+  const topCap = m.topTokens?.find((t) => finite(t?.marketCapUsd));
   if (finite(m.createsPerMigration) && m.createsPerMigration > 0) {
     const n = m.createsPerMigration;
     numbers.push(`${n >= 10 ? Math.round(n) : Math.round(n * 10) / 10} creates per migration`);
@@ -143,7 +165,10 @@ function rowView(m: MetaPayload["metas"][number], nowMs: number): MetaRowView {
   return {
     rank: m.rank,
     label: clampText(m.label, LABEL_CHARS),
+    anchor,
     numbers,
+    stripLine: strip.length > 0 ? strip.join(" · ") : null,
+    topCap: topCap && finite(topCap.marketCapUsd) ? fmtUsd(topCap.marketCapUsd) : null,
     trend: word !== null && finite(c6?.tokens) && finite(c24?.tokens) ? { word, text: `${c6.tokens} of ${c24.tokens} in the last 6 h` } : null,
     firstSeen: age !== null ? `first seen ${age}` : null,
     tokens,
@@ -152,12 +177,20 @@ function rowView(m: MetaPayload["metas"][number], nowMs: number): MetaRowView {
 }
 
 /** What the section renders, from the API payload (null when it has not loaded) and the clock. */
-export function metaView(payload: MetaPayload | null | undefined, nowMs: number): MetaView {
+export function metaView(payload: MetaPayload | null | undefined, nowMs: number, opts: { rows?: number; window?: "6h" | "24h" } = {}): MetaView {
+  const limit = opts.rows ?? META_ROWS;
+  const window = opts.window ?? "24h";
   const computedAt = payload?.computedAt;
   if (!payload || typeof computedAt !== "string") return { state: "waiting", rows: [], footer: null, note: "No Meta ranking yet. The worker computes it every 15 minutes." };
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "ranking computed just now" : `ranking from ${age}`;
-  const rows = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, META_ROWS).map((m) => rowView(m, nowMs));
+  const seen = new Map<string, number>();
+  const rows = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, limit).map((m) => {
+    const base = metaAnchor(typeof m.label === "string" ? m.label : "");
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return rowView(m, nowMs, window, n === 1 ? base : `${base}-${n}`);
+  });
   const computedMs = Date.parse(computedAt);
   if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
