@@ -18,8 +18,17 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type Re
 import { RUBRIC_MAX_SCORE } from "./rubric.ts";
 
 /** What the propose model writes; limits are characters. Over a limit the answer is refused, never cut. */
-export const PROPOSE_LIMITS = { name: 40, tech: 200, whyNow: 300, description: 500, evidenceMin: 3, evidenceMax: 5 } as const;
+export const PROPOSE_LIMITS = { name: 40, tech: 200, whyNow: 300, reason: 300, description: 500, evidenceMin: 3, evidenceMax: 5 } as const;
 const TICKER_RE = /^[A-Z][A-Z0-9]{1,9}$/;
+
+/** Words that say a Tech only fetches data and shows it (a feed reader, tracker, timeline, scoreboard, countdown, dashboard). */
+const DISPLAY_ONLY_RE = /\b(rss|feeds?|trackers?|timelines?|scoreboards?|countdowns?|dashboards?|ledgers?|boards?|readers?|monitors?|watchers?|viewers?|schedules?)\b/i;
+/** Words that say a visitor does something: input that changes the output, a game, a calculator, a tool, a mechanic. */
+const INTERACTION_RE =
+  /\b(calculators?|quiz(?:zes)?|games?|play|playable|simulat\w+|generat\w+|builders?|makers?|pickers?|predict\w*|votes?|voting|polls?|brackets?|sliders?|drag\w*|enter|input|search\w*|lookups?|convert\w*|compar\w+|customi[sz]\w*|remix\w*|challenges?|puzzles?|draw\w*|submit\w*|compos\w+|configur\w+|planners?|tools?|toolkit|checkers?|estimat\w+|mint|stakes?|bet|wager|leaderboards?)\b/i;
+
+/** The refusal text for a display-only Tech; `isRepairable` and the repair prompt rely on its start. */
+export const DISPLAY_ONLY_PROBLEM = "`tech` is display-only (it fetches a feed or API and shows it): give it an interaction (input that changes the output, a game, a calculator, a tool) or a reason for a visitor to come back";
 // oxlint-disable-next-line no-control-regex
 const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
@@ -29,7 +38,12 @@ export type ProposeFields = Omit<NewProposal, "narrativeSummary">;
 export type ProposeParse = { ok: true; fields: ProposeFields } | { ok: false; problem: string };
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const KEYS = ["name", "ticker", "tech", "whyNow", "description", "evidence"] as const;
+const KEYS = ["name", "ticker", "tech", "whyNow", "reason", "description", "evidence"] as const;
+
+/** True when the Tech names a viewer/feed/tracker form and no interaction word: a cheap guard, not a judgement of quality. */
+export function isDisplayOnlyTech(tech: string): boolean {
+  return DISPLAY_ONLY_RE.test(tech) && !INTERACTION_RE.test(tech);
+}
 
 /**
  * Reads the propose model's answer against the schema `{"name", "ticker", "tech", "whyNow", "description", "evidence": [3 to 5 URLs]}`
@@ -49,7 +63,7 @@ export function parseProposeOutput(text: string): ProposeParse {
   if (!isPlainObject(value)) return { ok: false, problem: "output is not a JSON object" };
   const extra = Object.keys(value).filter((k) => !(KEYS as readonly string[]).includes(k));
   if (extra.length > 0) return { ok: false, problem: `unexpected key(s): ${extra.join(", ")}` };
-  const line = (key: "name" | "ticker" | "tech" | "whyNow" | "description", max: number): string | { problem: string } => {
+  const line = (key: "name" | "ticker" | "tech" | "whyNow" | "reason" | "description", max: number): string | { problem: string } => {
     const v = value[key];
     if (typeof v !== "string") return { problem: `\`${key}\` is missing or not a string` };
     const t = v.trim();
@@ -62,9 +76,11 @@ export function parseProposeOutput(text: string): ProposeParse {
   const ticker = line("ticker", 10);
   const tech = line("tech", PROPOSE_LIMITS.tech);
   const whyNow = line("whyNow", PROPOSE_LIMITS.whyNow);
+  const reason = line("reason", PROPOSE_LIMITS.reason);
   const description = line("description", PROPOSE_LIMITS.description);
-  for (const f of [name, ticker, tech, whyNow, description]) if (typeof f !== "string") return { ok: false, problem: f.problem };
+  for (const f of [name, ticker, tech, whyNow, reason, description]) if (typeof f !== "string") return { ok: false, problem: f.problem };
   if (!TICKER_RE.test(ticker as string)) return { ok: false, problem: "`ticker` must be 2 to 10 upper-case letters and digits, starting with a letter" };
+  if (isDisplayOnlyTech(tech as string)) return { ok: false, problem: DISPLAY_ONLY_PROBLEM };
   const raw = value.evidence;
   if (!Array.isArray(raw) || raw.length < PROPOSE_LIMITS.evidenceMin || raw.length > PROPOSE_LIMITS.evidenceMax) {
     return { ok: false, problem: `\`evidence\` must be an array of ${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax} links` };
@@ -77,11 +93,12 @@ export function parseProposeOutput(text: string): ProposeParse {
   }
   // Blank entries and duplicates are dropped by the validation; here they would silently shrink a list the model got wrong.
   if (links.length !== raw.length) return { ok: false, problem: "`evidence` has a blank or duplicate link" };
-  return { ok: true, fields: { name: name as string, ticker: ticker as string, techOneLiner: tech as string, whyNow: whyNow as string, description: description as string, evidenceLinks: links } };
+  return { ok: true, fields: { name: name as string, ticker: ticker as string, techOneLiner: tech as string, whyNow: whyNow as string, reason: reason as string, description: description as string, evidenceLinks: links } };
 }
 
 /** A refusal a second try can plausibly fix: the evidence count, or a text over its length. Not bad JSON, a bad link, a missing key or a bad ticker. */
-const isRepairable = (problem: string): boolean => problem.startsWith("`evidence` must be an array of") || / is over \d+ characters$/.test(problem);
+const isRepairable = (problem: string): boolean =>
+  problem.startsWith("`evidence` must be an array of") || / is over \d+ characters$/.test(problem) || problem === DISPLAY_ONLY_PROBLEM;
 
 /** The size of the evidence array and the `tech` text of a refused answer, as numbers only (never the untrusted text), for the refusal log. */
 function shapeOf(output: string): string {
@@ -96,6 +113,10 @@ function shapeOf(output: string): string {
   const t = typeof v.tech === "string" ? `${v.tech.trim().length} characters` : "n/a";
   return `evidence ${e}, tech ${t}`;
 }
+
+/** The Tech-value rule of the propose prompt (ticket 17): the Tech must do something, not just show fetched data. */
+const TECH_VALUE_RULE =
+  'Tech value: the Tech must have an interaction (input that changes the output, a game, a calculator, a tool, a mechanic) or a reason for a visitor to come back. It must not be "fetch a feed or API and display it": no RSS reader, tracker, timeline, scoreboard, countdown or dashboard that only shows data. "reason" says in one line which Signals or Narrative this answers and why this Tech. A display-only Tech is refused.';
 
 const TITLE_CHARS = 200;
 const SUMMARY_CHARS = 400;
@@ -121,7 +142,10 @@ export function proposePromptFor(narrative: NarrativeDetail, score: Score, rejec
   return [
     "Propose one token and the Tech to build for the Narrative below.",
     "",
-    `Reply with exactly one JSON object and nothing else (no preamble, no code fence): {"name": <token name, at most ${PROPOSE_LIMITS.name} characters>, "ticker": <2 to 10 upper-case letters or digits, starting with a letter>, "tech": <one line, at most ${PROPOSE_LIMITS.tech} characters: the web app that rides the Narrative>, "whyNow": <one line, at most ${PROPOSE_LIMITS.whyNow} characters>, "description": <one line, at most ${PROPOSE_LIMITS.description} characters, the token pitch>, "evidence": [${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax} absolute http or https URLs that support the Narrative]}. Every key above must appear, with no other keys, and every text on one line.`,
+    `Reply with exactly one JSON object and nothing else (no preamble, no code fence): {"name": <token name, at most ${PROPOSE_LIMITS.name} characters>, "ticker": <2 to 10 upper-case letters or digits, starting with a letter>, "tech": <one line, at most ${PROPOSE_LIMITS.tech} characters: the web app that rides the Narrative, with an interaction or a reason to come back>, "whyNow": <one line, at most ${PROPOSE_LIMITS.whyNow} characters>, "reason": <one line, at most ${PROPOSE_LIMITS.reason} characters: why this Proposal, which Signals or Narrative it answers and why this Tech>, "description": <one line, at most ${PROPOSE_LIMITS.description} characters, the token pitch>, "evidence": [${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax} absolute http or https URLs that support the Narrative]}. Every key above must appear, with no other keys, and every text on one line.`,
+    "",
+    // Rule sections sit here, outside the untrusted block, one array element each, so a later section (examples, lessons) slots in beside them.
+    TECH_VALUE_RULE,
     "",
     `${linkAdvice} Before you answer, count your evidence links (${PROPOSE_LIMITS.evidenceMin} to ${PROPOSE_LIMITS.evidenceMax}) and the characters of "tech" (at most ${PROPOSE_LIMITS.tech}); an answer outside those limits is refused, never cut.`,
     ...(repairProblem

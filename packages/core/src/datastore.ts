@@ -36,6 +36,8 @@ export interface Proposal {
   narrativeSummary: string;
   techOneLiner: string;
   whyNow: string;
+  /** The propose model's one-line rationale for this Proposal; empty for hand-entered Proposals and rows from before the column. */
+  reason: string;
   name: string;
   ticker: string;
   description: string;
@@ -171,6 +173,8 @@ export interface NewProposal {
   ticker: string;
   description: string;
   evidenceLinks: string[];
+  /** The propose model's one-line "why this Proposal" (which Signals/Narrative, why this Tech). Absent on hand-entered Proposals. */
+  reason?: string;
 }
 
 /** Per-task per-run spend ceilings (the route's `--max-budget-usd`), used to charge runs that never reported a cost. */
@@ -257,6 +261,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "narrative_summary", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "tech_one_liner", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "why_now", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "reason", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "name", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "ticker", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "description", "TEXT NOT NULL DEFAULT ''");
@@ -377,6 +382,7 @@ interface Row {
   narrative_summary: string;
   tech_one_liner: string;
   why_now: string;
+  reason: string;
   name: string;
   ticker: string;
   description: string;
@@ -415,6 +421,7 @@ function toProposal(r: Row): Proposal {
     narrativeSummary: r.narrative_summary,
     techOneLiner: r.tech_one_liner,
     whyNow: r.why_now,
+    reason: r.reason,
     name: r.name,
     ticker: r.ticker,
     description: r.description,
@@ -732,8 +739,8 @@ export class Datastore {
       const res = this.db
         .prepare(
           `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
-             description, evidence_links, narrative_id, score_id, collision_checks, created_at, updated_at)
-           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             description, evidence_links, narrative_id, score_id, collision_checks, reason, created_at, updated_at)
+           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           slug,
@@ -747,6 +754,7 @@ export class Datastore {
           link?.narrativeId ?? null,
           link?.scoreId ?? null,
           link?.collisions ? JSON.stringify(link.collisions) : null,
+          input.reason ?? "",
           now,
           now,
         );

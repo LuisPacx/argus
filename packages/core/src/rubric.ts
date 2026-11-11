@@ -49,11 +49,14 @@ export class RubricConflictError extends DomainError {
   }
 }
 
+/** The Tech-value line (ticket 17), part of the `hook` dimension. Its text is also the marker `migrateRubric` looks for. */
+export const TECH_VALUE_LINE = "Tech value: the Tech it implies does more than fetch data and display it (an interaction, or a reason to come back).";
+
 const SEED: Record<RubricKey, string> = {
   momentum: "How fast the Narrative is growing across Signals right now.",
   novelty: "How fresh it is: not already a crowded or recently launched coin theme.",
   buildability: "Whether a small web app can credibly be built and deployed from it unattended (hard gate).",
-  hook: "How easily the idea is explained and shared in one line.",
+  hook: `How easily the idea is explained and shared in one line. ${TECH_VALUE_LINE}`,
   legitimacy: "Whether it is free of scams, hate and real-person impersonation, and backed by real sources.",
 };
 
@@ -98,11 +101,37 @@ export function migrateRubric(db: DatabaseSync): void {
     created_at TEXT NOT NULL
   )`);
   const seeded = db.prepare("SELECT 1 FROM rubric_versions LIMIT 1").get();
-  if (seeded) return;
-  const dimensions = RUBRIC_KEYS.map((key) => ({ key, description: SEED[key], weight: 1 }));
-  db.prepare("INSERT OR IGNORE INTO rubric_versions (version, dimensions, gate_min_score, created_at) VALUES (1, ?, ?, ?)").run(
+  if (!seeded) {
+    const dimensions = RUBRIC_KEYS.map((key) => ({ key, description: SEED[key], weight: 1 }));
+    db.prepare("INSERT OR IGNORE INTO rubric_versions (version, dimensions, gate_min_score, created_at) VALUES (1, ?, ?, ?)").run(
+      JSON.stringify(dimensions),
+      SEED_GATE_MIN_SCORE,
+      new Date().toISOString(),
+    );
+    return;
+  }
+  addTechValueVersion(db);
+}
+
+/**
+ * Ticket 17: a database whose Rubric history has no Tech-value line gets one new version, the current one with the line appended to
+ * `hook`. Weights, gate and every other description are kept, old versions (and the Scores that name them) are untouched, and once any
+ * version carries the line it never runs again, so an Operator who later edits it out is not overridden. A concurrent opener that
+ * loses the race hits the version primary key (INSERT OR IGNORE) and adds nothing.
+ */
+function addTechValueVersion(db: DatabaseSync): void {
+  const rows = db.prepare("SELECT * FROM rubric_versions ORDER BY version DESC").all() as unknown as RubricRow[];
+  if (rows.some((r) => r.dimensions.includes(TECH_VALUE_LINE))) return;
+  const latest = rows[0]!;
+  const dimensions = (JSON.parse(latest.dimensions) as RubricDimension[]).map((d) => {
+    if (d.key !== "hook") return d;
+    const description = `${d.description.trim()} ${TECH_VALUE_LINE}`;
+    return { ...d, description: description.length > MAX_RUBRIC_DESCRIPTION_CHARS ? `${d.description.trim().slice(0, MAX_RUBRIC_DESCRIPTION_CHARS - TECH_VALUE_LINE.length - 1)} ${TECH_VALUE_LINE}` : description };
+  });
+  db.prepare("INSERT OR IGNORE INTO rubric_versions (version, dimensions, gate_min_score, created_at) VALUES (?, ?, ?, ?)").run(
+    latest.version + 1,
     JSON.stringify(dimensions),
-    SEED_GATE_MIN_SCORE,
+    latest.gate_min_score,
     new Date().toISOString(),
   );
 }

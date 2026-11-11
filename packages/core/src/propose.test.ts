@@ -2,18 +2,50 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_NEW_PROPOSALS_PER_DAY, type NarrativeDetail, type Score } from "./datastore.ts";
-import { DEFAULT_PROPOSE_CONFIG, DEFAULT_PROPOSE_RUNS_PER_DAY, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
+import { DEFAULT_PROPOSE_CONFIG, DEFAULT_PROPOSE_RUNS_PER_DAY, isDisplayOnlyTech, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
 
 const LINKS = ["https://a.example/1", "https://b.example/2", "https://c.example/3"];
-const GOOD = { name: "Stock Paws", ticker: "PAWS", tech: "A launchpad that pairs each token with a stock", whyNow: "Tokenized stocks launched in Europe this week", description: "A cat-themed tracker of tokenized stocks.", evidence: LINKS };
+const GOOD = { name: "Stock Paws", ticker: "PAWS", tech: "A launchpad that pairs each token with a stock", whyNow: "Tokenized stocks launched in Europe this week", reason: "The Signals cluster on tokenized stocks; a pairing tool gives visitors something to do", description: "A cat-themed tracker of tokenized stocks.", evidence: LINKS };
 const ok = (over: Record<string, unknown> = {}) => JSON.stringify({ ...GOOD, ...over });
 
 describe("parseProposeOutput: a strict schema, never coerced", () => {
   it("accepts exactly name, ticker, tech, whyNow, description and 3 to 5 evidence links", () => {
     expect(parseProposeOutput(ok())).toEqual({
       ok: true,
-      fields: { name: "Stock Paws", ticker: "PAWS", techOneLiner: GOOD.tech, whyNow: GOOD.whyNow, description: GOOD.description, evidenceLinks: LINKS },
+      fields: { name: "Stock Paws", ticker: "PAWS", techOneLiner: GOOD.tech, whyNow: GOOD.whyNow, reason: GOOD.reason, description: GOOD.description, evidenceLinks: LINKS },
     });
+  });
+
+  it("requires a one-line `reason` of at most 300 characters (ticket 17)", () => {
+    const { reason: _r, ...noReason } = GOOD;
+    expect(parseProposeOutput(JSON.stringify(noReason))).toMatchObject({ ok: false, problem: expect.stringContaining("reason") });
+    for (const bad of ["", "   ", 5, null, "two\nlines", "x".repeat(301)]) {
+      expect(parseProposeOutput(ok({ reason: bad })), JSON.stringify(bad)).toMatchObject({ ok: false, problem: expect.stringContaining("reason") });
+    }
+    expect(parseProposeOutput(ok({ reason: "x".repeat(300) }))).toMatchObject({ ok: true });
+  });
+
+  it("refuses a display-only Tech and accepts the same Tech with an interaction (ticket 17)", () => {
+    for (const tech of [
+      "An RSS reader for rail news",
+      "A live dashboard of tokenized stock prices",
+      "A countdown to the next listing",
+      "A scoreboard of this week's results",
+      "A timeline of the merger",
+      "A tracker of injury reports",
+    ]) {
+      expect(parseProposeOutput(ok({ tech })), tech).toMatchObject({ ok: false, problem: expect.stringContaining("display-only") });
+      expect(isDisplayOnlyTech(tech), tech).toBe(true);
+    }
+    for (const tech of [
+      "A calculator that turns your token spend into a monthly bill",
+      "A tracker where you predict each result and compare your picks",
+      "A dashboard builder: pick the stocks you care about",
+      "A game that pairs each token with a stock",
+      "A page that pairs each tokenized stock with a cat verdict",
+    ]) {
+      expect(parseProposeOutput(ok({ tech })), tech).toMatchObject({ ok: true });
+    }
   });
 
   it("stores evidence links in the existing normalised form", () => {
@@ -34,7 +66,7 @@ describe("parseProposeOutput: a strict schema, never coerced", () => {
   });
 
   it("refuses a field that is not a string, or is empty, instead of coercing it", () => {
-    for (const key of ["name", "ticker", "tech", "whyNow", "description"]) {
+    for (const key of ["name", "ticker", "tech", "whyNow", "reason", "description"]) {
       for (const bad of [7, null, true, ["x"], { a: 1 }, "", "   "]) {
         expect(parseProposeOutput(ok({ [key]: bad })), `${key}=${JSON.stringify(bad)}`).toMatchObject({ ok: false, problem: expect.stringContaining(key) });
       }
@@ -143,6 +175,14 @@ describe("proposePromptFor", () => {
     expect(many).toContain("count your evidence links");
   });
 
+  it("states the Tech-value rule and the `reason` key outside the untrusted block (ticket 17)", () => {
+    const text = proposePromptFor(narrative(), score);
+    const head = text.split(/BOUNDARY-[0-9a-f]{24} START/)[0]!;
+    expect(head).toContain('"reason"');
+    expect(head).toContain("Tech value:");
+    expect(head).toContain("must not be \"fetch a feed or API and display it\"");
+  });
+
   it("a repair prompt carries the refusal reason and asks for the corrected object (ticket 21)", () => {
     const text = proposePromptFor(narrative(), score, undefined, "`evidence` must be an array of 3 to 5 links");
     expect(text).toContain("Your last answer was refused: `evidence` must be an array of 3 to 5 links");
@@ -186,7 +226,7 @@ describe("the propose skill", () => {
   it("is named propose, treats the block as untrusted and states the exact output keys", () => {
     expect(skill).toMatch(/^name: propose$/m);
     expect(skill).toMatch(/untrusted data/);
-    for (const key of ["name", "ticker", "tech", "whyNow", "description", "evidence"]) expect(skill).toContain(`"${key}"`);
+    for (const key of ["name", "ticker", "tech", "whyNow", "reason", "description", "evidence"]) expect(skill).toContain(`"${key}"`);
   });
 
   it("matches the schema the parser enforces (limits and counts stated)", () => {

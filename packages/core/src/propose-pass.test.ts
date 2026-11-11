@@ -20,6 +20,7 @@ const ANSWER = JSON.stringify({
   ticker: "PAWS",
   tech: "A page that pairs each tokenized stock with a cat verdict",
   whyNow: "Tokenized stocks went live in Europe this week",
+  reason: "The Signals cover tokenized stocks; a verdict page gives a reason to return",
   description: "A playful tracker of tokenized stocks.",
   evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"],
 });
@@ -91,6 +92,7 @@ describe("the propose pass", () => {
       ticker: "PAWS",
       techOneLiner: "A page that pairs each tokenized stock with a cat verdict",
       whyNow: "Tokenized stocks went live in Europe this week",
+      reason: "The Signals cover tokenized stocks; a verdict page gives a reason to return",
       description: "A playful tracker of tokenized stocks.",
       evidenceLinks: ["https://a.example/1", "https://b.example/2", "https://c.example/3"],
       narrativeSummary: "Tokenized stocks arrive\nTokenized stocks arrive summary",
@@ -584,7 +586,7 @@ describe("collision checks in the propose pass", () => {
     };
     return { c, asked };
   };
-  const RETRY = JSON.stringify({ name: "Paw Street", ticker: "PAWST", tech: "t", whyNow: "w", description: "d", evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"] });
+  const RETRY = JSON.stringify({ name: "Paw Street", ticker: "PAWST", tech: "t", whyNow: "w", reason: "r", description: "d", evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"] });
   const retrySequence = { FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_RESULT: RETRY }]) };
 
   it("stores the results with the Proposal, from a name that is clear, with one run", async () => {
@@ -714,6 +716,26 @@ describe("one repair retry for a count or length refusal (ticket 21)", () => {
     addScored(store, "One");
     expect(await pass()).toMatchObject({ proposed: 1, refused: 0 });
     expect(calls()[1]!.argv[1]).toContain("`tech` is over 200 characters");
+  });
+
+  it("repairs a display-only Tech (ticket 17): the repair prompt carries the problem and the stored Proposal has the repaired Tech and reason", async () => {
+    const FEED = JSON.stringify({ ...JSON.parse(ANSWER), tech: "An RSS feed reader for tokenized stock news" });
+    const FIXED = JSON.stringify({ ...JSON.parse(ANSWER), tech: "A game where you pick tokenized stocks against a cat", reason: "Signals on tokenized stocks; a game brings visitors back" });
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: FEED, ...seq({}, { FAKE_CLAUDE_RESULT: FIXED }) });
+    addScored(store, "One");
+    expect(await pass()).toMatchObject({ proposed: 1, refused: 0 });
+    expect(calls()).toHaveLength(2);
+    expect(calls()[1]!.argv[1]).toContain("Your last answer was refused: `tech` is display-only");
+    expect(store.listProposals()[0]).toMatchObject({ techOneLiner: "A game where you pick tokenized stocks against a cat", reason: "Signals on tokenized stocks; a game brings visitors back" });
+  });
+
+  it("a Tech that is still display-only after the repair is refused and nothing is stored", async () => {
+    const FEED = JSON.stringify({ ...JSON.parse(ANSWER), tech: "A live dashboard of tokenized stock prices" });
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: FEED });
+    addScored(store, "One");
+    expect(await pass()).toMatchObject({ proposed: 0, refused: 1 });
+    expect(calls()).toHaveLength(2);
+    expect(store.listProposals()).toEqual([]);
   });
 
   it("a second failure leaves two invalid-output rows, counts one refusal and runs nothing more, even on the next pass", async () => {

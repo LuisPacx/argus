@@ -62,6 +62,21 @@ describe("Datastore", () => {
     expect(cols()).toEqual(before);
   });
 
+  it("adds proposals.reason to an older table; old and hand-entered Proposals read an empty reason, a given one round-trips (ticket 17)", () => {
+    const path = join(tempDir("argus-"), "argus.db");
+    const db = new DatabaseSync(path);
+    db.exec(`CREATE TABLE proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    db.prepare("INSERT INTO proposals (slug, created_at, updated_at) VALUES ('old', '2026-06-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z')").run();
+    db.close();
+    const store = Datastore.open(path);
+    expect(store.getProposal(1)!.reason).toBe("");
+    const base = { narrativeSummary: "s", techOneLiner: "t", whyNow: "w", ticker: "CAT", description: "d", evidenceLinks: [] };
+    expect(store.createProposal({ ...base, name: "Hand" }).reason).toBe("");
+    const withReason = store.createProposal({ ...base, name: "Reasoned", reason: "Signals on cats; a game brings visitors back" });
+    expect(store.getProposal(withReason.id)!.reason).toBe("Signals on cats; a game brings visitors back");
+  });
+
   it("adds missing columns to an older table", () => {
     const db = new DatabaseSync(":memory:");
     db.exec(`CREATE TABLE proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,

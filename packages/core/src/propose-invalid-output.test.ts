@@ -7,7 +7,7 @@ import { parseProposeOutput } from "./propose.ts";
 // retry) logged no prefix at all, so its fixture is a stand-in with the same refusal. The evidence counts (0, 1, 2, 6) are one
 // plausible way to miss the 3 to 5 rule; the log cannot say which each run did.
 
-const complete = (prefix: string, tail: string, evidence: unknown): string => `${prefix}${tail}", "whyNow": "It is timely", "description": "A short pitch.", "evidence": ${JSON.stringify(evidence)}}`;
+const complete = (prefix: string, tail: string, evidence: unknown): string => `${prefix}${tail}", "whyNow": "It is timely", "reason": "It fits the Signals", "description": "A short pitch.", "evidence": ${JSON.stringify(evidence)}}`;
 const links = (n: number) => Array.from({ length: n }, (_, i) => `https://news.example/story-${i + 1}`);
 
 const EVIDENCE_PROBLEM = "`evidence` must be an array of 3 to 5 links";
