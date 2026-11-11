@@ -56,6 +56,7 @@ The plain-language line, for example "Chinese-cat 'ni hao' theme around Ansem's 
 
 1. **Rows shown.** Top 5 (this ticket). More behind a "show all"?
 2. **The 6 h and 24 h views.** Only 24 h is shown, with the 6 h count inside each row. A toggle for a 6 h ranking?
+**Decided (user, 2026-11-11):** the per-Meta line is the LLM summary from ticket viral-sources/03 (templated line only as fallback); `/api/signals` and its test may be deleted.
 
 ## Commits
 

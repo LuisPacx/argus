@@ -90,6 +90,7 @@ Offline in `pnpm check` (fixtures, fake Brain, fake DexScreener); the backtest i
 4. **`beta` or the Phase 4 `meme` kind?** Suggested: ship `beta` now and let the ADR say `meme` may later subsume it.
 5. **The image.** A Beta needs a logo for the newpairspam form. Suggested: the Proposal says "bring your own image"; a generated image is a separate ticket.
 6. **Gates.** Lead market cap floor $1M, at least 5 creators, saturation ceiling about three times the base rate's inverse, 30-minute minimum Meta age: are these the right starting numbers? They are config, and the backtest will show how they behave.
+**Decided (user, 2026-11-11):** the Beta switch defaults to off until the Operator has read the backtest; a Beta has no Spec, no Build and no Rubric score, and lives 6 h; `beta` is a new `proposals.kind` with its own ADR, and the GLOSSARY Proposal entry is amended (a Beta pairs with a Meta, not a Narrative); the logo is bring-your-own-image.
 
 ## Commits
 

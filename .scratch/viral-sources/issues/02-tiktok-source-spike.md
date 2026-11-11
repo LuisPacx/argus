@@ -54,6 +54,7 @@ Data on a `.backup` copy of `.data/argus.db` (`sqlite3 .data/argus.db ".backup <
 
 1. **How much is a "no" worth?** If every anonymous path is closed, is the Chrome capture fallback (a logged-in TikTok profile) something you want ticketed, given ADR 0009's X profile already exists?
 2. **Paid third-party data.** Allowed to assess a paid scraping API (a new host, a paid account, their terms) as an option, or strictly free and public?
+**Decided (user, 2026-11-11):** a paid third-party TikTok data API may be assessed (pricing, terms, data fields) but nothing is bought without asking the Operator; a Chrome-capture fallback gets its own ticket only if the spike finds no other path.
 
 ## Commits
 
