@@ -76,7 +76,50 @@ export const READ_ONLY_RPC_METHODS = ["getMultipleAccounts", "getTransactionsFor
 
 const KEY_WORDS = /\b(Keypair|secretKey|privateKey|PRIVATE_KEY|mnemonic)\b/;
 
+// Signing primitives of node:crypto and WebCrypto (an ed25519 signature is a wallet): none in the repo today, none allowed.
+const SIGNING_PRIMITIVES = /\b(?:createPrivateKey|createSign|generateKeyPair(?:Sync)?|diffieHellman|webcrypto)\b|\bcrypto\.sign\s*\(|\bsubtle\.(?:sign|importKey|generateKey)\b|["'`]ed25519["'`]/i;
+
+// An RPC endpoint or a Helius setting read from the environment or config: the RPC host is pinned in the module, never configured.
+const RPC_ENDPOINT_SETTING = /\b\w*RPC_?(?:URL|URI|ENDPOINT|HOST)\w*\b|\bHELIUS_(?!API_KEY\b)\w+/i;
+
 const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
+
+// A URL whose host is built at run time (`https://${h}/`, `"https://" + h`, `["https://", h].join("")`) is invisible to the host bans.
+const DYNAMIC_HOST = /\b(?:https?|wss?):\/\/(?:\$\{|["'`])/i;
+// Stricter, for the read-only module: no interpolation or concatenation anywhere in the host part.
+const DYNAMIC_HOST_STRICT = /\b(?:https?|wss?):\/\/[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)/i;
+// Files that already build a URL host at run time (test servers on a loopback port, fake hosts, a link normaliser). Frozen: a new
+// file that needs this is a change to this list, which the reviewer sees. Never the read-only module.
+const DYNAMIC_HOST_FILES = new Set<string>([
+  "packages/core/src/egress-proxy.test.ts",
+  "packages/core/src/evidence-links.test.ts",
+  "packages/core/src/sandbox.ts",
+  "packages/core/src/signals.test.ts",
+  "packages/core/src/source-polls.test.ts",
+  "packages/core/src/sources/pumpportal-study.test.ts",
+  "packages/core/src/study/guarded-fetch.test.ts",
+  "packages/core/src/study/metadata.ts",
+  "packages/core/src/testing/fake-wrangler.mjs",
+  "scripts/verify-boot.mjs",
+]);
+
+// In the read-only module the word `method` may only appear as `method: "<one of the five reads>"` (or HTTP `method: "POST"`), so
+// the module cannot export a generic `rpc(method: string, ...)`; only typed per-method wrappers fit. Write "RPC verb" in comments.
+const METHOD_LITERAL = new RegExp(`["'\`]?\\bmethod["'\`]?\\s*:\\s*(["'\`])(?:${[...READ_ONLY_RPC_METHODS, "POST"].join("|")})\\1`, "g");
+// Ways to assemble a method name or host at run time. A tripwire, not a proof: it only catches the obvious ones.
+const MODULE_BANNED_CONSTRUCTS: [string, RegExp][] = [
+  ["eval or Function constructor", /\beval\s*\(|\bFunction\s*\(/],
+  ["string assembly (fromCharCode, atob, Reflect, Proxy)", /\bfromCharCode\b|\batob\s*\(|\bReflect\b|\bProxy\b/],
+  ["concatenated string literals", /["'`]\s*\+\s*["'`]/],
+  ["computed literal property key", /\[\s*["'`][^\]]*\]\s*:/],
+  ["dynamic import", /\bimport\s*\(/],
+];
+
+const stripTrailingDots = (h: string): string => {
+  let end = h.length;
+  while (end > 0 && h[end - 1] === ".") end--;
+  return h.slice(0, end);
+};
 
 export function violations(file: string, text: string): string[] {
   const out: string[] = [];
@@ -98,17 +141,32 @@ export function violations(file: string, text: string): string[] {
     } catch {
       continue;
     }
-    if (!BANNED_HOSTS.some((r) => r.test(u.hostname) || r.test(u.host))) continue;
-    const ok = (u.hostname === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (u.hostname === "pump.fun" && u.pathname.startsWith("/coin/"));
+    // `new URL` keeps a trailing dot (`host.com.`, also from `%2e` and the ideographic full stop), which is the same host to DNS.
+    const host = stripTrailingDots(u.hostname);
+    const hostPort = u.port === "" ? host : `${host}:${u.port}`;
+    if (!BANNED_HOSTS.some((r) => r.test(host) || r.test(hostPort))) continue;
+    const ok = (host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/"));
+    // The pinned form only: the exact host (no trailing dot), https, no port or userinfo, path "/".
     const readOnly = readOnlyRpc && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
     if (!ok && !readOnly) out.push(`${file}: endpoint ${u.href}`);
   }
+  const normFile = file.split(sep).join("/");
+  if (readOnlyRpc ? DYNAMIC_HOST_STRICT.test(text) || DYNAMIC_HOST.test(text) : DYNAMIC_HOST.test(text) && !DYNAMIC_HOST_FILES.has(normFile)) out.push(`${file}: URL with a host built at run time`);
+  if (!readOnlyRpc && /jsonrpc/i.test(text)) out.push(`${file}: JSON-RPC request outside ${READ_ONLY_RPC_MODULE}`);
+  const setting = RPC_ENDPOINT_SETTING.exec(text);
+  if (setting) out.push(`${file}: RPC endpoint setting ${setting[0]}`);
   for (const method of RPC_METHODS) {
     if (readOnlyRpc && READ_ONLY_RPC_METHODS.includes(method)) continue;
     if (new RegExp(`["'\`]${method}["'\`]`).test(text)) out.push(`${file}: RPC method "${method}"`);
   }
+  if (readOnlyRpc) {
+    if (/\bmethod\b/.test(text.replace(METHOD_LITERAL, ""))) out.push(`${file}: JSON-RPC method that is not a literal`);
+    for (const [name, re] of MODULE_BANNED_CONSTRUCTS) if (re.test(text)) out.push(`${file}: ${name}`);
+  }
   const key = KEY_WORDS.exec(text);
   if (key) out.push(`${file}: key handling ${key[0]}`);
+  const sign = SIGNING_PRIMITIVES.exec(text);
+  if (sign) out.push(`${file}: signing primitive ${sign[0]}`);
   return out;
 }
 
@@ -132,6 +190,11 @@ describe("ADR 0002: argus never touches a chain", () => {
     expect(files.length).toBeGreaterThan(30); // the walk found the repo
     const found = files.flatMap((f) => violations(relative(ROOT, f), readFileSync(f, "utf8")));
     expect(found).toEqual([]);
+  });
+
+  it("every file on the frozen dynamic-host list still exists", () => {
+    const files = new Set(sourceFiles(ROOT).map((f) => relative(ROOT, f).split(sep).join("/")));
+    for (const f of DYNAMIC_HOST_FILES) expect(files.has(f), f).toBe(true);
   });
 
   it("the walk covers the read-only Sources that mention pump.fun, PumpPortal and DexScreener", () => {
@@ -219,7 +282,7 @@ describe("ADR 0002: argus never touches a chain", () => {
       const M = READ_ONLY_RPC_MODULE;
       const HOST = `https://${READ_ONLY_RPC_HOST}/?api-key=\${key}`;
       const reader = [
-        `const RPC_URL = \`${HOST}\`;`,
+        `const ENDPOINT = \`${HOST}\`;`,
         ...READ_ONLY_RPC_METHODS.map((m) => `rpc("${m}", [accounts]);`),
       ].join("\n");
 
@@ -298,6 +361,112 @@ describe("ADR 0002: argus never touches a chain", () => {
       it("matches the module path exactly, not by prefix", () => {
         expect(violations(M.split("/").join(sep), reader)).toEqual([]);
         expect(violations(`${M}.bak.ts`, reader).length).toBeGreaterThan(0);
+      });
+
+      it("fires for a trailing dot, %2e or an ideographic full stop on any banned host, in any file", () => {
+        for (const host of [
+          "mainnet.helius-rpc.com", "sender.helius-rpc.com", "api.mainnet-beta.solana.com", "quote-api.jup.ag",
+          "mainnet.block-engine.jito.wtf", "x.rpcpool.com", "api.pump.fun",
+        ]) {
+          for (const tail of [".", "%2e", "。", "..", "%2e."]) {
+            const src = `fetch("https://${host}${tail}/x")`;
+            expect(violations("other.ts", src), src).toHaveLength(1);
+            expect(violations(M, src.replace("/x", "/")), `${M} ${src}`).toHaveLength(1);
+          }
+        }
+        for (const src of ["wss://pumpportal.fun./api/trade", "https://pumpportal.fun%2e/api/trade", 'new WebSocket("wss://pumpportal.fun。/api/trade")', "https://pump.fun./api/ipfs", "http://localhost.:8899", "http://127.0.0.1.:8899", "http://localhost%2e:8900"]) {
+          expect(violations("other.ts", src), src).toHaveLength(1);
+        }
+        // the pinned host itself must be spelled exactly: a trailing-dot spelling is not the allowance
+        expect(violations(M, 'fetch("https://mainnet.helius-rpc.com./")')).toHaveLength(1);
+        // and the allowed uses keep working with the dot
+        expect(violations("ok.ts", 'new WebSocket("wss://pumpportal.fun./api/data"); const l = "https://pump.fun./coin/abc";')).toEqual([]);
+      });
+
+      it("fires for a host built at run time, outside a small frozen list of files", () => {
+        for (const src of [
+          "fetch(`https://${HOST}/`)",
+          "fetch(`wss://${process.env.X}`)",
+          'fetch("https://" + host + "/")',
+          "fetch(['https://', host].join(''))",
+          "const base = `https://${a}.${b}/`;",
+          "fetch('http://' + h)",
+        ]) {
+          expect(violations("new/file.ts", src), src).toEqual(["new/file.ts: URL with a host built at run time"]);
+          expect(violations(M, src), `${M} ${src}`.slice(0, 80)).toContain(`${M}: URL with a host built at run time`);
+        }
+        // a loopback port or a path may be interpolated; a partial host may not (in the module)
+        expect(violations("t.ts", "const u = `http://127.0.0.1:${port}/x`; const v = `https://x.com${path}`;")).toEqual([]);
+        for (const src of ["fetch(`https://api.${d}/`)", 'fetch("https://api." + d)', "fetch(`https://mainnet.helius-rpc.com.${d}/`)", "fetch(`https://mainnet.helius-rpc.com${path}`)"]) {
+          expect(violations(M, src), src).toContain(`${M}: URL with a host built at run time`);
+        }
+        expect(DYNAMIC_HOST_FILES.has(M)).toBe(false);
+        expect(violations([...DYNAMIC_HOST_FILES][0]!, "fetch(`https://${HOST}/`)")).toEqual([]);
+      });
+
+      it("fires for a JSON-RPC request outside the module, and for an RPC endpoint read from config or env", () => {
+        for (const src of ['body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: m, params })', '{"jsonRPC":"2.0"}', "const j = 'JSONRPC';"]) {
+          expect(violations("other.ts", src), src).toEqual(["other.ts: JSON-RPC request outside packages/core/src/study/helius.ts"]);
+        }
+        expect(violations(M, 'JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTransaction", params })')).toEqual([]);
+        for (const src of ["fetch(process.env.RPC_URL)", "const u = process.env.HELIUS_RPC_URL;", "const { rpcUrl } = cfg;", "const e = env.SOLANA_RPC_ENDPOINT;", "process.env.HELIUS_URL", "const h = cfg.rpcHost;"]) {
+          expect(violations("other.ts", src), src).toHaveLength(1);
+          expect(violations(M, `${reader}\n${src}`), `${M} ${src}`).toHaveLength(1);
+        }
+        expect(violations(M, `${reader}\nconst k = process.env.HELIUS_API_KEY;`)).toEqual([]);
+      });
+
+      it("fires inside the module for a method that is not a literal, so no generic rpc(method) can be exported", () => {
+        const S = `${M}: JSON-RPC method that is not a literal`;
+        for (const src of [
+          "export async function rpc(method: string, params: unknown[]) { return call(method, params); }",
+          "export const rpc = async (method: string) => fetch(u, { body: JSON.stringify({ jsonrpc: '2.0', method, params: [] }) });",
+          'const body = { jsonrpc: "2.0", method: verb, params };',
+          'const body = { jsonrpc: "2.0", method: `get${name}`, params };',
+          'const body = { "method": m };',
+          "const body = { jsonrpc: '2.0', method: cfg.method };",
+          'const body = { jsonrpc: "2.0", method: "getBalance" };',
+          'const body = { jsonrpc: "2.0", method: "send" + "Transaction" };',
+        ]) expect(violations(M, src), src).toContain(S);
+        for (const src of [
+          'export const getTx = (sig: string) => post({ jsonrpc: "2.0", id: 1, method: "getTransaction", params: [sig] });',
+          "fetch(url, { method: 'POST', body })",
+          '{ "method": "getMultipleAccounts" }',
+        ]) expect(violations(M, src), src).not.toContain(S);
+        // outside the module the word is unremarkable
+        expect(violations("other.ts", "fetch(u, { method })")).toEqual([]);
+      });
+
+      it("fires inside the module for the obvious ways to assemble a method name or host at run time", () => {
+        for (const [src, what] of [
+          ['const m = "send" + "Transaction";', "concatenated string literals"],
+          ["const m = `send` + `Transaction`;", "concatenated string literals"],
+          ["const m = String.fromCharCode(115, 101);", "string assembly"],
+          ["const m = atob('c2VuZFRyYW5zYWN0aW9u');", "string assembly"],
+          ["eval(code);", "eval or Function constructor"],
+          ["new Function('return 1')();", "eval or Function constructor"],
+          ["const p = new Proxy({}, h); Reflect.get(p, 'x');", "string assembly"],
+          ['const o = { ["met" + "hod"]: x, ["a"]: 1 };', "computed literal property key"],
+          ["const m = await import(name);", "dynamic import"],
+        ] as const) expect(violations(M, src).some((v) => v.includes(what)), src).toBe(true);
+        // not applied elsewhere
+        expect(violations("other.ts", 'const m = "a" + "b"; const x = await import(name);')).toEqual([]);
+      });
+
+      it("fires for signing primitives anywhere, the module included", () => {
+        for (const src of [
+          'import { generateKeyPairSync } from "node:crypto"; generateKeyPairSync("rsa");',
+          "const k = createPrivateKey(pem);",
+          "const s = createSign('SHA256');",
+          "crypto.sign(null, data, key);",
+          "await crypto.subtle.importKey('raw', k, 'Ed25519', false, ['sign']);",
+          'generateKeyPairSync("ed25519")',
+          "const { webcrypto } = require('node:crypto');",
+        ]) {
+          expect(violations("other.ts", src).some((v) => v.includes("signing primitive")), src).toBe(true);
+          expect(violations(M, `${reader}\n${src}`).some((v) => v.includes("signing primitive")), `${M} ${src}`).toBe(true);
+        }
+        expect(violations("ok.ts", "const h = createHash('sha256').update(x).digest('hex'); const b = randomBytes(8);")).toEqual([]);
       });
 
       it("does not loosen the other read-only Sources' rules", () => {
