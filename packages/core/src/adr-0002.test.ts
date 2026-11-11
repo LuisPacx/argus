@@ -79,26 +79,29 @@ const KEY_WORDS = /\b(Keypair|secretKey|privateKey|PRIVATE_KEY|mnemonic)\b/;
 // Signing primitives of node:crypto and WebCrypto (an ed25519 signature is a wallet): none in the repo today, none allowed.
 const SIGNING_PRIMITIVES = /\b(?:createPrivateKey|createSign|generateKeyPair(?:Sync)?|diffieHellman|webcrypto)\b|\bcrypto\.sign\s*\(|\bsubtle\.(?:sign|importKey|generateKey)\b|["'`]ed25519["'`]/i;
 
+// A named import or destructuring of a signing primitive: `import { sign } from "node:crypto"`, `const { sign } = require("crypto")`.
+const SIGNING_IMPORT = /\b(?:import|const|let|var)\s*\{[^}]*\b(?:sign|createSign|createPrivateKey|generateKeyPair(?:Sync)?|diffieHellman|webcrypto|subtle)\b[^}]*\}\s*(?:from\s*["'](?:node:)?crypto["']|=\s*(?:require\s*\(\s*["'](?:node:)?crypto["']\s*\)|(?:globalThis\.)?(?:web)?crypto\b))/;
+
 // An RPC endpoint or a Helius setting read from the environment or config: the RPC host is pinned in the module, never configured.
 const RPC_ENDPOINT_SETTING = /\b\w*RPC_?(?:URL|URI|ENDPOINT|HOST)\w*\b|\bHELIUS_(?!API_KEY\b)\w+/i;
 
 const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
 
-// A URL whose host is built at run time (`https://${h}/`, `"https://" + h`, `["https://", h].join("")`) is invisible to the host bans.
-const DYNAMIC_HOST = /\b(?:https?|wss?):\/\/(?:\$\{|["'`])/i;
-// Stricter, for the read-only module: no interpolation or concatenation anywhere in the host part.
-const DYNAMIC_HOST_STRICT = /\b(?:https?|wss?):\/\/[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)/i;
+// A URL whose host is built at run time (`https://${h}/`, `https://api.${d}/`, `"https://" + h`, `["https://", h].join("")`) is
+// invisible to the host bans. A bare scheme literal on its own (`startsWith("https://")`) is not a URL and is ignored; a loopback
+// host with an interpolated port (`http://127.0.0.1:${port}`) is fine.
+const DYNAMIC_HOST = /\b(?:https?|wss?):\/\/(?!(?:localhost|127\.0\.0\.1):\$\{)(?:[^/?#\s"'`]*(?:\$\{|["'`]\s*\+)|["'`]\s*,[^\]\n]*\]\s*\.join)/i;
+// Stricter, for the read-only module: also no bare scheme literal.
+const DYNAMIC_HOST_STRICT = /\b(?:https?|wss?):\/\/(?:["'`]|[^/?#\s"'`]*(?:\$\{|["'`]\s*\+))/i;
 // Files that already build a URL host at run time (test servers on a loopback port, fake hosts, a link normaliser). Frozen: a new
 // file that needs this is a change to this list, which the reviewer sees. Never the read-only module.
 const DYNAMIC_HOST_FILES = new Set<string>([
   "packages/core/src/egress-proxy.test.ts",
-  "packages/core/src/evidence-links.test.ts",
   "packages/core/src/sandbox.ts",
   "packages/core/src/signals.test.ts",
-  "packages/core/src/source-polls.test.ts",
-  "packages/core/src/sources/pumpportal-study.test.ts",
   "packages/core/src/study/guarded-fetch.test.ts",
   "packages/core/src/study/metadata.ts",
+  "packages/core/src/study/wiring.test.ts",
   "packages/core/src/testing/fake-wrangler.mjs",
   "scripts/verify-boot.mjs",
 ]);
@@ -135,9 +138,14 @@ export function violations(file: string, text: string): string[] {
     if (BANNED_PACKAGES.some((r) => r.test(m[1]!))) out.push(`${file}: import ${m[1]}`);
   }
   for (const m of text.matchAll(URL_RE)) {
+    // Judge the literal part before the first `${`: `https://api.helius.xyz${path}` and `https://pumpportal.fun:${port}` must not parse
+    // as an unknown host. If the interpolation follows the host or a path segment (not a `/`, `?` or `#`), it can extend them: not allowed.
+    const cut = m[0].indexOf("${");
+    const head = (cut === -1 ? m[0] : m[0].slice(0, cut)).replace(/[.,;]+$/, "");
+    const extended = cut !== -1 && !head.endsWith("/") && !head.includes("?") && !head.includes("#");
     let u: URL;
     try {
-      u = new URL(m[0].replace(/[.,;]+$/, ""));
+      u = new URL(head);
     } catch {
       continue;
     }
@@ -145,9 +153,9 @@ export function violations(file: string, text: string): string[] {
     const host = stripTrailingDots(u.hostname);
     const hostPort = u.port === "" ? host : `${host}:${u.port}`;
     if (!BANNED_HOSTS.some((r) => r.test(host) || r.test(hostPort))) continue;
-    const ok = (host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/"));
+    const ok = !extended && ((host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/")));
     // The pinned form only: the exact host (no trailing dot), https, no port or userinfo, path "/".
-    const readOnly = readOnlyRpc && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
+    const readOnly = readOnlyRpc && !extended && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
     if (!ok && !readOnly) out.push(`${file}: endpoint ${u.href}`);
   }
   const normFile = file.split(sep).join("/");
@@ -165,7 +173,7 @@ export function violations(file: string, text: string): string[] {
   }
   const key = KEY_WORDS.exec(text);
   if (key) out.push(`${file}: key handling ${key[0]}`);
-  const sign = SIGNING_PRIMITIVES.exec(text);
+  const sign = SIGNING_PRIMITIVES.exec(text) ?? SIGNING_IMPORT.exec(text);
   if (sign) out.push(`${file}: signing primitive ${sign[0]}`);
   return out;
 }
@@ -395,13 +403,37 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(violations("new/file.ts", src), src).toEqual(["new/file.ts: URL with a host built at run time"]);
           expect(violations(M, src), `${M} ${src}`.slice(0, 80)).toContain(`${M}: URL with a host built at run time`);
         }
-        // a loopback port or a path may be interpolated; a partial host may not (in the module)
-        expect(violations("t.ts", "const u = `http://127.0.0.1:${port}/x`; const v = `https://x.com${path}`;")).toEqual([]);
-        for (const src of ["fetch(`https://api.${d}/`)", 'fetch("https://api." + d)', "fetch(`https://mainnet.helius-rpc.com.${d}/`)", "fetch(`https://mainnet.helius-rpc.com${path}`)"]) {
+        // a loopback port or a path may be interpolated, and a bare scheme literal is not a URL; a partial host may not
+        expect(violations("t.ts", "const u = `http://127.0.0.1:${port}/x`; const v = `ws://localhost:${port}`; const w = `https://x.com/${path}`;")).toEqual([]);
+        expect(violations("t.ts", 'if (u.startsWith("https://") || u.startsWith("wss://")) go(); const all = ["https://", "wss://"];')).toEqual([]);
+        for (const src of ["fetch(`https://api.${d}/`)", 'fetch("https://api." + d)', "fetch(`https://mainnet.helius-rpc.com.${d}/`)", "fetch(`https://mainnet.helius-rpc.com${path}`)", "fetch(`https://pump.${tld}/coin/x`)", "fetch(`https://mainnet.helius-rpc.${tld}/`)"]) {
           expect(violations(M, src), src).toContain(`${M}: URL with a host built at run time`);
+          expect(violations("other.ts", src), src).toContain("other.ts: URL with a host built at run time");
         }
+        // the module takes no bare scheme literal either
+        expect(violations(M, 'const s = "https://";')).toContain(`${M}: URL with a host built at run time`);
         expect(DYNAMIC_HOST_FILES.has(M)).toBe(false);
         expect(violations([...DYNAMIC_HOST_FILES][0]!, "fetch(`https://${HOST}/`)")).toEqual([]);
+      });
+
+      it("fires for a banned host followed by an interpolation, in every file", () => {
+        const endpoint = (found: string[]) => found.some((v) => v.includes(": endpoint "));
+        for (const host of ["https://api.helius.xyz", "https://sender.helius-rpc.com", "https://mainnet.helius-rpc.com", "https://pumpportal.fun", "wss://pumpportal.fun", "https://pump.fun", "https://mainnet.block-engine.jito.wtf", "https://quote-api.jup.ag", "https://api.mainnet-beta.solana.com", "https://x.rpcpool.com", "http://localhost:8899"]) {
+          for (const tail of ["${path}", "/${path}", ":${port}", ":${port}/x", "${path}/x", "/api/trade${q}", ".${tld}/"]) {
+            const src = `fetch(\`${host}${tail}\`)`;
+            if (host.startsWith("http://localhost") && tail.startsWith(":")) continue; // a second port on the banned local validator
+            if (host === "https://pump.fun" && tail === "/${path}") continue; // pump.fun/<anything> is only allowed under /coin/
+            expect(endpoint(violations("other.ts", src)), `other.ts ${src}`).toBe(true);
+            if (host !== "https://mainnet.helius-rpc.com" || tail !== "/${path}") expect(endpoint(violations(M, src)) || violations(M, src).length > 0, `${M} ${src}`).toBe(true);
+          }
+        }
+        // the allowed uses survive an interpolation after a slash
+        expect(violations("ok.ts", "const l = `https://pump.fun/coin/${mint}`; const s = `wss://pumpportal.fun/api/data/${x}`;")).toEqual([]);
+        // but not an interpolation that extends the last path segment
+        expect(endpoint(violations("bad.ts", "const s = `wss://pumpportal.fun/api/data${x}`;"))).toBe(true);
+        expect(endpoint(violations("bad.ts", "const l = `https://pump.fun/coin${x}`;"))).toBe(true);
+        // the pinned URL with the key in the query is still the allowance
+        expect(violations(M, "fetch(`https://mainnet.helius-rpc.com/?api-key=${key}`)")).toEqual([]);
       });
 
       it("fires for a JSON-RPC request outside the module, and for an RPC endpoint read from config or env", () => {
@@ -466,6 +498,19 @@ describe("ADR 0002: argus never touches a chain", () => {
           expect(violations("other.ts", src).some((v) => v.includes("signing primitive")), src).toBe(true);
           expect(violations(M, `${reader}\n${src}`).some((v) => v.includes("signing primitive")), `${M} ${src}`).toBe(true);
         }
+        for (const src of [
+          'import { sign } from "node:crypto";',
+          "import { sign as s, createHash } from 'crypto';",
+          'import { createHash, sign } from "node:crypto";',
+          'const { sign } = require("node:crypto");',
+          "const { subtle } = globalThis.crypto;",
+          "const { sign } = crypto;",
+          'import { generateKeyPair } from "node:crypto";',
+        ]) {
+          expect(violations("other.ts", src).some((v) => v.includes("signing primitive")), src).toBe(true);
+          expect(violations(M, `${reader}\n${src}`).some((v) => v.includes("signing primitive")), `${M} ${src}`).toBe(true);
+        }
+        expect(violations("ok.ts", 'import { createHash, randomBytes } from "node:crypto"; const { sign: signature } = body; const o = { sign };')).toEqual([]);
         expect(violations("ok.ts", "const h = createHash('sha256').update(x).digest('hex'); const b = randomBytes(8);")).toEqual([]);
       });
 

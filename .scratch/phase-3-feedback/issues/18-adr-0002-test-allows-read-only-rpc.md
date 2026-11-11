@@ -25,6 +25,11 @@ Widening the allowance (another method, another file such as a separate own-laun
 - In the module the word `method` may only appear as `method: "<one of the five reads>"` (or `method: "POST"`); so no generic `rpc(method: string)` can be written, only typed per-method wrappers. Write "RPC verb" in comments there. The module also may not use eval or `Function(...)`, `fromCharCode`, `atob`, `Reflect`, `Proxy`, adjacent string-literal concatenation, computed literal keys or dynamic `import()`.
 - Signing primitives (`createPrivateKey`, `createSign`, `generateKeyPair*`, `crypto.sign(`, `subtle.sign/importKey/generateKey`, `webcrypto`, an `"ed25519"` literal) are banned everywhere; none exist in the repo.
 
+**Second review round (third commit):**
+- A URL literal is judged on the part before its first `${`, so `` `https://api.helius.xyz${path}` `` and `` `https://pumpportal.fun:${port}` `` are caught as the banned host; an interpolation that extends the host or the last path segment (not after `/`, `?` or `#`) never counts as an allowed use.
+- The run-time-host pattern now also covers a partial host (`https://api.${d}/`) in every file, ignores a bare scheme literal (`startsWith("https://")`) and a loopback port (`http://127.0.0.1:${port}`); the module still takes no bare scheme literal. The frozen file list is down to eight (`evidence-links.test.ts`, `pumpportal-study.test.ts` and `source-polls.test.ts` dropped, `study/wiring.test.ts` added).
+- Named imports and destructuring of signing primitives from `node:crypto` / `crypto` are banned (`import { sign } from "node:crypto"`).
+
 **This scan is a tripwire, not a proof.** It reads text. It cannot see a method or host assembled in ways it does not list (a base64 blob, a lookup table, a value read from a file or the network), calls through a dependency, or what a typed wrapper does inside. The real guarantees are that no chain SDK, key or signing primitive is present, and code review of `study/helius.ts`; any change to that module gets a security review.
 
 ## Comments
