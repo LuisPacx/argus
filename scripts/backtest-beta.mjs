@@ -10,6 +10,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isLiveDb } from './live-db-guard.mjs';
 import { Datastore } from '../packages/core/src/datastore.ts';
 import { DEFAULT_BACKTEST, formatBacktest, runBacktest, summariseBacktest } from '../packages/core/src/beta/backtest.ts';
 
@@ -24,7 +25,7 @@ if (positional.length < 1) {
   process.exit(2);
 }
 const dbPath = path.resolve(positional[0]);
-if (/[\\/]\.data[\\/]argus\.db(-wal|-shm)?$/.test(dbPath)) {
+if (isLiveDb(dbPath, [path.resolve(import.meta.dirname, '../.data/argus.db'), process.env.ARGUS_DB])) {
   console.error('refusing to open the live database; make a .backup copy first');
   process.exit(2);
 }
