@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp";
 // @ts-expect-error plain .mjs script, no types
 import { acquire, formatStatus, holdSlot, readStartTime, slotDir, tryAcquire, waitForFree } from "./test-slot.mjs";
@@ -230,6 +230,102 @@ describe("real processes racing", () => {
     await Promise.all(kids.map((k) => new Promise<void>((resolve) => k.on("exit", () => resolve()))));
     expect(results.filter((r) => r === "won")).toHaveLength(1);
     expect(results.filter((r) => r === "lost")).toHaveLength(3);
+  });
+});
+
+describe("a signalled check stops its whole step tree before releasing the slot", () => {
+  const fixture = join(here, "test-slot-holder.fixture.mjs");
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  async function until(what: string, cond: () => boolean, ms = 10_000) {
+    const deadline = Date.now() + ms;
+    while (!cond()) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+      await sleep(10);
+    }
+  }
+  const cleanup: Array<() => void> = [];
+  afterEach(() => {
+    for (const fn of cleanup.splice(0)) fn();
+  });
+
+  /** Start the parent fixture (hold slot, run parent -> mid -> grandchild) and wait until the grandchild exists. */
+  async function start(mode: "tree" | "tree-stubborn") {
+    const slots = fresh();
+    const work = fresh();
+    const parent = spawn(process.execPath, [fixture, mode], {
+      env: { ...process.env, ARGUS_TEST_SLOT_DIR: slots, ARGUS_FIXTURE_DIR: work, ARGUS_FIXTURE_GRACE_MS: mode === "tree" ? "30000" : "300" }, // polite: ample grace, never SIGKILLed
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    let gc = 0;
+    cleanup.push(() => {
+      if (gc && alive(gc)) process.kill(gc, "SIGKILL"); // never leave the grandchild behind, even when the test fails
+      if (parent.exitCode === null) parent.kill("SIGKILL");
+    });
+    const exited = new Promise<void>((resolve) => parent.on("exit", () => resolve()));
+    await until("grandchild pid", () => existsSync(join(work, "gc.pid")) && readFileSync(join(work, "gc.pid"), "utf8") !== "");
+    gc = Number(readFileSync(join(work, "gc.pid"), "utf8")); // known early, for cleanup
+    await until("grandchild ready", () => existsSync(join(work, "gc.ready"))); // its signal handler is installed
+    await until("slot file", () => existsSync(join(slots, "slot-0.json")));
+    expect(alive(gc)).toBe(true);
+    return { parent, exited, gc: () => gc, slotFile: join(slots, "slot-0.json"), exitedFile: join(work, "gc.exited") };
+  }
+
+  it("SIGTERM: the grandchild is gone, and the slot is never free while it is still running", async () => {
+    const t = await start("tree");
+    t.parent.kill("SIGTERM");
+    let done = false;
+    void t.exited.then(() => (done = true));
+    while (!done) {
+      const slotHeld = existsSync(t.slotFile); // read the slot first, then the marker
+      const gcDone = existsSync(t.exitedFile);
+      expect(slotHeld || gcDone, "slot released while the grandchild was still running").toBe(true);
+      await sleep(5);
+    }
+    expect(alive(t.gc())).toBe(false);
+    expect(existsSync(t.exitedFile)).toBe(true); // it was asked to stop politely and did
+    expect(existsSync(t.slotFile)).toBe(false);
+    expect(t.parent.exitCode).toBe(128 + 15);
+  });
+
+  it("SIGINT is forwarded to the step group like a terminal Ctrl-C would", async () => {
+    const t = await start("tree");
+    t.parent.kill("SIGINT");
+    await t.exited;
+    expect(alive(t.gc())).toBe(false);
+    expect(existsSync(t.slotFile)).toBe(false);
+    expect(t.parent.exitCode).toBe(128 + 2);
+  });
+
+  it("a grandchild that ignores SIGTERM is SIGKILLed after the grace period, then the slot is released", async () => {
+    const t = await start("tree-stubborn");
+    t.parent.kill("SIGTERM");
+    await t.exited;
+    expect(alive(t.gc())).toBe(false);
+    expect(existsSync(t.slotFile)).toBe(false);
+  });
+});
+
+describe("unusable slot directory", () => {
+  it("fails with a message naming the directory and the override", () => {
+    const blocker = join(fresh(), "file");
+    writeFileSync(blocker, "x");
+    const dir = join(blocker, "slots"); // a path below a regular file can never be created
+    let message = "";
+    try {
+      tryAcquire({ dir, ...me });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(dir);
+    expect(message).toContain("ARGUS_TEST_SLOT_DIR");
   });
 });
 

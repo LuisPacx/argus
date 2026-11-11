@@ -3,6 +3,7 @@
 // { pid, startTime, worktree, command, since }. A holder that died (or whose pid was reused) is detected, so a crashed or
 // kill -9'd check never keeps a slot: no cleanup step exists or is needed.
 // CLI: `node scripts/test-slot.mjs status` (exit 1 when every slot is held) | `wait` (block until one is free, take nothing).
+import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, rmdirSync, statSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -135,8 +136,18 @@ function withLock(dir, fn) {
 
 /** One attempt: returns { slot, release } or null when every slot is held by a live process. */
 export function tryAcquire({ dir = slotDir(), worktree = process.cwd(), command = process.argv.slice(1).join(' ') } = {}) {
-  mkdirSync(dir, { recursive: true });
-  return withLock(dir, () => {
+  // An unusable slot directory is a hard error, never a silent run without a slot: say which directory and how to move it.
+  try {
+    mkdirSync(dir, { recursive: true });
+    return withLock(dir, () => attempt(dir, worktree, command));
+  } catch (err) {
+    if (err.message?.startsWith('test-slot:')) throw err;
+    throw new Error(`test-slot: cannot use the slot directory ${dir} (${err.code ?? err.message}); make it writable or set ARGUS_TEST_SLOT_DIR to a writable directory`);
+  }
+}
+
+function attempt(dir, worktree, command) {
+  {
     for (let slot = 0; slot < SLOTS; slot++) {
       const state = inspect(dir, slot);
       if (state.held) continue;
@@ -168,7 +179,7 @@ export function tryAcquire({ dir = slotDir(), worktree = process.cwd(), command 
       return { slot, release };
     }
     return null;
-  });
+  }
 }
 
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -203,16 +214,72 @@ export async function waitForFree({ dir = slotDir(), timeoutMs, pollMs = 2000, o
 }
 
 /**
+ * Start a step as the leader of its own process group, so the step and everything it spawns (pnpm does not forward
+ * signals, so vitest/tsc are grandchildren) can be signalled and awaited as one group by `killTree`.
+ * Because the group is detached it no longer receives the terminal's Ctrl-C: whoever holds the slot must forward signals.
+ * Resolves `closed` with the exit code (1 when it could not start or died by signal).
+ */
+export function spawnStep(command, args, options = {}) {
+  const child = spawn(command, args, { ...options, detached: true });
+  const closed = new Promise((resolve) => {
+    child.on('error', () => resolve(1));
+    child.on('close', (code) => resolve(code ?? 1));
+  });
+  return { child, closed };
+}
+
+const groupAlive = (pgid) => {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+};
+
+async function groupGone(pgid, ms, sleep) {
+  const deadline = Date.now() + ms;
+  while (groupAlive(pgid)) {
+    if (Date.now() >= deadline) return false;
+    await sleep(25);
+  }
+  return true;
+}
+
+/**
+ * Signal a step's whole process group and resolve once no process of it is left: `signal` first, then SIGKILL after
+ * `graceMs` for anything that ignored it. Never rejects; gives up (resolves) if even SIGKILL leaves something after 5 s.
+ */
+export async function killTree(child, signal = 'SIGTERM', { graceMs = 5000, sleep = realSleep } = {}) {
+  const pgid = child.pid;
+  if (!pgid) return;  const send = (sig) => {
+    try {
+      process.kill(-pgid, sig);
+    } catch {
+      // group already gone
+    }
+  };
+  send(signal);
+  if (await groupGone(pgid, graceMs, sleep)) return;
+  send('SIGKILL');
+  await groupGone(pgid, 5000, sleep);
+}
+
+/**
  * Acquire, and guarantee release on process exit, an uncaught error and SIGINT/SIGTERM/SIGHUP.
- * `onSignal` runs first on a signal (e.g. to kill a child); the process then exits 128+signal.
+ * On a signal `onSignal(name)` runs first and is awaited (e.g. `killTree` of the running step, so the slot is not
+ * released while the suite is still running); then the slot is released and the process exits 128+signal.
  */
 export async function holdSlot({ onSignal, ...opts } = {}) {
   const got = await acquire(opts);
   const signals = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 };
+  let signalled = false;
   const handlers = Object.entries(signals).map(([name, num]) => {
-    const handler = () => {
+    const handler = async () => {
+      if (signalled) return; // a second signal while the tree is being stopped changes nothing
+      signalled = true;
       try {
-        onSignal?.(name);
+        await onSignal?.(name);
       } finally {
         got.release();
         process.exit(128 + num);
