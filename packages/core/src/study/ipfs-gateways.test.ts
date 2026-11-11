@@ -46,6 +46,17 @@ describe("fetchMetadata across gateways", () => {
   const answer = (status: number, body = ""): TransportResponse => ({ status, headers: {}, body: (async function* () { yield Buffer.from(body); })(), destroy: () => {} });
   const opts = { maxBytes: 64 * 1024, timeoutMs: 500, resolve, gateways: GW };
 
+  it("a gateway-shaped uri on a host that is not recognised is fetched once, as given, with no fallback", async () => {
+    // The general rule behind the dropped RPC-provider gateway entry: its host cannot be spelled in a test (the containment scan bans it).
+    for (const uri of [`https://other-gw.example/ipfs/${CID}`, "https://bafkreictddc23key7yw5gps2prjn7tuuckwokbnjzx7qwflelxcypnomz4.ipfs.other-gw.example/"]) {
+      const seen: string[] = [];
+      const transport: Transport = async (req) => (seen.push(req.url.href), answer(429));
+      expect(metadataCandidates(uri, GW), uri).toEqual([uri]);
+      expect(await fetchMetadata(uri, { ...opts, transport }), uri).toMatchObject({ ok: false, detail: "HTTP 429", retryable: true });
+      expect(seen, uri).toEqual([uri]);
+    }
+  });
+
   it("falls back on 429 and counts each gateway", async () => {
     const seen: string[] = [];
     const transport: Transport = async (req) => (seen.push(req.url.hostname), req.url.hostname === "gw-a.example" ? answer(429) : answer(200, '{"twitter":"https://x.com/a"}'));

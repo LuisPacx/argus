@@ -26,7 +26,6 @@ const PUBLIC_GATEWAY_HOSTS = new Set([
   "4everland.io",
   "ipfs.filebase.io",
   "gw.ipfs-lens.dev",
-  "ipfs.infura.io",
 ]);
 
 const CID = /^[A-Za-z0-9]{46,100}$/;
