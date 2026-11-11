@@ -72,9 +72,10 @@ describe("Datastore", () => {
     const store = Datastore.open(path);
     expect(store.getProposal(1)!.reason).toBe("");
     const base = { narrativeSummary: "s", techOneLiner: "t", whyNow: "w", ticker: "CAT", description: "d", evidenceLinks: [] };
-    expect(store.createProposal({ ...base, name: "Hand" }).reason).toBe("");
-    const withReason = store.createProposal({ ...base, name: "Reasoned", reason: "Signals on cats; a game brings visitors back" });
-    expect(store.getProposal(withReason.id)!.reason).toBe("Signals on cats; a game brings visitors back");
+    expect(store.createProposal({ ...base, name: "Hand" })).toMatchObject({ reason: "", interaction: "" });
+    expect(store.getProposal(1)!.interaction).toBe("");
+    const withReason = store.createProposal({ ...base, name: "Reasoned", reason: "Signals on cats; a game brings visitors back", interaction: "Pick a cat and vote" });
+    expect(store.getProposal(withReason.id)).toMatchObject({ reason: "Signals on cats; a game brings visitors back", interaction: "Pick a cat and vote" });
   });
 
   it("adds missing columns to an older table", () => {

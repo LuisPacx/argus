@@ -2,17 +2,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_NEW_PROPOSALS_PER_DAY, type NarrativeDetail, type Score } from "./datastore.ts";
-import { DEFAULT_PROPOSE_CONFIG, DEFAULT_PROPOSE_RUNS_PER_DAY, isDisplayOnlyTech, parseProposeOutput, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
+import { DEFAULT_PROPOSE_CONFIG, DEFAULT_PROPOSE_RUNS_PER_DAY, DISPLAY_ONLY_PROBLEM, NO_ACTION_PROBLEM, parseProposeOutput, techValueProblem, proposeConfigFromEnv, proposePromptFor } from "./propose.ts";
 
 const LINKS = ["https://a.example/1", "https://b.example/2", "https://c.example/3"];
-const GOOD = { name: "Stock Paws", ticker: "PAWS", tech: "A launchpad that pairs each token with a stock", whyNow: "Tokenized stocks launched in Europe this week", reason: "The Signals cluster on tokenized stocks; a pairing tool gives visitors something to do", description: "A cat-themed tracker of tokenized stocks.", evidence: LINKS };
+const GOOD = { name: "Stock Paws", ticker: "PAWS", tech: "A launchpad that pairs each token with a stock", whyNow: "Tokenized stocks launched in Europe this week", interaction: "Visitors pick a token and drag it onto a stock", reason: "The Signals cluster on tokenized stocks; a pairing tool gives visitors something to do", description: "A cat-themed tracker of tokenized stocks.", evidence: LINKS };
 const ok = (over: Record<string, unknown> = {}) => JSON.stringify({ ...GOOD, ...over });
 
 describe("parseProposeOutput: a strict schema, never coerced", () => {
   it("accepts exactly name, ticker, tech, whyNow, description and 3 to 5 evidence links", () => {
     expect(parseProposeOutput(ok())).toEqual({
       ok: true,
-      fields: { name: "Stock Paws", ticker: "PAWS", techOneLiner: GOOD.tech, whyNow: GOOD.whyNow, reason: GOOD.reason, description: GOOD.description, evidenceLinks: LINKS },
+      fields: { name: "Stock Paws", ticker: "PAWS", techOneLiner: GOOD.tech, interaction: GOOD.interaction, whyNow: GOOD.whyNow, reason: GOOD.reason, description: GOOD.description, evidenceLinks: LINKS },
     });
   });
 
@@ -26,26 +26,48 @@ describe("parseProposeOutput: a strict schema, never coerced", () => {
   });
 
   it("refuses a display-only Tech and accepts the same Tech with an interaction (ticket 17)", () => {
+    // Feed viewers, including the ones a Tech-words check let through; their interaction only describes viewing.
     for (const tech of [
       "An RSS reader for rail news",
-      "A live dashboard of tokenized stock prices",
+      "RSS feed tool for tokenized stocks",
+      "Scoreboard with search box",
+      "Dashboard of whale wallets you can compare",
+      "Live scoreboard with a leaderboard",
+      "A radar that tracks new launches",
+      "A heatmap of token flows",
+      "A price ticker for tokenized stocks",
+      "A streaming view of new pairs",
       "A countdown to the next listing",
-      "A scoreboard of this week's results",
       "A timeline of the merger",
-      "A tracker of injury reports",
+      "A wall of the latest posts",
     ]) {
-      expect(parseProposeOutput(ok({ tech })), tech).toMatchObject({ ok: false, problem: expect.stringContaining("display-only") });
-      expect(isDisplayOnlyTech(tech), tech).toBe(true);
+      for (const interaction of ["Visitors watch the feed and see the latest items", "Browse and read the updates; view the details", "Search the board and track the changes"]) {
+        expect(parseProposeOutput(ok({ tech, interaction })), `${tech} / ${interaction}`).toMatchObject({ ok: false, problem: expect.stringContaining("display-only") });
+        expect(techValueProblem(tech, interaction), tech).toBe(DISPLAY_ONLY_PROBLEM);
+      }
     }
-    for (const tech of [
-      "A calculator that turns your token spend into a monthly bill",
-      "A tracker where you predict each result and compare your picks",
-      "A dashboard builder: pick the stocks you care about",
-      "A game that pairs each token with a stock",
-      "A page that pairs each tokenized stock with a cat verdict",
-    ]) {
-      expect(parseProposeOutput(ok({ tech })), tech).toMatchObject({ ok: true });
+    // Real interactive Techs that a Tech-words check refused.
+    for (const [tech, interaction] of [
+      ["A dashboard where you filter by chain and toggle the view", "Visitors filter by chain and toggle the view"],
+      ["Click a stock to flip a card with its story, laid out on a board", "Visitors click a stock to flip its card"],
+      ["A countdown to the listing where users guess the date and spin a wheel", "Users guess the date and spin the wheel"],
+      ["A soundboard that plays a sound for each token", "The page plays a sound when a visitor taps a token"],
+      ["A scoreboard of picks", "Visitors enter a prediction and submit it"],
+      ["A tracker of whale wallets", "Visitors input a wallet address and drag the slider"],
+    ] as const) {
+      expect(parseProposeOutput(ok({ tech, interaction })), `${tech} / ${interaction}`).toMatchObject({ ok: true });
     }
+  });
+
+  it("refuses a missing, empty or action-less `interaction` even when the Tech names no display word (ticket 17)", () => {
+    const { interaction: _i, ...noInteraction } = GOOD;
+    expect(parseProposeOutput(JSON.stringify(noInteraction))).toMatchObject({ ok: false, problem: expect.stringContaining("interaction") });
+    expect(parseProposeOutput(ok({ interaction: "" }))).toMatchObject({ ok: false, problem: expect.stringContaining("interaction") });
+    expect(parseProposeOutput(ok({ interaction: "x".repeat(201) }))).toMatchObject({ ok: false, problem: expect.stringContaining("interaction") });
+    expect(parseProposeOutput(ok({ interaction: "two\nlines" }))).toMatchObject({ ok: false, problem: expect.stringContaining("interaction") });
+    expect(parseProposeOutput(ok({ interaction: "A nice looking page" }))).toMatchObject({ ok: false, problem: NO_ACTION_PROBLEM });
+    expect(parseProposeOutput(ok({ interaction: "Display the data" }))).toMatchObject({ ok: false, problem: NO_ACTION_PROBLEM }); // "display" is not "play"
+    expect(parseProposeOutput(ok({ interaction: "x".repeat(200) + "" }))).toMatchObject({ ok: false }); // 200 characters with no verb
   });
 
   it("stores evidence links in the existing normalised form", () => {
@@ -66,7 +88,7 @@ describe("parseProposeOutput: a strict schema, never coerced", () => {
   });
 
   it("refuses a field that is not a string, or is empty, instead of coercing it", () => {
-    for (const key of ["name", "ticker", "tech", "whyNow", "reason", "description"]) {
+    for (const key of ["name", "ticker", "tech", "interaction", "whyNow", "reason", "description"]) {
       for (const bad of [7, null, true, ["x"], { a: 1 }, "", "   "]) {
         expect(parseProposeOutput(ok({ [key]: bad })), `${key}=${JSON.stringify(bad)}`).toMatchObject({ ok: false, problem: expect.stringContaining(key) });
       }
@@ -226,7 +248,7 @@ describe("the propose skill", () => {
   it("is named propose, treats the block as untrusted and states the exact output keys", () => {
     expect(skill).toMatch(/^name: propose$/m);
     expect(skill).toMatch(/untrusted data/);
-    for (const key of ["name", "ticker", "tech", "whyNow", "reason", "description", "evidence"]) expect(skill).toContain(`"${key}"`);
+    for (const key of ["name", "ticker", "tech", "interaction", "whyNow", "reason", "description", "evidence"]) expect(skill).toContain(`"${key}"`);
   });
 
   it("matches the schema the parser enforces (limits and counts stated)", () => {

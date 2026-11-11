@@ -14,6 +14,7 @@ const PROPOSE_ANSWER = JSON.stringify({
   ticker: "PAWS",
   tech: "A page that pairs each tokenized stock with a cat verdict",
   whyNow: "Tokenized stocks went live this week",
+  interaction: "Visitors pick a stock and vote on the cat's verdict",
   reason: "The Signals cover tokenized stocks; a verdict page gives a reason to return",
   description: "A playful tracker.",
   evidence: ["https://a.example/1", "https://b.example/2", "https://c.example/3"],

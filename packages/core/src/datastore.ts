@@ -38,6 +38,8 @@ export interface Proposal {
   whyNow: string;
   /** The propose model's one-line rationale for this Proposal; empty for hand-entered Proposals and rows from before the column. */
   reason: string;
+  /** What the visitor does in the Tech; empty for hand-entered Proposals and rows from before the column. */
+  interaction: string;
   name: string;
   ticker: string;
   description: string;
@@ -175,6 +177,8 @@ export interface NewProposal {
   evidenceLinks: string[];
   /** The propose model's one-line "why this Proposal" (which Signals/Narrative, why this Tech). Absent on hand-entered Proposals. */
   reason?: string;
+  /** What the visitor does in the Tech (one line from the propose model). Absent on hand-entered Proposals. */
+  interaction?: string;
 }
 
 /** Per-task per-run spend ceilings (the route's `--max-budget-usd`), used to charge runs that never reported a cost. */
@@ -262,6 +266,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "tech_one_liner", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "why_now", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "reason", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "interaction", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "name", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "ticker", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "description", "TEXT NOT NULL DEFAULT ''");
@@ -383,6 +388,7 @@ interface Row {
   tech_one_liner: string;
   why_now: string;
   reason: string;
+  interaction: string;
   name: string;
   ticker: string;
   description: string;
@@ -422,6 +428,7 @@ function toProposal(r: Row): Proposal {
     techOneLiner: r.tech_one_liner,
     whyNow: r.why_now,
     reason: r.reason,
+    interaction: r.interaction,
     name: r.name,
     ticker: r.ticker,
     description: r.description,
@@ -739,8 +746,8 @@ export class Datastore {
       const res = this.db
         .prepare(
           `INSERT INTO proposals (slug, status, narrative_summary, tech_one_liner, why_now, name, ticker,
-             description, evidence_links, narrative_id, score_id, collision_checks, reason, created_at, updated_at)
-           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             description, evidence_links, narrative_id, score_id, collision_checks, reason, interaction, created_at, updated_at)
+           VALUES (?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           slug,
@@ -755,6 +762,7 @@ export class Datastore {
           link?.scoreId ?? null,
           link?.collisions ? JSON.stringify(link.collisions) : null,
           input.reason ?? "",
+          input.interaction ?? "",
           now,
           now,
         );
