@@ -41,7 +41,7 @@ describe("parseProposeOutput: a strict schema, never coerced", () => {
       "A timeline of the merger",
       "A wall of the latest posts",
     ]) {
-      for (const interaction of ["Visitors watch the feed and see the latest items", "Browse and read the updates; view the details", "Search the board and track the changes"]) {
+      for (const interaction of ["Visitors watch the feed and see the latest items", "Browse and read the updates; view the details", "Browse the board and track the changes"]) {
         expect(parseProposeOutput(ok({ tech, interaction })), `${tech} / ${interaction}`).toMatchObject({ ok: false, problem: expect.stringContaining("display-only") });
         expect(techValueProblem(tech, interaction), tech).toBe(DISPLAY_ONLY_PROBLEM);
       }
@@ -56,6 +56,23 @@ describe("parseProposeOutput: a strict schema, never coerced", () => {
       ["A tracker of whale wallets", "Visitors input a wallet address and drag the slider"],
     ] as const) {
       expect(parseProposeOutput(ok({ tech, interaction })), `${tech} / ${interaction}`).toMatchObject({ ok: true });
+    }
+  });
+
+  it("accepts the widened action verbs as an interaction for any display-ish Tech (ticket 17)", () => {
+    for (const interaction of [
+      "Search a token and see projected fees",
+      "Look up any ticker and compare it with another",
+      "Move a slider to set the stake",
+      "Set the leverage and run the simulation",
+      "Visitors bet on the next block",
+      "Rate each coin from 1 to 5",
+      "Ask the oracle a question",
+      "Sort the table by column",
+      "Calculate your payout",
+      "Mix and match traits",
+    ]) {
+      expect(techValueProblem("a dashboard", interaction), interaction).toBeUndefined();
     }
   });
 

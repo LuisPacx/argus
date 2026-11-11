@@ -26,12 +26,12 @@ const DISPLAY_ONLY_RE =
   /\b(rss|feeds?|trackers?|tracks|tracking|timelines?|scoreboards?|countdowns?|dashboards?|ledgers?|boards?|readers?|monitors?|watchers?|viewers?|schedules?|tickers?|heatmaps?|radars?|streams?|streaming|walls?|lists?)\b/i;
 /** Verbs for something the visitor does to change what the Tech shows or does. Viewing verbs (watch, see, browse, view, read, track) are not here. */
 const ACTION_RE =
-  /\b(click\w*|pick\w*|choos\w*|select\w*|guess\w*|vot(?:e|es|ed|ing)|spin\w*|toggl\w*|filter\w*|drag\w*|typ(?:e|es|ed|ing)|submit\w*|enters?|entering|entered|inputs?|inputting|play\w*|upload\w*|swip(?:e|es|ed|ing)|predict\w*|build\w*|flip\w*|draw\w*|tap|taps|tapping|answer\w*|creat(?:e|es|ed|ing)|customi[sz]\w*|remix\w*|adjust\w*|slid(?:e|es|ing)|drop\w*|paste\w*|compose\w*|generat(?:e|es|ed|ing))\b/i;
+  /\b(click\w*|pick\w*|choos\w*|select\w*|guess\w*|vot(?:e|es|ed|ing)|spin\w*|toggl\w*|filter\w*|drag\w*|typ(?:e|es|ed|ing)|submit\w*|enters?|entering|entered|inputs?|inputting|play\w*|upload\w*|swip(?:e|es|ed|ing)|predict\w*|build\w*|flip\w*|draw\w*|tap|taps|tapping|answer\w*|creat(?:e|es|ed|ing)|customi[sz]\w*|remix\w*|adjust\w*|slid(?:e|es|ing)|drop\w*|paste\w*|compose\w*|generat(?:e|es|ed|ing)|search\w*|look\s?up|compar\w+|mov\w+|set|sets|rate\w*|bet\w*|wager\w*|stak\w+|ask\w*|sort\w*|calculat\w+|mix\w*|combin\w+|scan\w*|check\w*|run|runs|scroll\w*)\b/i;
 
 /** The refusal text for a display-only Tech; `isRepairable` and the repair prompt rely on its start. */
 export const DISPLAY_ONLY_PROBLEM = "`tech` is display-only (it fetches a feed or API and shows it) and `interaction` only describes viewing: give it an interaction (input that changes the output, a game, a calculator, a tool) or a reason for a visitor to come back";
 /** The refusal text when `interaction` names no user action. */
-export const NO_ACTION_PROBLEM = "`interaction` names no user action: say what the visitor does (click, pick, choose, guess, vote, type, drag, play, submit ...), not what they see";
+export const NO_ACTION_PROBLEM = "`interaction` names no user action: say what the visitor does (click, pick, choose, guess, vote, type, drag, play, submit, search, compare, set, rate, bet, sort, calculate ...), not what they see";
 // oxlint-disable-next-line no-control-regex
 const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
@@ -126,7 +126,7 @@ function shapeOf(output: string): string {
 
 /** The Tech-value rule of the propose prompt (ticket 17): the Tech must do something, not just show fetched data. */
 const TECH_VALUE_RULE =
-  'Tech value: the Tech must have an interaction (input that changes the output, a game, a calculator, a tool, a mechanic) or a reason for a visitor to come back. It must not be "fetch a feed or API and display it": no RSS reader, tracker, timeline, scoreboard, countdown or dashboard that only shows data. "interaction" says in one line what the visitor actually does (click, pick, choose, guess, vote, type, drag, play, submit ...), not what they see; an answer whose interaction names no user action is refused. "reason" says in one line which Signals or Narrative this answers and why this Tech.';
+  'Tech value: the Tech must have an interaction (input that changes the output, a game, a calculator, a tool, a mechanic) or a reason for a visitor to come back. It must not be "fetch a feed or API and display it": no RSS reader, tracker, timeline, scoreboard, countdown or dashboard that only shows data. "interaction" says in one line what the visitor actually does (click, pick, choose, guess, vote, type, drag, play, submit, search, compare, set, rate, bet, sort, calculate ...), not what they see; an answer whose interaction names no user action is refused. "reason" says in one line which Signals or Narrative this answers and why this Tech.';
 
 const TITLE_CHARS = 200;
 const SUMMARY_CHARS = 400;
