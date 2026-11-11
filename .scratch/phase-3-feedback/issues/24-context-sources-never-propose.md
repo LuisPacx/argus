@@ -3,7 +3,7 @@
 
 **What to build:** Add a **Source class** (`context` or `market`) declared as data in one place next to the Source definitions. RSS feeds, Google Trends and GitHub trending are `context`; PumpPortal and DexScreener are `market`. Context Sources stay ingested and clustered, but a Narrative with no market Signal is never judged and never proposed. A bounded block of recent context (top news Narratives) goes to Propose, Judge and the Meta summary as background, so agents still know what is happening in the world.
 
-**Status:** ready-for-agent
+**Status:** in progress on branch `context-only` (parts 1, 2 and 4 done; the Meta summary hook waits for `viral-sources/03` slice 5)
 
 **Blocked by:** the deploy stack on `main` (17, 19, 21, 22; branch `ipfs-gateway` at 95d6c79 is its tip), because 17 changes the propose code this ticket edits. For the Meta summary part, slice 5 of `viral-sources/03`; that part waits for it and is a follow-up commit.
 
@@ -61,18 +61,18 @@ Out of scope: removing the context Sources or their feeds; changing the Rubric; 
 
 Offline in `pnpm check` (fixtures, fake Brain).
 
-- [ ] **Source class is data.** `sourceClass()` returns `market` for `pumpportal:events` and `dexscreener:trending`, `context` for `rss:*`, `trends:google`, `github:trending`, and `context` for an unknown id; a test enumerates every registered Source and fails if one has no explicit entry (tested).
-- [ ] **News-only Narrative is not judged.** A fixture Narrative whose Signals are all context (RSS, Trends, GitHub) is absent from `narrativesToJudge`, starts no judge run and does not count against the run cap (tested, failing first on `main`).
-- [ ] **Mixed Narrative with a market Signal is judged.** A fixture Narrative with 17 RSS Signals and one PumpPortal or DexScreener Signal is returned by `narrativesToJudge`; a market-only Narrative is too (tested).
-- [ ] **Propose follows.** `narrativesToPropose` excludes a scored context-only Narrative (even with buildability above the gate and no Proposal yet) and includes the mixed one; an existing Proposal and Score on a context-only Narrative are untouched (tested).
-- [ ] **Becomes eligible on a market Signal.** A context-only Narrative that gains a market Signal is selected on the next pass (tested).
-- [ ] **Context block in the prompts.** With context Narratives present, the judge and propose prompts contain a bounded context block (at most N titles, per-title and total caps) inside a fresh random boundary; hostile titles (`</boundary>`, "ignore previous instructions", control and invisible characters, 10,000 characters) cannot end it or exceed their caps, and the block lists only context-only Narratives (tested).
-- [ ] **No context, no change.** With no context Narratives, both prompts are byte-for-byte today's (tested).
-- [ ] **War Room still shows context Narratives.** The Narratives view and API still list a context-only Narrative, labelled with its class (tested in `apps/warroom/server/test`).
-- [ ] **Replay on a DB copy.** On a `.backup` copy of the live DB (home-disk path, deleted afterwards), the new selection returns 0 context-only Narratives for the judge and propose passes and the 8 mixed and 145 market-only Narratives are eligible, matching the Measurement table above; the counts go in Comments (opt-in script, not in `pnpm check`).
+- [x] **Source class is data.** `sourceClass()` returns `market` for `pumpportal:events` and `dexscreener:trending`, `context` for `rss:*`, `trends:google`, `github:trending`, and `context` for an unknown id; a test enumerates every registered Source and fails if one has no explicit entry (tested).
+- [x] **News-only Narrative is not judged.** A fixture Narrative whose Signals are all context (RSS, Trends, GitHub) is absent from `narrativesToJudge`, starts no judge run and does not count against the run cap (tested, failing first on `main`).
+- [x] **Mixed Narrative with a market Signal is judged.** A fixture Narrative with 17 RSS Signals and one PumpPortal or DexScreener Signal is returned by `narrativesToJudge`; a market-only Narrative is too (tested).
+- [x] **Propose follows.** `narrativesToPropose` excludes a scored context-only Narrative (even with buildability above the gate and no Proposal yet) and includes the mixed one; an existing Proposal and Score on a context-only Narrative are untouched (tested).
+- [x] **Becomes eligible on a market Signal.** A context-only Narrative that gains a market Signal is selected on the next pass (tested).
+- [x] **Context block in the prompts.** With context Narratives present, the judge and propose prompts contain a bounded context block (at most N titles, per-title and total caps) inside a fresh random boundary; hostile titles (`</boundary>`, "ignore previous instructions", control and invisible characters, 10,000 characters) cannot end it or exceed their caps, and the block lists only context-only Narratives (tested).
+- [x] **No context, no change.** With no context Narratives, both prompts are byte-for-byte today's (tested).
+- [x] **War Room still shows context Narratives.** The Narratives view and API still list a context-only Narrative, labelled with its class (tested in `apps/warroom/server/test`).
+- [x] **Replay on a DB copy.** On a `.backup` copy of the live DB (home-disk path, deleted afterwards), the new selection returns 0 context-only Narratives for the judge and propose passes and the 8 mixed and 145 market-only Narratives are eligible, matching the Measurement table above; the counts go in Comments (opt-in script, not in `pnpm check`).
 - [ ] **Meta summary context (follow-up).** After `viral-sources/03` slice 5 lands, the `meta-summary` prompt carries the same bounded block, or a Comment says why it does not (tested with a fake Brain).
-- [ ] **Docs.** ADR and GLOSSARY `Source class` entry as in Design.
-- [ ] Full `pnpm check` passes once before each commit.
+- [x] **Docs.** ADR and GLOSSARY `Source class` entry as in Design.
+- [x] Full `pnpm check` passes once before each commit.
 
 ## Interplay
 
@@ -80,14 +80,24 @@ Offline in `pnpm check` (fixtures, fake Brain).
 - **Ticket 22** (migrated examples block) and **ticket 17** (propose prompt): share the untrusted-boundary renderer; build on the stack tip.
 - **Judge spend** drops by about 96% of judged Narratives, which also frees the daily cap for market Narratives.
 
-## Open questions for the Operator
+## Open questions for the Operator (all decided, user, 2026-11-11)
 
-1. **Interim with few Proposals.** Is it acceptable to merge this before 04 ships, given about 0.2 Proposals a day, or should it be held until 04 is in? (No other choice was made for you.)
-2. **Context block size.** Defaults are 5 Narratives, 24 h, 1,500 characters. Larger gives agents more world news and costs more prompt tokens per judge call; adjust if wanted.
-3. **Future Sources.** Fail-closed default (`context`) means a new Source (Telegram, TikTok) must be declared `market` explicitly. Confirm that is how you want it.
+1. **Interim with few Proposals.** Decided: ship now, before `viral-sources/04`. Until the Beta finder ships, about 0.2 Proposals a day is the expected result.
+2. **Context block size.** Decided: 5 Narratives, 24 h, 1,500 characters (the defaults; each configurable).
+3. **Future Sources.** Decided: an unknown or new Source defaults to `context` and must be declared `market` explicitly.
 
 ## Commits
 
 Subject `Phase 3 ticket 24: <what changed>`, body ending with `Ticket: .scratch/phase-3-feedback/issues/24-context-sources-never-propose.md` before the trailers. Suggested split: (1) Source class and the two selection filters with tests; (2) context block in the judge and propose prompts; (3) the Meta summary hook after `viral-sources/03` slice 5; (4) ADR and GLOSSARY. Each after a full `pnpm check`. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+**2026-11-11, worker (branch `context-only`, based on `meta-ranking` 87472db).** Parts 1, 2 and 4 are done in one commit; part 3 (Meta summary hook) is open and waits for `viral-sources/03` slice 5.
+
+- **Decided by the user, 2026-11-11:** all the defaults above; ship now (before `viral-sources/04`); the context block is 5 Narratives / 24 h / 1,500 characters; an unknown or new Source defaults to `context` and must be declared `market`.
+- **Where.** `packages/core/src/sources/source-class.ts` (`SOURCE_CLASS` exact ids, `SOURCE_CLASS_PREFIX` for `rss:`, `sourceClass()`, `MARKET_SOURCE_IDS`); the two `EXISTS` filters share one constant `HAS_MARKET_SIGNAL` in `datastore.ts`, built from `MARKET_SOURCE_IDS`. `queryNarratives` now returns `sourceClass` per Narrative and the Narratives page shows a "context" pill. The context block is `packages/core/src/context-block.ts` (`selectContext`, `contextLines`, `contextSection`), wired into `judgePromptFor` and `proposePromptFor` as a trailing optional argument; empty means the prompt is unchanged. Configurable per pass through `opts.context`.
+- **Market prefix rule.** `SOURCE_CLASS_PREFIX` can only say `context` (the SQL matches exact ids), so a market Source must be listed by its exact id.
+- **ADR number.** `docs/adr/0011-market-signals-decide-eligibility.md`: 0010 is reserved by `hardening/06`. If `viral-sources/03` also needs 0011, renumber at merge time (the source comments name `docs/adr/0011`).
+- **Fixtures changed.** Tests that seeded Narratives from `rss:a` to get them judged or proposed now seed `pumpportal:events` (`propose-store`, `propose-pass`, `judge-pass`, `api-fallback-pass`, `apps/worker/src/api-fallback.test.ts`). `apps/worker/src/ingest.test.ts`: the RSS-only judge and propose tests became "news-only is never judged nor proposed, claude never spawned", plus one test with DexScreener as the market Source that judges and proposes only the market Narratives.
+- **Replay (AC), on a `.backup` copy taken 2026-11-11, deleted afterwards; `node scripts/context-replay.mjs <copy>`:** Narratives by class: 3177 context-only, 8 mixed, 145 market-only (the Measurement table had 3172 context-only an hour earlier; new news Narratives since). `narrativesToJudge` (window opened to the epoch): 0 context-only, 0 mixed (all 8 already have a Score), 127 market-only (the unscored ones). `narrativesToPropose` (gate 0): 0 context-only, 7 mixed, 18 market-only (the scored ones, no Proposal yet; the 8th mixed Narrative already has Proposal 42). So all 8 mixed and 145 market-only Narratives are reachable by the two passes and no context-only Narrative is.
+- **Open:** the Meta summary hook (`meta-summary` prompt carries the same block) waits for slice 5 of `viral-sources/03`; use `contextSection` / `contextLines` / `selectContext`.

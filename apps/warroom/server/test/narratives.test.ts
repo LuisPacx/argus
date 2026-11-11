@@ -44,6 +44,7 @@ it("GET /api/narratives returns the exact payload narratives/index.vue renders: 
       changedMateriallyAt: "2026-06-14T11:00:00.000Z",
       score: null,
       hasProposal: false,
+      sourceClass: "context",
     },
     {
       id: 1,
@@ -55,8 +56,21 @@ it("GET /api/narratives returns the exact payload narratives/index.vue renders: 
       changedMateriallyAt: "2026-06-14T11:00:00.000Z",
       score: null,
       hasProposal: false,
+      sourceClass: "context",
     },
   ]);
+});
+
+it("GET /api/narratives still lists a context-only Narrative, labelled context; one with a market Signal is labelled market", () => {
+  expect(list().map((n) => [n.id, (n as unknown as { sourceClass: string }).sourceClass])).toEqual([
+    [1, "context"],
+    [2, "context"],
+  ]);
+  store.recordSignals([{ ...signal("m:1", "Pump token", "2026-06-14T10:30:00.000Z"), sourceId: "pumpportal:events", sourceLabel: "PumpPortal" }]);
+  const sig = store.unclusteredSignals(10).find((s) => s.id === "m:1")!;
+  store.joinNarrative(2, sig, [0, 1], "2026-06-14T11:30:00.000Z");
+  const byId = Object.fromEntries(list().map((n) => [n.id, (n as unknown as { sourceClass: string }).sourceClass]));
+  expect(byId).toEqual({ 1: "context", 2: "market" });
 });
 
 /**

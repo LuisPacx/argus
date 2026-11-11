@@ -8,7 +8,11 @@ Argus turns observed public signals into proposed tokens and their products, and
 A single raw item observed from a Source, such as a post, an article, a trending term, or a launchpad event. Signals are evidence and are never shown as ideas on their own.
 
 **Source**:
-A place Signals are observed from, such as a news feed, a social account or search, a trends feed, or a launchpad feed.
+A place Signals are observed from, such as a news feed, a social account or search, a trends feed, or a launchpad feed. Every Source has a Source class.
+
+**Source class**:
+Whether a Source is `market` or `context`. A market Source (PumpPortal, DexScreener) observes the token market itself; a context Source (news feeds, Google Trends, GitHub trending) observes the world. Only a Narrative that holds at least one market Signal is judged and proposed; context Signals are background for the agents. A Source that is not declared is `context`; a new Source must be declared `market` on purpose. See ADR 0011.
+_Avoid_: category
 
 **Narrative**:
 A cluster of recent Signals that share a subject and show momentum. The unit the research step produces.

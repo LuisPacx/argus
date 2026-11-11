@@ -109,6 +109,7 @@ const groups = computed(() => [
           <p v-if="n.summary" class="muted mt-1 line-clamp-1 text-sm">{{ n.summary }}</p>
         </div>
         <div class="flex shrink-0 items-center gap-3 text-sm">
+          <span v-if="n.sourceClass === 'context'" class="pill pill-ink" data-test="source-class" title="No market Signal: shown for context, never judged or proposed">context</span>
           <span v-if="n.hasProposal" class="pill pill-green" data-test="has-proposal">Proposal</span>
           <span v-if="n.score !== null" class="pill pill-accent tabular-nums" data-test="score">{{ n.score.toFixed(1) }}<span class="opacity-70">/10</span></span>
           <span class="pill pill-ink" data-test="signal-count">{{ signalsLabel(n.signalCount) }}</span>

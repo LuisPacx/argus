@@ -64,7 +64,7 @@ async function setup(replies: FakeReply[], over: { dailyCapUsd?: number } = {}) 
 let n = 0;
 function addNarrative(store: Datastore, title: string): number {
   const id = `s:${++n}`;
-  store.recordSignals([{ id, sourceId: "rss:a", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+  store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   return store.createNarrative(sig, [1, 0], NOW.toISOString(), CUR);
 }

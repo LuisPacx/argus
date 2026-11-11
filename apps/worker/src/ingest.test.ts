@@ -24,7 +24,7 @@ const fixtures = join(workerDir, "../../packages/core/src/fixtures");
 const ARGUS_PODMAN_BIN = join(workerDir, "../../packages/core/src/testing/fake-podman.mjs");
 
 /** Runs the real worker once (plain node, `--once`) against feeds served from loopback fixtures; no external network. */
-async function runOnce(feeds: unknown, routes: Record<string, { status: number; body: string }>, envFor: Record<string, string> | ((base: string) => Record<string, string>) = {}) {
+async function runOnce(feeds: unknown, routes: Record<string, { status: number; body: string }>, envFor: Record<string, string> | ((base: string) => Record<string, string>) = {}, judgeRuns = 5) {
   const env = async (base: string) => (typeof envFor === "function" ? envFor(base) : envFor);
   const dir = tempDir("argus-ingest-");
   const server = createServer((req, res) => {
@@ -38,9 +38,9 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
   writeFileSync(feedsPath, JSON.stringify(resolved));
   const db = join(dir, "argus.db");
   // Always a fake: the one-shot worker also runs the judge pass, which spawns `claude` for every unjudged Narrative the ingest tick just made,
-  // and then the propose pass. The fake answers the first five calls as the judge and every later one as the propose task.
+  // and then the propose pass. The fake answers the first `judgeRuns` calls as the judge and every later one as the propose task.
   const claudeLog = join(dir, "claude-calls.jsonl");
-  const sequence = JSON.stringify([...Array.from({ length: 5 }, () => ({})), ...Array.from({ length: 10 }, () => ({ FAKE_CLAUDE_RESULT: PROPOSE_ANSWER }))]);
+  const sequence = JSON.stringify([...Array.from({ length: judgeRuns }, () => ({})), ...Array.from({ length: 10 }, () => ({ FAKE_CLAUDE_RESULT: PROPOSE_ANSWER }))]);
   const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: JUDGE_ANSWER, FAKE_CLAUDE_LOG: claudeLog, FAKE_CLAUDE_SEQUENCE: sequence });
   try {
     const child = spawn(process.execPath, ["src/main.ts", "--once"], {
@@ -56,7 +56,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     try {
       const narratives = store.listNarratives();
       const claudeCalls = existsSync(claudeLog) ? readFileSync(claudeLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : [];
-      return { code, out, signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
+      return { code, out, listed: store.queryNarratives({ limit: 500 }), signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
     } finally {
       store.close();
     }
@@ -91,40 +91,17 @@ it("the ingest tick clusters the new Signals into Narratives", async () => {
   expect(narratives.map((n) => n.signalCount)).toEqual([1, 1, 1, 1, 1]);
 }, 60_000);
 
-it("the same one-shot tick then judges the new Narratives with ARGUS_CLAUDE_BIN (the fake): one run each, no tools, stored with the Rubric version", async () => {
-  const { code, out, narratives, claudeCalls, scores } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
+it("news-only Narratives (context Signals) are clustered but never judged nor proposed: claude is never spawned (ticket 24)", async () => {
+  const { code, out, listed, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
   expect(code).toBe(0);
-  expect(out).toContain("[worker] judge tick: 5 scored, 0 refused, 0 failed");
-  const judgeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/judge\n\n"));
-  expect(judgeCalls).toHaveLength(5);
-  for (const c of judgeCalls) {
-    expect(c.argv[1]).toMatch(/^\/judge\n\n/);
-    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("haiku");
-    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("");
-    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
-  }
-  expect(scores).toHaveLength(5);
-  expect(scores.every((s) => s.rubricVersion === 1 && s.total === 7 && s.rationale === "fake answer")).toBe(true);
-  expect(new Set(scores.map((s) => s.narrativeId))).toEqual(new Set(narratives.map((n) => n.id)));
-}, 60_000);
-
-it("the same one-shot tick then proposes from the Scores that pass the gate: Proposals through the system actor, within the per-pass cap", async () => {
-  const { code, out, claudeCalls, proposals } = await runOnce([{ id: "rss:tech", path: "/tech" }, { id: "rss:other", path: "/other" }], routes);
-  expect(code).toBe(0);
-  expect(out).toContain("[worker] propose tick: 3 proposed, 0 refused, 0 failed");
-  const proposeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/propose\n\n"));
-  expect(proposeCalls).toHaveLength(3);
-  for (const c of proposeCalls) {
-    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("sonnet");
-    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
-    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
-  }
-  expect(proposals).toHaveLength(3);
-  expect(proposals.every((p) => p.status === "new" && p.name === "Stock Paws" && p.narrativeId !== null && p.scoreId !== null)).toBe(true);
-  expect(new Set(proposals.map((p) => p.narrativeId)).size).toBe(3);
-  // The test run points DexScreener and GitHub at a dead port: the checks failed, and a failed check is stored as unknown, never clear.
-  expect(proposals.every((p) => p.collisions?.dex.status === "unknown" && p.collisions.github.status === "unknown")).toBe(true);
-  expect(proposals.every((p) => p.collisions!.dex.source === "DexScreener" && p.collisions!.github.source === "GitHub")).toBe(true);
+  expect(out).toContain("[worker] cluster: 5 signal(s) clustered, 5 new narrative(s)");
+  expect(out).toContain("[worker] judge tick: 0 scored, 0 refused, 0 failed");
+  expect(out).toContain("[worker] propose tick: 0 proposed, 0 refused, 0 failed");
+  expect(listed).toHaveLength(5);
+  expect(listed.every((n) => n.sourceClass === "context")).toBe(true);
+  expect(claudeCalls).toEqual([]);
+  expect(scores).toEqual([]);
+  expect(proposals).toEqual([]);
 }, 60_000);
 
 it("a dry run judges nothing and spawns no claude", async () => {
@@ -167,6 +144,39 @@ it("Google Trends and DexScreener are polled on the same tick, stored, and label
   expect(out).toContain("ingest tick: 4 source(s), 9 new signal(s)");
   expect(signals.map((s) => s.sourceLabel).sort()).toEqual(["DexScreener trending", "DexScreener trending", "GitHub trending", "GitHub trending", "GitHub trending", "Google Trends", "Google Trends", "Google Trends", "RSS:OTHER"]);
   expect(signals.map((s) => s.title)).toEqual(expect.arrayContaining(["moon cat", "Moon Cat ($MCAT)"]));
+}, 60_000);
+
+// The same tick, with a market Source (DexScreener) beside the context ones: only the Narratives that hold a DexScreener Signal are judged
+// (one run each, no tools, stored with the Rubric version) and then proposed. The fake answers the first MARKET_NARRATIVES calls as the judge.
+const MARKET_NARRATIVES = 2;
+it("the same one-shot tick then judges and proposes only the Narratives with a market Signal (ticket 24)", async () => {
+  const { code, out, listed, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv, MARKET_NARRATIVES);
+  expect(code).toBe(0);
+  const market = listed.filter((n) => n.sourceClass === "market");
+  expect(market).toHaveLength(MARKET_NARRATIVES);
+  expect(listed.length).toBeGreaterThan(market.length); // context-only Narratives exist and are left alone
+  expect(out).toContain(`[worker] judge tick: ${market.length} scored, 0 refused, 0 failed`);
+  const judgeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/judge\n\n"));
+  expect(judgeCalls).toHaveLength(market.length);
+  for (const c of judgeCalls) {
+    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("");
+    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
+  }
+  expect(scores).toHaveLength(market.length);
+  expect(scores.every((s) => s.rubricVersion === 1 && s.total === 7 && s.rationale === "fake answer")).toBe(true);
+  expect(new Set(scores.map((s) => s.narrativeId))).toEqual(new Set(market.map((n) => n.id)));
+  expect(out).toContain(`[worker] propose tick: ${market.length} proposed, 0 refused, 0 failed`);
+  const proposeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/propose\n\n"));
+  expect(proposeCalls).toHaveLength(market.length);
+  for (const c of proposeCalls) {
+    expect(c.argv[c.argv.indexOf("--model") + 1]).toBe("sonnet");
+    expect(c.argv[c.argv.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+    expect(c.env.ANTHROPIC_API_KEY).toBeUndefined();
+  }
+  expect(proposals).toHaveLength(market.length);
+  expect(proposals.every((p) => p.status === "new" && p.name === "Stock Paws" && p.narrativeId !== null && p.scoreId !== null)).toBe(true);
+  expect(new Set(proposals.map((p) => p.narrativeId))).toEqual(new Set(market.map((n) => n.id)));
 }, 60_000);
 
 it("a rate-limited DexScreener does not stop the other Sources", async () => {

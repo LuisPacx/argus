@@ -36,7 +36,7 @@ let n = 0;
 /** A one-Signal Narrative built by `embedder`, last changed at `at`. Returns its id. */
 function addNarrative(store: Datastore, title: string, opts: { embedder?: NarrativeEmbedder; at?: Date; sourceId?: string } = {}): number {
   const id = `s:${++n}`;
-  store.recordSignals([{ id, sourceId: opts.sourceId ?? "rss:a", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+  store.recordSignals([{ id, sourceId: opts.sourceId ?? "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   return store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
 }

@@ -10,7 +10,7 @@ const SCORES: DimensionScores = { momentum: 7, novelty: 6, buildability: 8, hook
 let n = 0;
 function addNarrative(store: Datastore, opts: { at?: Date; embedder?: NarrativeEmbedder } = {}): number {
   const id = `s:${++n}`;
-  store.recordSignals([{ id, sourceId: "rss:a", sourceLabel: "Feed", title: `Story ${n}`, summary: "", url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+  store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title: `Story ${n}`, summary: "", url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   return store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
 }

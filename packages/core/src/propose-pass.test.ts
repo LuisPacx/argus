@@ -64,7 +64,7 @@ let n = 0;
 function addScored(store: Datastore, title: string, opts: { scores?: Partial<DimensionScores>; at?: Date; scoredAt?: Date; embedder?: NarrativeEmbedder } = {}): number {
   const id = `s:${++n}`;
   store.recordSignals([
-    { id, sourceId: "rss:a", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" },
+    { id, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" },
   ]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   const nid = store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);

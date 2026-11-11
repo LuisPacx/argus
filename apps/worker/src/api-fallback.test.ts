@@ -44,7 +44,7 @@ async function runOnce(env: Record<string, string>, replies: FakeReply[] = []) {
   const db = join(dir, "argus.db");
   const seed = Datastore.open(db);
   for (const [i, title] of ["Tokenized stocks arrive", "Cat elected mayor", "Rockets launch daily"].entries()) {
-    seed.recordSignals([{ id: `s:${i}`, sourceId: "rss:a", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${i}`, publishedAt: new Date().toISOString() }]);
+    seed.recordSignals([{ id: `s:${i}`, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${i}`, publishedAt: new Date().toISOString() }]);
   }
   await clusterNewSignals(seed, new HashingEmbedder(), { config: { joinThreshold: 0.99 } });
   seed.close();

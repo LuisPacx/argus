@@ -6,6 +6,7 @@ import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
+import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { MetaStore, migrateMeta, type MetaRun } from "./meta/store.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
@@ -168,6 +169,12 @@ export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt
 /** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
 export const BRAIN_RUN_IN_FLIGHT = "in-flight";
 export const BRAIN_RUN_INTERRUPTED = "interrupted";
+
+/**
+ * SQL for "this Narrative holds at least one market Signal" (ticket 24, the Source class table is the only list). Built from constants
+ * in source-class.ts, never from input. `n` is the Narrative alias of the query it is placed in.
+ */
+const HAS_MARKET_SIGNAL = `EXISTS (SELECT 1 FROM signals sg WHERE sg.narrative_id = n.id AND sg.source_id IN (${MARKET_SOURCE_IDS.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ")}))`;
 
 export interface NewProposal {
   narrativeSummary: string;
@@ -535,6 +542,8 @@ export interface NarrativeQuery {
 export interface NarrativeListItem extends Narrative {
   score: number | null;
   hasProposal: boolean;
+  /** `market` when the Narrative holds at least one market Signal (it can be judged and proposed), else `context` (ticket 24). */
+  sourceClass: SourceClass;
 }
 
 /** One judge result for a Narrative (GLOSSARY: Score). Stored for every judge run that produced a valid answer. */
@@ -1065,15 +1074,16 @@ export class Datastore {
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at,
                 s.total AS score_total,
-                EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id) AS has_proposal
+                EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id) AS has_proposal,
+                ${HAS_MARKET_SIGNAL} AS has_market
          FROM narratives n
          LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY ${order}
          LIMIT ?`,
       )
-      .all(...params, limit) as unknown as Array<NarrativeRow & { score_total: number | null; has_proposal: number }>;
-    return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, hasProposal: r.has_proposal === 1 }));
+      .all(...params, limit) as unknown as Array<NarrativeRow & { score_total: number | null; has_proposal: number; has_market: number }>;
+    return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, hasProposal: r.has_proposal === 1, sourceClass: r.has_market === 1 ? "market" : "context" }));
   }
 
   getNarrative(id: number): NarrativeDetail | undefined {
@@ -1105,6 +1115,8 @@ export class Datastore {
    * Also left out: a Narrative backed by fewer than `minSignals` Signals. It is skipped, not scored, and starts no run, so it never
    * counts against the run cap; it becomes eligible the moment it gains Signals to reach `minSignals`. Default 1 (no filter); the judge
    * passes `JudgeConfig.minSignals`.
+   * Also left out: a Narrative with no market Signal (ticket 24, `sources/source-class.ts`): context Signals are background only. Same
+   * for a skipped Narrative: no run, no cap use; it is eligible the moment it gains a market Signal.
    */
   narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number, maxConsecutiveTimeouts = Infinity, minSignals = 1): Narrative[] {
     // Also left out: a Narrative whose last `maxConsecutiveTimeouts` judge runs since its last material change all timed out (a poison
@@ -1115,6 +1127,7 @@ export class Datastore {
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
          FROM narratives n
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ? AND n.signal_count >= ?
+           AND ${HAS_MARKET_SIGNAL}
            AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
            AND NOT EXISTS (
@@ -1132,6 +1145,24 @@ export class Datastore {
     return rows.map(toNarrative);
   }
 
+  /**
+   * WORKER ONLY. The context block's source (ticket 24): Narratives built by `embedder` that hold no market Signal, busiest first by the
+   * Signals ingested at or after `since` (ISO), at most `limit`. Titles are untrusted text.
+   */
+  contextNarratives(embedder: NarrativeEmbedder, since: string, limit: number): Array<{ title: string; recentSignals: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT n.title AS title, COUNT(*) AS recent
+         FROM narratives n JOIN signals sg ON sg.narrative_id = n.id AND sg.ingested_at >= ?
+         WHERE n.embedder = ? AND n.dimension = ? AND NOT ${HAS_MARKET_SIGNAL}
+         GROUP BY n.id
+         ORDER BY recent DESC, n.id
+         LIMIT ?`,
+      )
+      .all(since, embedder.id, embedder.dimension, Math.max(0, Math.floor(limit))) as unknown as Array<{ title: string; recent: number }>;
+    return rows.map((r) => ({ title: r.title, recentSignals: r.recent }));
+  }
+
   /** A Narrative's latest Score (what its Proposal's card shows), or undefined before it has one. */
   latestScore(narrativeId: number): Score | undefined {
     const row = this.db.prepare("SELECT * FROM scores WHERE narrative_id = ? ORDER BY id DESC LIMIT 1").get(narrativeId) as unknown as ScoreRow | undefined;
@@ -1141,7 +1172,7 @@ export class Datastore {
   /**
    * WORKER ONLY. The propose delta: Narratives built by `embedder` that gained a Signal at or after `since` (ISO), whose latest Score
    * has a buildability of at least `gateMin` (the Rubric's hard gate; the caller passes the gate as it is now), that have no Proposal
-   * yet (ever, dismissed ones included) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
+   * yet (ever, dismissed ones included), at least one market Signal (ticket 24) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
    * or over budget since its latest Score is left out until it is scored again; any other ending (claude missing, a timeout, a rate
    * limit) leaves it eligible, bounded by the daily run and spend caps.
    */
@@ -1154,6 +1185,7 @@ export class Datastore {
          FROM narratives n
          JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND ${HAS_MARKET_SIGNAL}
            AND json_extract(s.scores, '$.buildability') >= ?
            AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
