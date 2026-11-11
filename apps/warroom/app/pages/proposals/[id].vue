@@ -25,6 +25,8 @@ async function loadSpec() {
 }
 if (p.value?.specHash) await loadSpec();
 
+const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }));
+
 const pending = computed(() => commands.value.some((c) => c.proposalId === p.value?.id && c.status === "pending"));
 const working = computed(() => !!p.value?.brainRunInFlightSince || !!p.value?.specRevision || pending.value);
 
@@ -148,14 +150,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
           </p>
         </section>
 
-        <section class="surface rise" style="--i: 2">
-          <h3 class="section-title">Evidence links</h3>
-          <ul class="mt-4 grid gap-2.5">
-            <li v-for="link in p.evidenceLinks" :key="link" class="inset flex min-w-0 items-center px-4 py-3 text-sm">
-              <UrlLink :href="link" />
-            </li>
-          </ul>
-        </section>
+        <WhyPanel :view="why" />
 
         <section v-if="p.status === 'new'" class="surface grid gap-3" data-test="shortlist-section">
           <h3 class="section-title">Shortlist</h3>
@@ -234,15 +229,6 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
       </div>
 
       <aside class="grid min-w-0 gap-5">
-        <section v-if="p.score" class="surface rise" style="--i: 1">
-          <div class="mb-5 flex items-baseline justify-between gap-3">
-            <h3 class="section-title">Score</h3>
-            <span class="faint text-xs">Rubric version {{ p.score.rubricVersion }}</span>
-          </div>
-          <ScoreBars :scores="p.score.scores" />
-          <p class="muted mt-5 border-t border-[var(--wr-line)] pt-4 text-sm leading-relaxed">{{ p.score.rationale }}</p>
-        </section>
-
         <section class="surface rise" style="--i: 2">
           <h3 class="section-title mb-4">Collision checks</h3>
           <CollisionChecks :collisions="p.collisions" />
