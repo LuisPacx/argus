@@ -33,17 +33,20 @@ const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
 };
 type Current = { sort: string; status: string; collision: string; created: string };
 const current = computed<Current>(() => ({
-  sort: pick(route.query.sort, SORTS) || "score",
+  sort: pick(route.query.sort, SORTS) || DEFAULT_PROPOSAL_SORT,
   status: pick(route.query.status, STATUSES),
   collision: pick(route.query.collision, COLLISIONS),
   created: pick(route.query.created, CREATED),
 }));
 const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
-  if (c.sort !== "score") q.sort = c.sort;
+  const sort = proposalUrlSort(c.sort);
+  if (sort) q.sort = sort;
   for (const k of ["status", "collision", "created"] as const) if (c[k]) q[k] = c[k];
   return q;
 };
+// The API default is score, so the request always names its sort.
+const apiQuery = (c: Current) => ({ ...withDefaults(c), sort: proposalApiSort(c.sort) });
 // A change of sort or filter keeps the New Proposal form open when it is open.
 const to = (patch: Partial<Current>) => ({ path: "/", query: { ...(showForm.value ? { new: String(route.query.new || "1") } : {}), ...withDefaults({ ...current.value, ...patch }) } });
 const opts = (list: Array<{ value: string; label: string }>, key: keyof Current) =>
@@ -58,7 +61,7 @@ const groups = computed(() => [
   { kind: "select" as const, key: "created", title: "Created", id: "proposal-created", value: current.value.created, options: CREATED },
 ]);
 
-const { data: proposals, refresh } = await useFetch("/api/proposals", { query: computed(() => withDefaults(current.value)), default: () => [] });
+const { data: proposals, refresh } = await useFetch("/api/proposals", { query: computed(() => apiQuery(current.value)), default: () => [] });
 
 // Rows animate in when the page is reached by a client navigation; on the first (hydrating) load they are simply there.
 const animate = !useNuxtApp().isHydrating;
@@ -226,13 +229,13 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         </div>
         <div class="grid gap-1.5">
           <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="muted">New Proposals a day</span>
-            <span class="font-semibold tabular-nums">{{ research.newProposals }} of {{ research.newProposalsCap }}</span>
+            <span class="muted">New Proposals, rolling</span>
+            <span class="font-semibold tabular-nums" data-test="proposal-cap">{{ proposalCapText(research.newProposals, research.newProposalsCap) }}</span>
           </div>
           <div class="track" role="progressbar" :aria-valuenow="Math.round(pct(research.newProposals, research.newProposalsCap))" aria-valuemin="0" aria-valuemax="100">
             <div class="fill" :style="{ width: `${pct(research.newProposals, research.newProposalsCap)}%`, '--i': 1 }" />
           </div>
-          <p v-if="research.newProposals >= research.newProposalsCap" class="note faint">Cap reached; the next waits for the day to roll over.</p>
+          <p v-if="research.newProposals >= research.newProposalsCap" class="note faint">Cap reached; the next waits until an older Proposal is more than 24 h old.</p>
         </div>
         <p class="note faint">
           {{ research.runs }} judge and propose {{ research.runs === 1 ? "run" : "runs" }}, {{ Math.round(research.usedShareOfQuota * 100) }}% of an assumed

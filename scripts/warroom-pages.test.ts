@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain .mjs script, no types
 import { activityProblem, pageProblem, pageRoutes, serverLogProblem } from "./warroom-pages.mjs";
 
+import { DEFAULT_PROPOSAL_SORT, proposalApiSort, proposalCapText, proposalUrlSort } from "../apps/warroom/app/utils/proposal-sort";
+
 const PAGES = path.resolve(import.meta.dirname, "../apps/warroom/app/pages");
 
 describe("warroom pages", () => {
@@ -26,6 +28,27 @@ describe("warroom pages", () => {
     expect(pageProblem(404, "<html></html>")).toBe("status 404");
     expect(pageProblem(200, '<div id="__nuxt_error"></div>')).toContain("Nuxt error payload");
     expect(pageProblem(200, "<html><body><div id=\"__nuxt\">ok</div></body></html>")).toBeNull();
+  });
+
+  it("sorts Proposals newest first by default, always naming the sort to the API (whose own default stays score)", () => {
+    expect(DEFAULT_PROPOSAL_SORT).toBe("newest");
+    expect(proposalUrlSort("newest")).toBeUndefined();
+    expect(proposalUrlSort("score")).toBe("score");
+    expect(proposalApiSort("")).toBe("newest");
+    expect(proposalApiSort("score")).toBe("score");
+    const page = fs.readFileSync(path.join(PAGES, "index.vue"), "utf8");
+    expect(page).toContain("DEFAULT_PROPOSAL_SORT");
+    expect(page).toContain("apiQuery(current.value)");
+    expect(page).toContain('{ value: "score", label: "Score" }');
+  });
+
+  it("labels the Proposals cap as a rolling last 24 h count on both pages that show it", () => {
+    expect(proposalCapText(12, 30)).toBe("12 of 30 in the last 24 h");
+    for (const file of ["index.vue", "activity.vue"]) {
+      const src = fs.readFileSync(path.join(PAGES, file), "utf8");
+      expect(src, file).toContain("proposalCapText(");
+      expect(src, file).not.toMatch(/Proposals today|Proposals a day/);
+    }
   });
 
   // Regression: pages set up on the server too, so a timer started at setup top level (column 0 in these files) runs there and

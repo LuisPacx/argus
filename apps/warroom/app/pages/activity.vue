@@ -108,7 +108,7 @@ const usedPct = computed(() => (usage.value && usage.value.budgetUsd > 0 ? Math.
         <div class="track my-3 w-full" role="progressbar" :aria-valuenow="Math.round(usedPct)" aria-valuemin="0" aria-valuemax="100">
           <div class="fill" :class="{ 'fill-bad': usage.exhausted }" :style="{ width: `${usedPct}%` }" />
         </div>
-        <p class="muted text-sm" data-test="proposal-cap">{{ usage.newProposals }} of {{ usage.newProposalsCap }} Proposals today</p>
+        <p class="muted text-sm" data-test="proposal-cap">Proposals: {{ proposalCapText(usage.newProposals, usage.newProposalsCap) }}</p>
       </div>
       <p v-else class="surface muted text-sm">No usage figures yet.</p>
     </section>
