@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +15,10 @@ import { describe, expect, it } from "vitest";
  *   3. a JSON-RPC method name that reads or writes the chain, as a string literal (`"sendTransaction"`, `"getBalance"`, ...);
  *   4. key handling: `Keypair`, `secretKey`, `privateKey`, `PRIVATE_KEY`, `mnemonic`.
  * Tests are scanned too, except this file, which has to spell the banned names.
+ *
+ * The one exception is the ADR 0002 Amendment (Phase 3, 2026-11-07): read-only chain reads. It is granted to exactly one file,
+ * READ_ONLY_RPC_MODULE, and only for READ_ONLY_RPC_HOST (https, path "/") and READ_ONLY_RPC_METHODS. Everything else in rules 1-4 still
+ * applies in that file (no SDK, no key, no write or signing method, no other host), and nothing is allowed anywhere else.
  */
 
 const BANNED_PACKAGES = [
@@ -60,8 +64,15 @@ const BANNED_HOSTS = [
 
 const RPC_METHODS = [
   "sendTransaction", "sendRawTransaction", "signTransaction", "signAllTransactions", "simulateTransaction", "requestAirdrop",
+  "sendBundle", "sendSmartTransaction", "sendJitoBundle",
   "getLatestBlockhash", "getBalance", "getAccountInfo", "getTokenAccountsByOwner", "getSignaturesForAddress", "getTransaction",
+  "getMultipleAccounts", "getTransactionsForAddress", "getProgramAccounts",
 ];
+
+// The ADR 0002 Amendment allowance (see the header). Widening any of these three needs the Operator's say-so.
+export const READ_ONLY_RPC_MODULE = "packages/core/src/study/helius.ts";
+export const READ_ONLY_RPC_HOST = "mainnet.helius-rpc.com";
+export const READ_ONLY_RPC_METHODS = ["getMultipleAccounts", "getTransactionsForAddress", "getAccountInfo", "getSignaturesForAddress", "getTransaction"];
 
 const KEY_WORDS = /\b(Keypair|secretKey|privateKey|PRIVATE_KEY|mnemonic)\b/;
 
@@ -69,6 +80,7 @@ const URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`)<>\\]+/gi;
 
 export function violations(file: string, text: string): string[] {
   const out: string[] = [];
+  const readOnlyRpc = file.split(sep).join("/") === READ_ONLY_RPC_MODULE;
   if (file.endsWith("package.json")) {
     const pkg = JSON.parse(text) as Record<string, Record<string, string> | undefined>;
     for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
@@ -88,9 +100,11 @@ export function violations(file: string, text: string): string[] {
     }
     if (!BANNED_HOSTS.some((r) => r.test(u.hostname) || r.test(u.host))) continue;
     const ok = (u.hostname === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (u.hostname === "pump.fun" && u.pathname.startsWith("/coin/"));
-    if (!ok) out.push(`${file}: endpoint ${u.href}`);
+    const readOnly = readOnlyRpc && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
+    if (!ok && !readOnly) out.push(`${file}: endpoint ${u.href}`);
   }
   for (const method of RPC_METHODS) {
+    if (readOnlyRpc && READ_ONLY_RPC_METHODS.includes(method)) continue;
     if (new RegExp(`["'\`]${method}["'\`]`).test(text)) out.push(`${file}: RPC method "${method}"`);
   }
   const key = KEY_WORDS.exec(text);
@@ -199,6 +213,97 @@ describe("ADR 0002: argus never touches a chain", () => {
       expect(violations("bad/trade.cjs", trade)).toHaveLength(1);
       const sdk = 'const { PumpSdk } = require("@pump-fun/pump-sdk");\nmodule.exports = PumpSdk;';
       expect(violations("bad/sdk.cjs", sdk)).toHaveLength(1);
+    });
+
+    describe("the Amendment's read-only RPC allowance", () => {
+      const M = READ_ONLY_RPC_MODULE;
+      const HOST = `https://${READ_ONLY_RPC_HOST}/?api-key=\${key}`;
+      const reader = [
+        `const RPC_URL = \`${HOST}\`;`,
+        ...READ_ONLY_RPC_METHODS.map((m) => `rpc("${m}", [accounts]);`),
+      ].join("\n");
+
+      it("is one file, one https host and five read methods", () => {
+        expect(M).toBe("packages/core/src/study/helius.ts");
+        expect(READ_ONLY_RPC_HOST).toBe("mainnet.helius-rpc.com");
+        expect([...READ_ONLY_RPC_METHODS].sort()).toEqual(["getAccountInfo", "getMultipleAccounts", "getSignaturesForAddress", "getTransaction", "getTransactionsForAddress"]);
+        for (const m of READ_ONLY_RPC_METHODS) expect(RPC_METHODS).toContain(m); // banned by default, allowed only in the module
+      });
+
+      it("passes in the allowed module", () => {
+        expect(violations(M, reader)).toEqual([]);
+        expect(violations(M, `fetch("https://${READ_ONLY_RPC_HOST}")`)).toEqual([]);
+      });
+
+      it("fires for the same code in any other file", () => {
+        for (const f of [
+          "packages/core/src/study/helius2.ts",
+          "packages/core/src/study/helius.test.ts",
+          "packages/core/src/helius.ts",
+          "packages/core/src/study/sub/helius.ts",
+          "apps/warroom/server/utils/helius.ts",
+          "packages/core/src/study/helius.mjs",
+          "x/packages/core/src/study/helius.ts",
+          "helius.ts",
+        ]) {
+          const found = violations(f, reader);
+          expect(found.some((v) => v.includes("endpoint https://mainnet.helius-rpc.com")), f).toBe(true);
+          for (const m of READ_ONLY_RPC_METHODS) expect(found.some((v) => v.includes(`RPC method "${m}"`)), `${f} ${m}`).toBe(true);
+        }
+      });
+
+      it("fires inside the allowed module for any other host, scheme, port, userinfo or path", () => {
+        for (const url of [
+          "https://sender.helius-rpc.com/fast",
+          "https://api.helius.xyz/v0/transactions?api-key=x",
+          "https://devnet.helius-rpc.com/?api-key=x",
+          "http://mainnet.helius-rpc.com/",
+          "wss://mainnet.helius-rpc.com/?api-key=x",
+          "https://mainnet.helius-rpc.com:8899/",
+          "https://user:pw@mainnet.helius-rpc.com/",
+          "https://mainnet.helius-rpc.com/v0/send",
+          "https://www.helius.dev/docs",
+          "https://api.mainnet-beta.solana.com",
+          "https://solana-mainnet.g.alchemy.com/v2/abc",
+          "https://x.rpcpool.com/abc",
+          "https://mainnet.infura.io/v3/abc",
+          "http://localhost:8899",
+          "https://pumpportal.fun/api/trade-local",
+          "https://quote-api.jup.ag/v6/swap",
+          "https://mainnet.block-engine.jito.wtf/api/v1/bundles",
+        ]) expect(violations(M, `fetch("${url}")`), url).toHaveLength(1);
+      });
+
+      it("fires inside the allowed module for write, signing and other wallet or tx-building methods", () => {
+        for (const method of [
+          "sendTransaction", "sendRawTransaction", "signTransaction", "signAllTransactions", "simulateTransaction", "requestAirdrop",
+          "sendBundle", "sendSmartTransaction", "sendJitoBundle", "getLatestBlockhash", "getBalance", "getTokenAccountsByOwner", "getProgramAccounts",
+        ]) {
+          expect(violations(M, `${reader}\nrpc("${method}", [x]);`), method).toEqual([`${M}: RPC method "${method}"`]);
+        }
+      });
+
+      it("fires inside the allowed module for SDKs, keys and wallets", () => {
+        expect(violations(M, `${reader}\nimport { Connection } from "@solana/web3.js";`)).toEqual([`${M}: import @solana/web3.js`]);
+        expect(violations(M, `${reader}\nimport { Helius } from "helius-sdk";`)).toEqual([`${M}: import helius-sdk`]);
+        expect(violations(M, `${reader}\nimport { Helius } from "@helius-labs/sdk";`)).toHaveLength(1);
+        expect(violations(M, `${reader}\nconst w = require("@pump-fun/pump-sdk");`)).toHaveLength(1);
+        for (const key of ["const kp = Keypair.generate();", "const s = wallet.secretKey;", "const p = privateKey;", "process.env.PRIVATE_KEY", "const m = mnemonic;"]) {
+          expect(violations(M, `${reader}\n${key}`), key).toHaveLength(1);
+        }
+        expect(violations("packages/core/src/study/package.json", JSON.stringify({ dependencies: { "helius-sdk": "1" } }))).toHaveLength(1);
+        expect(violations("package.json", JSON.stringify({ dependencies: { "@solana/web3.js": "1" } }))).toHaveLength(1);
+      });
+
+      it("matches the module path exactly, not by prefix", () => {
+        expect(violations(M.split("/").join(sep), reader)).toEqual([]);
+        expect(violations(`${M}.bak.ts`, reader).length).toBeGreaterThan(0);
+      });
+
+      it("does not loosen the other read-only Sources' rules", () => {
+        expect(violations(M, 'const s = "wss://pumpportal.fun/api/data"; const l = `https://pump.fun/coin/${m}`;')).toEqual([]);
+        expect(violations(M, 'fetch("https://pump.fun/api/ipfs")')).toHaveLength(1);
+      });
     });
 
     it("flags chain RPC methods and key handling", () => {
