@@ -34,3 +34,5 @@ Widening the allowance (another method, another file such as a separate own-laun
 
 ## Comments
 ADR wording gaps for the Operator: (1) the Amendment says "public RPC" and never names Helius or a module; Helius comes from spec section 7 and `docs/architecture.md` invariant 5. (2) "no transaction" is read here as no transaction sending or signing; reading transactions (`getTransaction`, `getTransactionsForAddress`) is allowed since the spec's labeller and bot filter need them. (3) The Amendment covers own-launch outcomes, but the Study reads other tokens' chain data too; the ADR sentence "the Phase 3 Study reads the same chain data for other tokens anyway" is taken as covering that.
+
+Follow-up (ticket 23, 2026-11-11): this scan is a tripwire, not a guarantee. What it still cannot see is listed in the header of `packages/core/src/adr-0002.test.ts` and in ticket 23's Comments (a host read from a file, the network or a lookup table, decoded at run time, or built from variables). The scan is frozen after ticket 23; the run-time control is specified in `.scratch/hardening/issues/06-runtime-egress-allowlist.md`.
