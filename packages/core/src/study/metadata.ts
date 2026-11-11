@@ -1,4 +1,5 @@
 import { cleanLink, cleanText, isRecord } from "../sources/untrusted-text.ts";
+import { metadataCandidates, type GatewayStats } from "./ipfs-gateways.ts";
 import { guardedGet, type Resolver, type Transport } from "./guarded-fetch.ts";
 
 /**
@@ -75,10 +76,39 @@ export interface MetadataFetchOptions {
   timeoutMs: number;
   resolve?: Resolver;
   transport?: Transport;
+  /** Ordered IPFS gateway base URLs; an IPFS uri is tried on each in turn. Default: `DEFAULT_IPFS_GATEWAYS`. */
+  gateways?: readonly string[];
+  /** Counts each gateway request as ok or failed. */
+  stats?: GatewayStats;
 }
 
-/** One guarded GET of the uri. Never throws. */
+/**
+ * A guarded GET of the uri. An IPFS uri (ipfs:// or on a public gateway such as ipfs.io) is fetched from the configured gateways in
+ * order; a retryable failure (429, 5xx, timeout, network error) moves on to the next gateway. Never throws.
+ */
 export async function fetchMetadata(uri: string, opts: MetadataFetchOptions): Promise<MetadataFetch> {
+  const urls = metadataCandidates(uri, opts.gateways);
+  let last: MetadataFetch = { ok: false, detail: "no gateway", retryable: false };
+  let anyRetryable = false;
+  for (const url of urls) {
+    last = await fetchOne(url, opts);
+    if (urls.length > 1) opts.stats?.record(hostOf(url), last.ok);
+    if (last.ok) return last;
+    anyRetryable ||= last.retryable;
+    if (!last.retryable) break;
+  }
+  return last.ok ? last : { ...last, retryable: anyRetryable };
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "?";
+  }
+}
+
+async function fetchOne(uri: string, opts: MetadataFetchOptions): Promise<MetadataFetch> {
   const r = await guardedGet(uri, { ...opts, headers: { accept: "application/json,*/*;q=0.1" } });
   if (!r.ok) return { ok: false, detail: `${r.reason}: ${r.detail}`.replace(/[?#]\S*/g, "").slice(0, 200), retryable: r.reason === "timeout" || r.reason === "error" };
   if (r.status < 200 || r.status >= 300) return { ok: false, detail: `HTTP ${r.status}`, retryable: r.status >= 500 || r.status === 429 };

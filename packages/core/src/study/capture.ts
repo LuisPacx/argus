@@ -1,5 +1,6 @@
 import type { Resolver, Transport } from "./guarded-fetch.ts";
 import { MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./config.ts";
+import { GatewayStats, ipfsGateways } from "./ipfs-gateways.ts";
 import { fetchMetadata, inPopulation } from "./metadata.ts";
 import { SnapshotNotAllowedError, type StudyStore, type StudyToken } from "./store.ts";
 import { fetchWebsite } from "./website.ts";
@@ -20,6 +21,8 @@ export interface CaptureDeps {
   /** Tokens looked at per call. */
   batch?: number;
   rule?: typeof STUDY_CAPTURE_RULE;
+  /** Ordered IPFS gateway base URLs; default from `ARGUS_STUDY_IPFS_GATEWAYS` or the built-in list. */
+  gateways?: readonly string[];
   resolve?: Resolver;
   transport?: Transport;
 }
@@ -59,6 +62,8 @@ export async function captureDueSnapshots(store: StudyStore, deps: CaptureDeps =
   }
 
   const net = { resolve: deps.resolve, transport: deps.transport };
+  const gateways = deps.gateways ?? ipfsGateways();
+  const stats = new GatewayStats();
   const one = async (token: StudyToken): Promise<void> => {
     try {
       if (ageOf(token.createdAt!) > windowEnd) {
@@ -66,13 +71,14 @@ export async function captureDueSnapshots(store: StudyStore, deps: CaptureDeps =
         report.late++;
         return;
       }
-      if (!store.beginCaptureRun(token.mint, now(), cap)) {
+      // A retry of a token already admitted does not count again: only the first attempt spends the daily capture cap.
+      if (token.metadataAttempts === 0 && !store.beginCaptureRun(token.mint, now(), cap)) {
         store.markToken(token.mint, "capped", "the daily capture run cap was reached");
         report.capped++;
         return;
       }
       const attempts = store.bumpMetadataAttempts(token.mint);
-      const m = await fetchMetadata(token.uri, { maxBytes: rule.metadataMaxBytes, timeoutMs: rule.metadataTimeoutMs, ...net });
+      const m = await fetchMetadata(token.uri, { maxBytes: rule.metadataMaxBytes, timeoutMs: rule.metadataTimeoutMs, gateways, stats, ...net });
       if (!m.ok) {
         if (m.retryable && attempts < rule.metadataAttempts) {
           report.retrying++;
@@ -121,5 +127,7 @@ export async function captureDueSnapshots(store: StudyStore, deps: CaptureDeps =
     for (let t = queue.shift(); t; t = queue.shift()) await one(t);
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+  const gatewayLine = stats.summary();
+  if (gatewayLine) log(`[study] ipfs gateways: ${gatewayLine}`);
   return report;
 }

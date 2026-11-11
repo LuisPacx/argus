@@ -47,7 +47,8 @@ function setup(events: PumpTokenEvent[]) {
   return store;
 }
 const run = (store: Datastore, net: ReturnType<typeof internet>, sec: number, extra: Partial<Parameters<typeof captureDueSnapshots>[1]> = {}) =>
-  captureDueSnapshots(store.study, { resolve: net.resolve, transport: net.transport, now: () => at(sec), ...extra });
+  // gateways: [] keeps the fake internet's ipfs.io urls as written; the gateway tests below pass their own list.
+  captureDueSnapshots(store.study, { resolve: net.resolve, transport: net.transport, now: () => at(sec), gateways: [], ...extra });
 
 describe("captureDueSnapshots", () => {
   it("captures a token with a website and an X link at its fixed age, with one metadata fetch and one page fetch", async () => {
@@ -228,6 +229,39 @@ describe("captureDueSnapshots", () => {
       await run(store, net, 61);
       await run(store, net, 76);
       expect(store.study.getSnapshot(mintOf(1))).toMatchObject({ ageSec: 76, siteStatus: "none" });
+    });
+  });
+
+  describe("IPFS gateways", () => {
+    const GW = ["https://gw-a.example/ipfs/", "https://gw-b.example/ipfs/"];
+    const CID = "bafkreictddc23key7yw5gps2prjn7tuuckwokbnjzx7qwflelxcypnomz4";
+    const IPFS_URI = `https://ipfs.io/ipfs/${CID}`;
+
+    it("a 429 from the first gateway moves to the next within the same attempt, and the Snapshot is taken", async () => {
+      const store = setup([create(1, 0, { uri: IPFS_URI })]);
+      const net = internet({ [`https://gw-a.example/ipfs/${CID}`]: reply(429, {}, ""), [`https://gw-b.example/ipfs/${CID}`]: meta({ twitter: "https://x.com/a" }) });
+      const lines: string[] = [];
+      await run(store, net, 61, { gateways: GW, log: (l) => lines.push(l) });
+      expect(net.requests).toEqual([`https://gw-a.example/ipfs/${CID}`, `https://gw-b.example/ipfs/${CID}`]);
+      expect(store.study.getToken(mintOf(1))).toMatchObject({ status: "captured", metadataAttempts: 1 });
+      expect(lines).toContain("[study] ipfs gateways: gw-a.example ok=0 fail=1, gw-b.example ok=1 fail=0");
+    });
+
+    it("retries of a token already admitted do not spend the daily capture cap", async () => {
+      const store = setup([create(1, 0, { uri: IPFS_URI })]);
+      const net = internet({ [`https://gw-a.example/ipfs/${CID}`]: () => reply(429, {}, ""), [`https://gw-b.example/ipfs/${CID}`]: () => reply(502, {}, "") });
+      await run(store, net, 61, { gateways: GW, runCap: 1 });
+      await run(store, net, 76, { gateways: GW, runCap: 1 });
+      await run(store, net, 91, { gateways: GW, runCap: 1 });
+      expect(store.study.getToken(mintOf(1))).toMatchObject({ status: "unreadable", metadataAttempts: 3 });
+      expect(store.study.captureRunsSince(at(-86_400))).toBe(1);
+    });
+
+    it("a new token past the cap is still capped", async () => {
+      const store = setup([create(1), create(2)]);
+      const net = internet({});
+      const report = await run(store, net, 61, { gateways: GW, runCap: 1 });
+      expect(report).toMatchObject({ capped: 1 });
     });
   });
 
