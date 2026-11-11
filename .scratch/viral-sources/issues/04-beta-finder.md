@@ -3,7 +3,7 @@
 
 **What to build:** argus proposes **Betas** (GLOSSARY: a token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar) for the live top Metas, so the Operator can launch into a Meta that is still carrying tokens to migration. The hard part is not finding the biggest Meta but the one with **room left**: some Metas are saturated (Dacity/Audacity: 1 migration in 228 creates in 24 h), others are still converting (GTA VI: 31 of 153, about 20%). Rank Metas by room left, and for the best few propose a Beta name, ticker and angle that is distinct from every existing clone. Launching stays manual (the Operator, ADR 0002); argus spends no SOL, signs nothing and holds no keys.
 
-**Status:** ready-for-agent
+**Status:** in progress on branch `beta-finder` (based on `meta-ranking` 87472db): slices 1, 2 and 5 done (room-left ranking, distinct-name rule, backtest); slices 3 (kind, migration, Brain task, ADR, GLOSSARY) and 4 (War Room) open. The backtest found no demonstrable lift: the switch stays off (see Comments).
 
 **Blocked by:** 03 Part A (slices 1 and 3 of `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`: the token subject key, clone clusters, and the stored 6 h and 24 h Meta ranking with the base migration rate, per-group saturation and market cap). Also start only after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it.
 
@@ -62,14 +62,14 @@ Out of scope: launching, trading, signing, holding keys or spending SOL (ADR 000
 
 Offline in `pnpm check` (fixtures, fake Brain, fake DexScreener); the backtest is opt-in.
 
-- [ ] **Room-left ranking on a fixture (slice 1).** A fixture of Meta rows with the 2026-11-11 shapes (GTA VI 153 creates and 31 migrations, ni hao 310 and 15, DeepSeek 11 and 10, Dacity 228 and 1, a Meta with a $50k lead, a Meta first seen 10 minutes ago, a Meta whose 6 h count is a tenth of its 24 h count) yields the expected order and the expected gate rejections with the reason strings; a larger Meta does not outrank a smaller one with more room left; the same input twice gives the same output (tested, failing first).
-- [ ] **Look-ahead guard.** The ranking and the backtest read only rows at or before T; a fixture with a row after T that would flip the order does not change it (tested).
-- [ ] **Distinct names (slice 2).** Exact name, exact ticker, a name differing only by case, `$`, punctuation, emoji or zero-width characters, and a name one edit away from an existing token are rejected; a name sharing only a word is accepted; 10,000-character names and RegExp metacharacters are handled in linear time with no dynamic RegExp; the retry-once then fail-closed path works with a fake Brain (tested).
+- [x] **Room-left ranking on a fixture (slice 1).** A fixture of Meta rows with the 2026-11-11 shapes (GTA VI 153 creates and 31 migrations, ni hao 310 and 15, DeepSeek 11 and 10, Dacity 228 and 1, a Meta with a $50k lead, a Meta first seen 10 minutes ago, a Meta whose 6 h count is a tenth of its 24 h count) yields the expected order and the expected gate rejections with the reason strings; a larger Meta does not outrank a smaller one with more room left; the same input twice gives the same output (tested, failing first).
+- [x] **Look-ahead guard.** The ranking and the backtest read only rows at or before T; a fixture with a row after T that would flip the order does not change it (tested).
+- [x] **Distinct names (slice 2).** Exact name, exact ticker, a name differing only by case, `$`, punctuation, emoji or zero-width characters, and a name one edit away from an existing token are rejected; a name sharing only a word is accepted; 10,000-character names and RegExp metacharacters are handled in linear time with no dynamic RegExp; the retry-once then fail-closed path works with a fake Brain (tested). (The retry-once helper `distinctOrRetryOnce` is tested against a fake asker; slice 3 wires it to the real Brain task and repeats the test with a fake Brain.)
 - [ ] **Output validation (slice 3).** `parseBetaOutput` accepts a valid object with no Tech, refuses a missing or over-long `reason`, a bad ticker, markup, control characters and a copy of an existing name; hostile token names in the prompt (`</boundary>`, "ignore previous instructions") cannot end the boundary (tested).
 - [ ] **Kind, migration and lifecycle.** The migration is additive and idempotent and old Proposals read `narrative` (tested, and rehearsed on a `.backup` copy); a second live Beta for the same Meta is refused; a Beta in `new` expires after the configured TTL while a Narrative Proposal keeps 48 h; the spec, approve and build commands are refused for a Beta and a Launch/mark-launched works (tested through the real command path).
 - [ ] **Caps and switch.** With the switch off nothing is called; on, at most 3 Metas per pass, 1 live Beta per Meta and 6 a day, and budget exhaustion or a rate limit ends the pass cleanly (tested with a counting fake).
 - [ ] **War Room shows it.** The Proposals list and the Proposal page show a Beta with its Meta and numbers from `meta_snapshot`; the kind filter works; an `javascript:` URL and markup in a token name are not rendered as a link or markup (render tests beside `apps/warroom/server/test`). **Browser check:** with the dev server started from the worktree and a seeded DB copy that contains at least two Beta Proposals, a screenshot of the Proposals list and of one Beta's page (taken with the Chrome tooling, saved under `.scratch/viral-sources/` and cited in Comments) shows the pill, the Meta label and the numbers legibly at desktop and phone width; the server is stopped by PID afterwards.
-- [ ] **Backtest reported (slice 5).** The script runs on a DB copy and the Comments hold the table, the intervals, the lift or its absence and the caveats above; the default of the switch is set from it (off if no lift).
+- [x] **Backtest reported (slice 5).** The script runs on a DB copy and the Comments hold the table, the intervals, the lift or its absence and the caveats above; the default of the switch is set from it (off if no lift). (Result: no lift; the switch defaults to off. The switch itself and the copy of the result into the ADR land with slice 3.)
 - [ ] **Docs.** The ADR (Proposal kind) is written and states what it contradicts (GLOSSARY Proposal definition) and what it leaves alone (ADR 0002); GLOSSARY gets the `Beta Proposal` entry and the amended Proposal definition; `docs/agents/worker-rules.md` needs no change.
 - [ ] Full `pnpm check` passes once before each commit.
 
@@ -97,3 +97,64 @@ Offline in `pnpm check` (fixtures, fake Brain, fake DexScreener); the backtest i
 One commit per slice, in order, each after a full `pnpm check`. Subject `Viral sources ticket 04: <slice and what changed>` (for example `Viral sources ticket 04: slice 1, room-left ranking`), body ending with `Ticket: .scratch/viral-sources/issues/04-beta-finder.md` before the trailers. Tick a slice's boxes in its commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+### 2026-11-11, slices 1, 2 and 5 (branch `beta-finder`, on `meta-ranking` 87472db)
+
+**Built.** `packages/core/src/beta/room-left.ts` (slice 1: gates, order, reason strings), `distinct-name.ts` (slice 2: the rule and `distinctOrRetryOnce`), `stats.ts`, `backtest.ts` and `scripts/backtest-beta.mjs` (slice 5). Nothing under `packages/core/src/meta/` was edited; the Beta code only imports `normaliseKey`, `subjectKey`, `groupTokens`, `cleanLabel`, `isGenericKey`, `recomputeMetas` and the stored `MetaRun`.
+
+**Deviations and decisions to confirm.**
+- One gate beyond the ticket's list, **off by default**: `minMigrations` (migrations in 24 h on the lift's basis, at least N). The ticket's rule has no floor on migrations, so on a Meta of 6 tokens one migration is a "6x lift". The lead-cap floor ($1M) is what removes those in production, and the backtest cannot use it (no market cap as of T), so it can switch this on as a stand-in. Default 0 keeps the ticket's rule.
+- `rankRoomLeft` takes the stored **24 h** run (its base rate is the 24 h one; every row carries both windows' counts). It throws on the 6 h run.
+- The lift uses `migrationsAfter60s` when at least half of the group's migrations were bundled (config `bundledShareHigh`). The stored base rate is unfiltered, so this is conservative.
+- "First seen" is the earliest create the 24 h read saw, so a Meta older than 24 h looks 24 h old: the 30-minute gate can only remove a Meta that was born inside the window.
+- Slice 3 note: a stored row keeps only 3 top tokens (`META_RULE.topTokens`), the ticket's Beta prompt wants 8 and the distinct-name rule needs every token in the group. Slice 3 will re-read the last 24 h of creates and rebuild the group with `groupTokens` (as the backtest does), not change `meta/`.
+- ADR number: `main` has 0001 to 0009; 0010 is reserved by hardening 06; no other branch adds one. The Beta ADR is the next free at merge time, 0011 if nothing else lands first. It is written with slice 3 (together with the GLOSSARY Proposal amendment and `Beta Proposal` entry) and will carry the backtest result below.
+
+**Why not size (the probe numbers of 2026-11-11, 24 h to 20:00 UTC, migrations unfiltered, base 2.8%; lift = group rate over base).** From the ticket's probe figures, not a fresh query:
+
+| Meta | creates | migrations | rate | lift | size rank | room-left |
+|---|---|---|---|---|---|---|
+| "ni hao" cat | 310 | 15 | 4.8% | 1.7x | 1 | 3rd |
+| Dacity/Audacity | 228 | 1 | 0.4% | 0.2x | 2 | removed: 228 creates per migration, over 107 (3x the base 36) |
+| GTA VI | 153 | 31 | 20.3% | 7.2x | 3 | 2nd |
+| DeepSeek | 11 | 10 | 90.9% | 32.5x | 4 | 1st |
+
+The same shapes are the fixture of the slice 1 test, which also covers a $50k lead, a Meta first seen 10 minutes ago, and one whose 6 h count is a tenth of its 24 h count.
+
+**BACKTEST** (`node scripts/backtest-beta.mjs <copy> [--min-migrations N]`, on a `.backup` copy of `.data/argus.db` taken 2026-11-11 about 21:08 UTC, deleted afterwards; the live file was never opened).
+- Window: `study_tokens` from 2026-11-09 00:54 UTC to 2026-11-11 21:08 UTC (about 2.9 days; about 33,000 rows, about 1,900 migrated). Hourly T from 2026-11-10 01:00 (24 h of history, so the 24 h window is full) to 2026-11-11 15:00 UTC: 39 snapshots for the 6 h horizon, 21 for the 24 h horizon (a T whose horizon runs past the data is skipped). Top 3 Metas per arm.
+- Look-ahead: the ranking at T is `recomputeMetas({ now: T })`; a test adds 200 fast-converting tokens that exist only after T and the ranking is unchanged. The outcome (tokens created in (T, T+H], new creators, migrated by T+H) is read after T by design.
+- **No market cap as of T**, so the $1M lead gate is off in the backtest: it tests the other gates and the order, not the cap floor.
+- Arms: *roomLeft* = top 3 Metas passing the gates; *size* = top 3 Metas by 24 h token count; *rejected* = every Meta the gates removed; *base* = every create. Each token counts once per arm.
+
+Pre-specified rule (ticket gates, `minMigrations` 0), exactly as printed:
+
+| Horizon / measure | arm | tokens | migrated | rate | Wilson 95% |
+|---|---|---|---|---|---|
+| 6 h, unfiltered | roomLeft | 67 | 2 | 3.0% | 0.8-10.2% |
+| | size | 451 | 89 | 19.7% | 16.3-23.7% |
+| | rejected | 2424 | 180 | 7.4% | 6.4-8.5% |
+| | base | 18540 | 518 | 2.8% | 2.6-3.0% |
+| 6 h, after 60 s | roomLeft | 67 | 1 | 1.5% | 0.3-8.0% |
+| | size | 451 | 9 | 2.0% | 1.1-3.7% |
+| | rejected | 2424 | 48 | 2.0% | 1.5-2.6% |
+| | base | 18540 | 244 | 1.3% | 1.2-1.5% |
+| 24 h, unfiltered | roomLeft | 85 | 3 | 3.5% | 1.2-9.9% |
+| | size | 391 | 86 | 22.0% | 18.2-26.4% |
+| | rejected | 2503 | 189 | 7.6% | 6.6-8.7% |
+| | base | 18540 | 525 | 2.8% | 2.6-3.1% |
+| 24 h, after 60 s | roomLeft | 85 | 2 | 2.4% | 0.6-8.2% |
+| | size | 391 | 6 | 1.5% | 0.7-3.3% |
+| | rejected | 2503 | 50 | 2.0% | 1.5-2.6% |
+| | base | 18540 | 251 | 1.4% | 1.2-1.5% |
+
+Lift of room-left over base: 1.07x (6 h unfiltered), 1.13x (6 h after 60 s), 1.25x (24 h unfiltered), 1.74x (24 h after 60 s). Over size: 0.15x, 0.75x, 0.16x, 1.53x. Difference over base, cluster-bootstrap 95% over Metas: -2.8 to +6.0, -1.3 to +4.4, -2.8 to +5.7, -1.4 to +4.8 points. **Every one of the four intervals includes zero. There is no demonstrable lift, over the market or over a size ranking; on the unfiltered measure the size ranking is far ahead.**
+
+**Reading it honestly.**
+- **Independent sample.** The 67 and 85 tokens come from 16 and 19 distinct Metas; the hourly snapshots overlap and a Meta recurs for hours, so the Meta, not the token, is the unit. The T range spans 38 hours: about six non-overlapping 6 h blocks and under two 24 h blocks. The room-left counts are 2 to 3 migrations out of 67 to 85, which no interval can separate from the 2.8% base.
+- **Unfiltered migration is a bot signature here, not demand.** The size arm migrates at 20 to 22% unfiltered but 1.5 to 2.0% after 60 s: about nine in ten of those migrations were bundled with the create. A size-ranked "lift" of 7x on the unfiltered measure is the bundled-migration artifact the ticket warned about (Phase 3 ticket 04, the bot filter, is not built). The after-60-s measure is the only one that says anything, and there all arms sit between 1.3% and 2.4%.
+- **Without the market-cap gate the rule ranks small Metas.** A diagnostic on every third hourly snapshot showed up to 47 Metas passing the gates (none at the last two) and the top three mostly 5 to 15 tokens with one or two migrations (a "5x lift" from 1 of 6). That is noise, and it is the population the production cap floor would remove. Exploratory variant, **post hoc and not a pre-specified result**: `--min-migrations 3` offers only **2 distinct Metas** over the whole period; unfiltered it shows 33 to 45% (11.8x to 16.1x over base, cluster interval for 24 h 1.9 to 41.3 points) but after 60 s it is 0 of 69 and 2 of 153 (0.0% and 1.3% against 1.3% and 1.4%): the same bundled artifact, and two Metas are two draws. The report prints "only 2 distinct Metas, too few independent draws to trust this".
+- **Everything measured is a copy.** All 67 and 85 room-left joiners (and the 69 and 153 of the variant) would be rejected by the slice 2 rule, because a token that joins a Meta by name is a copy of it. The backtest therefore measures "tokens that joined a running Meta" and not "a distinct Beta launched into it". The ticket accepted this as the closest stand-in; it means the backtest cannot say whether a distinct name captures the same demand.
+- **Other caveats.** About 2.9 days of data, so one market regime. Selection bias: tokens that joined a Meta were already riding it. Migration is not profit. Gaps in the Study (disconnects) are not excluded. Group membership of a later token is decided by its name against the Meta's keys at T, so a Meta that merges clusters later is under-counted.
+
+**Decision.** The switch `ARGUS_BETA_PROPOSALS` defaults to **off** (the user's decision of 2026-11-11, now also what the data says): the backtest shows no lift, and only the cap gate and a longer history can change that. To learn more: let the Meta runs accumulate for a week with market caps stored, then replay with the cap gate on and a bot filter in place.
