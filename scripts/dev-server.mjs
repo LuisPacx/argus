@@ -127,7 +127,7 @@ async function warroomStart(tag) {
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (await answers()) {
-      console.log(`${tag}up on http://localhost:${PORT} (pid ${child.pid})`);
+      console.log(`${tag}up on http://localhost:${PORT}/ (pid ${child.pid})`);
       return 0;
     }
     if (!alive(child.pid, true)) break;
