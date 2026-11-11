@@ -339,3 +339,34 @@ describe("Study stats", () => {
     expect(s.captureRunCap).toBeGreaterThan(0);
   });
 });
+
+describe("recentMigrated (the propose prompt's examples, ticket 22)", () => {
+  it("returns the newest migrated tokens that have a name, with the Snapshot's description and site title when there is one", () => {
+    const store = open();
+    store.study.recordTokenEvent(create(1, 0, { name: "Moon Cat", symbol: "MCAT" }));
+    store.study.recordSnapshot(snap(1, { description: "A cat on the moon" }), at(60));
+    store.study.recordTokenEvent(create(2, 0, { name: "No Snapshot", symbol: "NS" }));
+    store.study.recordTokenEvent(create(3, 0, { name: "Never Migrated" }));
+    store.study.recordTokenEvent(create(4, 0, { name: "   " }));
+    store.study.recordTokenEvent(migrate(1, 100));
+    store.study.recordTokenEvent(migrate(2, 300));
+    store.study.recordTokenEvent(migrate(4, 200));
+    store.study.recordTokenEvent(migrate(5, 400)); // create never seen: no name
+    const rows = store.study.recentMigrated(10);
+    expect(rows.map((r) => r.name)).toEqual(["No Snapshot", "Moon Cat"]);
+    expect(rows[0]).toEqual({ mint: mintOf(2), name: "No Snapshot", symbol: "NS", migratedAt: iso(300), description: "", siteTitle: "" });
+    expect(rows[1]).toMatchObject({ symbol: "MCAT", migratedAt: iso(100), description: "A cat on the moon", siteTitle: "Cat" });
+  });
+
+  it("takes the newest N, clamps the limit to 0..20 and returns nothing for an empty Study", () => {
+    const store = open();
+    expect(store.study.recentMigrated(10)).toEqual([]);
+    for (let n = 1; n <= 25; n++) {
+      store.study.recordTokenEvent(create(n, 0));
+      store.study.recordTokenEvent(migrate(n, 100 + n));
+    }
+    expect(store.study.recentMigrated(3).map((r) => r.name)).toEqual(["Token 25", "Token 24", "Token 23"]);
+    expect(store.study.recentMigrated(500)).toHaveLength(20);
+    for (const bad of [0, -1, Number.NaN]) expect(store.study.recentMigrated(bad)).toEqual([]);
+  });
+});

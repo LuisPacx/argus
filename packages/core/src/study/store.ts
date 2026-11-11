@@ -48,6 +48,20 @@ export interface StudyToken {
   firstSeenAt: string;
 }
 
+/** The hard maximum of migrated-token examples the propose prompt can carry (ticket 22). */
+export const MAX_MIGRATED_EXAMPLES = 20;
+
+/** A migrated token as the propose prompt's examples see it: untrusted text, empty when there is no Snapshot. */
+export interface MigratedExample {
+  mint: string;
+  name: string;
+  symbol: string;
+  /** PumpPortal receipt time of the migrate event; not chain time, not bot-filtered. */
+  migratedAt: string;
+  description: string;
+  siteTitle: string;
+}
+
 export interface NewSnapshot {
   mint: string;
   description: string;
@@ -349,6 +363,23 @@ export class StudyStore {
   getSnapshot(mint: string): StudySnapshot | undefined {
     const r = this.db.prepare("SELECT * FROM study_snapshots WHERE mint = ?").get(mint) as Row | undefined;
     return r && toSnapshot(r);
+  }
+
+  /**
+   * The most recently migrated tokens that have a name, newest `migrated_at` first, with the Snapshot's description and website title
+   * when a Snapshot exists (about 8% do). READ ONLY; the propose prompt's examples (ticket 22). `migrated_at` is PumpPortal receipt
+   * time and not bot-filtered; every text here was written by the token's creator. `limit` is clamped to 0..MAX_MIGRATED_EXAMPLES.
+   */
+  recentMigrated(limit: number): MigratedExample[] {
+    const n = Math.max(0, Math.min(MAX_MIGRATED_EXAMPLES, Math.floor(limit)));
+    if (!(n > 0)) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.mint, t.name, t.symbol, t.migrated_at, s.description, s.site_title FROM study_tokens t LEFT JOIN study_snapshots s ON s.mint = t.mint
+         WHERE t.migrated_at IS NOT NULL AND TRIM(t.name) <> '' ORDER BY t.migrated_at DESC, t.mint LIMIT ?`,
+      )
+      .all(n) as Row[];
+    return rows.map((r) => ({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "", siteTitle: (r.site_title as string | null) ?? "" }));
   }
 
   /** Pending tokens whose age has reached the Snapshot age at `now`, oldest create first. */
