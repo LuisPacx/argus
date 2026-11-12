@@ -54,7 +54,7 @@ The narrative currently trending on the market, as the market itself names it. O
 _Avoid_: Trend (reserved against Narrative), Narrative (when meaning a Meta)
 
 **Meta ranking**:
-The worker's periodic list of live Metas, grouped and ranked from launchpad tokens by plain code (distinct creators first, then migrations more than 60 s after the create, market cap, then token count), for the last 6 h and 24 h. Migrations are unfiltered until the bot filter exists. Each Meta in the top five carries a one-line summary, written by the Brain within a daily cap and shown with a templated numbers line when there is none. The War Room's "Current Meta (last 24h)" section shows it; it is context, not a Narrative and not a Proposal.
+The worker's periodic list of live Metas, grouped and ranked from launchpad tokens by plain code (distinct creators first, then migrations more than 60 s after the create, market cap, then token count), for the last 6 h and 24 h. Migrations are unfiltered until the bot filter exists. Small clusters that name a big Meta's subject (`Ni Hao Noon`, `GTA 6 Cat`) join it as one Meta. The top five reach the judge and propose prompts as untrusted background, with a line when a Narrative's launchpad Signals match one. Each Meta in the top five carries a one-line summary, written by the Brain within a daily cap and shown with a templated numbers line when there is none. The War Room's "Current Meta (last 24h)" section shows it; it is context, not a Narrative and not a Proposal.
 
 **Beta**:
 A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it.
