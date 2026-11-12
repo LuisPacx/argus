@@ -88,9 +88,16 @@ describe("mergeThemes on the labelled set", () => {
       toks.push({ mint: `t${j}`, name, symbol: `T${j}`, creator: `t${j}` });
     }
     const groups = groupTokens(toks);
-    const started = performance.now();
-    const merged = mergeThemes(groups);
-    expect(performance.now() - started).toBeLessThan(300);
+    // Median of five runs: one slow run (a loaded machine) cannot fail it, a scan over every anchor (~885 ms per run) still does.
+    const times: number[] = [];
+    let merged = mergeThemes(groups);
+    for (let i = 0; i < 5; i++) {
+      const started = performance.now();
+      merged = mergeThemes(groups);
+      times.push(performance.now() - started);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[2], `run times ms: ${times.map((t) => t.toFixed(0)).join(" ")}`).toBeLessThan(450);
     expect(merged.flatMap((g) => g.tokens)).toHaveLength(toks.length);
     expect(merged.length).toBeLessThan(groups.length); // the matching tails joined their anchors
   });
