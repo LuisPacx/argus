@@ -3,7 +3,7 @@
 
 **What to build:** a Build leaves three artifacts outside argus: a Cloudflare Worker named by the slug (deployed with `wranglerEnv`, `packages/core/src/build-runner.ts:523`, `:832`), a private GitHub repo `<owner>/<slug>` (`gh repo create`, `:660`) and a checkout `~/code/<slug>` (`:644`, `:656`). Today removing a dead Build is manual: the Proposal page only tells the Operator to remove them before Re-queue (`apps/warroom/app/pages/proposals/[id].vue:184`), and Re-queue is refused while the directory or repo exists (`build-runner.ts:644`). Test Proposal 148 (2026-11-12) needed a worker doing a Cloudflare API DELETE, `gh repo delete` (failed: the gh token lacked the `delete_repo` scope), an `rm`, and a hand SQL delete. This ticket adds one War Room action that does the three deletions safely and records them.
 
-**Status:** open
+**Status:** done except the browser check by cos after merge
 
 **Blocked by:** none. See Interplay with 05 and hardening/06.
 
@@ -29,16 +29,16 @@
 
 ## Acceptance
 
-- [ ] The Proposal page shows "Clean up build" only for `dismissed`, `closed`, `build-failed` Proposals with at least one artifact, and never for a Proposal that was ever `launched` (tested for `launched`, and for `closed` after `launched`); the worker refuses a `cleanup-build` command for any other status (a `DomainError`, `lifecycle.ts:218-220` pattern).
-- [ ] The confirm dialog lists exactly the Worker name, `<owner>/<slug>` and the directory path from a read-only dry run, each marked found or not found; no command is created before the Operator confirms.
-- [ ] Confirming deletes the Worker (Cloudflare API DELETE), the repo (GitHub API) and the directory; verified in tests with injected `fetch` and a temp build root (`packages/core/src/testing/temp.ts`), not real services.
-- [ ] Ownership: a Worker is deleted only when `worker_deployed = 1`; a repo only when it is the recorded `owner/slug` (or the legacy rule above); a directory only when it is a real directory under the build root with the right `origin`. Tests: a symlink at `~/code/<slug>`, a directory with a foreign origin, a Worker with `worker_deployed = 0`, a slug with `..` or a slash, and a repo that is not private each leave the artifact in place and report `skipped (not ours)`.
-- [ ] Idempotent: a second run, with everything gone, reports `already gone` for all three and writes no error; a Cloudflare 404 with error 10007 and a GitHub 404 both count as gone.
-- [ ] Partial failure: with the GitHub step failing for a missing scope, the Worker and directory results are still `deleted`, the repo is `failed`, the page shows `gh auth refresh -h github.com -s delete_repo`, and re-running the action finishes the repo only. Because the directory is removed last, a failed repo step keeps the directory for the legacy ownership check.
-- [ ] Each artifact outcome is a `status_history` row; the Proposal status is unchanged; no credential value appears in any row, result, log line or the page (tested with a sentinel token).
-- [ ] After a full clean-up, Re-queue of a `build-failed` Proposal is no longer refused for the directory or the repo (`build-runner.ts:644`), and the War Room's remove-first note (`[id].vue:184`) is replaced by the button for those statuses.
-- [ ] No `v-html`; the dialog adds no external link; the buttons are disabled while a command is in flight.
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] The Proposal page shows "Clean up build" only for `dismissed`, `closed`, `build-failed` Proposals with at least one artifact, and never for a Proposal that was ever `launched` (tested for `launched`, and for `closed` after `launched`); the worker refuses a `cleanup-build` command for any other status (a `DomainError`, `lifecycle.ts:218-220` pattern).
+- [x] The confirm dialog lists exactly the Worker name, `<owner>/<slug>` and the directory path from a read-only dry run, each marked found or not found; no command is created before the Operator confirms.
+- [x] Confirming deletes the Worker (Cloudflare API DELETE), the repo (GitHub API) and the directory; verified in tests with injected `fetch` and a temp build root (`packages/core/src/testing/temp.ts`), not real services.
+- [x] Ownership: a Worker is deleted only when `worker_deployed = 1`; a repo only when it is the recorded `owner/slug` (or the legacy rule above); a directory only when it is a real directory under the build root with the right `origin`. Tests: a symlink at `~/code/<slug>`, a directory with a foreign origin, a Worker with `worker_deployed = 0`, a slug with `..` or a slash, and a repo that is not private each leave the artifact in place and report `skipped (not ours)`.
+- [x] Idempotent: a second run, with everything gone, reports `already gone` for all three and writes no error; a Cloudflare 404 with error 10007 and a GitHub 404 both count as gone.
+- [x] Partial failure: with the GitHub step failing for a missing scope, the Worker and directory results are still `deleted`, the repo is `failed`, the page shows `gh auth refresh -h github.com -s delete_repo`, and re-running the action finishes the repo only. Because the directory is removed last, a failed repo step keeps the directory for the legacy ownership check.
+- [x] Each artifact outcome is a `status_history` row; the Proposal status is unchanged; no credential value appears in any row, result, log line or the page (tested with a sentinel token).
+- [x] After a full clean-up, Re-queue of a `build-failed` Proposal is no longer refused for the directory or the repo (`build-runner.ts:644`), and the War Room's remove-first note (`[id].vue:184`) is replaced by the button for those statuses.
+- [x] No `v-html`; the dialog adds no external link; the buttons are disabled while a command is in flight.
+- [x] Full `pnpm check` passes once on the committed clean tree.
 - [ ] Browser check by cos after merge, on a throwaway built-then-dismissed Proposal: dialog contents, the three results, a second run, and the missing-scope message.
 
 ## Open questions
@@ -53,3 +53,14 @@
 One commit after the tests are green, subject `War Room ticket 07: <what changed>`, body ending with `Ticket: .scratch/warroom-redesign/issues/07-clean-up-a-build.md`. Boxes ticked in a follow-up docs commit if `pnpm check` stamps the clean tree. A GLOSSARY.md line only if Open question 1 picks a new status.
 
 ## Comments
+
+Implemented (commit aae6488; `pnpm check` passed, stamped tree 54acba7604). Open questions took the cos defaults: row kept with `build_cleaned`, legacy Builds need the typed `owner/slug`, `built` is dismissed first. Decisions the ticket left open:
+
+- The dialog's found / not found is argus's own records and a read-only look at the disk (the War Room holds no credentials, and no command may exist before confirming). Worker "found" = `worker_deployed = 1`; repo "found" = a recorded repo or one the checkout's origin names. Cloudflare and GitHub are asked by the worker on confirm; a 404 there is `already gone`.
+- The repo is recorded from `gh repo create`'s output (`build_repo`); a Build whose output names no github.com repo called the slug records nothing and is treated as legacy.
+- A checkout counts as a Build's only with a `template` remote as well as `origin` (the Build clones with `--origin template`), and its `.git/config` is read as text, not through git.
+- Legacy repo: the origin owner must equal the token's own login (`GET /user`), because the agent can rewrite the origin. A legacy checkout is kept while its repo is still there (its origin is the only proof); a legacy repo that was deleted is then recorded so a second run says `already gone`.
+- A Proposal that was ever launched (history row or mint) is refused at any status, including `dismissed`, which `launched` can reach.
+- The GitHub token is `GH_TOKEN` / `GITHUB_TOKEN`, else `gh auth token`. Cloudflare DELETE does not use `force`.
+- A Worker the Build did not deploy is `skipped (not ours)` but counts as nothing left to remove for `build_cleaned`; a symlink, foreign origin, non-private repo and renamed repo do not.
+- Browser check by cos after merge is the one box not ticked.
