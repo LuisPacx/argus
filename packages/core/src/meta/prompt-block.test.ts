@@ -3,7 +3,7 @@ import { contextLines } from "../context-block.ts";
 import { Datastore, type NarrativeDetail, type StoredSignal } from "../datastore.ts";
 import { judgePendingNarratives, judgePromptFor } from "../judge.ts";
 import { proposePromptFor } from "../propose.ts";
-import { DEFAULT_META_BLOCK_CONFIG, metaLines, metaMatchLine, selectMetas, type MetaBlockRow } from "./prompt-block.ts";
+import { DEFAULT_META_BLOCK_CONFIG, metaLines, metaMatchLine, metaSection, selectMetas, type MetaBlockRow } from "./prompt-block.ts";
 import { recomputeMetas } from "./compute.ts";
 
 /**
@@ -83,6 +83,22 @@ describe("metaMatchLine", () => {
   });
 });
 
+describe("metaSection budget", () => {
+  it("counts the matches line inside maxChars, dropping trailing Metas first", () => {
+    const rows = [row({ label: "shared", key: "shared", rank: 1 }), ...Array.from({ length: 4 }, (_, i) => row({ label: `filler ${i} ${"y".repeat(30)}`, key: `f${i}`, rank: i + 2 }))];
+    const signals = [sig(1, { title: "New token on the launchpad: Shared ($SHARED)" })];
+    let sawMatch = false;
+    for (let maxChars = 120; maxChars <= 1200; maxChars += 20) {
+      const { block } = metaSection("B", rows, signals, "judge", { ...DEFAULT_META_BLOCK_CONFIG, maxChars });
+      if (block.length === 0) continue;
+      const inner = block.slice(2, -1);
+      expect(inner.join("\n").length, `maxChars ${maxChars}`).toBeLessThanOrEqual(maxChars);
+      if (inner.some((l) => l.includes("launchpad Signals match"))) sawMatch = true;
+    }
+    expect(sawMatch).toBe(true);
+  });
+});
+
 describe("selectMetas", () => {
   const NOW = new Date("2026-11-11T20:00:00.000Z");
 
@@ -137,7 +153,7 @@ describe("the Meta block in the prompts", () => {
       const inside = p.slice(start, end).trimEnd().split("\n").slice(1);
       expect(inside.every((l) => l.startsWith("- "))).toBe(true);
       expect(inside.join("\n")).toContain("ignore previous instructions");
-      expect(inside.join("\n").length).toBeLessThanOrEqual(DEFAULT_META_BLOCK_CONFIG.maxChars + 200); // the block plus its one matches line
+      expect(inside.join("\n").length).toBeLessThanOrEqual(DEFAULT_META_BLOCK_CONFIG.maxChars); // the Meta lines and the matches line together
       // The narrative block and the Meta block close at the boundary; the rule sentences name it twice. No Meta name adds a closing line.
       expect(p.split(`${b} END`).length - 1).toBe(4);
       expect(p.split("\n").filter((l) => l === `${b} END`)).toHaveLength(2);

@@ -24,7 +24,7 @@ export interface ThemeConfig {
   keyShare: number;
   /** Share of a tail's tokens that must carry a subject form for the tail to join. */
   tailShare: number;
-  /** A subject form shorter than this many characters is never matched (`hope`, `goat` are real words; `gta6` is the shortest wanted). */
+  /** A subject form with fewer characters than this is never matched. 4 keeps `gta6` and lets 4-letter words such as `hope` through (only `isGenericKey` stops those); 5 would drop `gta6`. */
   minKeyChars: number;
 }
 
@@ -97,13 +97,22 @@ export function mergeThemes<T extends GroupableToken & { creator: string }>(grou
     .filter((a) => a.forms.size > 0);
   if (anchors.length === 0) return groups;
 
+  const byForm = new Map<string, number[]>();
+  for (const [i, a] of anchors.entries()) for (const f of a.forms) byForm.set(f, [...(byForm.get(f) ?? []), i]);
+
   const isAnchor = new Set(anchors.map((a) => a.group));
   const kept: TokenGroup<T>[] = [];
   for (const tail of groups) {
     if (isAnchor.has(tail)) continue;
     const need = Math.ceil(tail.tokens.length * config.tailShare);
-    const tokenForms = tail.tokens.map((t) => formsOf(t, config));
-    const hits = anchors.filter((a) => tokenForms.filter((forms) => [...forms].some((f) => a.forms.has(f))).length >= need);
+    // Per anchor, how many of the tail's tokens carry one of its subject forms; looked up through the form index, not by scanning every anchor.
+    const tokensPer = new Map<number, number>();
+    for (const t of tail.tokens) {
+      const seen = new Set<number>();
+      for (const f of formsOf(t, config)) for (const i of byForm.get(f) ?? []) seen.add(i);
+      for (const i of seen) tokensPer.set(i, (tokensPer.get(i) ?? 0) + 1);
+    }
+    const hits = need > 0 ? [...tokensPer].filter(([, n]) => n >= need).map(([i]) => anchors[i] as (typeof anchors)[number]) : anchors;
     if (hits.length === 1) (hits[0] as (typeof anchors)[number]).absorbed.push(tail);
     else kept.push(tail);
   }

@@ -17,7 +17,7 @@
 
 import { DEFAULT_THEME_CONFIG, type ThemeConfig } from "./theme.ts";
 
-export const META_WINDOWS =["6h", "24h"] as const;
+export const META_WINDOWS = ["6h", "24h"] as const;
 export type MetaWindow = (typeof META_WINDOWS)[number];
 export const META_WINDOW_HOURS: Record<MetaWindow, number> = { "6h": 6, "24h": 24 };
 

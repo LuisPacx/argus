@@ -16,7 +16,7 @@ export interface MetaBlockConfig {
   maxMetas: number;
   /** Most characters of a label. */
   labelChars: number;
-  /** Most characters in the block's lines all together (newlines between lines included). */
+  /** Most characters in the block's lines all together, the matches line included (newlines between lines included). */
   maxChars: number;
   /** A ranking run older than this many minutes no longer describes the market, and the block is left out. */
   maxAgeMinutes: number;
@@ -136,8 +136,16 @@ export const metaRule = (boundary: string, n: number, use: "judge" | "propose"):
 /** The Meta block as it goes into a prompt: the rule sentence and the boundary-wrapped lines (the matches line last), or none at all when there are no lines. */
 export function metaSection(boundary: string, rows: readonly MetaBlockRow[], signals: readonly { sourceId: string; title: string }[], use: "judge" | "propose", config: MetaBlockConfig = DEFAULT_META_BLOCK_CONFIG): { rule: string[]; block: string[] } {
   const shown = shownMetas(rows, config);
-  const lines = shown.map((s) => s.line);
-  if (lines.length === 0) return { rule: [], block: [] };
-  const match = metaMatchLine(signals, shown.map((s) => s.row), config);
+  if (shown.length === 0) return { rule: [], block: [] };
+  // The matches line counts inside `maxChars`: trailing Metas are dropped until the lines and the matches line fit, then the matches line itself.
+  const size = (n: number, m: string | undefined) => shown.slice(0, n).reduce((u, s) => u + s.line.length, 0) + n - 1 + (m ? m.length + 1 : 0);
+  let n = shown.length;
+  let match = metaMatchLine(signals, shown.map((s) => s.row), config);
+  while (size(n, match) > config.maxChars && n > 1) {
+    n--;
+    match = metaMatchLine(signals, shown.slice(0, n).map((s) => s.row), config);
+  }
+  if (size(n, match) > config.maxChars) match = undefined;
+  const lines = shown.slice(0, n).map((s) => s.line);
   return { rule: ["", metaRule(boundary, lines.length, use)], block: ["", `${boundary} START metas (untrusted)`, ...lines, ...(match ? [match] : []), `${boundary} END`] };
 }

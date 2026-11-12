@@ -79,6 +79,22 @@ describe("mergeThemes on the labelled set", () => {
     expect(merged.flatMap((g) => g.tokens)).toHaveLength(anchor.length + extra.length);
   });
 
+  it("stays fast with many clusters and many anchors (12,400 groups, 400 anchors; the scan over every anchor took ~885 ms)", () => {
+    const toks: (GroupableToken & { creator: string })[] = [];
+    for (let a = 0; a < 400; a++)
+      for (let c = 0; c < 31; c++) toks.push({ mint: `a${a}_${c}`, name: `zqsubj${a}x`, symbol: `zqsubj${a}x`, creator: `c${a}_${c}` });
+    for (let j = 0; j < 12_000; j++) {
+      const name = j % 10 === 0 ? `zqsubj${j % 400}x cat${j}` : `tailword${j} other${j}`;
+      toks.push({ mint: `t${j}`, name, symbol: `T${j}`, creator: `t${j}` });
+    }
+    const groups = groupTokens(toks);
+    const started = performance.now();
+    const merged = mergeThemes(groups);
+    expect(performance.now() - started).toBeLessThan(300);
+    expect(merged.flatMap((g) => g.tokens)).toHaveLength(toks.length);
+    expect(merged.length).toBeLessThan(groups.length); // the matching tails joined their anchors
+  });
+
   it("changes nothing when a theme merge is switched off (no anchor is large enough)", () => {
     const groups = groupTokens(tokens);
     expect(mergeThemes(groups, { ...DEFAULT_THEME_CONFIG, minAnchorCreators: Number.POSITIVE_INFINITY })).toEqual(groups);
