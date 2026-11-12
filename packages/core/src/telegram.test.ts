@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
-import { TelegramNotifier, createNotifier, telegramConfigFromEnv, telegramEnv } from "./telegram.ts";
+import { TelegramNotifier, cloudflareEnv, createNotifier, telegramConfigFromEnv, telegramEnv } from "./telegram.ts";
 import { tempPath } from "./testing/temp.ts";
 
 const TOKEN = "123456:SECRET-token_abc";
@@ -67,6 +67,26 @@ describe("telegramConfigFromEnv", () => {
     expect(telegramConfigFromEnv({ TELEGRAM_BOT_TOKEN: "t" })).toBeUndefined();
     expect(telegramConfigFromEnv({ TELEGRAM_CHAT_ID: " " , TELEGRAM_BOT_TOKEN: "t" })).toBeUndefined();
     expect(telegramConfigFromEnv({})).toBeUndefined();
+  });
+});
+
+describe("cloudflareEnv (the Build's credentials, from the operator's .env)", () => {
+  const withEnvFile = (content: string) => {
+    const path = tempPath("dotenv", ".env");
+    writeFileSync(path, content);
+    return path;
+  };
+  const FILE = "CLOUDFLARE_ACCOUNT_ID=file-account\nCLOUDFLARE_API_TOKEN=file-cf-token\nTELEGRAM_BOT_TOKEN=t\nANTHROPIC_API_KEY=k\n";
+
+  it("takes only the two Cloudflare names from the file", () => {
+    expect(cloudflareEnv({}, withEnvFile(FILE))).toEqual({ CLOUDFLARE_ACCOUNT_ID: "file-account", CLOUDFLARE_API_TOKEN: "file-cf-token" });
+  });
+
+  it("a set variable wins over the file; ARGUS_NO_DOTENV skips the file; a missing file is no error", () => {
+    const path = withEnvFile(FILE);
+    expect(cloudflareEnv({ CLOUDFLARE_API_TOKEN: "env-token" }, path)).toEqual({ CLOUDFLARE_ACCOUNT_ID: "file-account", CLOUDFLARE_API_TOKEN: "env-token" });
+    expect(cloudflareEnv({ ARGUS_NO_DOTENV: "1" }, path)).toEqual({});
+    expect(cloudflareEnv({}, tempPath("absent", ".env"))).toEqual({});
   });
 });
 

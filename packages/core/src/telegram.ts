@@ -34,10 +34,20 @@ const TELEGRAM_ENV_NAMES = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] as const;
  * run sets it, so a test never reads the Operator's .env (CODING_STANDARDS 16).
  */
 export function telegramEnv(env: NodeJS.ProcessEnv, envFile: string): NodeJS.ProcessEnv {
+  return dotenvPick(TELEGRAM_ENV_NAMES, env, envFile);
+}
+
+/** The Cloudflare credentials a Build needs, read the same way as `telegramEnv`: from `env`, else from the .env file. Nothing else is taken. */
+export function cloudflareEnv(env: NodeJS.ProcessEnv, envFile: string): NodeJS.ProcessEnv {
+  return dotenvPick(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"], env, envFile);
+}
+
+/** Only the named variables: from `env`, else from the .env file at `envFile` (same rules as `telegramEnv`). Nothing else leaves the file. */
+function dotenvPick(names: readonly string[], env: NodeJS.ProcessEnv, envFile: string): NodeJS.ProcessEnv {
   let file: Record<string, string | undefined> = {};
   if (!env.ARGUS_NO_DOTENV && existsSync(envFile)) file = parseEnv(readFileSync(envFile, "utf8"));
   const out: NodeJS.ProcessEnv = {};
-  for (const name of TELEGRAM_ENV_NAMES) {
+  for (const name of names) {
     const v = env[name] !== undefined ? env[name] : file[name];
     if (v !== undefined) out[name] = v;
   }

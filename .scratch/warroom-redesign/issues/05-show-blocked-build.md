@@ -97,3 +97,5 @@ Rendered as text only (`{{ }}`, never `v-html`): the message contains a filesyst
 One commit, after a full `pnpm check`. Subject `War Room ticket 05: <what changed>`, body ending with `Ticket: .scratch/warroom-redesign/issues/05-show-blocked-build.md` before the trailers. Tick the boxes in the commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+- 2026-11-11 (cf-env fix): the worker now loads CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from the environment or the git-ignored .env (`cloudflareEnv` in `packages/core/src/telegram.ts`, same rules as `telegramEnv`) and passes them in `buildOptions.env` (`apps/worker/src/main.ts`). The preflight check and `build_cloudflare` must read that same `buildOptions.env`, not `process.env`. `build_cloudflare` is NOT added to the `[config]` line yet: the line has no build fields until slice 3 here.

@@ -17,6 +17,7 @@ import {
   apiFallbackConfigFromEnv,
   apiSpentUsd,
   createNotifier,
+  cloudflareEnv,
   telegramEnv,
   ClaudeCodeBrain,
   Datastore,
@@ -122,6 +123,9 @@ const buildOptions: BuildRunnerOptions = {
   templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
   dataDir,
   sandbox,
+  // The Build's credential source: the process environment plus CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from the environment or
+  // the .env file (only those two names). It is the runner's lookup table, not any child's environment; each command gets only its allowlist.
+  env: { ...process.env, ...cloudflareEnv(process.env, envFile) },
   gitBin: process.env.ARGUS_GIT_BIN || undefined,
   ghBin: process.env.ARGUS_GH_BIN || undefined,
   wranglerBin: process.env.ARGUS_WRANGLER_BIN || undefined,
