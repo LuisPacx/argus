@@ -76,7 +76,7 @@ Rendered as text only (`{{ }}`, never `v-html`): the message contains a filesyst
 - [x] The retry interval in the text comes from the exported constant the worker's `setInterval` also uses (one definition; a test fails if they diverge).
 - [x] `startupConfigLine` includes `build_dry_run`, `build_image`, `build_cloudflare` and `build_token` in the right states (dry-run via flag and via env; image from `ARGUS_BUILD_IMAGE` and from the default; Cloudflare yes only when both variables are non-empty; token file present, absent, a directory); a test with a secret token file content and secret Cloudflare values asserts the line contains neither, and that `build_token` is only `present` or `absent` and `build_cloudflare` only `yes` or `no`.
 - [x] Dry-run behaviour is decided and tested as per Open question 1.
-- [ ] Full `pnpm check` passes once before the commit.
+- [x] Full `pnpm check` passes once before the commit.
 - [ ] **Browser check:** with a worktree War Room on a `.backup` copy of the DB, an approved Proposal and no token file, the Proposal page shows the "Build not started" line; after creating the token file (chmod 600) and a tick, the line is gone. Stop the server by PID and delete the DB copy afterwards. Cite it in Comments.
 
 ## Interplay
