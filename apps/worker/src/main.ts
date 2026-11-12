@@ -426,7 +426,11 @@ if (once) {
   await runBuildTick();
   await runIngestTick();
   await runResearchTick();
-  await Promise.race([notifier.idle(), new Promise((r) => setTimeout(r, 10_000))]); // a one-shot run lets its notices go out first
+  // A one-shot run lets its notices go out first, for at most 10 s. The cap timer is cleared so a quiet run exits at once
+  // instead of idling out the rest of it.
+  let cap: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([notifier.idle(), new Promise((r) => (cap = setTimeout(r, 10_000)))]);
+  clearTimeout(cap);
   notifier.close();
   if (!stopping) store.close();
 } else {
