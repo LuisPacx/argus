@@ -3,7 +3,7 @@
 
 **What to build:** a Build leaves three artifacts outside argus: a Cloudflare Worker named by the slug (deployed with `wranglerEnv`, `packages/core/src/build-runner.ts:523`, `:832`), a private GitHub repo `<owner>/<slug>` (`gh repo create`, `:660`) and a checkout `~/code/<slug>` (`:644`, `:656`). Today removing a dead Build is manual: the Proposal page only tells the Operator to remove them before Re-queue (`apps/warroom/app/pages/proposals/[id].vue:184`), and Re-queue is refused while the directory or repo exists (`build-runner.ts:644`). Test Proposal 148 (2026-11-12) needed a worker doing a Cloudflare API DELETE, `gh repo delete` (failed: the gh token lacked the `delete_repo` scope), an `rm`, and a hand SQL delete. This ticket adds one War Room action that does the three deletions safely and records them.
 
-**Status:** done except the browser check by cos after merge
+**Status:** done; browser check deferred to the next real Build that is dismissed (user, 2026-11-12)
 
 **Blocked by:** none. See Interplay with 05 and hardening/06.
 
@@ -70,3 +70,4 @@ Review fixes (second commit):
 - Dismissing a `building` Proposal does not stop its Build, so clean-up is refused while the Proposal has an open (`in-flight`) `build` brain run. Chosen because beginBuild opens that row, only the runner closes it when it ends (every exit path, `abandoned` included), and the stale sweep marks it `interrupted` if its worker died; unlike the status, it outlives the dismissal. Checked in `cleanupRefusal`, so it applies at confirm time (route 409, no button) and again at apply time in `runPendingCleanups` (command rejected, nothing touched). Cost: after a worker crash the clean-up waits for the stale sweep to close the row.
 - A GitHub 404 on the repo read is `already gone` only for a recorded repo. For a legacy repo it is `failed` (a token that cannot see a private repo gets the same 404) and the checkout stays. A 404 on the DELETE after a successful read still counts as gone.
 - A checkout argus cannot prove is the Build's (for example only the `template` remote, because the Build failed before `gh repo create`) keeps being skipped. The plan now carries `directory.removable`; the card and the dialog say plainly that argus will not remove that directory and give its path to remove by hand.
+- 2026-11-12 (cos): merged 618ceda and pushed; live since the 04:16Z restart. The browser box stays open by the user's decision: no throwaway Build for it. Check it on the next real dismissed Build: dialog contents, the three results, a second run ("already gone"), and the missing delete_repo scope message (the gh token lacks delete_repo today).
