@@ -6,7 +6,7 @@ import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
 import { metaView, META_POLL_MS } from "../../app/utils/meta.ts";
 
-/** The section's rendering: the real CurrentMeta.vue template, server-rendered over fixtures typed as the API's own response. */
+/** The section's rendering: the real MetaList.vue template, server-rendered over fixtures typed as the API's own response. */
 const NOW = Date.parse("2026-11-11T20:00:00.000Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 const counts = (tokens: number, creators: number, migrations: number, migrationsAfter60s = 0) => ({ tokens, creators, migrations, migrationsAfter60s });

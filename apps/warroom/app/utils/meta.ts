@@ -185,11 +185,20 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "ranking computed just now" : `ranking from ${age}`;
   const seen = new Map<string, number>();
+  const used = new Set<string>();
   const rows = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, limit).map((m) => {
     const base = metaAnchor(typeof m.label === "string" ? m.label : "");
-    const n = (seen.get(base) ?? 0) + 1;
+    let n = seen.get(base) ?? 0;
+    let anchor = base;
+    if (n === 0 && !used.has(anchor)) n = 1;
+    else {
+      n = Math.max(n, 1);
+      do n += 1; while (used.has(`${base}-${n}`));
+      anchor = `${base}-${n}`;
+    }
     seen.set(base, n);
-    return rowView(m, nowMs, window, n === 1 ? base : `${base}-${n}`);
+    used.add(anchor);
+    return rowView(m, nowMs, window, anchor);
   });
   const computedMs = Date.parse(computedAt);
   if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {

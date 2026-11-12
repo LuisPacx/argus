@@ -138,6 +138,12 @@ it("metaView: repeated labels get numbered anchors, in rank order", () => {
   expect(v.rows.map((r) => r.anchor)).toEqual(["meta-cat", "meta-cat-2", "meta-cat-3"]);
 });
 
+it("metaView: a numbered anchor never collides with another row's own anchor", () => {
+  const v = metaView({ computedAt: ago(1), metas: [row({ rank: 1, label: "Foo" }), row({ rank: 2, label: "Foo" }), row({ rank: 3, label: "Foo 2" })] }, NOW);
+  expect(v.rows.map((r) => r.anchor)).toEqual(["meta-foo", "meta-foo-2", "meta-foo-2-2"]);
+  expect(new Set(v.rows.map((r) => r.anchor)).size).toBe(3);
+});
+
 it("metaView: options pick the row count and the ranked window the numbers come from; the trend stays 6 h of 24 h", () => {
   const rows = Array.from({ length: 9 }, (_, i) => row({ rank: i + 1, label: `M${i}`, counts: { "6h": counts(7, 3, 1), "24h": counts(20, 10, 2) } }));
   expect(metaView({ computedAt: ago(1), metas: rows }, NOW, { rows: 50 }).rows).toHaveLength(9);
