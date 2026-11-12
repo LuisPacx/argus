@@ -15,6 +15,7 @@ export const BUILD_REFUSAL_CODES = [
   "token-mode",
   "token-empty",
   "token-multiline",
+  "token-unreadable",
   "cloudflare-creds-missing",
   "dry-run",
 ] as const;

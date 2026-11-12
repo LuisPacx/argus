@@ -322,7 +322,14 @@ export function readBuildToken(path: string): string {
   }
   if (!st.isFile()) throw new BuildTokenError("token-not-file", `the Build token path ${path} is not a file`);
   if ((st.mode & 0o077) !== 0) throw new BuildTokenError("token-mode", `the Build token file ${path} is readable by others; chmod 600 it`);
-  const token = readFileSync(path, "utf8").trim();
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    // EACCES and friends: say so with the path only (the system error text is not passed on).
+    throw new BuildTokenError("token-unreadable", `the Build token file ${path} cannot be read by the worker; chmod 600 it`);
+  }
+  const token = raw.trim();
   if (!token) throw new BuildTokenError("token-empty", `the Build token file ${path} is empty`);
   if (/\s/.test(token)) throw new BuildTokenError("token-multiline", `the Build token file ${path} holds more than one line`);
   return token;

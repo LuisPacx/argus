@@ -155,6 +155,9 @@ describe("runNextBuild stores why a Build was not started", { timeout: 60_000 },
       ["token-mode", (h) => { writeFileSync(h.tokenPath, `${SECRET}\n`); chmodSync(h.tokenPath, 0o644); }],
       ["token-multiline", (h) => writeFileSync(h.tokenPath, `${SECRET}\n${SECRET}-2\n`, { mode: 0o600 })],
       ["token-empty", (h) => writeFileSync(h.tokenPath, "  \n", { mode: 0o600 })],
+      ["token-missing", (h) => rmSync(h.tokenPath)],
+      ["token-not-file", (h) => { rmSync(h.tokenPath); mkdirSync(h.tokenPath); }],
+      ["token-unreadable", (h) => { writeFileSync(h.tokenPath, `${SECRET}\n`); chmodSync(h.tokenPath, 0o200); }],
     ];
     for (const [expected, setup] of cases) {
       const h = makeHarness();
