@@ -17,3 +17,4 @@ Rules for agents that change this repo. Briefs point here.
 - Your shell's cwd does not persist between calls; name the worktree in every command (`pnpm --dir <wt>`, `git -C <wt>`).
 - A PreToolUse hook (`.claude/hooks/bash-guard.sh`) enforces two of these rules: it denies in-place `sed -i` and `cd <dir>` chained with `&&` or `;`.
 - Before you report, stop every background task you started (test runs, `pnpm check`, monitors, dev servers, loops). A finished worker must hold no test slot and leave no process running.
+- Run `pnpm check`, and any command expected to take over 2 minutes, with the Bash tool's `timeout` set to 600000 so it stays in the foreground (the default 2-minute timeout moves it to the background). Keep wait loops under 10 minutes. Never start monitors, watchers, `tail -f` or `sleep`/`pgrep` loops to wait for a check.
