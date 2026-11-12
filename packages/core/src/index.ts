@@ -18,6 +18,7 @@ export * from "./collision.ts";
 export * from "./meta/key.ts";
 export * from "./meta/group.ts";
 export * from "./meta/theme.ts";
+export * from "./meta/prompt-block.ts";
 export * from "./meta/config.ts";
 export * from "./meta/store.ts";
 export * from "./meta/compute.ts";

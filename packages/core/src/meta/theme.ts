@@ -39,7 +39,7 @@ const foldedKey = (text: string): string => normaliseKey(text.normalize("NFD").r
 const usable = (form: string, config: ThemeConfig): boolean => [...form].length >= config.minKeyChars && !isGenericKey(form);
 
 /** The whole keys of a token with spaces removed: what an anchor's subject forms are drawn from. */
-function wholeForms(t: GroupableToken): Set<string> {
+function wholeForms(t: Pick<GroupableToken, "name" | "symbol">): Set<string> {
   const out = new Set<string>();
   for (const text of [t.name, t.symbol]) {
     const key = foldedKey(text);
@@ -49,7 +49,7 @@ function wholeForms(t: GroupableToken): Set<string> {
 }
 
 /** What a token's name or ticker could say about a subject: each word, each two adjacent words joined, and the whole key. */
-function formsOf(t: GroupableToken, config: ThemeConfig): Set<string> {
+function formsOf(t: Pick<GroupableToken, "name" | "symbol">, config: ThemeConfig): Set<string> {
   const out = new Set<string>();
   for (const text of [t.name, t.symbol]) {
     const key = foldedKey(text);
@@ -64,6 +64,14 @@ function formsOf(t: GroupableToken, config: ThemeConfig): Set<string> {
   }
   for (const f of out) if (!usable(f, config)) out.delete(f);
   return out;
+}
+
+/** What a token's name and ticker could say about a subject (words, two joined words, whole keys, spaces removed). For asking whether a token is named after a Meta. */
+export const tokenSubjectForms = (t: Pick<GroupableToken, "name" | "symbol">, config: ThemeConfig = DEFAULT_THEME_CONFIG): Set<string> => formsOf(t, config);
+
+/** The whole name and ticker keys of a token with spaces removed, minus ones too short or generic to mean a subject. For the forms a Meta row stands for. */
+export function tokenWholeForms(t: Pick<GroupableToken, "name" | "symbol">, config: ThemeConfig = DEFAULT_THEME_CONFIG): Set<string> {
+  return new Set([...wholeForms(t)].filter((f) => usable(f, config)));
 }
 
 function creatorsOf<T extends GroupableToken & { creator: string }>(group: TokenGroup<T>): number {

@@ -30,7 +30,7 @@ export interface ContextItem {
 const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
 /** One line of at most `max` characters (an ellipsis included): invisible characters replaced by spaces, whitespace flattened. */
-function flat(text: string, max: number): string {
+export function flat(text: string, max: number): string {
   const s = text.replace(INVISIBLE_RE, " ").replace(/\s+/g, " ").trim();
   return s.length > max ? `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…` : s;
 }
