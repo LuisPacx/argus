@@ -103,3 +103,28 @@ it("a message holding markup and a javascript: URL renders as text", async () =>
   expect(html).not.toMatch(/<a /);
   expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
 });
+
+const renderMarker = await load("BuildBlockedMarker.vue");
+async function drawMarker(p: Api): Promise<string> {
+  const view = buildNoticeView(p, NOW);
+  return renderToString(createSSRApp({ render: () => renderMarker({ view }, []) as ReturnType<typeof h> }));
+}
+
+it("the title-card marker shows a fixed label linking to the notice, only for an approved Proposal with a refusal", async () => {
+  const html = await drawMarker(withRefusal({ ...api(proposal("approved")) }, "the Build token file /home/u/.config/argus/build-token does not exist"));
+  expect(html).toContain("Build blocked");
+  expect(html).toContain('href="#build-notice"');
+  expect(html).not.toContain("build-token");
+  expect(html).not.toContain("/home/u");
+});
+
+it("the marker is absent without a refusal, behind a running Build, and for any other status", async () => {
+  const a = proposal("approved");
+  expect(await drawMarker(api(a))).not.toContain("Build blocked");
+  const b = proposal("approved");
+  store.transition(a, "building", "build");
+  expect(await drawMarker(api(b))).not.toContain("Build blocked");
+  expect(await drawMarker(api(proposal("new")))).not.toContain("Build blocked");
+  expect(await drawMarker(withRefusal({ ...api(proposal("new")) }, "x"))).not.toContain("Build blocked");
+  expect(await drawMarker(withRefusal({ ...api(proposal("building")) }, "x"))).not.toContain("Build blocked");
+});

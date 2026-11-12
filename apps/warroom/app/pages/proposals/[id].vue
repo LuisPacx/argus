@@ -153,6 +153,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <h2 class="page-title">{{ p.name }}</h2>
             <span class="faint text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
             <StatusPill :status="p.status" />
+            <BuildBlockedMarker :view="buildNotice" />
             <span v-if="p.score" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
           </div>
           <div class="mt-6 grid gap-5">

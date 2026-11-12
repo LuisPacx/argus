@@ -6,7 +6,7 @@ defineProps<{ view: BuildNoticeView }>();
 </script>
 
 <template>
-  <p class="surface note" :class="view.kind === 'refused' ? 'note-amber' : 'muted'" :data-test="`build-${view.kind}`">
+  <p id="build-notice" class="surface note" :class="view.kind === 'refused' ? 'note-amber' : 'muted'" :data-test="`build-${view.kind}`">
     <span data-test="build-text">{{ view.text }}</span>
     <span v-if="view.checked" class="faint" data-test="build-checked"> ({{ view.checked }})</span>
   </p>
