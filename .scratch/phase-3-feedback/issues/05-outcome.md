@@ -1,5 +1,7 @@
 # 05 outcome: X capture spike
 
+**Status:** note: outcome of 05-x-capture-spike, not a ticket
+
 Recommendation: **X stays in 3a, headless.** Headless Chrome and headed-virtual Chrome were both tolerated; no login wall, challenge, lock or suspension appeared in 12 page loads. Treat this as thin evidence (see "Limits"): keep the stop-on-signal rule and the daily cap.
 
 ## What ran
