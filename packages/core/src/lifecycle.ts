@@ -223,6 +223,9 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
     // A re-queue deletes nothing: a fresh Build needs the directory and the GitHub repo gone, so the Operator removes them first
     // (the "Clean up build" action does it, see cleanup-build.ts).
     if (leftovers === undefined) throw new Error("re-queue applied without its leftovers check");
+    // A clean-up that is applying right now may be deleting the very Worker, repo or directory a fresh Build would make. This runs in the
+    // command's transaction, and the clean-up takes its claim in another (Datastore.beginCleanup), so the two cannot both pass.
+    if (store.cleanupRunning(proposal.id)) throw new DomainError("Clean up build is running for this Proposal; re-queue once it has finished");
     if (leftovers.length > 0) throw new DomainError(`Not re-queued: remove ${leftovers.join(", ")} (the Clean up build action does it), then re-queue. Re-queue itself deletes nothing.`);
   }
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);

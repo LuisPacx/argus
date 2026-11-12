@@ -76,7 +76,26 @@ it("a dismissed Proposal with a recorded repo, a Worker and a checkout offers Cl
     confirmName: null,
     results: [],
     cleaned: false,
+    buildStopped: false,
   });
+});
+
+it("a Proposal dismissed while its Build ran says the Build was stopped, once the runner has closed the run as aborted", async () => {
+  const p = store.createProposal({ ...base, name: "Stopped", ticker: "ST" });
+  store.transition(p.id, "shortlisted", "operator");
+  store.transition(p.id, "spec-drafted", "system");
+  store.transition(p.id, "approved", "operator");
+  const runId = store.beginBuild(p.id, { backend: "claude-code", model: "m" });
+  store.transition(p.id, "dismissed", "operator", "x");
+  // The runner has not stopped yet: Clean up says so, and the page does not claim a stop.
+  expect(view(p.id).buildStopped).toBe(false);
+  store.finishBrainRun(runId, { sessionId: null, totalCostUsd: 0, exitStatus: "aborted" });
+  expect(view(p.id).buildStopped).toBe(true);
+  const html = await draw(view(p.id));
+  expect(html).toContain("build-stopped");
+  expect(html).toContain("dismissed this Proposal while its Build was running");
+  // A Proposal whose Build failed on its own, or one never built, says nothing of the kind.
+  expect(view(dismissed()).buildStopped).toBe(false);
 });
 
 it("marks what is not there as not found, and offers nothing when there is nothing", () => {
@@ -204,6 +223,7 @@ const card = (over: Partial<CleanupView> = {}): CleanupView => ({
   confirmName: null,
   results: [],
   cleaned: false,
+  buildStopped: false,
   ...over,
 });
 

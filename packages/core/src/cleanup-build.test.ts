@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cleanupBuild, cleanupLine, cleanupPlan, cleanupRefusal, parseGithubRepo, runPendingCleanups, type CleanupOptions } from "./cleanup-build.ts";
-import { Datastore, type Proposal } from "./datastore.ts";
+import { CLEANUP_STATUSES, cleanupBuild, cleanupLine, cleanupPlan, cleanupRefusal, parseGithubRepo, runPendingCleanups, type CleanupOptions } from "./cleanup-build.ts";
+import { CLEANUP_CLAIM_TTL_MS, Datastore, type Proposal } from "./datastore.ts";
 import { requeueLeftovers } from "./lifecycle.ts";
 import { applyPending } from "./testing/apply.ts";
 import { tempDir } from "./testing/temp.ts";
@@ -524,6 +524,115 @@ describe("credentials", () => {
     const p = built(ds, root);
     const run = await cleanupBuild(p, opts(root, { fetch: fakeFetch([cfWorker(p.slug, () => json(403))]).fetch }));
     expect(run.results[0]!.detail).toContain("Workers Scripts: Edit");
+  });
+});
+
+describe("a re-queue and a clean-up for the same Proposal never run together", () => {
+  /** A build-failed Proposal whose Worker is its only artifact: nothing on disk or on GitHub holds a re-queue back, so only the clean-up itself can. */
+  function workerOnly(ds: Datastore): Proposal {
+    const p = seed(ds, "build-failed");
+    ds.markWorkerDeployed(p.id);
+    return ds.getProposal(p.id)!;
+  }
+  /** A fetch that stops at the Worker DELETE until `release()`; `reached` resolves when the clean-up is standing there. */
+  function gated() {
+    const calls: Call[] = [];
+    let release!: () => void;
+    let reachedNow!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const reached = new Promise<void>((r) => (reachedNow = r));
+    const f = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ method: init?.method ?? "GET", url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      if (String(url).includes("api.cloudflare.com")) {
+        reachedNow();
+        await gate;
+      }
+      return json(200, { success: true });
+    }) as typeof fetch;
+    return { fetch: f, calls, release, reached };
+  }
+
+  it("a re-queue that arrives while the clean-up is applying is refused, and goes through once the clean-up has finished", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = workerOnly(ds);
+    const g = gated();
+    ds.enqueueCommand(p.id, "cleanup-build");
+    const cleaning = runPendingCleanups(ds, opts(root, { fetch: g.fetch }));
+    await g.reached;
+
+    // The clean-up is mid-flight (its Worker DELETE is out). Another worker process applies a re-queue now.
+    ds.enqueueCommand(p.id, "requeue");
+    applyPending(ds, undefined, { buildRoot: root });
+    const requeue = ds.listCommands().find((c) => c.type === "requeue")!;
+    expect(requeue).toMatchObject({ status: "rejected" });
+    expect(requeue.error).toMatch(/Clean up build is running/);
+    expect(ds.getProposal(p.id)!.status).toBe("build-failed");
+
+    g.release();
+    expect(await cleaning).toBe(1);
+    expect(ds.getProposal(p.id)).toMatchObject({ status: "build-failed", buildCleaned: true });
+    ds.enqueueCommand(p.id, "requeue");
+    applyPending(ds, undefined, { buildRoot: root });
+    expect(ds.getProposal(p.id)!.status).toBe("approved");
+  });
+
+  it("two clean-ups of the same Proposal never overlap: the second waits and the Worker is deleted once", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = workerOnly(ds);
+    const g = gated();
+    ds.enqueueCommand(p.id, "cleanup-build");
+    const first = runPendingCleanups(ds, opts(root, { fetch: g.fetch }));
+    await g.reached;
+    const second = await runPendingCleanups(ds, opts(root, { fetch: g.fetch }));
+    expect(second).toBe(0);
+    expect(g.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+    expect(ds.listCommands().find((c) => c.type === "cleanup-build")).toMatchObject({ status: "pending" });
+    g.release();
+    expect(await first).toBe(1);
+    expect(ds.listCommands().find((c) => c.type === "cleanup-build")).toMatchObject({ status: "applied" });
+  });
+
+  it("a clean-up that fails still lets go of the Proposal", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = workerOnly(ds);
+    ds.enqueueCommand(p.id, "cleanup-build");
+    const boom = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+    await runPendingCleanups(ds, opts(root, { fetch: boom }));
+    expect(ds.cleanupRunning(p.id)).toBe(false);
+  });
+
+  it("the claim is taken only for a Proposal that may still be cleaned, and is not held for ever", () => {
+    const ds = Datastore.open(":memory:");
+    const p = seed(ds, "build-failed");
+    const t0 = new Date("2026-11-12T10:00:00Z");
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, t0)).toBe(true);
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, new Date(t0.getTime() + 60_000))).toBe(false);
+    expect(ds.cleanupRunning(p.id, new Date(t0.getTime() + 60_000))).toBe(true);
+    // A worker that died mid-clean-up does not block the Proposal for good.
+    expect(ds.cleanupRunning(p.id, new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1))).toBe(false);
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1))).toBe(true);
+    ds.endCleanup(p.id);
+    expect(ds.cleanupRunning(p.id)).toBe(false);
+    // Re-queued before the clean-up began: nothing is claimed.
+    ds.transition(p.id, "approved", "operator");
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES)).toBe(false);
+  });
+
+  it("a clean-up whose Proposal was re-queued first touches nothing", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = workerOnly(ds);
+    ds.enqueueCommand(p.id, "cleanup-build");
+    ds.transition(p.id, "approved", "operator");
+    const { fetch, calls } = fakeFetch([() => json(200)]);
+    expect(await runPendingCleanups(ds, opts(root, { fetch }))).toBe(1);
+    expect(calls).toEqual([]);
+    expect(ds.listCommands()[0]).toMatchObject({ status: "rejected" });
   });
 });
 

@@ -48,6 +48,8 @@ export interface BuildRunnerOptions {
   heartbeatMs?: number;
   /** Per git, gh and wrangler command. Default 10 minutes. */
   commandTimeoutMs?: number;
+  /** How often a running Build looks at whether its Proposal was dismissed, to stop the agent and the container steps at once. Default 2 s. */
+  dismissPollMs?: number;
   /** Logs every clone, repo-create, spawn and deploy command and runs none of them. */
   dryRun?: boolean;
   log?: (line: string) => void;
@@ -117,6 +119,17 @@ class StepError extends Error {}
 
 /** The Worker name belongs to someone else: no retry can change that, so the Build fails for good. */
 class NameTakenError extends StepError {}
+
+/** The Proposal is no longer `building` (the Operator dismissed it): the next step is not run, and the Build ends as aborted. */
+class NotBuildingError extends StepError {}
+
+/**
+ * How a step treats a dismissal. Every step checks the Proposal is still `building` right before it is spawned (`normal`,
+ * `uninterruptible`); `after` is the push that follows a finished Build, when the status is `built` by design. A `normal` step is also
+ * killed when the Proposal is dismissed while it runs; an `uninterruptible` one (the clone, `gh repo create` and `wrangler deploy`, which
+ * leave something outside argus that Clean up build must be able to find) is let finish, and only the worker's own shutdown stops it.
+ */
+type StepMode = "normal" | "uninterruptible" | "after";
 
 interface Cmd {
   code: number | null;
@@ -504,6 +517,16 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   // deploy and preview checks included, leaves an open row for the sweep to find, and the Build slot is freed with it.
   // What the row closes with is fixed once claude finishes (its session, spend and exit); until then a failure closes it as such.
   let runEnd: { sessionId: string | null; totalCostUsd: number; exitStatus: string } | undefined;
+  /**
+   * The Proposal is no longer building (dismissed meanwhile): nothing more is done, and the run closes as `aborted`. What it cost so far
+   * (the agent's spend, if it had finished) is kept. What the Build created before it stopped is left for Clean up build, which the
+   * closed run no longer blocks.
+   */
+  const abandon = (): BuildOutcome => {
+    note("The Proposal is no longer building (dismissed meanwhile); the Build was stopped and nothing more is done");
+    runEnd = { sessionId: runEnd?.sessionId ?? null, totalCostUsd: runEnd?.totalCostUsd ?? 0, exitStatus: "aborted" };
+    return { proposalId: id, result: "abandoned" };
+  };
   const closeRun = () => {
     const done = runEnd ?? { sessionId: null, totalCostUsd: 0, exitStatus: "failed" };
     // A failed first attempt that is to be retried hands over to a new run in the same transaction, so a `building` Proposal never lacks one.
@@ -516,6 +539,8 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
    * A failure a retry cannot change (`retryable` false: the Worker name is someone else's) is final.
    */
   const fail = (reason: string, exitStatus = "failed", retryable = true): BuildOutcome => {
+    // Whatever went wrong, a dismissed Proposal is not a failed Build: the Operator stopped it.
+    if (store.getProposal(id)?.status === "dismissed") return abandon();
     note(`Build failed: ${reason}`);
     runEnd ??= { sessionId: null, totalCostUsd: 0, exitStatus };
     const building = store.getProposal(id)?.status === "building";
@@ -535,18 +560,29 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   const git = o.gitBin ?? "git";
   const gh = o.ghBin ?? "gh";
 
+  // A dismissal ends the Build at its next step, and the poll below also stops what is running: the agent and the container steps.
+  // `halt` is that stop; it joins the worker's shutdown signal, so everything that took `signal` takes `halt` instead.
+  const dismissed = new AbortController();
+  const halt = signal ? AbortSignal.any([signal, dismissed.signal]) : dismissed.signal;
+  /** Throws unless the Proposal is still `building`. Called right before a step is spawned, in the same tick, so nothing slips in between. */
+  const stillBuilding = () => {
+    if (store.getProposal(id)?.status !== "building") throw new NotBuildingError("the Proposal is no longer building");
+  };
+
   /** Runs one command; a non-zero exit throws a StepError carrying the tail of its stderr. */
-  const step = async (label: string, bin: string, args: string[], env: Record<string, string>, cwd?: string, stop?: () => Promise<void>): Promise<string> => {
+  const step = async (label: string, bin: string, args: string[], env: Record<string, string>, cwd?: string, stop?: () => Promise<void>, mode: StepMode = "normal"): Promise<string> => {
+    if (mode !== "after") stillBuilding();
     note(`$ ${show(bin, args)}${cwd ? ` (cwd ${cwd})` : ""}`);
-    const r = await runCommand(bin, args, { cwd, env, timeoutMs, signal, stop });
+    const r = await runCommand(bin, args, { cwd, env, timeoutMs, signal: mode === "normal" ? halt : signal, stop });
     if (r.code !== 0) throw new StepError(`${label} failed (exit ${r.code}): ${(r.stderr || r.stdout).trim().slice(-300)}`);
     return r.stdout.trim();
   };
   /** One step as a container (dependency install, bundle): its sidecar and container are ended by name however the step ends. */
   const inContainer = async (label: string, job: Pick<SandboxJob, "role" | "cwd" | "mounts" | "home" | "args" | "binDir">): Promise<void> => {
     let launched;
+    stillBuilding();
     try {
-      launched = await o.sandbox.launch({ ...job, buildId: id, timeoutMs, signal, note });
+      launched = await o.sandbox.launch({ ...job, buildId: id, timeoutMs, signal: halt, note });
     } catch (e) {
       throw new StepError(`${label} failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400));
     }
@@ -560,13 +596,15 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   };
   const inRepo = (label: string, ...args: string[]) => step(label, git, [...SAFE_GIT, ...args], gitEnv, repo);
   /** Pushes `commit` to `branch` at `url` (both recorded by argus before the agent ran), with gh as the credential helper. */
-  const push = (cwd: string, url: string, commit: string, branch: string) =>
+  const push = (cwd: string, url: string, commit: string, branch: string, mode: StepMode = "normal") =>
     step(
       "git push",
       git,
       [...SAFE_GIT, "-c", "credential.helper=", "-c", `credential.helper=!'${gh.replace(/'/g, "'\\''")}' auth git-credential`, "push", "--quiet", url, `${commit}:refs/heads/${branch}`],
       pushEnv,
       cwd,
+      undefined,
+      mode,
     );
 
   /**
@@ -645,6 +683,16 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     }
   }, o.heartbeatMs ?? 60_000);
   heartbeat.unref();
+  // A dismissed Proposal stops its Build: the poll ends the agent and the container steps that are running (`halt`); the guard before
+  // each step ends the rest. A read that fails (a busy database) is skipped: the next poll, or the next step's guard, will see it.
+  const watch = setInterval(() => {
+    try {
+      if (store.getProposal(id)?.status === "dismissed") dismissed.abort();
+    } catch {
+      // try again at the next poll
+    }
+  }, o.dismissPollMs ?? 2_000);
+  watch.unref();
 
   // Scratch space for after the agent has run: a git directory of argus's own, and the wrangler config.
   let seal: string | undefined;
@@ -664,11 +712,11 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
       note(`Build starts for ${p.name} (${p.slug})`);
       await requireFreeWorkerName();
       mkdirSync(o.buildRoot, { recursive: true });
-      await step("git clone", git, [...SAFE_GIT, "clone", "--origin", "template", o.templateRepo, repo], gitEnv, o.buildRoot);
+      await step("git clone", git, [...SAFE_GIT, "clone", "--origin", "template", o.templateRepo, repo], gitEnv, o.buildRoot, undefined, "uninterruptible");
       const templateCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
       const branch = await inRepo("git rev-parse", "rev-parse", "--abbrev-ref", "HEAD");
       if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch === "HEAD") throw new StepError(`the template checkout is not on a branch (${JSON.stringify(branch)})`);
-      const created = await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo);
+      const created = await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo, undefined, "uninterruptible");
       // The repo this Build made, as gh reports it, so "Clean up build" deletes that one and nothing else. Output that names no
       // github.com repo called the slug records nothing (the Operator then deletes the repo by hand).
       const createdRepo = created.split(/\s+/).map(parseGithubRepo).find((r) => r !== null && r.endsWith(`/${p.slug}`));
@@ -684,10 +732,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
       state.setup = { originUrl, branch, templateCommit, specCommit };
     } else {
       // The retry: the same repo, taken back to its last commit first.
-      if (store.getProposal(id)?.status !== "building") {
-        note("The Proposal is no longer building (dismissed meanwhile); nothing more is done");
-        return { proposalId: id, result: "abandoned" };
-      }
+      if (store.getProposal(id)?.status !== "building") return abandon();
       note("Retrying once, from the last commit; uncommitted work is discarded");
       await resetRepo();
     }
@@ -695,6 +740,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
 
     // The claude run.
     if (signal?.aborted) return fail("the worker is stopping", "interrupted");
+    stillBuilding();
     note(`Starting claude in a container (cwd ${repo})`);
     // The per-Build home: claude's config and sessions, the package store and caches. Kept when the Build fails (so the session can
     // be resumed), removed when it is built.
@@ -706,7 +752,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
         { prompt: state.retryReport === undefined ? String(id) : `${id}\n\n${state.retryReport}`, slash: "implement-spec" },
         {
           cwd: repo,
-          signal,
+          signal: halt,
           onOutput: append,
           sandbox: (job) => o.sandbox.launch({ role: "agent", buildId: id, cwd: job.cwd, mounts: [job.cwd], home, args: job.args, timeoutMs: job.timeoutMs, signal: job.signal, note }),
         },
@@ -724,10 +770,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     store.recordBrainRunSpend(runId, runEnd);
     note(`claude finished (session ${run.sessionId ?? "none"}, est. usage $${run.totalCostUsd.toFixed(4)})`);
 
-    if (store.getProposal(id)?.status !== "building") {
-      note("The Proposal is no longer building (dismissed meanwhile); nothing more is done");
-      return { proposalId: id, result: "abandoned" };
-    }
+    if (store.getProposal(id)?.status !== "building") return abandon();
 
     // Success is decided here, by argus, from the repo and the final message; never from the Build's own checks.
     const verdict = classifyFinalMessage(run.output);
@@ -753,7 +796,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     if (!COMMIT_ID_RE.test(head)) return fail("HEAD is not a commit");
     await sealed("git cat-file", "cat-file", "-e", `${head}^{commit}`);
     if (head === specCommit) return fail("HEAD has not advanced past the Spec commit (nothing was committed)");
-    const ancestor = await runCommand(git, [...SAFE_GIT, "merge-base", "--is-ancestor", specCommit, head], { cwd: seal, env: gitEnv, timeoutMs, signal });
+    const ancestor = await runCommand(git, [...SAFE_GIT, "merge-base", "--is-ancestor", specCommit, head], { cwd: seal, env: gitEnv, timeoutMs, signal: halt });
     if (ancestor.code !== 0) return fail("HEAD is not a descendant of the Spec commit (history was rewritten)");
     // Is the working tree clean against HEAD? The seal's git directory with the Build repo as work tree: the index is read
     // from HEAD's tree, so the tree is compared by content, and no filter or attribute driver is defined to run.
@@ -844,7 +887,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     const configPath = join(sealDir, "wrangler-deploy.jsonc");
     writeFileSync(configPath, wranglerConfigFor(p.slug, uploadMain));
     await requireFreeWorkerName();
-    const deployed = await step("wrangler deploy", wrangler, ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile, "--no-bundle"], wranglerEnv, sealDir);
+    const deployed = await step("wrangler deploy", wrangler, ["deploy", "--name", p.slug, "--config", configPath, "--env-file", envFile, "--no-bundle"], wranglerEnv, sealDir, undefined, "uninterruptible");
     // The Worker under the slug is this Build's now: the retry (should the checks below fail) may redeploy over it, and the card
     // names it among the leftovers the Operator removes before a re-queue.
     state.deployed = true;
@@ -868,7 +911,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     if (homeError) note(`Warning: could not remove ${home}: ${homeError}`);
     // The repo holds the built code; a failed push does not undo a verified preview.
     try {
-      await push(seal, originUrl, head, branch);
+      await push(seal, originUrl, head, branch, "after");
     } catch (e) {
       note(`Warning: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -878,6 +921,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     return fail(e instanceof Error ? e.message : String(e), "failed", !(e instanceof NameTakenError));
   } finally {
     clearInterval(heartbeat);
+    clearInterval(watch);
     // The seal holds what the containers wrote, and nothing about that is under argus's control (a mode-000 directory from an install
     // script, say). Removing it can fail, and failing must neither skip closing the run nor leave the seal unmentioned.
     try {

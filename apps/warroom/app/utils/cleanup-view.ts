@@ -21,4 +21,6 @@ export interface CleanupView {
   results: string[];
   /** Everything was gone or nothing of ours was left. */
   cleaned: boolean;
+  /** The Operator dismissed this Proposal while its Build ran and the runner stopped the Build (its run closed as `aborted`). */
+  buildStopped: boolean;
 }

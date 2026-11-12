@@ -274,7 +274,7 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
     writeFileSync(h.release, "");
     expect(await running).toEqual({ proposalId: p.id, result: "abandoned" });
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "dismissed", previewUrl: null });
-    expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "success", totalCostUsd: 0.0123 }]);
+    expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "aborted", totalCostUsd: 0.0123 }]);
     expect(h.deployCalls()).toEqual([]);
     // The lifecycle left the home to the runner, as the container was on it; the runner removes it when the Build ends.
     expect(existsSync(buildHomeFor(h.dataDir, p.id))).toBe(false);

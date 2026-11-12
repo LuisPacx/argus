@@ -9,6 +9,9 @@ defineEmits<{ open: [] }>();
 <template>
   <section class="surface grid gap-3" data-test="build-artifacts">
     <h3 class="section-title">Build artifacts</h3>
+    <p v-if="view.buildStopped" class="note note-amber" data-test="build-stopped">
+      You dismissed this Proposal while its Build was running. The Build was stopped: nothing was deployed and no repo was created after the dismissal. Whatever it made before then is listed here; Clean up build removes what argus can show it made.
+    </p>
     <ul v-if="view.plan" class="grid gap-1 text-sm" data-test="artifact-list">
       <li data-test="artifact-worker">Worker <code>{{ view.plan.worker.name }}</code>: {{ view.plan.worker.found ? "found" : "not found" }}</li>
       <li data-test="artifact-repo">GitHub repo <code>{{ view.plan.repo.name ?? "(none recorded)" }}</code>: {{ view.plan.repo.found ? "found" : "not found" }}</li>

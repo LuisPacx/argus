@@ -176,6 +176,12 @@ export const BRAIN_RUN_IN_FLIGHT = "in-flight";
 export const BRAIN_RUN_INTERRUPTED = "interrupted";
 
 /**
+ * How long a "Clean up build" claim on a Proposal holds if the worker that took it never lets go (it died mid-clean-up). A clean-up is
+ * three calls bounded by 30 s each plus a directory removal, so this is far more than one takes.
+ */
+export const CLEANUP_CLAIM_TTL_MS = 10 * 60_000;
+
+/**
  * SQL for "this Narrative holds at least one market Signal" (ticket 24, the Source class table is the only list). Built from constants
  * in source-class.ts, never from input. `n` is the Narrative alias of the query it is placed in.
  */
@@ -322,6 +328,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "mint", "TEXT");
   ensureColumn(db, "proposals", "build_repo", "TEXT");
   ensureColumn(db, "proposals", "build_cleaned", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "proposals", "cleanup_claimed_at", "TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_mint ON proposals(mint) WHERE mint IS NOT NULL");
   migrateRubric(db);
   // Signals (phase 2 ticket 01): additive and idempotent. `id` is the Source's stable per-item id, so a re-poll cannot duplicate.
@@ -1470,6 +1477,32 @@ export class Datastore {
   /** WORKER ONLY. Records the private GitHub repo (`owner/slug`) this Build created: the only repo "Clean up build" will delete without a typed confirmation. */
   recordBuildRepo(proposalId: number, repo: string): void {
     this.db.prepare("UPDATE proposals SET build_repo = ? WHERE id = ?").run(repo, proposalId);
+  }
+
+  /**
+   * WORKER ONLY. Takes the Proposal for a "Clean up build" run: false when it is not in one of `allowed` (it moved on, for example it was
+   * re-queued) or another clean-up holds it. The check and the claim are one transaction, and a re-queue checks `cleanupRunning` inside
+   * its own, so the two are ordered whichever worker process comes first: while a clean-up is applying, the Proposal cannot be re-queued,
+   * and a Proposal that has been re-queued cannot be claimed. A claim older than CLEANUP_CLAIM_TTL_MS (a worker that died) is void.
+   */
+  beginCleanup(proposalId: number, allowed: readonly ProposalStatus[], now = new Date()): boolean {
+    return this.inTransaction(() => {
+      const p = this.getProposal(proposalId);
+      if (!p || !allowed.includes(p.status) || this.cleanupRunning(proposalId, now)) return false;
+      this.db.prepare("UPDATE proposals SET cleanup_claimed_at = ? WHERE id = ?").run(now.toISOString(), proposalId);
+      return true;
+    });
+  }
+
+  /** WORKER ONLY. Lets go of the Proposal after a "Clean up build" run, whatever its outcome. */
+  endCleanup(proposalId: number): void {
+    this.db.prepare("UPDATE proposals SET cleanup_claimed_at = NULL WHERE id = ?").run(proposalId);
+  }
+
+  /** Is a "Clean up build" run applying for this Proposal right now (a claim younger than CLEANUP_CLAIM_TTL_MS)? */
+  cleanupRunning(proposalId: number, now = new Date()): boolean {
+    const row = this.db.prepare("SELECT cleanup_claimed_at AS at FROM proposals WHERE id = ?").get(proposalId) as { at: string | null } | undefined;
+    return row?.at != null && now.getTime() - Date.parse(row.at) <= CLEANUP_CLAIM_TTL_MS;
   }
 
   /**

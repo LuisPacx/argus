@@ -122,7 +122,7 @@ const cancelShortlist = () => {
 const confirmingCleanup = ref(false);
 const typedRepo = ref("");
 const cleanupTypedOk = computed(() => !p.value?.cleanup.confirmName || typedRepo.value.trim() === p.value.cleanup.confirmName);
-const showArtifacts = computed(() => !!p.value && (p.value.cleanup.available || p.value.cleanup.cleaned || p.value.cleanup.results.length > 0 || !!p.value.cleanup.refusal));
+const showArtifacts = computed(() => !!p.value && (p.value.cleanup.available || p.value.cleanup.cleaned || p.value.cleanup.results.length > 0 || !!p.value.cleanup.refusal || p.value.cleanup.buildStopped));
 async function confirmCleanup() {
   if (!cleanupTypedOk.value) return;
   if (await send("cleanup-build", typedRepo.value.trim())) {
@@ -279,7 +279,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
                 <span class="font-semibold">{{ r.task }}</span>
                 <span class="pill pill-outline" :data-backend="r.backend">{{ r.backend }}</span>
                 <span class="pill pill-outline">{{ r.model }}</span>
-                <span class="pill" :class="r.exitStatus === 'success' ? 'pill-green' : r.exitStatus === 'in-flight' ? 'pill-accent' : r.exitStatus === 'cancelled' ? '' : 'pill-red'">{{ r.exitStatus }}</span>
+                <span class="pill" :class="r.exitStatus === 'success' ? 'pill-green' : r.exitStatus === 'in-flight' ? 'pill-accent' : r.exitStatus === 'cancelled' || r.exitStatus === 'aborted' ? '' : 'pill-red'">{{ r.exitStatus }}</span>
               </div>
               <span class="muted text-xs">{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</span>
             </li>

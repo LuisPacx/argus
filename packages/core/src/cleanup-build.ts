@@ -349,18 +349,28 @@ export async function runPendingCleanups(store: Datastore, o: PendingCleanupOpti
         n++;
         continue;
       }
-      let run: CleanupRun;
-      try {
-        run = await cleanupBuild(p, o, c.reason);
-      } catch (e) {
-        store.resolveCommand(c.id, () => {
-          throw e;
-        });
+      // The claim keeps a re-queue (or another clean-up, in another worker process) from running while this one applies. If the Proposal
+      // moved on since the check above, or another clean-up holds it, the command stays pending: the next pass decides it.
+      if (!store.beginCleanup(p.id, CLEANUP_STATUSES)) {
+        o.log?.(`[worker] clean-up of proposal ${p.id} not started: another clean-up holds it, or it is no longer ${CLEANUP_STATUSES.join(", ")}; left pending`);
         continue;
       }
-      for (const r of run.results) o.log?.(`[worker] ${cleanupLine(r)}`);
-      store.resolveCommand(c.id, () => store.recordCleanup(p.id, run.results.map(cleanupLine), run.cleaned, run.repoToRecord));
-      n++;
+      try {
+        let run: CleanupRun;
+        try {
+          run = await cleanupBuild(p, o, c.reason);
+        } catch (e) {
+          store.resolveCommand(c.id, () => {
+            throw e;
+          });
+          continue;
+        }
+        for (const r of run.results) o.log?.(`[worker] ${cleanupLine(r)}`);
+        store.resolveCommand(c.id, () => store.recordCleanup(p.id, run.results.map(cleanupLine), run.cleaned, run.repoToRecord));
+        n++;
+      } finally {
+        store.endCleanup(p.id);
+      }
     } catch (e) {
       o.onError?.(c, e);
     }

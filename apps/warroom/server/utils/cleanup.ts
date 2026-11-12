@@ -21,8 +21,10 @@ function latestResults(store: Pick<WarRoomStore, "historyFor">, id: number): str
  */
 export function withCleanup<T extends Proposal>(store: Pick<WarRoomStore, "historyFor" | "brainRunsFor">, p: T, buildRoot: string): T & { cleanup: CleanupView } {
   const results = latestResults(store, p.id);
+  // Dismissing a `building` Proposal makes the runner stop its Build and close the run as `aborted` (build-runner.ts).
+  const buildStopped = p.status === "dismissed" && store.brainRunsFor(p.id).some((r) => r.task === "build" && r.exitStatus === "aborted");
   if (!CLEANUP_STATUSES.includes(p.status)) {
-    return { ...p, cleanup: { available: false, refusal: null, plan: null, confirmName: null, results, cleaned: p.buildCleaned } };
+    return { ...p, cleanup: { available: false, refusal: null, plan: null, confirmName: null, results, cleaned: p.buildCleaned, buildStopped } };
   }
   const refusal = cleanupRefusal(store, p, buildRoot);
   const plan = cleanupPlan(p, buildRoot);
@@ -35,6 +37,7 @@ export function withCleanup<T extends Proposal>(store: Pick<WarRoomStore, "histo
       confirmName: plan.repo.legacy ? plan.repo.name : null,
       results,
       cleaned: p.buildCleaned,
+      buildStopped,
     },
   };
 }
