@@ -123,6 +123,8 @@ it("the marker is absent without a refusal, behind a running Build, and for any 
   expect(await drawMarker(api(a))).not.toContain("Build blocked");
   const b = proposal("approved");
   store.transition(a, "building", "build");
+  expect(api(b).buildRunning).toBe(true);
+  expect(buildNoticeView(api(b), NOW)?.kind).toBe("running");
   expect(await drawMarker(api(b))).not.toContain("Build blocked");
   expect(await drawMarker(api(proposal("new")))).not.toContain("Build blocked");
   expect(await drawMarker(withRefusal({ ...api(proposal("new")) }, "x"))).not.toContain("Build blocked");
