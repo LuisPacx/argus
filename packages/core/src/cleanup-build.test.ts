@@ -132,6 +132,44 @@ describe("who may be cleaned", () => {
   });
 });
 
+describe("a Build still running", () => {
+  /** Dismissing a `building` Proposal does not stop its Build: the run row stays open until the runner ends. */
+  function dismissedWhileBuilding(ds: Datastore, root: string) {
+    const p = ds.createProposal({ ...input, name: "Live Build" });
+    ds.transition(p.id, "shortlisted", "operator");
+    ds.transition(p.id, "spec-drafted", "system");
+    ds.transition(p.id, "approved", "operator");
+    const runId = ds.beginBuild(p.id, { backend: "claude-code", model: "m" });
+    ds.markWorkerDeployed(p.id);
+    ds.recordBuildRepo(p.id, `luis/${p.slug}`);
+    checkout(root, p.slug, `https://github.com/luis/${p.slug}.git`);
+    ds.transition(p.id, "dismissed", "operator", "changed my mind");
+    return { id: p.id, slug: p.slug, runId };
+  }
+
+  it("is refused while the Build's run is open, at confirm time, and allowed once the runner has closed it", () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const { id, runId } = dismissedWhileBuilding(ds, root);
+    expect(cleanupRefusal(ds, ds.getProposal(id)!, root)).toMatch(/Build is still running/);
+    ds.finishBrainRun(runId, { sessionId: null, totalCostUsd: 0, exitStatus: "failed" });
+    expect(cleanupRefusal(ds, ds.getProposal(id)!, root)).toBeNull();
+  });
+
+  it("is rejected at apply time too, touching nothing", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const { id, slug } = dismissedWhileBuilding(ds, root);
+    ds.enqueueCommand(id, "cleanup-build");
+    const { fetch, calls } = fakeFetch([() => json(200)]);
+    expect(await runPendingCleanups(ds, opts(root, { fetch }))).toBe(1);
+    expect(calls).toEqual([]);
+    expect(ds.listCommands()[0]).toMatchObject({ status: "rejected" });
+    expect(ds.listCommands()[0]!.error).toMatch(/Build is still running/);
+    expect(existsSync(join(root, slug, "SPEC.md"))).toBe(true);
+  });
+});
+
 describe("the worker's cleanup pass", () => {
   it("deletes the Worker, the repo and the directory through the injected fetch, and records one history row each", async () => {
     const ds = Datastore.open(":memory:");
@@ -315,6 +353,24 @@ describe("ownership: what is left in place", () => {
     expect(existsSync(join(root, p.slug))).toBe(true);
   });
 
+  it("the plan says a directory argus will not remove is not removable", () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const a = seed(ds, "dismissed"); // the Build failed before gh repo create: only the template remote
+    ds.markWorkerDeployed(a.id);
+    checkout(root, a.slug, null);
+    expect(cleanupPlan(ds.getProposal(a.id)!, root).directory).toEqual({ path: join(root, a.slug), found: true, removable: false });
+    const b = seed(ds, "dismissed"); // a recorded repo that the origin does not match
+    ds.recordBuildRepo(b.id, `luis/${b.slug}`);
+    checkout(root, b.slug, `https://github.com/other/${b.slug}.git`);
+    expect(cleanupPlan(ds.getProposal(b.id)!, root).directory.removable).toBe(false);
+    const c = seed(ds, "dismissed");
+    ds.recordBuildRepo(c.id, `luis/${c.slug}`);
+    checkout(root, c.slug, `https://github.com/luis/${c.slug}.git`);
+    expect(cleanupPlan(ds.getProposal(c.id)!, root).directory.removable).toBe(true);
+    expect(cleanupPlan(ds.getProposal(c.id)!, tempDir("argus-empty-")).directory).toMatchObject({ found: false, removable: false });
+  });
+
   it("a slug with .. or a slash deletes nothing and calls nothing", async () => {
     const ds = Datastore.open(":memory:");
     const root = tempDir("argus-clean-");
@@ -356,8 +412,29 @@ describe("a Build from before repos were recorded", () => {
     expect(cleanupPlan(p, root)).toEqual({
       worker: { name: p.slug, found: true },
       repo: { name: `luis/${p.slug}`, found: true, legacy: true },
-      directory: { path: join(root, p.slug), found: true },
+      directory: { path: join(root, p.slug), found: true, removable: true },
     });
+  });
+
+  it("a 404 on the repo read is a failure, not 'gone' (a token without access gets the same answer), and the checkout stays", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = legacy(ds, root);
+    const f = fakeFetch([cfWorker(p.slug, () => json(200)), ghUser("luis"), ghRepo(`luis/${p.slug}`, () => json(404), () => json(404))]);
+    const run = await cleanupBuild(p, opts(root, { fetch: f.fetch }), `luis/${p.slug}`);
+    expect(run.results.map((r) => r.outcome)).toEqual(["deleted", "failed", "skipped"]);
+    expect(run.results[1]!.detail).toMatch(/404/);
+    expect(run.repoToRecord).toBeUndefined();
+    expect(f.calls.some((c) => c.method === "DELETE" && c.url.includes("github"))).toBe(false);
+    expect(existsSync(join(root, p.slug, "SPEC.md"))).toBe(true);
+  });
+
+  it("a 404 on the read of a recorded repo still counts as gone", async () => {
+    const ds = Datastore.open(":memory:");
+    const root = tempDir("argus-clean-");
+    const p = built(ds, root);
+    const run = await cleanupBuild(p, opts(root, { fetch: fakeFetch([cfWorker(p.slug, () => json(200)), ghRepo(`luis/${p.slug}`, () => json(404), () => json(404))]).fetch }));
+    expect(run.results.map((r) => r.outcome)).toEqual(["deleted", "already gone", "deleted"]);
   });
 
   it("keeps the repo and the checkout until the Operator types the repo name", async () => {

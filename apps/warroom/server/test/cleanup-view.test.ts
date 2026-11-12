@@ -72,7 +72,7 @@ it("a dismissed Proposal with a recorded repo, a Worker and a checkout offers Cl
   expect(view(id)).toEqual({
     available: true,
     refusal: null,
-    plan: { worker: { name: slug, found: true }, repo: { name: `luis/${slug}`, found: true, legacy: false }, directory: { path: join(buildRoot, slug), found: true } },
+    plan: { worker: { name: slug, found: true }, repo: { name: `luis/${slug}`, found: true, legacy: false }, directory: { path: join(buildRoot, slug), found: true, removable: true } },
     confirmName: null,
     results: [],
     cleaned: false,
@@ -110,6 +110,38 @@ it("a build-failed Proposal is offered it, and a cleaned one is not", () => {
   expect(view(id).available).toBe(true);
   store.recordCleanup(id, [`Clean up: Worker ${slugOf(id)} deleted`], true);
   expect(view(id)).toMatchObject({ available: false, cleaned: true, results: [`Worker ${slugOf(id)} deleted`] });
+});
+
+it("a checkout argus cannot prove is the Build's is shown as one to remove by hand, with its path", async () => {
+  const id = dismissed();
+  const slug = slugOf(id);
+  store.markWorkerDeployed(id);
+  checkout(slug, null); // the Build failed before gh repo create: only the template remote
+  const v = view(id);
+  expect(v).toMatchObject({ available: true, plan: { directory: { path: join(buildRoot, slug), found: true, removable: false } } });
+  const html = await draw(v);
+  expect(html).toContain("will not remove the directory");
+  expect(html).toContain(join(buildRoot, slug));
+  expect(html).toContain("Remove it by hand");
+  // a removable checkout says nothing of the kind
+  const ok = dismissed();
+  store.markWorkerDeployed(ok);
+  store.recordBuildRepo(ok, `luis/${slugOf(ok)}`);
+  checkout(slugOf(ok), `https://github.com/luis/${slugOf(ok)}.git`);
+  expect(await draw(view(ok))).not.toContain("by hand");
+});
+
+it("a dismissed Proposal whose Build is still running is not offered Clean up", async () => {
+  const p = store.createProposal({ ...base, name: "Live", ticker: "LV" });
+  store.transition(p.id, "shortlisted", "operator");
+  store.transition(p.id, "spec-drafted", "system");
+  store.transition(p.id, "approved", "operator");
+  store.beginBuild(p.id, { backend: "claude-code", model: "m" });
+  store.markWorkerDeployed(p.id);
+  store.transition(p.id, "dismissed", "operator", "x");
+  expect(view(p.id)).toMatchObject({ available: false, plan: null, refusal: expect.stringContaining("still running") as unknown });
+  expect(await code(send(p.id, { type: "cleanup-build" }))).toBe(409);
+  expect(store.listCommands()).toEqual([]);
 });
 
 it("the results are the latest run's lines only", () => {
@@ -168,7 +200,7 @@ const draw = (v: CleanupView, disabled = false) => renderToString(createSSRApp({
 const card = (over: Partial<CleanupView> = {}): CleanupView => ({
   available: true,
   refusal: null,
-  plan: { worker: { name: "bar-1", found: true }, repo: { name: "luis/bar-1", found: false, legacy: false }, directory: { path: "/home/x/code/bar-1", found: true } },
+  plan: { worker: { name: "bar-1", found: true }, repo: { name: "luis/bar-1", found: false, legacy: false }, directory: { path: "/home/x/code/bar-1", found: true, removable: true } },
   confirmName: null,
   results: [],
   cleaned: false,

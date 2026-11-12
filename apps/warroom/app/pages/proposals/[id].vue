@@ -316,6 +316,9 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
         <li>GitHub repo <code>{{ p.cleanup.plan.repo.name ?? "(none recorded)" }}</code>: {{ p.cleanup.plan.repo.found ? "found" : "not found" }}</li>
         <li>Directory <code class="break-all">{{ p.cleanup.plan.directory.path }}</code>: {{ p.cleanup.plan.directory.found ? "found" : "not found" }}</li>
       </ul>
+      <p v-if="p.cleanup.plan.directory.found && !p.cleanup.plan.directory.removable" data-test="cleanup-by-hand">
+        argus will not remove the directory <code class="break-all">{{ p.cleanup.plan.directory.path }}</code>: it cannot show that it is this Build's checkout (no origin remote for this Build's repo). Remove it by hand.
+      </p>
       <p>Found and not found come from argus's records and the disk. Cloudflare and GitHub are asked when you confirm; each is deleted only if argus made it, and one that is not argus's is left alone and reported.</p>
       <label v-if="p.cleanup.confirmName" class="grid gap-1">
         <span>This Build's repo was not recorded (it is older than that). To confirm deleting it, type <code>{{ p.cleanup.confirmName }}</code>:</span>

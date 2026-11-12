@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { removeTree } from "./build-home.ts";
-import type { Datastore, Proposal } from "./datastore.ts";
+import { BRAIN_RUN_IN_FLIGHT, type Datastore, type Proposal } from "./datastore.ts";
 import { DomainError, type Command, type ProposalStatus } from "./lifecycle.ts";
 
 /**
@@ -94,17 +94,20 @@ export interface CleanupPlan {
   worker: { name: string; found: boolean };
   /** `name` is the recorded `owner/slug`, else the one the checkout's origin names (a `legacy` repo, removed only on a typed confirmation); null when neither. */
   repo: { name: string | null; found: boolean; legacy: boolean };
-  directory: { path: string; found: boolean };
+  /** `removable`: argus can show the directory is this Build's checkout (a real directory whose origin is this Build's repo). A directory that is `found` but not `removable` (the Build failed before the repo was created, or it is not a plain Build checkout) is never removed by argus: the Operator removes it by hand. */
+  directory: { path: string; found: boolean; removable: boolean };
 }
 
 export function cleanupPlan(p: Proposal, buildRoot: string): CleanupPlan {
   const path = join(resolve(buildRoot), p.slug);
   const ok = validSlug(p.slug);
-  const name = p.buildRepo ?? (ok ? originRepo(path, p.slug) : null);
+  const origin = ok ? originRepo(path, p.slug) : null;
+  const name = p.buildRepo ?? origin;
+  const removable = origin !== null && (p.buildRepo === null || origin.toLowerCase() === p.buildRepo.toLowerCase());
   return {
     worker: { name: p.slug, found: p.workerDeployed },
     repo: { name, found: name !== null, legacy: p.buildRepo === null && name !== null },
-    directory: { path, found: ok && exists(path) },
+    directory: { path, found: ok && exists(path), removable },
   };
 }
 
@@ -113,10 +116,16 @@ export function cleanupPlan(p: Proposal, buildRoot: string): CleanupPlan {
  * artifact, and never one that was ever launched: not by its status (a `closed` or `dismissed` one may have been launched) but by its
  * history and its mint.
  */
-export function cleanupRefusal(store: Pick<Datastore, "historyFor">, p: Proposal, buildRoot: string): string | null {
+export function cleanupRefusal(store: Pick<Datastore, "historyFor" | "brainRunsFor">, p: Proposal, buildRoot: string): string | null {
   if (p.status === "launched") return "Clean up build is never done for a launched Proposal: its site stays up";
   if (!CLEANUP_STATUSES.includes(p.status)) return `Clean up build needs a dismissed, closed or build-failed Proposal (it is ${p.status}; dismiss it first)`;
   if (p.mint !== null || store.historyFor(p.id).some((h) => h.to === "launched")) return "Clean up build is never done for a Proposal that was launched: its site stays up";
+  // Dismissing a `building` Proposal does not stop its Build. The Build's run row (opened by beginBuild, closed by the runner when it
+  // ends, and marked interrupted by the stale sweep if its worker died) is the one signal that the runner is still going, and it
+  // outlives the status: so a dismissed Proposal is cleaned only once that row is closed.
+  if (store.brainRunsFor(p.id).some((r) => r.task === "build" && r.exitStatus === BRAIN_RUN_IN_FLIGHT)) {
+    return "A Build is still running for this Proposal (it was dismissed while building); clean up once it has stopped";
+  }
   const plan = cleanupPlan(p, buildRoot);
   if (!plan.directory.found && p.buildRepo === null && !p.workerDeployed) return "Nothing to clean up: no checkout, repo or Worker is recorded for this Build";
   return null;
@@ -265,7 +274,9 @@ export async function cleanupBuild(p: Proposal, o: CleanupOptions, typedName = "
     const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
     const got = await call(url, { headers });
     if (got.status === 404) {
-      if (plan.repo.legacy) repoToRecord = repoName;
+      // GitHub answers a token that cannot see a private repo with the same 404 as for a missing one. For a repo argus recorded, that is
+      // taken as gone; for a legacy repo it proves nothing, so it is a failure and the checkout stays.
+      if (plan.repo.legacy) return result("repo", repoName, "failed", "GitHub answered 404 for the repo: it may be gone, or the token may not be able to see it. Check by hand, then Clean up build again");
       return result("repo", repoName, "already gone");
     }
     if (got.status !== 200) return result("repo", repoName, "failed", `GitHub answered HTTP ${got.status} when the repo was read; check the token (gh auth status)`);

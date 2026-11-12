@@ -64,3 +64,9 @@ Implemented (commit aae6488; `pnpm check` passed, stamped tree 54acba7604). Open
 - The GitHub token is `GH_TOKEN` / `GITHUB_TOKEN`, else `gh auth token`. Cloudflare DELETE does not use `force`.
 - A Worker the Build did not deploy is `skipped (not ours)` but counts as nothing left to remove for `build_cleaned`; a symlink, foreign origin, non-private repo and renamed repo do not.
 - Browser check by cos after merge is the one box not ticked.
+
+Review fixes (second commit):
+
+- Dismissing a `building` Proposal does not stop its Build, so clean-up is refused while the Proposal has an open (`in-flight`) `build` brain run. Chosen because beginBuild opens that row, only the runner closes it when it ends (every exit path, `abandoned` included), and the stale sweep marks it `interrupted` if its worker died; unlike the status, it outlives the dismissal. Checked in `cleanupRefusal`, so it applies at confirm time (route 409, no button) and again at apply time in `runPendingCleanups` (command rejected, nothing touched). Cost: after a worker crash the clean-up waits for the stale sweep to close the row.
+- A GitHub 404 on the repo read is `already gone` only for a recorded repo. For a legacy repo it is `failed` (a token that cannot see a private repo gets the same 404) and the checkout stays. A 404 on the DELETE after a successful read still counts as gone.
+- A checkout argus cannot prove is the Build's (for example only the `template` remote, because the Build failed before `gh repo create`) keeps being skipped. The plan now carries `directory.removable`; the card and the dialog say plainly that argus will not remove that directory and give its path to remove by hand.

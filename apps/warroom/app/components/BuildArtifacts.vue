@@ -14,6 +14,9 @@ defineEmits<{ open: [] }>();
       <li data-test="artifact-repo">GitHub repo <code>{{ view.plan.repo.name ?? "(none recorded)" }}</code>: {{ view.plan.repo.found ? "found" : "not found" }}</li>
       <li data-test="artifact-directory">Directory <code class="break-all">{{ view.plan.directory.path }}</code>: {{ view.plan.directory.found ? "found" : "not found" }}</li>
     </ul>
+    <p v-if="view.plan?.directory.found && !view.plan.directory.removable" class="note note-amber" data-test="directory-by-hand">
+      argus will not remove the directory <code class="break-all">{{ view.plan.directory.path }}</code>: it cannot show that it is this Build's checkout (no origin remote for this Build's repo, as when the Build failed before the repo was created). Remove it by hand.
+    </p>
     <p v-if="view.refusal" class="note muted" data-test="cleanup-refusal">{{ view.refusal }}</p>
     <template v-if="view.results.length > 0">
       <p class="note">Last clean-up:</p>

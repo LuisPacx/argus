@@ -19,7 +19,7 @@ function latestResults(store: Pick<WarRoomStore, "historyFor">, id: number): str
  * A Proposal with what "Clean up build" would do. Reads only: argus's own records, the disk and the history. The War Room holds no
  * Cloudflare or GitHub credentials, so whether the Worker and the repo still exist is asked by the worker, after the Operator confirms.
  */
-export function withCleanup<T extends Proposal>(store: Pick<WarRoomStore, "historyFor">, p: T, buildRoot: string): T & { cleanup: CleanupView } {
+export function withCleanup<T extends Proposal>(store: Pick<WarRoomStore, "historyFor" | "brainRunsFor">, p: T, buildRoot: string): T & { cleanup: CleanupView } {
   const results = latestResults(store, p.id);
   if (!CLEANUP_STATUSES.includes(p.status)) {
     return { ...p, cleanup: { available: false, refusal: null, plan: null, confirmName: null, results, cleaned: p.buildCleaned } };

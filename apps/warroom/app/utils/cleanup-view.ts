@@ -4,7 +4,8 @@ export interface CleanupViewPlan {
   worker: { name: string; found: boolean };
   /** `name` is `owner/slug`, or null when no repo is recorded and the checkout names none. `legacy`: a Build from before repos were recorded. */
   repo: { name: string | null; found: boolean; legacy: boolean };
-  directory: { path: string; found: boolean };
+  /** `removable` false with `found` true: argus cannot show the directory is this Build's checkout and will not remove it; the Operator does, by hand. */
+  directory: { path: string; found: boolean; removable: boolean };
 }
 
 export interface CleanupView {
