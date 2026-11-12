@@ -4,6 +4,7 @@ import type { LaunchedToken } from "../study/store.ts";
 import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow, type RankKey } from "./config.ts";
 import { cleanLabel, groupTokens, type TokenGroup } from "./group.ts";
 import type { MetaCounts, MetaTopToken, NewMetaRow, NewMetaRun } from "./store.ts";
+import { mergeThemes } from "./theme.ts";
 
 /**
  * The Meta recompute (ticket 03, slice 3): reads the last 24 h of launchpad creates from the Study, groups them into clone clusters
@@ -171,7 +172,8 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   }
 
   // 3. Group and count.
-  const stats: GroupStat[] = groupTokens(tokens).map((group) => {
+  const clones = groupTokens(tokens);
+  const stats: GroupStat[] = (config.theme ? mergeThemes(clones, config.theme) : clones).map((group) => {
     const grecs = group.tokens.map((t) => recs.get(t.mint) as Rec);
     let first = Number.POSITIVE_INFINITY;
     for (const r of grecs) first = Math.min(first, r.createdMs);

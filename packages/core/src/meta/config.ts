@@ -15,7 +15,9 @@
  * Ties after the last key fall to the group key, so the order never depends on input order.
  */
 
-export const META_WINDOWS = ["6h", "24h"] as const;
+import { DEFAULT_THEME_CONFIG, type ThemeConfig } from "./theme.ts";
+
+export const META_WINDOWS =["6h", "24h"] as const;
 export type MetaWindow = (typeof META_WINDOWS)[number];
 export const META_WINDOW_HOURS: Record<MetaWindow, number> = { "6h": 6, "24h": 24 };
 
@@ -42,6 +44,8 @@ export interface MetaConfig {
   dexCandidates: number;
   /** How many top tokens a row shows. */
   topTokens: number;
+  /** Theme Metas (slice 2, `theme.ts`): small clusters that name a big Meta's subject join it. Null switches it off. */
+  theme: ThemeConfig | null;
 }
 
 export const META_RULE: MetaConfig = {
@@ -54,6 +58,7 @@ export const META_RULE: MetaConfig = {
   dexMaxCalls: 20,
   dexCandidates: 30,
   topTokens: 3,
+  theme: DEFAULT_THEME_CONFIG,
 };
 
 /** How often the worker recomputes, in minutes. */
@@ -86,7 +91,8 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
 
 /**
  * The rule with overrides from the environment: `ARGUS_META_RANK_ORDER` (a comma list of creators, migrations, migrationsAfter60s, marketCapUsd, tokens),
- * and the DexScreener budget `ARGUS_META_DEX_GROUPS` (0 to 50) and `ARGUS_META_DEX_CALLS` (0 to 60, below the rate limit).
+ * the DexScreener budget `ARGUS_META_DEX_GROUPS` (0 to 50) and `ARGUS_META_DEX_CALLS` (0 to 60, below the rate limit), and
+ * `ARGUS_META_THEMES=0` (theme merging off: clone clusters only).
  */
 export function metaConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaConfig {
   return {
@@ -94,5 +100,6 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     rankOrder: parseRankOrder(env.ARGUS_META_RANK_ORDER) ?? META_RULE.rankOrder,
     dexGroups: intIn(env.ARGUS_META_DEX_GROUPS, 0, 50, META_RULE.dexGroups),
     dexMaxCalls: intIn(env.ARGUS_META_DEX_CALLS, 0, 60, META_RULE.dexMaxCalls),
+    theme: env.ARGUS_META_THEMES === "0" ? null : META_RULE.theme,
   };
 }

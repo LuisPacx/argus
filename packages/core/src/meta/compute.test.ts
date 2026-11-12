@@ -310,3 +310,31 @@ describe("recomputeMetas: cost and the write lock", () => {
     other.close();
   });
 });
+
+describe("recomputeMetas: theme Metas", () => {
+  // 31 creators behind the ni hao cluster make it an anchor; the spellings are one creator each.
+  // Creator ids end in letters: the helper pads ids with "1", so `n1` and `n11` would be the same creator.
+  const who = (prefix: string, i: number) => `${prefix}${"abcdefghijklmnopqrstuvwxyz"[i % 26]}${"abcdefghijklmnopqrstuvwxyz"[Math.floor(i / 26)]}`;
+  const seed = (store: Datastore) => {
+    launchMany(store, 31, (i) => ({ name: "ni hao cat", symbol: "nihao", creator: who("n", i) }));
+    launchMany(store, 5, (i) => ({ name: `Ni Hao ${["Noon", "Gang", "Pump", "Moon", "Rich"][i]}`, symbol: `NH${i}`, creator: who("t", i) }));
+    launchMany(store, 12, (i) => ({ name: "Unrelated", creator: who("u", i) }));
+  };
+
+  it("counts the spellings of a theme as one Meta, with the creators behind all of them", async () => {
+    const store = Datastore.open(":memory:");
+    seed(store);
+    await recomputeMetas(store, { now: new Date(NOW) });
+    expect(order(store)).toEqual(["ni hao cat", "Unrelated"]);
+    expect(rows(store)[0]).toMatchObject({ counts: { "24h": { tokens: 36, creators: 36 } } });
+    store.close();
+  });
+
+  it("keeps clone clusters apart when theme merging is off in the rule", async () => {
+    const store = Datastore.open(":memory:");
+    seed(store);
+    await recomputeMetas(store, { now: new Date(NOW), config: { ...META_RULE, theme: null } });
+    expect(rows(store)[0]).toMatchObject({ label: "ni hao cat", counts: { "24h": { tokens: 31, creators: 31 } } });
+    store.close();
+  });
+});

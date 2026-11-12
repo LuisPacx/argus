@@ -18,6 +18,12 @@ describe("meta config", () => {
       expect(metaConfigFromEnv({ ARGUS_META_RANK_ORDER: junk }).rankOrder).toEqual(META_RULE.rankOrder);
   });
 
+  it("theme Metas are on by default and ARGUS_META_THEMES=0 switches them off", () => {
+    expect(META_RULE.theme).not.toBeNull();
+    expect(metaConfigFromEnv({ ARGUS_META_THEMES: "0" }).theme).toBeNull();
+    expect(metaConfigFromEnv({ ARGUS_META_THEMES: "1" }).theme).toEqual(META_RULE.theme);
+  });
+
   it("reads the DexScreener budget and the interval, ignoring junk and out-of-range numbers", () => {
     expect(metaConfigFromEnv({ ARGUS_META_DEX_GROUPS: "5", ARGUS_META_DEX_CALLS: "7" })).toMatchObject({ dexGroups: 5, dexMaxCalls: 7 });
     expect(metaConfigFromEnv({ ARGUS_META_DEX_GROUPS: "-1", ARGUS_META_DEX_CALLS: "100000" })).toMatchObject({ dexGroups: META_RULE.dexGroups, dexMaxCalls: META_RULE.dexMaxCalls });
