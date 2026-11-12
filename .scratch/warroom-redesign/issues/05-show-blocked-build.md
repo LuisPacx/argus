@@ -3,7 +3,7 @@
 
 **What to build:** when the Build Runner's preflight refuses to start a Build, the Operator sees it in the War Room, on the approved Proposal, instead of finding it in `worker.log`. Today the Proposal stays `approved` with no hint.
 
-**Status:** implemented; browser check against the live-copy app still open
+**Status:** done
 
 **Blocked by:** none. Ticket 04 (on branch `meta-strip` when this was written) edits other War Room files; see Interplay.
 
@@ -77,7 +77,7 @@ Rendered as text only (`{{ }}`, never `v-html`): the message contains a filesyst
 - [x] `startupConfigLine` includes `build_dry_run`, `build_image`, `build_cloudflare` and `build_token` in the right states (dry-run via flag and via env; image from `ARGUS_BUILD_IMAGE` and from the default; Cloudflare yes only when both variables are non-empty; token file present, absent, a directory); a test with a secret token file content and secret Cloudflare values asserts the line contains neither, and that `build_token` is only `present` or `absent` and `build_cloudflare` only `yes` or `no`.
 - [x] Dry-run behaviour is decided and tested as per Open question 1.
 - [x] Full `pnpm check` passes once before the commit.
-- [ ] **Browser check:** with a worktree War Room on a `.backup` copy of the DB, an approved Proposal and no token file, the Proposal page shows the "Build not started" line; after creating the token file (chmod 600) and a tick, the line is gone. Stop the server by PID and delete the DB copy afterwards. Cite it in Comments.
+- [x] **Browser check:** with a worktree War Room on a `.backup` copy of the DB, an approved Proposal and no token file, the Proposal page shows the "Build not started" line; after creating the token file (chmod 600) and a tick, the line is gone. Stop the server by PID and delete the DB copy afterwards. Cite it in Comments.
 
 ## Interplay
 
@@ -103,3 +103,4 @@ One commit, after a full `pnpm check`. Subject `War Room ticket 05: <what change
 - Survey of other environment-only preconditions (git, gh and its login, wrangler, template checkout on a branch): not moved into the preflight. Each is either only checkable by running the tool against the network or the Proposal (`gh` login, the template branch), or fails at once and clearly in the first steps of the Build with a retryable StepError; only the Cloudflare presence check was mandatory and is in. A later ticket can add `git --version`/`gh auth status` if they bite.
 - Browser check (last box) not run: it needs a worktree War Room on a `.backup` DB copy and a live token file; left for the chief of staff. Schema change (new table) ships with the next worker restart.
 - 2026-11-12 (review fixes): a token file the worker cannot read (mode 0200/0000, EACCES) is now the refusal `token-unreadable` (path only, no system error text) instead of a rejected tick; the secret test also covers token-missing, token-not-file and token-unreadable.
+- 2026-11-12 browser check (cos, Chrome) on a worktree War Room :3101 + worker on a .backup copy, Proposal 152 approved, token path via ARGUS_BUILD_TOKEN_FILE, no CF/Telegram/Anthropic env, podman/gh/wrangler faked: page showed token-missing line; after creating the token (chmod 600) the line switched live to cloudflare-creds-missing and no Build started. Adapted from 'line is gone' with the user's OK (a real Build would deploy); clearing on Build start is covered by unit tests. Copy, token and worktree removed.
