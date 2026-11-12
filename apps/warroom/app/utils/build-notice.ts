@@ -17,7 +17,7 @@ export interface BuildNoticeView {
 }
 
 /** "12 s ago", "3 min ago", "2 h ago". */
-export function ageText(iso: string, nowMs: number): string {
+function checkedAge(iso: string, nowMs: number): string {
   const s = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 1000));
   if (!Number.isFinite(s)) return "";
   if (s < 60) return `${s} s ago`;
@@ -29,7 +29,7 @@ export function ageText(iso: string, nowMs: number): string {
 export function buildNoticeView(p: BuildNoticeInput, nowMs: number): BuildNoticeView | null {
   if (p.status !== "approved") return null;
   if (p.buildRefusal) {
-    const age = ageText(p.buildRefusal.at, nowMs);
+    const age = checkedAge(p.buildRefusal.at, nowMs);
     return { kind: "refused", text: `Build not started: ${p.buildRefusal.message}, retried every ${p.buildRetrySeconds} s`, checked: age ? `last checked ${age}` : null };
   }
   if (p.buildRunning) return { kind: "running", text: "Waiting for the running Build to finish", checked: null };

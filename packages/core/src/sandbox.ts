@@ -330,11 +330,10 @@ export function readBuildToken(path: string): string {
 
 /** A Build token problem with its refusal code, so nobody parses the code out of the English message. The message never holds the token. */
 export class BuildTokenError extends Error {
-  constructor(
-    readonly code: Extract<BuildRefusalCode, `token-${string}`>,
-    message: string,
-  ) {
+  readonly code: Extract<BuildRefusalCode, `token-${string}`>;
+  constructor(code: Extract<BuildRefusalCode, `token-${string}`>, message: string) {
     super(message);
+    this.code = code;
   }
 }
 
