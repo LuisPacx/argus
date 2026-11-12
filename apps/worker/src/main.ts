@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import {
   ApiBrain,
   BackoffSource,
+  BUILD_TICK_MS,
+  buildTokenFilePresent,
+  missingCloudflareVariables,
   captureDueSnapshots,
   captureRunCap,
   metaConfigFromEnv,
@@ -58,7 +61,7 @@ import {
 import { reentrant } from "./reentrant.ts";
 import { SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
 
-const TICK_MS = 5_000;
+const TICK_MS = BUILD_TICK_MS; // the one definition of the tick; the Proposal page says "retried every N s" from it
 const INGEST_TICK_MS = 5 * 60_000;
 const JUDGE_TICK_MS = 30 * 60_000;
 const once = process.argv.includes("--once");
@@ -97,10 +100,11 @@ if (apiFallback.enabled && apiKey === undefined && !dryRun) {
 const buildRoot = process.env.ARGUS_BUILD_ROOT || join(homedir(), "code");
 // Builds run in rootless podman containers (containment design). The image is the tag `pnpm image:build` prints, derived from this
 // checkout unless ARGUS_BUILD_IMAGE names one; the worker never builds or pulls it. The Build token is read from a file on each Build.
+const buildTokenPath = process.env.ARGUS_BUILD_TOKEN_FILE || join(homedir(), ".config", "argus", "build-token");
 const sandbox = new PodmanSandbox({
   image: process.env.ARGUS_BUILD_IMAGE || currentImageTag(repoRoot),
   podmanBin: process.env.ARGUS_PODMAN_BIN || "podman",
-  tokenPath: process.env.ARGUS_BUILD_TOKEN_FILE || join(homedir(), ".config", "argus", "build-token"),
+  tokenPath: buildTokenPath,
   dataDir,
   caps: capsFromEnv(process.env),
 });
@@ -332,7 +336,17 @@ const metaSummaryTick = reentrant(
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
-console.log(startupConfigLine(process.env, { apiKeySet: apiKey !== undefined, telegramOn: notifier.enabled, studyOn }));
+console.log(
+  startupConfigLine(process.env, {
+    apiKeySet: apiKey !== undefined,
+    telegramOn: notifier.enabled,
+    studyOn,
+    buildDryRun: dryRun,
+    buildImage: sandbox.image,
+    buildCloudflare: missingCloudflareVariables(buildOptions.env ?? process.env).length === 0,
+    buildTokenPresent: buildTokenFilePresent(buildTokenPath),
+  }),
+);
 const running = new Set<Promise<unknown>>();
 const track = (run: () => Promise<unknown>, what: string) => {
   const p: Promise<unknown> = run()

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { statSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { BUILD_NETWORK, imageReady } from "./build-image.ts";
+import type { BuildRefusalCode, PreflightRefusal } from "./build-refusal.ts";
 
 /**
  * The Build container (containment design, ADR 0005 to come): every command that runs agent-written or agent-influenced code
@@ -132,6 +133,8 @@ export interface SandboxRun {
 export interface SandboxRunner {
   /** Why a Build cannot start (podman, image, network or token missing), or undefined when it can. */
   preflight(): Promise<string | undefined>;
+  /** The same check with its refusal code (`podman-missing`, `image-missing`, `network-missing`, `token-*`). */
+  preflightRefusal(): Promise<PreflightRefusal | undefined>;
   /** Stops and removes every container an earlier worker left behind (by label only). Returns their names. */
   reconcile(log?: (line: string) => void): Promise<string[]>;
   /** Starts what the job needs besides its own container (the egress sidecar) and returns the command that runs it. */
@@ -315,14 +318,24 @@ export function readBuildToken(path: string): string {
   try {
     st = statSync(path);
   } catch {
-    throw new Error(`the Build token file ${path} does not exist (mint one with \`claude setup-token\` and save it there, chmod 600)`);
+    throw new BuildTokenError("token-missing", `the Build token file ${path} does not exist (mint one with \`claude setup-token\` and save it there, chmod 600)`);
   }
-  if (!st.isFile()) throw new Error(`the Build token path ${path} is not a file`);
-  if ((st.mode & 0o077) !== 0) throw new Error(`the Build token file ${path} is readable by others; chmod 600 it`);
+  if (!st.isFile()) throw new BuildTokenError("token-not-file", `the Build token path ${path} is not a file`);
+  if ((st.mode & 0o077) !== 0) throw new BuildTokenError("token-mode", `the Build token file ${path} is readable by others; chmod 600 it`);
   const token = readFileSync(path, "utf8").trim();
-  if (!token) throw new Error(`the Build token file ${path} is empty`);
-  if (/\s/.test(token)) throw new Error(`the Build token file ${path} holds more than one line`);
+  if (!token) throw new BuildTokenError("token-empty", `the Build token file ${path} is empty`);
+  if (/\s/.test(token)) throw new BuildTokenError("token-multiline", `the Build token file ${path} holds more than one line`);
   return token;
+}
+
+/** A Build token problem with its refusal code, so nobody parses the code out of the English message. The message never holds the token. */
+export class BuildTokenError extends Error {
+  constructor(
+    readonly code: Extract<BuildRefusalCode, `token-${string}`>,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 export interface PodmanSandboxOptions {
@@ -423,15 +436,21 @@ export class PodmanSandbox implements SandboxRunner {
   }
 
   async preflight(): Promise<string | undefined> {
+    return (await this.preflightRefusal())?.message;
+  }
+
+  async preflightRefusal(): Promise<PreflightRefusal | undefined> {
     const v = await this.podman(["--version"], 15_000);
-    if (v.code !== 0) return `podman is not available (${this.podmanBin}; set ARGUS_PODMAN_BIN): ${v.stderr.trim().slice(0, 150)}`;
-    if (!(await imageReady(this.image, this.podmanBin, this.clientEnv()))) return `the Build image ${this.image} is not present; run \`pnpm image:build\``;
+    if (v.code !== 0) return { code: "podman-missing", message: `podman is not available (${this.podmanBin}; set ARGUS_PODMAN_BIN): ${v.stderr.trim().slice(0, 150)}` };
+    if (!(await imageReady(this.image, this.podmanBin, this.clientEnv()))) return { code: "image-missing", message: `the Build image ${this.image} is not present; run \`pnpm image:build\`` };
     const n = await this.podman(["network", "exists", BUILD_NETWORK.name], 15_000);
-    if (n.code !== 0) return `the podman network ${BUILD_NETWORK.name} does not exist; run \`pnpm image:build\``;
+    if (n.code !== 0) return { code: "network-missing", message: `the podman network ${BUILD_NETWORK.name} does not exist; run \`pnpm image:build\`` };
     try {
       readBuildToken(this.opts.tokenPath);
     } catch (e) {
-      return e instanceof Error ? e.message : String(e);
+      // Only the typed token errors reach here (their messages carry the path, never the token); anything else is a code-less bug.
+      if (e instanceof BuildTokenError) return { code: e.code, message: e.message };
+      throw e;
     }
     return undefined;
   }

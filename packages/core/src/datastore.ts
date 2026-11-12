@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { BuildRefusal, BuildRefusalCode, PreflightRefusal } from "./build-refusal.ts";
 import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
@@ -369,6 +370,8 @@ export function migrate(db: DatabaseSync): void {
   // Proposals whose Telegram card has been queued (phase 2 ticket 11): one row each, so a restart never announces twice.
   // Proposals that exist when the table is first created count as announced, so turning notifications on does not flood the chat.
   const hadAnnounced = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_announced'").get();
+  // The latest reason a Build was not started, one row per approved Proposal (an upsert, never a log): see build-refusal.ts.
+  db.exec("CREATE TABLE IF NOT EXISTS build_refusals (proposal_id INTEGER PRIMARY KEY, code TEXT NOT NULL, message TEXT NOT NULL, at TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS telegram_announced (proposal_id INTEGER PRIMARY KEY, at TEXT NOT NULL)");
   if (!hadAnnounced) db.prepare("INSERT OR IGNORE INTO telegram_announced (proposal_id, at) SELECT id, ? FROM proposals").run(new Date().toISOString());
   // Proposals from the propose pass (ticket 08) name their Narrative and Score; hand-entered ones leave both null. The unique index is
@@ -505,6 +508,7 @@ export type WarRoomStore = Pick<
   | "recentBrainRuns"
   | "studyStats"
   | "latestMetas"
+  | "buildRefusalFor"
 >;
 
 /** A stored Signal: the Source's item plus when argus first saw it. */
@@ -1298,6 +1302,8 @@ export class Datastore {
       const now = new Date().toISOString();
       this.db.prepare("UPDATE proposals SET status = ?, updated_at = ? WHERE id = ?").run(to, now, proposalId);
       if (to === "approved") this.db.prepare("UPDATE proposals SET approved_at = ? WHERE id = ?").run(now, proposalId);
+      // Only an approved Proposal can carry a refusal; leaving `approved` by any route (Build start, needs-human, dismissed) drops it.
+      this.db.prepare("DELETE FROM build_refusals WHERE proposal_id = ?").run(proposalId);
       this.db
         .prepare(
           "INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1414,10 +1420,36 @@ export class Datastore {
   beginBuild(proposalId: number, route: Pick<NewBrainRun, "backend" | "model">): number {
     return this.inTransaction(() => {
       this.transition(proposalId, "building", "build");
+      // The condition that refused the Build is gone: the other approved Proposals' refusals were the same worker-wide one.
+      this.db.exec("DELETE FROM build_refusals");
       // A fresh Build: the Worker a previous one deployed was removed by the Operator before the re-queue.
       this.db.prepare("UPDATE proposals SET worker_deployed = 0 WHERE id = ?").run(proposalId);
       return this.startBrainRun({ proposalId, task: "build", ...route });
     });
+  }
+
+  /**
+   * WORKER ONLY. Stores why the Build did not start, for every approved Proposal (the cause is worker-wide): one value each,
+   * replaced on every refused tick, so the time is the latest attempt and nothing grows.
+   */
+  recordBuildRefusal(refusal: PreflightRefusal): void {
+    const at = new Date().toISOString();
+    this.inTransaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO build_refusals (proposal_id, code, message, at) SELECT id, ?, ?, ? FROM proposals WHERE status = 'approved'
+           ON CONFLICT(proposal_id) DO UPDATE SET code = excluded.code, message = excluded.message, at = excluded.at`,
+        )
+        .run(refusal.code, refusal.message, at);
+    });
+  }
+
+  /** The latest refusal of an approved Proposal's Build, or null (not approved, or no refusal). */
+  buildRefusalFor(proposalId: number): BuildRefusal | null {
+    const r = this.db
+      .prepare("SELECT r.code, r.message, r.at FROM build_refusals r JOIN proposals p ON p.id = r.proposal_id WHERE r.proposal_id = ? AND p.status = 'approved'")
+      .get(proposalId) as { code: BuildRefusalCode; message: string; at: string } | undefined;
+    return r ? { code: r.code, message: r.message, at: r.at } : null;
   }
 
   /** WORKER ONLY. Records that the Build deployed the Proposal's Worker to Cloudflare (it is a leftover if the Build then fails). */

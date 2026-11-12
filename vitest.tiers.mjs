@@ -11,6 +11,7 @@ export const SLOW_TESTS = [
   "packages/core/src/brain.test.ts", // >10 s
   "packages/core/src/build-image.test.ts", // real `podman run` against the built image (self-skips when absent, but belongs here)
   "packages/core/src/egress-proxy-entry.test.ts", // spawns the real proxy entry as a child process
+  "packages/core/src/build-refusal.test.ts", // fake podman
   "packages/core/src/build-runner-bundle.test.ts", // real wrangler --dry-run
   "packages/core/src/build-runner-hardening.test.ts",
   "packages/core/src/build-runner-notify.test.ts",

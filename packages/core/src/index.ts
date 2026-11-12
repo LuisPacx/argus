@@ -27,6 +27,7 @@ export * from "./meta/summary.ts";
 export * from "./meta/summary-pass.ts";
 
 export * from "./disclosure.ts";
+export * from "./build-refusal.ts";
 export * from "./build-runner.ts";
 export * from "./build-image.ts";
 export * from "./sandbox.ts";

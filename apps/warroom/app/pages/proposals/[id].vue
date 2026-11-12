@@ -27,6 +27,9 @@ if (p.value?.specHash) await loadSpec();
 
 const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }));
 
+// Refreshed by the 3 s poll below: `p` changes, so the "last checked" age recomputes.
+const buildNotice = computed(() => (p.value ? buildNoticeView(p.value, Date.now()) : null));
+
 const pending = computed(() => commands.value.some((c) => c.proposalId === p.value?.id && c.status === "pending"));
 const working = computed(() => !!p.value?.brainRunInFlightSince || !!p.value?.specRevision || pending.value);
 
@@ -218,6 +221,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
         </section>
 
         <p v-if="p.approvedAt" class="surface note">Approved {{ p.approvedAt }}</p>
+        <ClientOnly><BuildNotice v-if="buildNotice" :view="buildNotice" /></ClientOnly>
         <section v-if="p.previewUrl" class="surface">
           <h3 class="section-title">Preview</h3>
           <p class="mt-3 flex min-w-0 text-sm"><UrlLink :href="p.previewUrl" /></p>

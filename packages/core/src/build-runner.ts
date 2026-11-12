@@ -3,6 +3,7 @@ import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtemp
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import { buildHomeFor, removeTree } from "./build-home.ts";
+import { cloudflareRefusal } from "./build-refusal.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
@@ -333,7 +334,11 @@ export async function runNextBuild(
   if (signal?.aborted) return undefined;
   const proposal = nextBuildable(store);
   if (!proposal) return undefined;
-  if (o.dryRun) return dryRun(brain, o, proposal);
+  if (o.dryRun) {
+    // A dry-run worker never starts a Build; say so on the approved Proposals instead of leaving them silent.
+    store.recordBuildRefusal({ code: "dry-run", message: "the worker is in dry-run mode and starts no Builds" });
+    return dryRun(brain, o, proposal);
+  }
   // Entry point 1 (approved -> needs-human): a Spec that is the `## Needs human` refusal is never built, so no slot, clone or container.
   // It runs before the preflight: routing it needs no podman.
   const refusal0 = needsHumanReasonOf(proposal);
@@ -343,8 +348,12 @@ export async function runNextBuild(
   }
   // Preflight: no Build starts without podman, the image, the network and the token. The Proposal stays approved and the next
   // tick tries again; the reason is logged when it first appears or changes, not every tick.
-  const refusal = await o.sandbox.preflight();
-  if (refusal) {
+  // The Cloudflare credentials come from the same environment the Build reads (`source` in `build`), so the two cannot disagree.
+  const refused = (await o.sandbox.preflightRefusal()) ?? cloudflareRefusal(o.env ?? process.env);
+  if (refused) {
+    const refusal = refused.message;
+    // Stored on every refused tick (the time is the latest attempt); the log line only when the reason changes.
+    store.recordBuildRefusal(refused);
     if (lastRefusal.get(o) !== refusal) {
       lastRefusal.set(o, refusal);
       (o.log ?? console.log)(`[worker] Build for proposal ${proposal.id} not started: ${refusal}. It stays approved and is retried on the next tick.`);
@@ -596,6 +605,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   const requireFreeWorkerName = async () => {
     const account = source.CLOUDFLARE_ACCOUNT_ID;
     const token = source.CLOUDFLARE_API_TOKEN;
+    // Backstop: the preflight (`cloudflareRefusal`) refuses first; this fails a Build whose env lost them mid-run.
     if (!account || !token) throw new StepError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are needed to check that the Worker name is free");
     const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/workers/scripts/${encodeURIComponent(p.slug)}/settings`;
     let res: Response;
