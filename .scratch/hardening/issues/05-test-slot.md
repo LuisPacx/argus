@@ -10,7 +10,7 @@ Shape (check against `scripts/check.mjs` and `package.json`; the code agrees wit
 3. **`node scripts/test-slot.mjs status`** for humans and briefs: prints each slot as free or held (pid, worktree, command, age), and exits 0 when at least one slot is free, 1 when both are held (so a brief can use it as a check). `node scripts/test-slot.mjs wait` blocks until a slot is free without taking it, for the rare case something outside `pnpm check` needs it.
 4. **`docs/agents/worker-rules.md`** gets one line replacing the guessing: `pnpm check` takes one of two machine-wide test slots itself and waits when both are taken; `node scripts/test-slot.mjs status` shows who holds them; never count processes with `pgrep`.
 
-**Status:** ready-for-agent
+**Status:** done (70f8161, d830ab3, f44e0e1)
 
 **In scope:** the full `pnpm check`. `pnpm check:fast` also takes a slot only if the measured load of the fast tier justifies it; default is that it does not (it is the ~1-2 minute iteration tier), and the choice is recorded in Comments.
 **Out of scope:** stress loops (these already follow the one-loop, `--maxWorkers=2` rule in the Operator's global instructions and are not `pnpm check`); single-file or `pnpm test:fast` vitest runs; a bare `pnpm typecheck`, `pnpm lint` or `pnpm test` run directly (they bypass the slot, and the worker rule still says to use `pnpm check`); limiting the slot count by CPU or memory; non-Linux machines beyond not crashing.

@@ -5,7 +5,7 @@
 
 **Blocked by:** 01 to 13, Phase 1 ticket 10 (Phase 1 acceptance run)
 
-**Status:** in-progress
+**Status:** closed: run ended early 2026-11-11 (92789a3) at the user's request; AC4 untested by decision; open boxes left unticked
 
 - [ ] Over 48 hours unattended, argus produces at most 30 Proposals per day from live Sources
 - [ ] Every card shows all the fields listed in architecture §8

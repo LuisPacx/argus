@@ -3,7 +3,7 @@
 
 **What to build:** In the P2-14 acceptance run the judge cap (150 runs per rolling 24 h) was always exhausted and about 1015 Narratives were never scored, so research stalled (see `.scratch/cos.md`, 2026-11-08). Operator decision 2026-11-08: (a) judge only Narratives backed by at least 2 Signals; a single-Signal Narrative is skipped, not scored, starts no run and so never counts against the cap, and becomes eligible once it gains a second Signal; (b) raise the judge run cap from 150 to 300 per rolling 24 h. Unchanged: `ARGUS_DAILY_QUOTA_USD` $20 with the 0.3 research share, API fallback off, the propose lockout rule, the $2 judge daily spend cap.
 
-**Status:** done on branch worktree-agent-a8599e7ded44ab3fa (not merged; needs a worker restart, no migration)
+**Status:** done (4d4683b on main)
 
 ## Where it lives
 

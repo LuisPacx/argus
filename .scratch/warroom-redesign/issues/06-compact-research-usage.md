@@ -3,7 +3,7 @@
 
 **What to build:** the home card "Research usage, last 24 hours" is half the content width, tall and wordy. It becomes one short bar, 100% of the content width, directly under the Meta strip. Every number it shows today stays available.
 
-**Status:** open
+**Status:** deployed (b5a1398, 8f1313c); browser check box open
 
 **Blocked by:** none (04 is on main, f91b825).
 

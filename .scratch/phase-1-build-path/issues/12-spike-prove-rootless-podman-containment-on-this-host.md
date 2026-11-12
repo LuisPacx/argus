@@ -5,7 +5,7 @@
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** closed: superseded by tickets 13-18 and the AC5 build test (user, 2026-11-12); open boxes left unticked
 
 - [ ] Each unverified claim in sections 4 to 7 is marked confirmed, refuted or adjusted, with the command and output
 - [ ] The final `claude` hostnames the sidecar saw are listed, and the allowlist decision recorded

@@ -5,7 +5,7 @@
 
 **Blocked by:** 18 ADR 0002 test allows read-only RPC, merging to `main` (branch `adr0002-test`, tip 21bb7ec). The file this edits is on that branch: `git show 21bb7ec:packages/core/src/adr-0002.test.ts`.
 
-**Status:** ready-for-agent (once 18 has merged)
+**Status:** done (0e4162b..1895ffe)
 
 **Bypass (a), medium: non-literal scheme.** `URL_RE` and `DYNAMIC_HOST` both start from a literal `http(s)://` or `ws(s)://`. A URL whose scheme is not literal never matches them: `` `${scheme}://api.helius.xyz/` ``, a protocol-relative `"//api.helius.xyz/"`, or string assembly like `"ht" + "tps://..."` (the concatenation case where the host is a separate literal). Fix: add a scan for bare banned hostnames. For every file (the read-only module included), look for a banned host as a standalone token in the text, whatever precedes it, and apply the same allowances as for URLs (the pinned `mainnet.helius-rpc.com` in `helius.ts` only; `pumpportal.fun` data stream and `pump.fun/coin/` links as allowed today). Reuse `BANNED_HOSTS` and `stripTrailingDots`; do not keep a second host list. Decide and record in Comments how bare hostnames in comments, docs and fixtures are handled (the scan already reads text, so a hostname in a comment of a non-exempt file would be flagged; prefer a narrow, reviewed exemption list over weakening the scan, and keep the list frozen like `DYNAMIC_HOST_FILES`).
 

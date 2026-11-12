@@ -3,7 +3,7 @@
 
 **What to build:** argus proposes **Betas** (GLOSSARY: a token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar) for the live top Metas, so the Operator can launch into a Meta that is still carrying tokens to migration. The hard part is not finding the biggest Meta but the one with **room left**: some Metas are saturated (Dacity/Audacity: 1 migration in 228 creates in 24 h), others are still converting (GTA VI: 31 of 153, about 20%). Rank Metas by room left, and for the best few propose a Beta name, ticker and angle that is distinct from every existing clone. Launching stays manual (the Operator, ADR 0002); argus spends no SOL, signs nothing and holds no keys.
 
-**Status:** in progress on branch `beta-finder` (based on `meta-ranking` 87472db): slices 1, 2 and 5 done (room-left ranking, distinct-name rule, backtest); slices 3 (kind, migration, Brain task, ADR, GLOSSARY) and 4 (War Room) open. The backtest found no demonstrable lift: the switch stays off (see Comments). Slices 1, 2 and 5 deployed 2026-11-11 (main 1270357). **Paused until the backtest re-run 2026-11-18 (user decision):** slices 3 and 4 only if the re-run shows lift.
+**Status:** slices 1, 2, 5 on main (1eefa66, 2db7238, f10d03a, 1270357); slices 3-4 paused until the 2026-11-18 backtest re-run
 
 **Blocked by:** 03 Part A (slices 1 and 3 of `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`: the token subject key, clone clusters, and the stored 6 h and 24 h Meta ranking with the base migration rate, per-group saturation and market cap). Also start only after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it.
 

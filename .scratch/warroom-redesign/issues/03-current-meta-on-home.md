@@ -3,7 +3,7 @@
 
 **What to build:** the home page's "Latest Signals" section (a feed of 50 raw Signals) goes, and in its place sits **Current Meta (last 24h)**: the live Metas, ranked, each row giving context and not only a name. The Operator calls this key: the first thing the page should say is what the market is doing now.
 
-**Status:** deployed 2026-11-11 (main 1270357)
+**Status:** done (adbf2dc; deployed 1270357)
 
 **Blocked by:** `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`, Part B (slices 4 and 5: `GET /api/metas` and the LLM summary). It renders that ticket's stored ranking and has no ranking logic of its own. Order (Operator priority, 2026-11-11): viral-sources 03 Part A, then viral-sources 04 (Beta finder), then this ticket, then viral-sources 01 and 02. Overlap with `02-safe-links-everywhere.md`: see Interplay.
 

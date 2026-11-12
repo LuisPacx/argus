@@ -18,7 +18,7 @@ Spec: sections 5, 6, 13, 15 (slices 2-3).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** implemented; waiting on the Operator's browser check of the Study page (the one unticked box)
+**Status:** done (e4555a8, 972828c; browser check 220162e)
 
 - [x] The PumpPortal Source keeps uri, links, creator and chain event times and stores gap markers; it still uses one connection; existing Source tests still pass (uri, creator, signature, pool and receipt time come from the payload; links come from the metadata document at the uri, read by the capture job; the event time is the receipt time, within about 1 s of chain per ticket 01)
 - [x] Population rule implemented and tested: website or X link present means studied; neither means counted only

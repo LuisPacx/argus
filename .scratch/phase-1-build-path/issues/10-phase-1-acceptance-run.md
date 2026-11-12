@@ -7,7 +7,7 @@ Operator prerequisites: image built (`pnpm image:build`), network created (same 
 
 **Blocked by:** 08, 09, 15
 
-**Status:** ready-for-agent
+**Status:** closed: superseded by tickets 13-18 and the AC5 build test (user, 2026-11-12); open boxes left unticked
 
 - [ ] A live run reaches `built` with a private repo, a responding preview and cost on the card; repo URL, preview URL and cost recorded under Comments
 - [ ] Forced failure: one retry, then `build-failed` with a session_id that resumes in tmux

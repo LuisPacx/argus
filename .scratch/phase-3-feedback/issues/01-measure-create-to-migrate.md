@@ -6,7 +6,7 @@ Spec: sections 6, 7, 14, 15 (slice 1).
 
 **Blocked by:** None (can start immediately, but starts after the 11-08 deploy)
 
-**Status:** ready-for-agent (all boxes ticked; RugCheck is not used: terms unavailable, user decision 2026-11-08, see `measurements.md` item 7)
+**Status:** done (86c97a6, cbe2c51)
 
 - [x] A note exists in the phase-3-feedback directory and answers each item below with the measured number, the sample size and the date range
 - [x] Snapshot ages: distribution of create-to-complete and complete-to-pool, from chain event times; final metadata/website age and X age window proposed from it

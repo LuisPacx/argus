@@ -3,7 +3,7 @@
 
 **What to build:** Ticket 02's review found `study/website.ts` building RegExps from robots.txt patterns (a ReDoS hole, fixed in 972828c). Operator decision 2026-11-09: make that hard to write again. `pnpm lint` (oxlint, run by `pnpm check` and so by the pre-push hook) now fails on `new RegExp(x)` or `RegExp(x)` whose first argument is not a string, regex or expression-free template literal. Oxlint 1.91 has no `no-restricted-syntax`, so the rule is a small local JS plugin (no new dependency).
 
-**Status:** done on branch worktree-agent-afd1ab45c4c9962ce (not merged)
+**Status:** done (9106faa, 8bff602 on main)
 
 ## Where it lives
 

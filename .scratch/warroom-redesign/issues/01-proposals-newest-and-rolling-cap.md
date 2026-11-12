@@ -2,6 +2,8 @@ Status: resolved
 
 # War Room: Proposals newest first, cap labelled as a rolling 24 h count
 
+**Status:** done (b0e3018)
+
 A saturated cap ("30 of 30") looks stuck because it says "today"/"a day" while it is a rolling 24 h window, and the list sorts by score so new Proposals sit out of sight.
 
 Operator approved two changes, nothing more:

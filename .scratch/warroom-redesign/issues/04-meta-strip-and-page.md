@@ -3,7 +3,7 @@
 
 **What to build:** the home page's "Current Meta (last 24h)" section (ticket 03) takes too much vertical space. On home it becomes a compact horizontal strip of the top Metas; clicking one opens a new page `/meta` with everything the old section showed, for all Metas.
 
-**Status:** open
+**Status:** deployed (a059061, f91b825, c670366); browser check and verify:boot boxes open
 
 **Blocked by:** none (03 is deployed, main 1270357).
 

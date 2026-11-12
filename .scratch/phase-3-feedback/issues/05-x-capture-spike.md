@@ -6,7 +6,7 @@ Spec: sections 6, 13, 14, 15 (slice 6).
 
 **Blocked by:** The Operator has run setup-argus-browser.sh and created the dedicated X account (human step; the ticket cannot start until the Operator confirms both)
 
-**Status:** ready-for-agent
+**Status:** done (ff357d2, 109fc05, c5dfae9)
 
 - [x] The script opens the dedicated directory as a persistent context and refuses to start if Chrome already holds it (one process per directory, lock tested) (manual run on a throwaway directory, recorded in 05-outcome.md; no automated test)
 - [x] Headless and headed (virtual display) are each tried over a small number of captures, with the result recorded for each (headed ran on Chrome's headless Ozone platform; Xvfb is not installed, see 05-outcome.md)

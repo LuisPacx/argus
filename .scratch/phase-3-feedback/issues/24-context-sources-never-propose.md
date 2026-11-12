@@ -3,7 +3,7 @@
 
 **What to build:** Add a **Source class** (`context` or `market`) declared as data in one place next to the Source definitions. RSS feeds, Google Trends and GitHub trending are `context`; PumpPortal and DexScreener are `market`. Context Sources stay ingested and clustered, but a Narrative with no market Signal is never judged and never proposed. A bounded block of recent context (top news Narratives) goes to Propose, Judge and the Meta summary as background, so agents still know what is happening in the world.
 
-**Status:** deployed 2026-11-11 (main 1270357), parts 1, 2 and 4; the Meta summary hook (follow-up) is still open
+**Status:** deployed (c18e3f5, e9f72a9); 1 box open
 
 **Blocked by:** the deploy stack on `main` (17, 19, 21, 22; branch `ipfs-gateway` at 95d6c79 is its tip), because 17 changes the propose code this ticket edits. For the Meta summary part, slice 5 of `viral-sources/03`; that part waits for it and is a follow-up commit.
 

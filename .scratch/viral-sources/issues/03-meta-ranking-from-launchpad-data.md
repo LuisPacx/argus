@@ -3,7 +3,7 @@
 
 **What to build:** Argus does not know what the market's live Metas are. The term exists only in `GLOSSARY.md:48`; there is no Meta code. Add a periodic job that groups launchpad tokens (pump.fun creates and migrations, from `study_tokens` and the stored launchpad Signals) into Metas by shared name, ticker and description, ranks the groups by distinct tokens, distinct creators, migrations and market cap, and makes the ranking available to the judge and propose steps, so a Proposal can ride a Meta that is live now and not only a Google Trends or news item.
 
-**Status:** Part A, `GET /api/metas` and slice 5 deployed 2026-11-11 (main 1270357); slice 2, slice 4's prompt block and ADR 0012 are on branch `meta-part-b` (not merged or deployed). Open: the standing "full `pnpm check` before each commit" box.
+**Status:** deployed, complete on main (6429ffa, 5e427c8, 2377af5, 819ab5b, 50e3d08); 1 box open
 
 **Blocked by:** nothing in the code. Start after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it (see Interplay).
 
