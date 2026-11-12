@@ -186,7 +186,7 @@ async function submit() {
 }
 
 const newCount = computed(() => proposals.value.filter((p) => p.status === "new").length);
-const pct = (used: number, of: number) => (of > 0 ? Math.min(100, (used / of) * 100) : 0);
+const researchView = computed(() => (research.value ? researchBar(research.value) : null));
 // Whether a row has anything to say under its main line.
 const hasNotes = (p: (typeof proposals.value)[number]) =>
   !!(p.brainRunInFlightSince || p.specError || p.previewUrl || p.status === "build-failed" || rejection(p) || pendingIds.value.has(p.id) || (dismissing.value === p.id && actionError.value));
@@ -225,41 +225,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
 
     <MetaStrip :view="metaSection" />
 
-    <section v-if="research" class="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-      <div class="surface grid content-start gap-4" data-test="research-usage">
-        <h3 class="section-title">Research usage, last 24 hours</h3>
-        <div class="grid gap-1.5">
-          <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="muted" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Budget (est. usage, API-equiv.)</span>
-            <span class="font-semibold tabular-nums">${{ research.usedUsd.toFixed(2) }} of ${{ research.budgetUsd.toFixed(2) }}</span>
-          </div>
-          <div class="track" role="progressbar" :aria-valuenow="Math.round(pct(research.usedUsd, research.budgetUsd))" aria-valuemin="0" aria-valuemax="100">
-            <div class="fill" :class="{ 'fill-bad': research.exhausted }" :style="{ width: `${pct(research.usedUsd, research.budgetUsd)}%`, '--i': 0 }" />
-          </div>
-        </div>
-        <div class="grid gap-1.5">
-          <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="muted">New Proposals, rolling</span>
-            <span class="font-semibold tabular-nums" data-test="proposal-cap">{{ proposalCapText(research.newProposals, research.newProposalsCap) }}</span>
-          </div>
-          <div class="track" role="progressbar" :aria-valuenow="Math.round(pct(research.newProposals, research.newProposalsCap))" aria-valuemin="0" aria-valuemax="100">
-            <div class="fill" :style="{ width: `${pct(research.newProposals, research.newProposalsCap)}%`, '--i': 1 }" />
-          </div>
-          <p v-if="research.newProposals >= research.newProposalsCap" class="note faint">Cap reached; the next waits until an older Proposal is more than 24 h old.</p>
-        </div>
-        <p class="note faint">
-          {{ research.runs }} judge and propose {{ research.runs === 1 ? "run" : "runs" }}, {{ Math.round(research.usedShareOfQuota * 100) }}% of an assumed
-          ${{ research.quotaUsd.toFixed(0) }} daily quota; the limit is {{ Math.round(research.share * 100) }}%.
-        </p>
-        <p v-if="research.exhausted" class="note note-amber">Research budget reached: judging and proposing wait until older runs leave the 24 hours.</p>
-        <p class="note muted" data-test="api-spend">
-          <span title="Real money billed by the Anthropic API, unlike Est. usage above. Only the API fallback spends it, when the subscription is rate-limited.">API spend (real $)</span>:
-          ${{ research.api.usedUsd.toFixed(4) }} of ${{ research.api.capUsd.toFixed(2) }} daily cap over {{ research.api.runs }} {{ research.api.runs === 1 ? "run" : "runs" }}
-          <template v-if="!research.api.enabled">(fallback off: set ARGUS_API_FALLBACK=1 and ANTHROPIC_API_KEY in .env to turn it on)</template>
-        </p>
-        <p v-if="research.api.exhausted" class="note note-amber">API daily cap reached: the fallback sends nothing until older spend leaves the 24 hours.</p>
-      </div>
-    </section>
+    <ResearchBar v-if="researchView" :view="researchView" />
 
     <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="proposal-controls" @select="choose" />
 

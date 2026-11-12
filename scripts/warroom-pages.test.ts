@@ -44,7 +44,8 @@ describe("warroom pages", () => {
 
   it("labels the Proposals cap as a rolling last 24 h count on both pages that show it", () => {
     expect(proposalCapText(12, 30)).toBe("12 of 30 in the last 24 h");
-    for (const file of ["index.vue", "activity.vue"]) {
+    // index.vue shows it through the research bar's details (utils/research-bar.ts).
+    for (const file of ["../utils/research-bar.ts", "activity.vue"]) {
       const src = fs.readFileSync(path.join(PAGES, file), "utf8");
       expect(src, file).toContain("proposalCapText(");
       expect(src, file).not.toMatch(/Proposals today|Proposals a day/);
