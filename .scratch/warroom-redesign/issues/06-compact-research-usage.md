@@ -17,12 +17,12 @@
 
 ## Acceptance
 
-- [ ] Home shows one full-width bar (`data-test="research-usage"`) under the Meta strip instead of the half-width card; it has the label, the budget amount and bar, the proposals count and bar, and the API spend text, and is one short row (no paragraphs inline).
-- [ ] Every number of the old card is still in the output: used, budget, proposals n of cap, judge and propose runs, share of the assumed quota, quota, limit share, API used, API cap, API runs; the explanatory sentences are inside `<details>` or a `title`, not inline.
-- [ ] The three alerts render inline only when their flag is set; the fallback-off hint shows only when the fallback is off (inside the details).
-- [ ] `researchBar` is a unit-tested pure function; the component has a render test over the real template; singular/plural ("1 run"), zero budget and over-100% values do not give `NaN` or a bar wider than 100%.
-- [ ] No `v-html`; the bar adds no external link.
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] Home shows one full-width bar (`data-test="research-usage"`) under the Meta strip instead of the half-width card; it has the label, the budget amount and bar, the proposals count and bar, and the API spend text, and is one short row (no paragraphs inline).
+- [x] Every number of the old card is still in the output: used, budget, proposals n of cap, judge and propose runs, share of the assumed quota, quota, limit share, API used, API cap, API runs; the explanatory sentences are inside `<details>` or a `title`, not inline.
+- [x] The three alerts render inline only when their flag is set; the fallback-off hint shows only when the fallback is off (inside the details).
+- [x] `researchBar` is a unit-tested pure function; the component has a render test over the real template; singular/plural ("1 run"), zero budget and over-100% values do not give `NaN` or a bar wider than 100%.
+- [x] No `v-html`; the bar adds no external link.
+- [x] Full `pnpm check` passes once on the committed clean tree.
 - [ ] Browser check by cos after merge: desktop and phone width, details disclosure, the bar's height against the old card.
 
 ## Commits
