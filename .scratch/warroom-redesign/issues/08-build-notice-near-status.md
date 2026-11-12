@@ -3,7 +3,7 @@
 
 **What to build:** on an approved Proposal, put a short "Build blocked" marker at the top of the page, next to the `approved` status badge, so the Operator sees the refusal without scrolling. The full notice stays where it is.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none. Interplay: ticket 07 (Clean up build) edits the same Proposal page on another branch, so start 08 only after 07 is merged.
 
@@ -32,7 +32,7 @@ Ticket 05 shows "Build not started: <reason>, retried every 5 s (last checked N 
 - [x] Clicking the marker reaches the full notice at the bottom of the page, and the notice itself is unchanged in place.
 - [x] A test covers the render: refusal present shows the marker; refusal absent, or status not `approved`, shows none.
 - [x] `pnpm check` passes.
-- [ ] Browser check on a `.backup` copy of the DB, as in ticket 05's Comments: the marker appears at the top of Proposal 152's page with no scrolling, the link reaches the notice, and the marker disappears after the refusal clears. Stop the server by PID and delete the DB copy afterwards. Cite it in Comments.
+- [x] Browser check on a `.backup` copy of the DB, as in ticket 05's Comments: the marker appears at the top of Proposal 152's page with no scrolling, the link reaches the notice, and the marker disappears after the refusal clears. Stop the server by PID and delete the DB copy afterwards. Cite it in Comments.
 - [x] The Proposals list row marker is either added with a test or recorded as declined in Comments. (Declined, see Comments.)
 
 ## Interplay
@@ -50,3 +50,4 @@ One commit, after a full `pnpm check`. Subject `War Room ticket 08: the Build-no
 - Implemented in 7df3993: new template-only `BuildBlockedMarker.vue` beside `StatusPill` in the title card, fed the same `buildNoticeView` as the notice (so it shows only for approved + refusal, and updates live with the same fetch). Fixed label "Build blocked", an `<a href="#build-notice">`; `BuildNotice.vue` only gained `id="build-notice"`. Tests in `server/test/build-notice.test.ts`. `pnpm check` passed, stamped tree 9f56a96d13.
 - Decision: the Proposals list row marker is declined. The list payload carries no refusal data, so a marker would need a new API field and per-row lookup for little gain; the detail page is where the Operator acts.
 - Browser check (Proposal 152, `.backup` copy) not done; left for cos.
+- 2026-11-12 browser check (cos, Chrome) on a worktree War Room :3101 + worker on a .backup copy (isolation as in 05), Proposal 152 approved with a token-missing refusal: the 'Build blocked' marker shows beside the approved badge without scrolling; clicking it sets #build-notice and scrolls to the full notice. Copy and worktree removed.
