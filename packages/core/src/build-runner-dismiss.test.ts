@@ -18,6 +18,19 @@ function dismissOnCloudflareCall(h: Harness, proposalId: number, nth: number): v
   }) as typeof fetch;
 }
 
+/** Dismisses the Proposal from inside the first request the runner makes to the (fake) preview: the click landing after `wrangler deploy`. */
+function dismissOnPreviewFetch(h: Harness, proposalId: number): void {
+  const inner = h.options.fetch!;
+  let done = false;
+  h.options.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    if (new URL(String(input)).hostname !== "api.cloudflare.com" && !done) {
+      done = true;
+      h.store.transition(proposalId, "dismissed", "operator", "not wanted");
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+}
+
 /** Fails fast (and loudly) where a Build that does not stop would otherwise hang the test. */
 async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -97,6 +110,21 @@ describe("dismissing a Proposal stops its running Build", { timeout: 60_000 }, (
     const run = await cleanupBuild(after, { buildRoot: h.buildRoot, env: {}, githubToken: () => "gh-sentinel", fetch: github });
     expect(run.results.map((r) => [r.artifact, r.outcome])).toEqual([["worker", "skipped"], ["repo", "deleted"], ["directory", "skipped"]]);
     expect(asked).toEqual([`GET https://api.github.com/repos/fake-owner/${p.slug}`, `DELETE https://api.github.com/repos/fake-owner/${p.slug}`]);
+  });
+
+  it("during the preview check, after wrangler deploy: the run closes as aborted, the stop is noted and the Worker is a leftover", async () => {
+    const h = start();
+    const p = h.seedApproved("Cat Coin");
+    dismissOnPreviewFetch(h, p.id);
+    expect(await within(runNextBuild(h.store, h.brain, h.options), 30_000, "the dismissed Build")).toEqual({ proposalId: p.id, result: "abandoned" });
+    expect(h.deployCalls()).toHaveLength(1);
+    expect(h.store.getProposal(p.id)).toMatchObject({ status: "dismissed", previewUrl: null, workerDeployed: true, brainRunInFlightSince: null });
+    expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "aborted" }]);
+    expect(visible(h, p.id)).toMatch(/no longer building \(dismissed meanwhile\)/);
+    // The deployed Worker is what Clean up build removes: the closed run no longer blocks it.
+    const after = h.store.getProposal(p.id)!;
+    expect(cleanupPlan(after, h.buildRoot).worker).toEqual({ name: p.slug, found: true });
+    expect(cleanupRefusal(h.store, after, h.buildRoot)).toBeNull();
   });
 
   it("Clean up build is refused until the Build has stopped, then allowed", async () => {

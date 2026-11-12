@@ -120,9 +120,9 @@ export function cleanupRefusal(store: Pick<Datastore, "historyFor" | "brainRunsF
   if (p.status === "launched") return "Clean up build is never done for a launched Proposal: its site stays up";
   if (!CLEANUP_STATUSES.includes(p.status)) return `Clean up build needs a dismissed, closed or build-failed Proposal (it is ${p.status}; dismiss it first)`;
   if (p.mint !== null || store.historyFor(p.id).some((h) => h.to === "launched")) return "Clean up build is never done for a Proposal that was launched: its site stays up";
-  // Dismissing a `building` Proposal does not stop its Build. The Build's run row (opened by beginBuild, closed by the runner when it
-  // ends, and marked interrupted by the stale sweep if its worker died) is the one signal that the runner is still going, and it
-  // outlives the status: so a dismissed Proposal is cleaned only once that row is closed.
+  // Dismissing a `building` Proposal stops its Build, but not at once: the runner notices on its next step or poll. The Build's run row
+  // (opened by beginBuild, closed by the runner when it ends, and marked interrupted by the stale sweep if its worker died) is the one
+  // signal that the runner has stopped, and it outlives the status: so a dismissed Proposal is cleaned only once that row is closed.
   if (store.brainRunsFor(p.id).some((r) => r.task === "build" && r.exitStatus === BRAIN_RUN_IN_FLIGHT)) {
     return "A Build is still running for this Proposal (it was dismissed while building); clean up once it has stopped";
   }
@@ -351,7 +351,8 @@ export async function runPendingCleanups(store: Datastore, o: PendingCleanupOpti
       }
       // The claim keeps a re-queue (or another clean-up, in another worker process) from running while this one applies. If the Proposal
       // moved on since the check above, or another clean-up holds it, the command stays pending: the next pass decides it.
-      if (!store.beginCleanup(p.id, CLEANUP_STATUSES)) {
+      const claimedAt = new Date();
+      if (!store.beginCleanup(p.id, CLEANUP_STATUSES, claimedAt)) {
         o.log?.(`[worker] clean-up of proposal ${p.id} not started: another clean-up holds it, or it is no longer ${CLEANUP_STATUSES.join(", ")}; left pending`);
         continue;
       }
@@ -369,7 +370,7 @@ export async function runPendingCleanups(store: Datastore, o: PendingCleanupOpti
         store.resolveCommand(c.id, () => store.recordCleanup(p.id, run.results.map(cleanupLine), run.cleaned, run.repoToRecord));
         n++;
       } finally {
-        store.endCleanup(p.id);
+        store.endCleanup(p.id, claimedAt);
       }
     } catch (e) {
       o.onError?.(c, e);

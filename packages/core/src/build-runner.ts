@@ -903,7 +903,9 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     try {
       store.completeBuild(id, { previewUrl: url });
     } catch (e) {
-      note(`Could not mark the Proposal built: ${e instanceof Error ? e.message : String(e)}`);
+      // Dismissed after the deploy started: the Worker stays recorded as a leftover, and the run closes as aborted with the stop noted.
+      if (store.getProposal(id)?.status === "dismissed") return abandon();
+      note(`Could not mark the Proposal built:${e instanceof Error ? e.message : String(e)}`);
       return { proposalId: id, result: "abandoned" };
     }
     // A built Build is never resumed: its home (session transcripts, package store) goes. A failed Build keeps it (design Q8).

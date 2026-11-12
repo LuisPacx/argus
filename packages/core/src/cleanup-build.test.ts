@@ -616,11 +616,24 @@ describe("a re-queue and a clean-up for the same Proposal never run together", (
     // A worker that died mid-clean-up does not block the Proposal for good.
     expect(ds.cleanupRunning(p.id, new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1))).toBe(false);
     expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1))).toBe(true);
-    ds.endCleanup(p.id);
+    ds.endCleanup(p.id, new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1));
     expect(ds.cleanupRunning(p.id)).toBe(false);
     // Re-queued before the clean-up began: nothing is claimed.
     ds.transition(p.id, "approved", "operator");
     expect(ds.beginCleanup(p.id, CLEANUP_STATUSES)).toBe(false);
+  });
+
+  it("a clean-up that outlived its claim does not clear the newer claim another clean-up took", () => {
+    const ds = Datastore.open(":memory:");
+    const p = seed(ds, "build-failed");
+    const t0 = new Date("2026-11-12T10:00:00Z");
+    const t1 = new Date(t0.getTime() + CLEANUP_CLAIM_TTL_MS + 1);
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, t0)).toBe(true);
+    expect(ds.beginCleanup(p.id, CLEANUP_STATUSES, t1)).toBe(true); // the first claim had expired
+    ds.endCleanup(p.id, t0); // the slow first clean-up finishes late
+    expect(ds.cleanupRunning(p.id, new Date(t1.getTime() + 1_000))).toBe(true);
+    ds.endCleanup(p.id, t1);
+    expect(ds.cleanupRunning(p.id, new Date(t1.getTime() + 1_000))).toBe(false);
   });
 
   it("a clean-up whose Proposal was re-queued first touches nothing", async () => {

@@ -1494,9 +1494,13 @@ export class Datastore {
     });
   }
 
-  /** WORKER ONLY. Lets go of the Proposal after a "Clean up build" run, whatever its outcome. */
-  endCleanup(proposalId: number): void {
-    this.db.prepare("UPDATE proposals SET cleanup_claimed_at = NULL WHERE id = ?").run(proposalId);
+  /**
+   * WORKER ONLY. Lets go of the Proposal after a "Clean up build" run, whatever its outcome. `claimedAt` is the `now` the run passed to
+   * `beginCleanup`: only that claim is cleared, so a run that outlived its claim (it expired and another clean-up took the Proposal)
+   * does not clear the newer one.
+   */
+  endCleanup(proposalId: number, claimedAt: Date): void {
+    this.db.prepare("UPDATE proposals SET cleanup_claimed_at = NULL WHERE id = ? AND cleanup_claimed_at = ?").run(proposalId, claimedAt.toISOString());
   }
 
   /** Is a "Clean up build" run applying for this Proposal right now (a claim younger than CLEANUP_CLAIM_TTL_MS)? */
