@@ -3,7 +3,7 @@
 
 **What to build:** dismissing a `building` Proposal aborts its Build at the next safe point. No deploy and no GitHub repo creation may run after the dismissal. The run closes as aborted or interrupted, and the page says so. Also, a re-queue and a clean-up for the same Proposal can never run at the same time.
 
-**Status:** done; browser check by cos still open
+**Status:** done; browser check deferred to the next real Build that is dismissed while building (user, 2026-11-12)
 
 **Blocked by:** none. Interplay: this ticket touches `build-runner.ts`, `lifecycle.ts` and `cleanup-build.ts`. Run it after the `pnpm check` speed-up branch (test files only) is merged, or in a worktree.
 
@@ -61,3 +61,4 @@ Implemented (commit f89a1fd; `pnpm check` passed, stamped tree 7d8e2f01bb; the f
 - **Re-queue vs clean-up.** In one worker the two cannot overlap by tick order, but a `--once` run beside the daemon can. A claim on the Proposal row (`cleanup_claimed_at`, `Datastore.beginCleanup`/`endCleanup`/`cleanupRunning`) is taken in a `BEGIN IMMEDIATE` transaction that rechecks the status; `applyCommand` for `requeue` checks it inside the command's transaction and rejects with "Clean up build is running". `runPendingCleanups` leaves its command pending when the claim is held, and always lets go in `finally`. The claim is void after 10 minutes, so a worker that died mid-clean-up does not block the Proposal. Chosen over a status check alone because it also keeps two clean-ups from deleting twice, and over an in-process lock because the processes differ.
 - No token in any new line or row: the new log lines name no credential (tested with the sentinel secrets of the harness).
 - Browser check by cos: not done. It needs a real Build dismissed while running: the stopped note, the artifacts, and a Clean up build after it.
+- 2026-11-12 (cos): merged and pushed at f710520, after the review fixes e5bdd35 and f710520. The browser box stays open by the user's decision: it is deferred to the next real Build that is dismissed while building (no throwaway Build for it). Check it then: the stopped note, the three artifact results, and a Clean up build after it. The box stays unticked.
