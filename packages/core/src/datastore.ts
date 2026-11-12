@@ -77,6 +77,10 @@ export interface Proposal {
   buildSessionId: string | null;
   /** Whether the latest Build deployed the Proposal's Worker to Cloudflare (a leftover the Operator removes before a re-queue). */
   workerDeployed: boolean;
+  /** `owner/slug` of the private GitHub repo this Build created (recorded at `gh repo create`); null for a Build from before it was recorded, or none created. */
+  buildRepo: string | null;
+  /** Whether "Clean up build" last found nothing of the Build's artifacts left to remove. A fresh Build resets it. */
+  buildCleaned: boolean;
   /** When the Proposal goes stale and closes (ISO); null for a state that never expires. Counted from the last change (`updatedAt`). */
   expiresAt: string | null;
   /** The Narrative the propose pass made this Proposal from; null for a hand-entered one. A Narrative has at most one Proposal. */
@@ -316,6 +320,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "preview_url", "TEXT");
   ensureColumn(db, "proposals", "worker_deployed", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "proposals", "mint", "TEXT");
+  ensureColumn(db, "proposals", "build_repo", "TEXT");
+  ensureColumn(db, "proposals", "build_cleaned", "INTEGER NOT NULL DEFAULT 0");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_mint ON proposals(mint) WHERE mint IS NOT NULL");
   migrateRubric(db);
   // Signals (phase 2 ticket 01): additive and idempotent. `id` is the Source's stable per-item id, so a re-poll cannot duplicate.
@@ -421,6 +427,8 @@ interface Row {
   mint: string | null;
   build_session_id: string | null;
   worker_deployed: number;
+  build_repo: string | null;
+  build_cleaned: number;
   narrative_id: number | null;
   score_id: number | null;
   narrative_created_at: string | null;
@@ -461,6 +469,8 @@ function toProposal(r: Row): Proposal {
     mint: r.mint,
     buildSessionId: r.build_session_id,
     workerDeployed: r.worker_deployed === 1,
+    buildRepo: r.build_repo,
+    buildCleaned: r.build_cleaned === 1,
     // `new` counts from creation: Undo shortlist returns a Proposal to `new` and must not restart its 48 h. `shortlisted` counts from
     // the latest shortlist (a re-shortlist after an undo is a new decision and gets its own 7 days).
     expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at)),
@@ -1423,7 +1433,7 @@ export class Datastore {
       // The condition that refused the Build is gone: the other approved Proposals' refusals were the same worker-wide one.
       this.db.exec("DELETE FROM build_refusals");
       // A fresh Build: the Worker a previous one deployed was removed by the Operator before the re-queue.
-      this.db.prepare("UPDATE proposals SET worker_deployed = 0 WHERE id = ?").run(proposalId);
+      this.db.prepare("UPDATE proposals SET worker_deployed = 0, build_repo = NULL, build_cleaned = 0 WHERE id = ?").run(proposalId);
       return this.startBrainRun({ proposalId, task: "build", ...route });
     });
   }
@@ -1455,6 +1465,31 @@ export class Datastore {
   /** WORKER ONLY. Records that the Build deployed the Proposal's Worker to Cloudflare (it is a leftover if the Build then fails). */
   markWorkerDeployed(proposalId: number): void {
     this.db.prepare("UPDATE proposals SET worker_deployed = 1 WHERE id = ?").run(proposalId);
+  }
+
+  /** WORKER ONLY. Records the private GitHub repo (`owner/slug`) this Build created: the only repo "Clean up build" will delete without a typed confirmation. */
+  recordBuildRepo(proposalId: number, repo: string): void {
+    this.db.prepare("UPDATE proposals SET build_repo = ? WHERE id = ?").run(repo, proposalId);
+  }
+
+  /**
+   * WORKER ONLY. Records one "Clean up build" run: one `status_history` row per artifact (the status stays what it is, actor
+   * `operator`), `build_cleaned` set to `cleaned`, and `repo` kept as the Build's repo when a legacy one was just removed (so a
+   * second run can say it is gone). Never changes the Proposal's status.
+   */
+  recordCleanup(proposalId: number, lines: readonly string[], cleaned: boolean, repo?: string): void {
+    this.inTransaction(() => {
+      const current = this.getProposal(proposalId);
+      if (!current) throw new ProposalNotFoundError(proposalId);
+      const now = new Date().toISOString();
+      for (const line of lines) {
+        this.db
+          .prepare("INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, ?, ?, 'operator', ?, ?)")
+          .run(proposalId, current.status, current.status, line, now);
+      }
+      this.db.prepare("UPDATE proposals SET build_cleaned = ? WHERE id = ?").run(cleaned ? 1 : 0, proposalId);
+      if (repo !== undefined) this.db.prepare("UPDATE proposals SET build_repo = ? WHERE id = ?").run(repo, proposalId);
+    });
   }
 
   /**

@@ -29,6 +29,7 @@ export * from "./meta/summary-pass.ts";
 export * from "./disclosure.ts";
 export * from "./build-refusal.ts";
 export * from "./build-runner.ts";
+export * from "./cleanup-build.ts";
 export * from "./build-image.ts";
 export * from "./sandbox.ts";
 export * from "./telegram.ts";

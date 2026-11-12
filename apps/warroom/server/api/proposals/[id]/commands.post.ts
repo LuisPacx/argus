@@ -1,6 +1,6 @@
-import { MAX_REVISE_INSTRUCTION_CHARS, isMintAddress, type CommandType } from "@argus/core";
+import { MAX_REVISE_INSTRUCTION_CHARS, cleanupPlan, cleanupRefusal, isMintAddress, type CommandType } from "@argus/core";
 
-const types: CommandType[] = ["shortlist", "undo-shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue", "mark-launched"];
+const types: CommandType[] = ["shortlist", "undo-shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue", "mark-launched", "cleanup-build"];
 
 export default defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
@@ -25,6 +25,17 @@ export default defineEventHandler(async (event) => {
     if (other !== null && other !== id) {
       throw createError({ statusCode: 409, statusMessage: `That mint is already recorded on Proposal ${other}; each token belongs to one Proposal` });
     }
+  }
+  // Clean up build deletes things outside argus. The worker decides; this is fast feedback, and the typed repo name of a legacy Build
+  // travels in `reason` (checked again by the worker, which deletes nothing for a name that does not match).
+  if (type === "cleanup-build") {
+    const refusal = cleanupRefusal(useStore(), proposal, useBuildRoot());
+    if (refusal !== null) throw createError({ statusCode: 409, statusMessage: refusal });
+    const { repo } = cleanupPlan(proposal, useBuildRoot());
+    if (repo.legacy && reason !== repo.name) {
+      throw createError({ statusCode: 400, statusMessage: `This Build's repo was not recorded: type ${repo.name} to confirm deleting it` });
+    }
+    return useStore().enqueueCommand(id, type, repo.legacy ? reason : "");
   }
   // Fast feedback only; the worker re-checks when it applies the command.
   if (type === "undo-shortlist" && proposal.status !== "shortlisted" && proposal.status !== "spec-drafted") {

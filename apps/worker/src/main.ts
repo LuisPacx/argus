@@ -50,6 +50,7 @@ import {
   researchConfigFromEnv,
   revisePendingSpecs,
   RunCancels,
+  runPendingCleanups,
   runPendingBuilds,
   startupConfigLine,
   STUDY_CAPTURE_RULE,
@@ -165,10 +166,25 @@ const applyCommands = () => {
   );
   if (n > 0) console.log(`[worker] resolved ${n} command(s)`);
 };
+// "Clean up build" commands reach Cloudflare and GitHub, so they have their own async pass. They use the Build's credential sources
+// (the Cloudflare keys from the environment or .env; the GitHub token from GH_TOKEN/GITHUB_TOKEN or `gh auth token`). A dry run
+// deletes nothing and leaves the commands pending.
+const applyCleanups = async () => {
+  if (dryRun) return;
+  const n = await runPendingCleanups(store, {
+    buildRoot,
+    env: { ...process.env, ...cloudflareEnv(process.env, envFile) },
+    ghBin: process.env.ARGUS_GH_BIN || undefined,
+    log: console.log,
+    onError: (c, e) => console.error(`[worker] cleanup command ${c.id} hit a non-domain error (attempt recorded):`, e),
+  });
+  if (n > 0) console.log(`[worker] resolved ${n} clean-up command(s)`);
+};
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
     applyCommands();
+    await applyCleanups();
     sweepStaleRuns();
     expireStaleProposals(store, new Date(), console.log);
     announceNewProposals(store, notifier);

@@ -18,6 +18,8 @@ describe("Build Runner: happy path", { timeout: 60_000 }, () => {
     const built = h.store.getProposal(p.id)!;
     expect(built.status).toBe("built");
     expect(built.previewUrl).toBe("https://cat-coin.fake-account.workers.dev");
+    // The repo gh reported is recorded, so Clean up build can later delete that one (and only that one).
+    expect(built.buildRepo).toBe("fake-owner/cat-coin");
     // approved -> building -> built, all by the build actor, through the lifecycle table.
     expect(h.store.historyFor(p.id).map((e) => [e.from, e.to, e.actor])).toEqual([
       [null, "new", "system"],

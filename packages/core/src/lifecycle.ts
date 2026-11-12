@@ -112,7 +112,7 @@ export function approve(store: Datastore, proposalId: number, actor: Actor = "op
   store.transition(proposalId, "approved", actor, reason);
 }
 
-export type CommandType = "shortlist" | "undo-shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue" | "mark-launched";
+export type CommandType = "shortlist" | "undo-shortlist" | "dismiss" | "approve" | "revise" | "retry-spec" | "requeue" | "mark-launched" | "cleanup-build";
 export type CommandStatus = "pending" | "applied" | "rejected" | "failed";
 
 export interface Command {
@@ -195,6 +195,7 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
     else retrySpecCommand(store, proposal);
     return;
   }
+  if (command.type === "cleanup-build") throw new DomainError("Clean up build is applied by the worker's cleanup pass, not by applyCommand");
   if (command.type === "undo-shortlist") {
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
     undoShortlistCommand(store, proposal, opts);
@@ -219,9 +220,10 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
   if (command.type === "approve" && proposal.status === "build-failed") throw new DomainError("A failed Build is re-queued, not approved");
   if (command.type === "requeue" && proposal.status !== "build-failed") throw new DomainError(`Re-queue needs a build-failed Proposal (it is ${proposal.status})`);
   if (command.type === "requeue") {
-    // argus never deletes a Build's repos: a fresh Build needs the directory and the GitHub repo gone, so the Operator removes them first.
+    // A re-queue deletes nothing: a fresh Build needs the directory and the GitHub repo gone, so the Operator removes them first
+    // (the "Clean up build" action does it, see cleanup-build.ts).
     if (leftovers === undefined) throw new Error("re-queue applied without its leftovers check");
-    if (leftovers.length > 0) throw new DomainError(`Not re-queued: remove ${leftovers.join(", ")}, then re-queue. argus never deletes them.`);
+    if (leftovers.length > 0) throw new DomainError(`Not re-queued: remove ${leftovers.join(", ")} (the Clean up build action does it), then re-queue. Re-queue itself deletes nothing.`);
   }
   if (command.type === "approve") approve(store, command.proposalId, "operator", reason);
   else if (command.type === "dismiss") {
@@ -243,6 +245,8 @@ export function applyCommand(store: Datastore, command: Command, opts: ApplyOpti
 export function applyPendingCommands(store: Datastore, onError: ((command: Command, error: unknown) => void) | undefined, opts: ApplyOptions & RequeueChecks): number {
   let n = 0;
   for (const c of store.pendingCommands()) {
+    // Clean up build reaches Cloudflare and GitHub: `runPendingCleanups` (async) applies it, never this synchronous pass.
+    if (c.type === "cleanup-build") continue;
     try {
       // The slow checks (filesystem, `gh`) run here, before resolveCommand opens its write transaction. Only a re-queue of a
       // build-failed Proposal needs them; any other re-queue is refused by applyCommand before it needs them (and fails closed if the status moved to build-failed meanwhile). A check that cannot be

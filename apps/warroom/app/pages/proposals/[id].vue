@@ -88,7 +88,7 @@ async function save() {
 
 const mint = ref("");
 
-async function send(type: "shortlist" | "undo-shortlist" | "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched", reason = ""): Promise<boolean> {
+async function send(type: "shortlist" | "undo-shortlist" | "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched" | "cleanup-build", reason = ""): Promise<boolean> {
   // Undo is the one command that is meant for a Spec run in flight (it cancels it), so only a pending command holds it back.
   if (sending.value || (type === "undo-shortlist" ? pending.value : working.value)) return false;
   sending.value = true;
@@ -115,6 +115,24 @@ async function confirmShortlist() {
 }
 const cancelShortlist = () => {
   confirmingShortlist.value = false;
+  error.value = "";
+};
+// Clean up build deletes a Worker, a GitHub repo and a directory, so it asks first, listing what will go. Nothing is queued until the
+// Operator confirms; a Build from before repos were recorded also needs the repo's name typed.
+const confirmingCleanup = ref(false);
+const typedRepo = ref("");
+const cleanupTypedOk = computed(() => !p.value?.cleanup.confirmName || typedRepo.value.trim() === p.value.cleanup.confirmName);
+const showArtifacts = computed(() => !!p.value && (p.value.cleanup.available || p.value.cleanup.cleaned || p.value.cleanup.results.length > 0 || !!p.value.cleanup.refusal));
+async function confirmCleanup() {
+  if (!cleanupTypedOk.value) return;
+  if (await send("cleanup-build", typedRepo.value.trim())) {
+    confirmingCleanup.value = false;
+    typedRepo.value = "";
+  }
+}
+const cancelCleanup = () => {
+  confirmingCleanup.value = false;
+  typedRepo.value = "";
   error.value = "";
 };
 // A Spec run in flight does not hold Undo back: cancelling it is the point. Only a pending command or a double click does.
@@ -184,9 +202,11 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <p class="note">To continue its session, run in tmux on the host:</p>
             <pre class="inset overflow-auto whitespace-pre-wrap p-3 text-xs">{{ p.resumeCommand }}</pre>
           </template>
-          <p class="note muted">Re-queue starts a fresh Build: first remove ~/code/{{ p.slug }}, the private GitHub repo {{ p.slug }}<template v-if="p.workerDeployed"> and the Cloudflare Worker {{ p.slug }} (the Build deployed it)</template>. Re-queue is refused while the directory or the repo is still there.</p>
+          <p class="note muted">Re-queue starts a fresh Build. It is refused while ~/code/{{ p.slug }} or the private GitHub repo {{ p.slug }} is still there<template v-if="p.cleanup.available">: use Clean up build under Build artifacts first</template>.</p>
           <div><button class="btn btn-primary" :disabled="working || sending" @click="send('requeue')">Re-queue</button></div>
         </section>
+
+        <BuildArtifacts v-if="showArtifacts" :view="p.cleanup" :disabled="working || sending" @open="confirmingCleanup = true" />
 
         <section v-if="p.status === 'built' && p.launchUrl" class="surface grid gap-3">
           <h3 class="section-title">Launch</h3>
@@ -278,6 +298,29 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
     >
       <p>This starts drafting a Spec with the brain (one Sonnet run).</p>
       <p>You can undo the shortlist until you approve the Spec.</p>
+    </ConfirmModal>
+
+    <ConfirmModal
+      v-if="p.cleanup.plan"
+      :open="confirmingCleanup"
+      :title="`Clean up the Build of ${p.name}?`"
+      confirm-label="Delete these"
+      :busy="sending || !cleanupTypedOk"
+      :error="confirmingCleanup ? error : ''"
+      @confirm="confirmCleanup"
+      @cancel="cancelCleanup"
+    >
+      <p>This permanently deletes, in this order, whatever of these is still there:</p>
+      <ul class="grid gap-1" data-test="cleanup-plan">
+        <li>Cloudflare Worker <code>{{ p.cleanup.plan.worker.name }}</code>: {{ p.cleanup.plan.worker.found ? "found" : "not found" }}</li>
+        <li>GitHub repo <code>{{ p.cleanup.plan.repo.name ?? "(none recorded)" }}</code>: {{ p.cleanup.plan.repo.found ? "found" : "not found" }}</li>
+        <li>Directory <code class="break-all">{{ p.cleanup.plan.directory.path }}</code>: {{ p.cleanup.plan.directory.found ? "found" : "not found" }}</li>
+      </ul>
+      <p>Found and not found come from argus's records and the disk. Cloudflare and GitHub are asked when you confirm; each is deleted only if argus made it, and one that is not argus's is left alone and reported.</p>
+      <label v-if="p.cleanup.confirmName" class="grid gap-1">
+        <span>This Build's repo was not recorded (it is older than that). To confirm deleting it, type <code>{{ p.cleanup.confirmName }}</code>:</span>
+        <input v-model="typedRepo" class="field" data-test="cleanup-type" autocomplete="off" spellcheck="false" :disabled="sending" />
+      </label>
     </ConfirmModal>
   </div>
   <p v-else class="surface muted">Proposal not found.</p>

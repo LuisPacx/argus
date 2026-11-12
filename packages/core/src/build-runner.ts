@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
 import { buildHomeFor, removeTree } from "./build-home.ts";
 import { cloudflareRefusal } from "./build-refusal.ts";
+import { parseGithubRepo } from "./cleanup-build.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
@@ -667,7 +668,11 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
       const templateCommit = await inRepo("git rev-parse", "rev-parse", "HEAD");
       const branch = await inRepo("git rev-parse", "rev-parse", "--abbrev-ref", "HEAD");
       if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch === "HEAD") throw new StepError(`the template checkout is not on a branch (${JSON.stringify(branch)})`);
-      await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo);
+      const created = await step("gh repo create", gh, ["repo", "create", p.slug, "--private", "--source", ".", "--remote", "origin"], ghEnv, repo);
+      // The repo this Build made, as gh reports it, so "Clean up build" deletes that one and nothing else. Output that names no
+      // github.com repo called the slug records nothing (the Operator then deletes the repo by hand).
+      const createdRepo = created.split(/\s+/).map(parseGithubRepo).find((r) => r !== null && r.endsWith(`/${p.slug}`));
+      if (createdRepo) store.recordBuildRepo(id, createdRepo);
       // From here on the repo's own settings are the agent's to change, so the remote is read once now and used by URL.
       const originUrl = await inRepo("git remote", "remote", "get-url", "origin");
       writeFileSync(join(repo, "SPEC.md"), spec.endsWith("\n") ? spec : spec + "\n");
