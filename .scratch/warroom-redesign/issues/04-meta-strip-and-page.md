@@ -17,15 +17,15 @@
 
 ## Acceptance
 
-- [ ] Home shows the strip (top 5, one row, `data-test="meta-strip"` with `meta-strip-<rank>` cards) instead of the tall section; each card has rank, label, momentum pill, creators and migrations after 60 s, top-token market cap (parts the payload lacks are omitted, never `undefined`/`NaN`); "All Metas →" links to `/meta`; the row scrolls horizontally (`overflow-x-auto`).
-- [ ] Each card links to `/meta#<anchor>`, and the same anchor is the `id` of that Meta's row on the page; `metaAnchor` is a unit-tested pure function (unicode labels, empty, hostile, repeats, clamp).
-- [ ] `/meta` lists every Meta of the run with the old section's content plus migrations after 60 s; the window toggle links to `?window=6h` / `24h` and the numbers follow the ranked window; shows `computedAt` as a footer; empty and stale states render.
-- [ ] "Meta" is in the nav, lit on `/meta`.
-- [ ] Hostile payload (markup, `</script>`, `javascript:` URL, 10,000 characters) renders as clamped text in strip and page, no unsafe `<a>`, no raw HTML, no `v-html`.
-- [ ] Home polls `/api/metas` every 60 s, not 3 s (unchanged); the page does too.
+- [x] Home shows the strip (top 5, one row, `data-test="meta-strip"` with `meta-strip-<rank>` cards) instead of the tall section; each card has rank, label, momentum pill, creators and migrations after 60 s, top-token market cap (parts the payload lacks are omitted, never `undefined`/`NaN`); "All Metas →" links to `/meta`; the row scrolls horizontally (`overflow-x-auto`).
+- [x] Each card links to `/meta#<anchor>`, and the same anchor is the `id` of that Meta's row on the page; `metaAnchor` is a unit-tested pure function (unicode labels, empty, hostile, repeats, clamp).
+- [x] `/meta` lists every Meta of the run with the old section's content plus migrations after 60 s; the window toggle links to `?window=6h` / `24h` and the numbers follow the ranked window; shows `computedAt` as a footer; empty and stale states render.
+- [x] "Meta" is in the nav, lit on `/meta`.
+- [x] Hostile payload (markup, `</script>`, `javascript:` URL, 10,000 characters) renders as clamped text in strip and page, no unsafe `<a>`, no raw HTML, no `v-html`.
+- [x] Home polls `/api/metas` every 60 s, not 3 s (unchanged); the page does too.
 - [ ] `verify:boot` still healthy (page list generated from `app/pages`).
 - [ ] Browser check by cos after merge: desktop and phone width, strip scroll, anchor jump from a card.
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] Full `pnpm check` passes once on the committed clean tree.
 
 ## Commits
 
