@@ -22,7 +22,8 @@
     "verify:parent": "node scripts/verify-parent.mjs",
     "image:build": "node scripts/image-build.mjs",
     "verify:contain": "node scripts/verify-contain.mjs",
-    "prepare": "git config core.hooksPath .githooks"
+    "docs:graph": "node scripts/gen-architecture.mjs",
+    "prepare":"git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "oxlint": "1.91.0",

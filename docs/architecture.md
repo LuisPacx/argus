@@ -10,46 +10,67 @@ Principle: every spend or irreversible step passes through one Operator decision
 
 ## 2. System overview
 
+<!-- generated:pipeline-overview -->
+<!-- Generated from packages/core/src/pipeline-graph.ts and lifecycle.ts by `pnpm docs:graph`. Do not edit by hand. -->
+
 ```mermaid
 flowchart TD
-  SRC["Sources: RSS catalog, Google Trends RSS, PumpPortal events, DexScreener trending, GitHub trending"]
-  ING["Ingestion worker, no LLM, every 5 min"]
-  SIG[("Signals")]
-  NAR["Narratives (clustering)"]
-  BRAIN["Brain pass, every 30 min, delta only, max 30 Proposals per day"]
-  PROP[("Proposals")]
-  WR["War Room (localhost)"]
-  TG["Telegram, notify only"]
-  OP{{"Operator"}}
-  SPEC["Spec draft (on shortlist)"]
-  APPR["Approve"]
-  BR["Build Runner, one Build at a time"]
-  PREV["workers.dev preview"]
-  HAND["Launch handoff: newpairspam form prefilled"]
-  MARK["Operator marks launched + mint"]
-  STUDY["Study (phase 3a): PumpPortal create/migrate, Helius chain reads, Snapshot capture, chain labeller, blind study runs"]
-  PB[("Playbook: lessons and Rubric changes")]
-  REV["War Room: Study page and weekly Playbook review"]
+  SOURCES["Sources<br/>market: PumpPortal, DexScreener<br/>context only: RSS catalog, Google Trends, GitHub trending<br/>plain code, no Claude<br/>Polled every: 5 min"]
+  SIGNALS[("Signals")]
+  NARRATIVES["Narratives<br/>clustering, plain code, no Claude"]
+  JUDGE["Judge<br/>Runs every: 30 min"]
+  PROPOSALS[("Proposals<br/>New Proposals per day: 30")]
+  SHORTLIST["Shortlist"]
+  SPEC["Spec<br/>drafted on shortlist"]
+  APPROVE["Approve"]
+  BUILD["Build<br/>Build Runner, one Build at a time"]
+  PREVIEW["Preview"]
+  STUDY["Study<br/>plain code, no Claude: PumpPortal create and migrate, Snapshots, chain labels"]
+  META["Meta<br/>Ranked every: 15 min"]
+  BETA["Beta finder<br/>(off)"]
+  OPERATOR{{"Operator"}}
+  WARROOM["War Room (localhost)"]
+  TELEGRAM["Telegram, notify only"]
+  HANDOFF["Launch handoff: newpairspam form prefilled"]
+  MARKED["Operator marks launched + mint"]
+  PLAYBOOK[("Playbook: lessons and Rubric changes")]
+  REVIEW["War Room: Study page and weekly Playbook review"]
 
-  SRC --> ING --> SIG --> NAR --> BRAIN --> PROP
-  PROP --> WR
-  PROP --> TG
-  WR --> OP
-  OP -->|shortlist| SPEC
-  SPEC --> OP
-  OP -->|approve| APPR --> BR
-  BR --> PREV
-  PREV --> WR
-  WR --> HAND
-  HAND --> OP
-  OP --> MARK
-  MARK --> PROP
-  SRC -->|"PumpPortal create/migrate"| STUDY
-  STUDY --> PB --> REV --> OP
-  OP -->|"approves lessons"| PB
-  PB -->|"approved lessons, versioned"| BRAIN
-  MARK -->|"mint read-only at 1h, 24h, 7d"| STUDY
+  SOURCES -->|"poll, normalise, dedupe"| SIGNALS
+  SIGNALS -->|"cluster by meaning"| NARRATIVES
+  NARRATIVES -->|"judge new or changed Narratives<br/>Needs a market Signal from: pumpportal:events, dexscreener:trending"| JUDGE
+  JUDGE -->|"Score passes the buildability gate<br/>Buildability gate, minimum (default 5)"| PROPOSALS
+  PROPOSALS -->|"Operator shortlists"| SHORTLIST
+  SHORTLIST -->|"Spec drafted on shortlist"| SPEC
+  SPEC -->|"Operator edits and approves"| APPROVE
+  APPROVE -->|"queued, one Build at a time"| BUILD
+  BUILD -->|"wrangler deploy to workers.dev"| PREVIEW
+  SOURCES -->|"PumpPortal create and migrate"| STUDY
+  SOURCES -->|"launchpad creates"| META
+  META -->|"Meta block in the prompt"| JUDGE
+  META -->|"Meta block in the prompt"| PROPOSALS
+  META -.->|"live Metas"| BETA
+  BETA -.->|"Beta Proposals (not wired)"| PROPOSALS
+  PROPOSALS -->|"list"| WARROOM
+  PROPOSALS -->|"notify"| TELEGRAM
+  WARROOM -->|"reads"| OPERATOR
+  OPERATOR -.->|"shortlist"| SHORTLIST
+  OPERATOR -.->|"approve"| APPROVE
+  PREVIEW -->|"preview link"| WARROOM
+  WARROOM -->|"Launch button"| HANDOFF
+  HANDOFF -.->|"launches outside argus"| OPERATOR
+  OPERATOR -->|"after the launch"| MARKED
+  MARKED -->|"status launched"| PROPOSALS
+  MARKED -->|"mint read-only at 1h, 24h, 7d"| STUDY
+  STUDY -->|"lesson candidates"| PLAYBOOK
+  PLAYBOOK -->|"weekly review"| REVIEW
+  REVIEW -->|"reads"| OPERATOR
+  OPERATOR -.->|"approves lessons"| PLAYBOOK
+  PLAYBOOK -->|"approved lessons, versioned"| JUDGE
+  PLAYBOOK -->|"approved lessons, versioned"| PROPOSALS
 ```
+
+<!-- /generated:pipeline-overview -->
 
 Notes:
 
@@ -61,11 +82,14 @@ Notes:
   1. Create and migrate events from the existing PumpPortal connection (one WebSocket only; `uri` and raw event fields are kept), with event times and labels read from chain (Helius, read-only).
   2. A Snapshot of each token in the population (metadata names a website or X link), frozen at a fixed age: metadata and website at 60 s after create (plain fetch, SSRF guard), X at 5 min (window 5 to 15 min) by a Playwright script in the dedicated logged-in Chrome directory (ADR 0009), about 200 captures per day. No Claude in the capture path.
   3. A chain labeller at 24h (provisional) and 7d (final). The 7d label makes a Case (Snapshot plus outcome bucket); Cases group into weekly Cohorts. Buckets are control, organic migrator and bot-driven migrator (five-check bot filter on raw stored metrics, from our own Helius-based labeller), plus the Fast flag: migrated within 60 s of creation, measured by slice 1 (`.scratch/phase-3-feedback/measurements.md`).
-  4. Blind study runs: the `study` Brain task reads one Snapshot as untrusted data, never the label; aggregation into lesson candidates is plain code.
+  4. Blind study runs (planned, not built: `BrainTask` has no `study` today, so the Study spends no Claude, see section 5): a `study` Brain task would read one Snapshot as untrusted data, never the label; aggregation into lesson candidates is plain code.
   5. The Playbook (lessons and suggested Rubric changes) is reviewed weekly by the Operator in the War Room. Approved lessons are rendered into the judge and propose prompts at call time, with the Playbook version (section 7).
 - The Operator's own Launches are read from chain after "mark launched" and tracked as outcomes only, kept out of Cohort statistics.
 
 ## 3. Proposal lifecycle
+
+<!-- generated:pipeline-lifecycle -->
+<!-- Generated from packages/core/src/pipeline-graph.ts and lifecycle.ts by `pnpm docs:graph`. Do not edit by hand. -->
 
 ```mermaid
 stateDiagram-v2
@@ -74,34 +98,36 @@ stateDiagram-v2
   state "needs-human" as needs_human
 
   [*] --> new
-  new --> shortlisted : Operator shortlists
-  shortlisted --> spec_drafted : system, after Operator shortlists
-  shortlisted --> new : Operator undoes the shortlist
-  spec_drafted --> new : Operator undoes the shortlist
-  spec_drafted --> approved : Operator approves
-  spec_drafted --> approved : system, score threshold (phase 3b, gated)
-  approved --> building : Build step starts
-  approved --> needs_human : Build step, Spec needs on-chain program
-  building --> built : Build step, deploy ok
-  building --> build_failed : Build step, failed after retry
-  build_failed --> approved : Operator re-queues
-  building --> needs_human : Build step, Spec needs on-chain program
-  built --> launched : Operator marks launched with mint
-  launched --> closed : system, at the 7d label with the outcome (phase 3a)
-  new --> closed : system, stale after 48h
-  shortlisted --> closed : system, stale after 7d
-  new --> dismissed : Operator
-  shortlisted --> dismissed : Operator
-  spec_drafted --> dismissed : Operator
-  approved --> dismissed : Operator
-  building --> dismissed : Operator
-  built --> dismissed : Operator
-  launched --> dismissed : Operator
-  build_failed --> dismissed : Operator
-  needs_human --> dismissed : Operator
+  new --> shortlisted : Operator shortlisted (operator)
+  shortlisted --> spec_drafted : Spec drafted (system)
+  shortlisted --> new : Operator undid the shortlist (operator)
+  spec_drafted --> new : Operator undid the shortlist (operator)
+  spec_drafted --> approved : Operator approved (operator)
+  spec_drafted --> approved : Score threshold (system)
+  approved --> building : Build started (build)
+  approved --> needs_human : Spec needs an on-chain program (build)
+  building --> built : Deploy ok (build)
+  building --> build_failed : Build failed after retry (build)
+  build_failed --> approved : Operator re-queued (operator)
+  building --> needs_human : Spec needs an on-chain program (build)
+  built --> launched : Operator marked launched (operator)
+  launched --> closed : Closed after Launch (operator)
+  new --> closed : stale (system)
+  shortlisted --> closed : stale (system)
+  new --> dismissed : Dismissed (operator)
+  shortlisted --> dismissed : Dismissed (operator)
+  spec_drafted --> dismissed : Dismissed (operator)
+  approved --> dismissed : Dismissed (operator)
+  building --> dismissed : Dismissed (operator)
+  built --> dismissed : Dismissed (operator)
+  launched --> dismissed : Dismissed (operator)
+  build_failed --> dismissed : Dismissed (operator)
+  needs_human --> dismissed : Dismissed (operator)
   dismissed --> [*]
   closed --> [*]
 ```
+
+<!-- /generated:pipeline-lifecycle -->
 
 | Transition | Triggered by | Notes |
 |---|---|---|
@@ -132,6 +158,7 @@ Recovery from `build-failed` (decided in ticket 08): the card shows the exact `c
 
 One Build at a time, FIFO by approval time. The brain (research) may run alongside. The Build Runner is a module in `packages/core`, driven by the worker process.
 
+<!-- Not generated: this call sequence (retry branches included) is hand-written. The pipeline graph in packages/core/src/pipeline-graph.ts leaves that level of detail out on purpose, and the Build node on the "How it works" page points here. -->
 ```mermaid
 sequenceDiagram
   autonumber
@@ -195,7 +222,7 @@ Real Builds need these, once (ADR 0005). `pnpm check` and `--dry-run` need none 
 The `Brain` interface is the single seam for all LLM work. Callers ask for a task and get structured output plus cost.
 
 ```ts
-type BrainTask = 'judge' | 'propose' | 'spec' | 'build' | 'study';
+type BrainTask = 'judge' | 'propose' | 'spec' | 'build' | 'meta-summary';
 
 interface BrainRun<T> {
   output: T;
@@ -227,11 +254,13 @@ Routing is data (config file, overridable per task), not code branching:
 | propose | claude-code | sonnet |
 | spec | claude-code | sonnet |
 | build | claude-code | sonnet |
-| study | claude-code | haiku or sonnet, set in its ticket |
+| meta-summary | claude-code | haiku |
 
-The `study` task (phase 3a) reads one frozen Snapshot as delimited untrusted data, with no tools, web or `--chrome`, never sees the label, and returns fixed JSON notes per axis (Narrative, Identity, Tech), validated like a Score. It has its own caps: a rolling-24h run cap (about 100 runs a day, config, lowerable; raising is a reviewed code change) and a per-run `--max-budget-usd`. It never borrows from the judge's or propose's budgets or from Builds, and has no API fallback.
+The `meta-summary` task writes the one-line summary of a Meta (no tools, a judge-sized haiku run, no API fallback); it counts in the research share. The Meta ranking itself is plain code.
 
-Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec`, `build` and `study` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
+There is no `study` task. The Study (phase 3a) is plain code today: PumpPortal events, Snapshot capture under the versioned capture rule (`STUDY_CAPTURE_RULE`, version 1), chain labels, with its own capture cap (`MAX_CAPTURE_RUNS_PER_DAY`); it spends no Claude, and `BrainTask` has no `study` (`DEFAULT_ROUTING` has no row for it). A blind study run is planned (phase 3 ticket 07, not built). It would read one frozen Snapshot as delimited untrusted data, with no tools, web or `--chrome`, never see the label, and return fixed JSON notes per axis (Narrative, Identity, Tech), validated like a Score; it would need its own `BrainTask`, a routing row and its own caps (a rolling-24h run cap of about 100 runs a day, lowerable, and a per-run `--max-budget-usd`), never borrow from the judge's or propose's budgets or from Builds, and have no API fallback. The "How it works" page draws the Study with no Claude cost, and the sync test (`packages/core/src/pipeline-graph.test.ts`) will ask for the node's `brainTask` the day a `study` task appears in `DEFAULT_ROUTING`.
+
+Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec`, `build` and `meta-summary` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
 
 The fallback is **off by default**: `ARGUS_API_FALLBACK=1` turns it on (and needs a key, else the worker says so and stays off). It is a `FallbackBrain` (`api-fallback.ts`) around the two backends. Claude is always asked first. A `rate-limited` claude run of any task (the window is one window) starts a hold: until the reset time claude reported (a rejected `rate_limit_event`'s `resetsAt`, or the epoch after `usage limit reached|`), never more than 6 hours ahead, else for 15 minutes. The run that hit the limit and every judge or propose run during the hold are served by the API; `routeFor` reports the API route meanwhile, so the in-flight row is opened as `api`; and the run that hits the limit (whose row was opened as `claude-code`), like any run whose hold began after its row was opened, is announced through `BrainRunOptions.onBackend` and booked as an `api` run (`Datastore.setBrainRunBackend`) BEFORE the request is sent, with no await between that and the cap check. From then on the row counts in the real-dollar ledger at its task's per-run cap, so overlapping passes see each other's runs and a crash leaves the charge standing (an orphaned row is swept to `interrupted` and is still charged at that cap). If the switch cannot be recorded, nothing is sent. When the hold is over claude is asked again, and a hold never shortens a running one. A plain failure, a budget stop or a timeout of claude never falls back. If the API refuses (its cap) the run fails as the rate limit it was, which ends the pass and leaves the Narrative queued, so reaching the cap stops research for the day without marking anything as failed. Judge and propose passes are otherwise unchanged. The War Room shows each run's backend (Proposal details, Narrative details), the Proposal's API spend, and on the home page today's API spend against its cap, apart from Est. usage.
 
@@ -279,7 +308,7 @@ Load limits, all in code and none raised silently:
 
 Playbook block (phase 3a): the judge and propose prompts carry, besides the Rubric, an approved-lessons block that argus renders at call time (judge: lessons on Narrative and Tech; propose: lessons on Identity and Tech). It holds at most 10 active lessons, sanitised like other prompt data and framed as hints that never override the output contract, and each Score and Proposal records the Playbook version next to the Rubric version. A Playbook change never re-judges old Narratives.
 
-Study caps sit beside the research share and are separate from it: the `study` task has its own rolling-24h run cap (about 100 runs a day) and per-run budget, plus a daily X capture cap (about 200) and a daily Helius credit cap, all in code and lowerable only by configuration (invariant 3). Claude runs stay on the subscription; only real cash (Helius, Cloudflare Browser Rendering and the like) counts against the $100/mo.
+Study caps sit beside the research share and are separate from it: the planned `study` task (not built, section 5) would have its own rolling-24h run cap (about 100 runs a day) and per-run budget, and today's Study has a daily capture cap (`MAX_CAPTURE_RUNS_PER_DAY`), plus a daily X capture cap (about 200) and a daily Helius credit cap, all in code and lowerable only by configuration (invariant 3). Claude runs stay on the subscription; only real cash (Helius, Cloudflare Browser Rendering and the like) counts against the $100/mo.
 
 Score scale: each dimension is scored 0 to 10 (`RUBRIC_MAX_SCORE`), and the default buildability gate is 5 (`SEED_GATE_MIN_SCORE`), both in `packages/core/src/rubric.ts`; the `judge` task follows them.
 

@@ -1,0 +1,628 @@
+/**
+ * The pipeline logic as ONE typed graph (warroom-redesign ticket 10). Three things read it: the War Room's "How it works" page
+ * (`GET /api/pipeline`), the generated diagrams in `docs/architecture.md` (`pipeline-diagrams.ts`, `pnpm docs:graph`), and the sync test
+ * (`pipeline-graph.test.ts`), which fails when the code gains a Source, a worker pass, a brain task or a cap that this file does not draw.
+ *
+ * Pure data plus imports of the real constants; no I/O. Every number a rule shows is a `ref()` over an imported constant, never a
+ * number typed here, so a value cannot drift from the code (the test fails on a numeric literal inside a `ref`). Only layout
+ * (`column`, `row`) is typed in.
+ */
+import { DEFAULT_ROUTING } from "./brain.ts";
+import { BUILD_TICK_MS } from "./build-refusal.ts";
+import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
+import { EXPIRY_MS } from "./expiry.ts";
+import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
+import { META_RULE, META_WINDOWS, metaIntervalMinutes } from "./meta/config.ts";
+import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
+import { DEFAULT_PROPOSE_CONFIG } from "./propose.ts";
+import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd } from "./research-budget.ts";
+import { SEED_GATE_MIN_SCORE } from "./rubric.ts";
+import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
+import { MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./study/config.ts";
+import { INGEST_TICK_MS, JUDGE_TICK_MS, STUDY_TICK_MS } from "./ticks.ts";
+
+/** `on`: running. `off`: declared off (drawn muted). `context-only`: a Source whose Signals are only background (ADR 0011). */
+export type NodeStatus = "on" | "off" | "context-only";
+
+/** How a rule's value is written: the unit decides the display, so the same number never reads two ways. */
+export type RuleUnit = "count" | "usd" | "ms" | "min" | "sec" | "hours" | "score" | "share" | "text";
+
+export interface PipelineRule {
+  label: string;
+  /**
+   * Which code constant this rule shows, as `CONSTANT` or `CONSTANT.field` (`DEFAULT_JUDGE_CONFIG.maxPerPass`). The sync test requires
+   * every gate and cap in the code to be the `key` of some rule, and checks that `ref()` equals the code's value at that key.
+   * A rule with no key shows a derived or incidental figure and covers nothing.
+   */
+  key?: string;
+  /** The value, read from the real constant at call time. */
+  ref: () => number | string;
+  unit: RuleUnit;
+  /** Also written into the generated system overview diagram, beside the node's label. */
+  diagram?: boolean;
+  /** The value the buildability gate shows is the stored Rubric's, not this seed: the API route overrides it (architecture section 7). */
+  liveFrom?: "rubric";
+}
+
+/** One Source (or one family of them, the RSS catalog) on the Sources node. */
+export interface SourceChip {
+  /** The exact Source id as in `SOURCE_CLASS`, or the id prefix (ending in `:`) as in `SOURCE_CLASS_PREFIX`. */
+  id: string;
+  label: string;
+  /** `context-only` for a context-class Source (ADR 0011), `on` for a market one. */
+  status: "on" | "context-only";
+  /** The class names in `packages/core/src/sources/` that implement it. */
+  code: readonly string[];
+}
+
+export interface PipelineNode {
+  id: string;
+  label: string;
+  /** Fixed grid cell on the page. Absent only on a node with `onPage: false`. */
+  column?: number;
+  row?: number;
+  /** False for a node the generated diagrams need but the page does not draw (Operator, Telegram, ...). Default true. */
+  onPage?: boolean;
+  status: NodeStatus;
+  /** Why the status is not `on`. */
+  statusNote?: string;
+  /** One plain sentence. */
+  what: string;
+  rules: readonly PipelineRule[];
+  adrs: readonly string[];
+  tickets: readonly string[];
+  files: readonly string[];
+  /** The worker pass(es) in `apps/worker/src/main.ts` that run it (the `const <name>Tick = reentrant(` names). */
+  worker?: string | readonly string[];
+  /** The Brain task it spends Claude on (a key of `DEFAULT_ROUTING`). Absent: plain code, no Claude cost. */
+  brainTask?: string;
+  sources?: readonly SourceChip[];
+  /** Shape in the generated overview: a box (default), a store (data kept) or an actor (a person). */
+  shape?: "box" | "store" | "actor";
+  /** One line written under the label in the generated overview. */
+  diagramNote?: string;
+}
+
+export interface PipelineEdge {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  /** The key slice b counts for this edge over the last 24 h. */
+  metric?: string;
+  /** Gates drawn on the edge (a rule that decides whether an item passes). */
+  gates?: readonly PipelineRule[];
+  /** A decision or a path that does not move an item (the Operator acting, a path not wired yet). */
+  dashed?: boolean;
+}
+
+export interface PipelineGraph {
+  nodes: readonly PipelineNode[];
+  edges: readonly PipelineEdge[];
+}
+
+const CONTEXT_TICKET = ".scratch/phase-3-feedback/issues/24-context-sources-never-propose.md";
+const META_TICKET = ".scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md";
+const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
+
+export const PIPELINE: PipelineGraph = {
+  nodes: [
+    {
+      id: "sources",
+      label: "Sources",
+      column: 0,
+      row: 0,
+      status: "on",
+      diagramNote: "plain code, no Claude",
+      what: "Polls the public Sources on a timer and keeps what is new as Signals. Plain code: no Claude runs here.",
+      rules: [{ label: "Polled every", ref: () => INGEST_TICK_MS, unit: "ms", diagram: true }],
+      adrs: ["0008-github-trending-uses-the-public-search-api.md", "0011-market-signals-decide-eligibility.md"],
+      tickets: [CONTEXT_TICKET],
+      files: ["apps/worker/src/main.ts", "packages/core/src/sources/source-class.ts", "packages/core/src/ingest.ts", "config/rss-feeds.json"],
+      worker: "ingestTick",
+      sources: [
+        { id: "rss:", label: "RSS catalog", status: "context-only", code: ["RssSource"] },
+        { id: "trends:google", label: "Google Trends", status: "context-only", code: ["GoogleTrendsSource"] },
+        { id: "github:trending", label: "GitHub trending", status: "context-only", code: ["GitHubTrendingSource"] },
+        { id: "pumpportal:events", label: "PumpPortal", status: "on", code: ["PumpPortalSource"] },
+        { id: "dexscreener:trending", label: "DexScreener", status: "on", code: ["DexScreenerTrendingSource"] },
+      ],
+    },
+    {
+      id: "signals",
+      label: "Signals",
+      column: 1,
+      row: 0,
+      shape: "store",
+      status: "on",
+      what: "Every item a Source reported, normalised and deduplicated. Nothing else reads the Sources directly.",
+      rules: [],
+      adrs: [],
+      tickets: [],
+      files: ["packages/core/src/ingest.ts", "packages/core/src/datastore.ts"],
+    },
+    {
+      id: "narratives",
+      label: "Narratives",
+      column: 2,
+      row: 0,
+      status: "on",
+      diagramNote: "clustering, plain code, no Claude",
+      what: "Groups new Signals that mean the same thing into one Narrative, with a local embedding model. Plain code: no Claude runs here.",
+      rules: [],
+      adrs: ["0007-narratives-use-an-in-process-semantic-embedder.md"],
+      tickets: [],
+      files: ["packages/core/src/narratives.ts", "apps/worker/src/semantic-embedder.ts"],
+      worker: "ingestTick",
+    },
+    {
+      id: "judge",
+      label: "Judge",
+      column: 3,
+      row: 0,
+      status: "on",
+      what: "Claude judges each new or changed Narrative against the Rubric and stores a Score per dimension.",
+      rules: [
+        { label: "Runs every", ref: () => JUDGE_TICK_MS, unit: "ms", diagram: true },
+        { label: "Signals a Narrative needs", key: "DEFAULT_JUDGE_CONFIG.minSignals", ref: () => DEFAULT_JUDGE_CONFIG.minSignals, unit: "count" },
+        { label: "Looks back", key: "DEFAULT_JUDGE_CONFIG.windowHours", ref: () => DEFAULT_JUDGE_CONFIG.windowHours, unit: "hours" },
+        { label: "Narratives per pass", key: "DEFAULT_JUDGE_CONFIG.maxPerPass", ref: () => DEFAULT_JUDGE_CONFIG.maxPerPass, unit: "count" },
+        { label: "Runs per day", key: "DEFAULT_JUDGE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_JUDGE_CONFIG.maxRunsPerDay, unit: "count" },
+        { label: "Spend per day", key: "DEFAULT_JUDGE_CONFIG.maxDailyUsd", ref: () => DEFAULT_JUDGE_CONFIG.maxDailyUsd, unit: "usd" },
+        { label: "Spend per run", ref: () => DEFAULT_ROUTING.judge.maxBudgetUsd, unit: "usd" },
+        { label: "Model", ref: () => DEFAULT_ROUTING.judge.model, unit: "text" },
+        { label: "Research daily quota (judge and propose)", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd, unit: "usd" },
+        { label: "Research share of the quota", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.share", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.share, unit: "share" },
+        { label: "Research budget per day", ref: () => researchBudgetUsd(DEFAULT_RESEARCH_BUDGET_CONFIG), unit: "usd" },
+      ],
+      adrs: ["0001-claude-code-headless-brain-with-api-fallback.md", "0011-market-signals-decide-eligibility.md"],
+      tickets: [CONTEXT_TICKET],
+      files: ["packages/core/src/judge.ts", "packages/core/src/research-budget.ts", "packages/core/src/rubric.ts", ".claude/skills/judge/SKILL.md"],
+      worker: "judgeTick",
+      brainTask: "judge",
+    },
+    {
+      id: "proposals",
+      label: "Proposals",
+      column: 4,
+      row: 0,
+      shape: "store",
+      status: "on",
+      what: "Claude turns each Narrative that passed the gate into a Proposal: a name, a ticker and a Tech to build. The Operator sees it as a card.",
+      rules: [
+        { label: "New Proposals per day", key: "DEFAULT_PROPOSE_CONFIG.maxNewPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxNewPerDay, unit: "count", diagram: true },
+        { label: "New Proposals per day, hard cap", key: "MAX_NEW_PROPOSALS_PER_DAY", ref: () => MAX_NEW_PROPOSALS_PER_DAY, unit: "count" },
+        { label: "Narratives per pass", key: "DEFAULT_PROPOSE_CONFIG.maxPerPass", ref: () => DEFAULT_PROPOSE_CONFIG.maxPerPass, unit: "count" },
+        { label: "Runs per day", key: "DEFAULT_PROPOSE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxRunsPerDay, unit: "count" },
+        { label: "Needs a Signal within", key: "DEFAULT_PROPOSE_CONFIG.windowHours", ref: () => DEFAULT_PROPOSE_CONFIG.windowHours, unit: "hours" },
+        { label: "Migrated examples in the prompt", key: "DEFAULT_PROPOSE_CONFIG.migratedExamples", ref: () => DEFAULT_PROPOSE_CONFIG.migratedExamples, unit: "count" },
+        { label: "Spend per run", ref: () => DEFAULT_ROUTING.propose.maxBudgetUsd, unit: "usd" },
+        { label: "Model", ref: () => DEFAULT_ROUTING.propose.model, unit: "text" },
+        { label: "Closed as stale after", key: "EXPIRY_MS.new", ref: () => EXPIRY_MS.new ?? "never", unit: "ms" },
+      ],
+      adrs: ["0011-market-signals-decide-eligibility.md"],
+      tickets: [],
+      files: ["packages/core/src/propose.ts", "packages/core/src/collision.ts", "packages/core/src/expiry.ts", ".claude/skills/propose/SKILL.md"],
+      worker: "proposeTick",
+      brainTask: "propose",
+    },
+    {
+      id: "shortlist",
+      label: "Shortlist",
+      column: 5,
+      row: 0,
+      status: "on",
+      what: "The Operator's first decision. Shortlisting starts one paid Spec run; the Operator can undo it until the Spec is approved.",
+      rules: [{ label: "Closed as stale after", key: "EXPIRY_MS.shortlisted", ref: () => EXPIRY_MS.shortlisted ?? "never", unit: "ms" }],
+      adrs: [],
+      tickets: [],
+      files: ["packages/core/src/lifecycle.ts", "packages/core/src/expiry.ts"],
+      worker: "tick",
+    },
+    {
+      id: "spec",
+      label: "Spec",
+      column: 6,
+      row: 0,
+      status: "on",
+      diagramNote: "drafted on shortlist",
+      what: "Claude drafts a build Spec for the shortlisted Proposal; the Operator edits it in the War Room.",
+      rules: [
+        { label: "Spend per run", ref: () => DEFAULT_ROUTING.spec.maxBudgetUsd, unit: "usd" },
+        { label: "Model", ref: () => DEFAULT_ROUTING.spec.model, unit: "text" },
+      ],
+      adrs: ["0003-one-build-archetype-via-template-repo.md"],
+      tickets: [],
+      files: ["packages/core/src/spec-drafting.ts", ".claude/skills/spec/SKILL.md"],
+      worker: "tick",
+      brainTask: "spec",
+    },
+    {
+      id: "approve",
+      label: "Approve",
+      column: 7,
+      row: 0,
+      status: "on",
+      what: "The Operator approves the Spec. This is the one gate before a Build, and one function (`approve()`) makes it, so a rule could replace the click later.",
+      rules: [],
+      adrs: [],
+      tickets: [],
+      files: ["packages/core/src/lifecycle.ts"],
+      worker: "tick",
+    },
+    {
+      id: "build",
+      label: "Build",
+      column: 8,
+      row: 0,
+      status: "on",
+      diagramNote: "Build Runner, one Build at a time",
+      what: "Builds the approved Spec as a Cloudflare Workers web app in a rootless container, one Build at a time. The call sequence is in docs/architecture.md section 4.",
+      rules: [
+        { label: "Queue checked every", ref: () => BUILD_TICK_MS, unit: "ms" },
+        { label: "Spend per Build run", ref: () => DEFAULT_ROUTING.build.maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock", ref: () => DEFAULT_ROUTING.build.timeoutMs, unit: "ms" },
+        { label: "Model", ref: () => DEFAULT_ROUTING.build.model, unit: "text" },
+      ],
+      adrs: ["0003-one-build-archetype-via-template-repo.md", "0005-builds-run-in-a-rootless-podman-container.md"],
+      tickets: [],
+      files: ["packages/core/src/build-runner.ts", "packages/core/src/sandbox.ts", "packages/core/src/brain.ts", "docs/architecture.md"],
+      worker: "buildTick",
+      brainTask: "build",
+    },
+    {
+      id: "preview",
+      label: "Preview",
+      column: 9,
+      row: 0,
+      status: "on",
+      what: "The built app on workers.dev. argus crawls it itself before it counts as built. The Operator launches the token elsewhere (newpairspam).",
+      rules: [],
+      adrs: ["0002-argus-does-not-launch-tokens.md"],
+      tickets: [],
+      files: ["packages/core/src/build-runner.ts", "packages/core/src/disclosure.ts"],
+    },
+    {
+      id: "study",
+      label: "Study",
+      column: 0,
+      row: 1,
+      status: "on",
+      diagramNote: "plain code, no Claude: PumpPortal create and migrate, Snapshots, chain labels",
+      what: "Records every PumpPortal create and migrate and takes a Snapshot of each new token at a fixed age. Plain code: no Claude runs, so no spend.",
+      rules: [
+        { label: "Capture pass every", ref: () => STUDY_TICK_MS, unit: "ms" },
+        { label: "Capture rule version", key: "STUDY_CAPTURE_RULE.version", ref: () => STUDY_CAPTURE_RULE.version, unit: "count" },
+        { label: "Metadata and website Snapshot at age", key: "STUDY_CAPTURE_RULE.snapshotAgeSec", ref: () => STUDY_CAPTURE_RULE.snapshotAgeSec, unit: "sec" },
+        { label: "X capture at age", key: "STUDY_CAPTURE_RULE.xCaptureAgeSec", ref: () => STUDY_CAPTURE_RULE.xCaptureAgeSec, unit: "sec" },
+        { label: "Fast migration within", key: "STUDY_CAPTURE_RULE.fastMigrationSec", ref: () => STUDY_CAPTURE_RULE.fastMigrationSec, unit: "sec" },
+        { label: "Captures per day, hard cap", key: "MAX_CAPTURE_RUNS_PER_DAY", ref: () => MAX_CAPTURE_RUNS_PER_DAY, unit: "count" },
+      ],
+      adrs: ["0009-x-capture-through-a-dedicated-logged-in-browser.md"],
+      tickets: [".scratch/phase-3-feedback/issues/02-snapshot-metadata-and-website.md", ".scratch/phase-3-feedback/issues/06-x-capture-job.md"],
+      files: ["packages/core/src/study/config.ts", "packages/core/src/study/capture.ts", "packages/core/src/study/store.ts"],
+      worker: "studyTick",
+    },
+    {
+      id: "meta",
+      label: "Meta",
+      column: 1,
+      row: 1,
+      status: "on",
+      what: "Groups the last day's launchpad creates into clone clusters and ranks them as Metas (/meta). Plain code ranks; Claude writes only a one-line summary.",
+      rules: [
+        { label: "Ranked every", ref: () => metaIntervalMinutes({}), unit: "min", diagram: true },
+        { label: "Windows", key: "META_WINDOWS", ref: () => META_WINDOWS.join(", "), unit: "text" },
+        { label: "Rank order, first decides", key: "META_RULE.rankOrder", ref: () => META_RULE.rankOrder.join(", "), unit: "text" },
+        { label: "Tokens a Meta needs", key: "META_RULE.minTokens", ref: () => META_RULE.minTokens, unit: "count" },
+        { label: "Counted as organic after", key: "META_RULE.organicAfterSec", ref: () => META_RULE.organicAfterSec, unit: "sec" },
+        { label: "Summaries per day", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count" },
+        { label: "Summary spend per day", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd, unit: "usd" },
+        { label: "Summary model", ref: () => DEFAULT_ROUTING["meta-summary"].model, unit: "text" },
+      ],
+      adrs: ["0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
+      tickets: [META_TICKET],
+      files: ["packages/core/src/meta/compute.ts", "packages/core/src/meta/config.ts", "packages/core/src/meta/summary-pass.ts"],
+      worker: ["metaTick", "metaSummaryTick"],
+      brainTask: "meta-summary",
+    },
+    {
+      id: "beta",
+      label: "Beta finder",
+      column: 2,
+      row: 1,
+      status: "off",
+      statusNote: "A library and a backtest script only. Nothing runs it in the worker, and slices 3 and 4 are paused until the backtest is re-run.",
+      what: "Would propose a Beta (a token that rides a Meta that still has room) for the best live Metas. Not running.",
+      rules: [],
+      adrs: [],
+      tickets: [BETA_TICKET],
+      files: ["packages/core/src/beta/backtest.ts", "packages/core/src/beta/stats.ts", "scripts/backtest-beta.mjs"],
+    },
+    // Nodes the generated diagrams need but the page does not draw.
+    { id: "operator", label: "Operator", onPage: false, shape: "actor", status: "on", what: "The person who decides at every gate.", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "warroom", label: "War Room (localhost)", onPage: false, status: "on", what: "Where the Operator reads and acts.", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "telegram", label: "Telegram, notify only", onPage: false, status: "on", what: "Tells the Team about new Proposals and Builds.", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "handoff", label: "Launch handoff: newpairspam form prefilled", onPage: false, status: "on", what: "Opens the token form elsewhere. argus never launches (ADR 0002).", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "marked", label: "Operator marks launched + mint", onPage: false, status: "on", what: "The Operator records the launch.", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "playbook", label: "Playbook: lessons and Rubric changes", onPage: false, shape: "store", status: "on", what: "What the Study learned, approved by the Operator.", rules: [], adrs: [], tickets: [], files: [] },
+    { id: "review", label: "War Room: Study page and weekly Playbook review", onPage: false, status: "on", what: "Where the Operator reviews lessons.", rules: [], adrs: [], tickets: [], files: [] },
+  ],
+  edges: [
+    { id: "sources-signals", from: "sources", to: "signals", label: "poll, normalise, dedupe", metric: "signals_ingested" },
+    { id: "signals-narratives", from: "signals", to: "narratives", label: "cluster by meaning", metric: "narratives_created" },
+    {
+      id: "narratives-judge",
+      from: "narratives",
+      to: "judge",
+      label: "judge new or changed Narratives",
+      metric: "narratives_judged",
+      gates: [{ label: "Needs a market Signal from", key: "MARKET_SOURCE_IDS", ref: () => MARKET_SOURCE_IDS.join(", "), unit: "text" }],
+    },
+    {
+      id: "judge-proposals",
+      from: "judge",
+      to: "proposals",
+      label: "Score passes the buildability gate",
+      metric: "proposals_created",
+      gates: [{ label: "Buildability gate, minimum", key: "SEED_GATE_MIN_SCORE", ref: () => SEED_GATE_MIN_SCORE, unit: "score", liveFrom: "rubric" }],
+    },
+    { id: "proposals-shortlist", from: "proposals", to: "shortlist", label: "Operator shortlists", metric: "shortlisted" },
+    { id: "shortlist-spec", from: "shortlist", to: "spec", label: "Spec drafted on shortlist", metric: "spec_drafted" },
+    { id: "spec-approve", from: "spec", to: "approve", label: "Operator edits and approves", metric: "approved" },
+    { id: "approve-build", from: "approve", to: "build", label: "queued, one Build at a time", metric: "build_finished" },
+    { id: "build-preview", from: "build", to: "preview", label: "wrangler deploy to workers.dev", metric: "built" },
+    { id: "sources-study", from: "sources", to: "study", label: "PumpPortal create and migrate", metric: "creates_seen" },
+    { id: "sources-meta", from: "sources", to: "meta", label: "launchpad creates" },
+    { id: "meta-judge", from: "meta", to: "judge", label: "Meta block in the prompt" },
+    { id: "meta-proposals", from: "meta", to: "proposals", label: "Meta block in the prompt" },
+    { id: "meta-beta", from: "meta", to: "beta", label: "live Metas", dashed: true },
+    { id: "beta-proposals", from: "beta", to: "proposals", label: "Beta Proposals (not wired)", dashed: true },
+    // Off the page: what the old hand-drawn overview also showed.
+    { id: "proposals-warroom", from: "proposals", to: "warroom", label: "list" },
+    { id: "proposals-telegram", from: "proposals", to: "telegram", label: "notify" },
+    { id: "warroom-operator", from: "warroom", to: "operator", label: "reads" },
+    { id: "operator-shortlist", from: "operator", to: "shortlist", label: "shortlist", dashed: true },
+    { id: "operator-approve", from: "operator", to: "approve", label: "approve", dashed: true },
+    { id: "preview-warroom", from: "preview", to: "warroom", label: "preview link" },
+    { id: "warroom-handoff", from: "warroom", to: "handoff", label: "Launch button" },
+    { id: "handoff-operator", from: "handoff", to: "operator", label: "launches outside argus", dashed: true },
+    { id: "operator-marked", from: "operator", to: "marked", label: "after the launch" },
+    { id: "marked-proposals", from: "marked", to: "proposals", label: "status launched" },
+    { id: "marked-study", from: "marked", to: "study", label: "mint read-only at 1h, 24h, 7d" },
+    { id: "study-playbook", from: "study", to: "playbook", label: "lesson candidates" },
+    { id: "playbook-review", from: "playbook", to: "review", label: "weekly review" },
+    { id: "review-operator", from: "review", to: "operator", label: "reads" },
+    { id: "operator-playbook", from: "operator", to: "playbook", label: "approves lessons", dashed: true },
+    { id: "playbook-judge", from: "playbook", to: "judge", label: "approved lessons, versioned" },
+    { id: "playbook-proposals", from: "playbook", to: "proposals", label: "approved lessons, versioned" },
+  ],
+};
+
+export const isOnPage = (n: PipelineNode): boolean => n.onPage !== false;
+const workersOf = (n: PipelineNode): string[] => (n.worker === undefined ? [] : typeof n.worker === "string" ? [n.worker] : [...n.worker]);
+const allRules = (graph: PipelineGraph): PipelineRule[] => [...graph.nodes.flatMap((n) => [...n.rules]), ...graph.edges.flatMap((e) => [...(e.gates ?? [])])];
+
+// ---------------------------------------------------------------- display
+
+const trimNumber = (v: number): string => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2))));
+
+/** The text a rule's value is shown as. */
+export function formatRuleValue(value: number | string, unit: RuleUnit): string {
+  if (typeof value === "string") return value;
+  switch (unit) {
+    case "usd":
+      return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
+    case "ms": {
+      if (value >= 3_600_000 && value % 3_600_000 === 0) return `${trimNumber(value / 3_600_000)} h`;
+      if (value >= 60_000 && value % 60_000 === 0) return `${trimNumber(value / 60_000)} min`;
+      if (value >= 1_000 && value % 1_000 === 0) return `${trimNumber(value / 1_000)} s`;
+      return `${trimNumber(value)} ms`;
+    }
+    case "min":
+      return `${trimNumber(value)} min`;
+    case "sec":
+      return `${trimNumber(value)} s`;
+    case "hours":
+      return `${trimNumber(value)} h`;
+    case "share":
+      return `${trimNumber(value * 100)}%`;
+    default:
+      return trimNumber(value);
+  }
+}
+
+// ---------------------------------------------------------------- the page's view
+
+export interface PipelineRuleView {
+  label: string;
+  key?: string;
+  value: number | string;
+  unit: RuleUnit;
+  display: string;
+  /** Set when the value is the stored Rubric's, and which version. */
+  rubricVersion?: number;
+}
+
+export interface PipelineNodeView {
+  id: string;
+  label: string;
+  column: number;
+  row: number;
+  status: NodeStatus;
+  statusNote?: string;
+  what: string;
+  rules: PipelineRuleView[];
+  adrs: string[];
+  tickets: string[];
+  files: string[];
+  worker: string[];
+  brainTask?: string;
+  sources: SourceChip[];
+}
+
+export interface PipelineEdgeView {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  metric?: string;
+  dashed: boolean;
+  gates: PipelineRuleView[];
+}
+
+/** What `GET /api/pipeline` returns: the on-page part of the graph with every rule's value read from the code (or the stored Rubric). */
+export interface PipelineResponse {
+  nodes: PipelineNodeView[];
+  edges: PipelineEdgeView[];
+  rubric: { version: number; gateMinScore: number } | null;
+}
+
+/** The graph as the page draws it: functions evaluated, off-page nodes and the edges that touch them left out. */
+export function resolvePipeline(graph: PipelineGraph, live: { rubric?: { version: number; gateMinScore: number } | null } = {}): PipelineResponse {
+  const rubric = live.rubric ?? null;
+  const view = (r: PipelineRule): PipelineRuleView => {
+    const fromRubric = r.liveFrom === "rubric" && rubric !== null;
+    const value = fromRubric ? rubric.gateMinScore : r.ref();
+    return { label: r.label, ...(r.key === undefined ? {} : { key: r.key }), value, unit: r.unit, display: formatRuleValue(value, r.unit), ...(fromRubric ? { rubricVersion: rubric.version } : {}) };
+  };
+  const shown = graph.nodes.filter(isOnPage);
+  const ids = new Set(shown.map((n) => n.id));
+  return {
+    nodes: shown.map((n) => ({
+      id: n.id,
+      label: n.label,
+      column: n.column ?? 0,
+      row: n.row ?? 0,
+      status: n.status,
+      ...(n.statusNote === undefined ? {} : { statusNote: n.statusNote }),
+      what: n.what,
+      rules: n.rules.map(view),
+      adrs: [...n.adrs],
+      tickets: [...n.tickets],
+      files: [...n.files],
+      worker: workersOf(n),
+      ...(n.brainTask === undefined ? {} : { brainTask: n.brainTask }),
+      sources: [...(n.sources ?? [])],
+    })),
+    edges: graph.edges
+      .filter((e) => ids.has(e.from) && ids.has(e.to))
+      .map((e) => ({ id: e.id, from: e.from, to: e.to, label: e.label, ...(e.metric === undefined ? {} : { metric: e.metric }), dashed: e.dashed === true, gates: (e.gates ?? []).map(view) })),
+    rubric,
+  };
+}
+
+// ---------------------------------------------------------------- the sync check
+
+/**
+ * What the code has, gathered by the test (this module reads no files). `pipelineGaps` compares it with the graph.
+ * Every list is a fact about the code, never about the graph.
+ */
+export interface PipelineRegistry {
+  /** Every key of `SOURCE_CLASS` and `SOURCE_CLASS_PREFIX`, with its class. */
+  sourceIds: Readonly<Record<string, SourceClass>>;
+  /** Every class in `packages/core/src/sources/` (not a test) that declares `implements Source`. */
+  sourceClasses: readonly string[];
+  /** Every `new <X>Source(` in the worker. */
+  workerSources: readonly string[];
+  /** Every `const <name>Tick = reentrant(` (or `tick`) in the worker. */
+  ticks: readonly string[];
+  /** Every key of `DEFAULT_ROUTING`. */
+  brainTasks: readonly string[];
+  /** Every gate and cap: `CONSTANT` or `CONSTANT.field`, with the code's current value (arrays joined with ", "). */
+  config: Readonly<Record<string, number | string>>;
+  /** Items deliberately not drawn, each with the reason. A key is a Source class name, a config key, a tick or a brain task. */
+  leftOut: Readonly<Record<string, string>>;
+  /** Whether a repo-relative path exists on disk. */
+  exists: (repoPath: string) => boolean;
+}
+
+/** Every way the graph and the code disagree, as sentences. Empty when they are in sync. */
+export function pipelineGaps(graph: PipelineGraph, registry: PipelineRegistry): string[] {
+  const gaps: string[] = [];
+  const { leftOut } = registry;
+  const skipped = (item: string): boolean => Boolean(leftOut[item]?.trim());
+  const nodeIds = new Set<string>();
+  for (const n of graph.nodes) {
+    if (nodeIds.has(n.id)) gaps.push(`Two nodes share the id "${n.id}".`);
+    nodeIds.add(n.id);
+  }
+
+  // 1. Sources.
+  const chips = graph.nodes.flatMap((n) => [...(n.sources ?? [])]);
+  const chipById = new Map(chips.map((c) => [c.id, c]));
+  for (const [id, cls] of Object.entries(registry.sourceIds)) {
+    const chip = chipById.get(id);
+    if (!chip) gaps.push(`Source "${id}" (class ${cls}) is in the Source class table but on no Sources node chip.`);
+    else if ((cls === "context") !== (chip.status === "context-only")) gaps.push(`Source "${id}" is class ${cls} in the code but its chip says ${chip.status}.`);
+  }
+  for (const chip of chips) if (!(chip.id in registry.sourceIds)) gaps.push(`The chip "${chip.id}" names a Source that is in neither SOURCE_CLASS nor SOURCE_CLASS_PREFIX.`);
+  const drawnClasses = new Set(chips.flatMap((c) => [...c.code]));
+  for (const cls of registry.sourceClasses) if (!drawnClasses.has(cls) && !skipped(cls)) gaps.push(`${cls} implements Source but is in no chip's code[] (and not in LEFT_OUT).`);
+  for (const cls of registry.workerSources) if (!drawnClasses.has(cls) && !skipped(cls)) gaps.push(`The worker creates new ${cls}( but no chip lists it in code[] (and it is not in LEFT_OUT).`);
+  for (const c of drawnClasses) if (!registry.sourceClasses.includes(c)) gaps.push(`A chip lists the class ${c}, which no file in sources/ declares.`);
+
+  // 2. Stages.
+  const drawnWorkers = new Set(graph.nodes.flatMap(workersOf));
+  for (const tick of registry.ticks) if (!drawnWorkers.has(tick) && !skipped(tick)) gaps.push(`The worker runs ${tick} but no node has it as its worker (and it is not in LEFT_OUT).`);
+  for (const w of drawnWorkers) if (!registry.ticks.includes(w)) gaps.push(`A node names the worker pass ${w}, which apps/worker/src/main.ts does not define.`);
+  const drawnTasks = new Set(graph.nodes.flatMap((n) => (n.brainTask === undefined ? [] : [n.brainTask])));
+  for (const task of registry.brainTasks) if (!drawnTasks.has(task) && !skipped(task)) gaps.push(`DEFAULT_ROUTING has the brain task "${task}" but no node has it as its brainTask (and it is not in LEFT_OUT).`);
+  for (const t of drawnTasks) if (!registry.brainTasks.includes(t)) gaps.push(`A node names the brain task "${t}", which DEFAULT_ROUTING does not have.`);
+
+  // 3. Gates and caps.
+  const rules = allRules(graph);
+  const ruleKeys = new Set(rules.flatMap((r) => (r.key === undefined ? [] : [r.key])));
+  for (const key of Object.keys(registry.config)) if (!ruleKeys.has(key) && !skipped(key)) gaps.push(`${key} is a gate or cap in the code but the graph has no rule for it (add a rule with that key, or put it in LEFT_OUT with a reason).`);
+  for (const r of rules) {
+    if (r.key === undefined) continue;
+    if (!(r.key in registry.config)) gaps.push(`The rule "${r.label}" names ${r.key}, which is not a gate or cap in the code.`);
+    else if (String(r.ref()) !== String(registry.config[r.key])) gaps.push(`The rule "${r.label}" shows ${String(r.ref())} but ${r.key} is ${String(registry.config[r.key])} in the code.`);
+  }
+  const known = new Set<string>([...Object.keys(registry.sourceIds), ...registry.sourceClasses, ...registry.workerSources, ...registry.ticks, ...registry.brainTasks, ...Object.keys(registry.config)]);
+  for (const [item, reason] of Object.entries(leftOut)) {
+    if (!reason.trim()) gaps.push(`LEFT_OUT lists ${item} with no reason.`);
+    if (!known.has(item)) gaps.push(`LEFT_OUT lists ${item}, which the code no longer has.`);
+  }
+
+  // 4. Shape.
+  const edgeIds = new Set<string>();
+  for (const e of graph.edges) {
+    if (edgeIds.has(e.id)) gaps.push(`Two edges share the id "${e.id}".`);
+    edgeIds.add(e.id);
+    for (const end of [e.from, e.to]) if (!nodeIds.has(end)) gaps.push(`The edge "${e.id}" names the node "${end}", which does not exist.`);
+  }
+  const cells = new Map<string, string>();
+  for (const n of graph.nodes.filter(isOnPage)) {
+    if (!Number.isInteger(n.column) || !Number.isInteger(n.row) || (n.column ?? -1) < 0 || (n.row ?? -1) < 0) {
+      gaps.push(`The node "${n.id}" is on the page but has no grid cell (column and row).`);
+      continue;
+    }
+    const cell = `${n.column},${n.row}`;
+    if (cells.has(cell)) gaps.push(`The nodes "${cells.get(cell)}" and "${n.id}" share the grid cell ${cell}.`);
+    cells.set(cell, n.id);
+  }
+  const seen = new Set<string>();
+  const first = graph.nodes[0];
+  if (first) {
+    const queue = [first.id];
+    seen.add(first.id);
+    while (queue.length > 0) {
+      const at = queue.shift()!;
+      for (const e of graph.edges) {
+        const next = e.from === at ? e.to : e.to === at ? e.from : undefined;
+        if (next !== undefined && nodeIds.has(next) && !seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+  }
+  for (const n of graph.nodes) if (!seen.has(n.id)) gaps.push(`The node "${n.id}" is not connected to the rest of the graph.`);
+  for (const n of graph.nodes) {
+    for (const adr of n.adrs) if (!registry.exists(`docs/adr/${adr}`)) gaps.push(`The node "${n.id}" links the ADR ${adr}, which is not in docs/adr/.`);
+    for (const t of n.tickets) if (!registry.exists(t)) gaps.push(`The node "${n.id}" links the ticket ${t}, which does not exist.`);
+    for (const f of n.files) if (!registry.exists(f)) gaps.push(`The node "${n.id}" names the file ${f}, which does not exist.`);
+  }
+  return gaps;
+}

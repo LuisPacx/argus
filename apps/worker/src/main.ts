@@ -39,6 +39,9 @@ import {
   HashingEmbedder,
   clusterNewSignals,
   ingestSources,
+  INGEST_TICK_MS,
+  JUDGE_TICK_MS,
+  STUDY_TICK_MS,
   judgeConfigFromEnv,
   judgePendingNarratives,
   killLiveBrainChildren,
@@ -63,8 +66,6 @@ import { reentrant } from "./reentrant.ts";
 import { SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
 
 const TICK_MS = BUILD_TICK_MS; // the one definition of the tick; the Proposal page says "retried every N s" from it
-const INGEST_TICK_MS = 5 * 60_000;
-const JUDGE_TICK_MS = 30 * 60_000;
 const once = process.argv.includes("--once");
 const dryRun = process.argv.includes("--dry-run") || process.env.ARGUS_DRY_RUN === "1";
 const dbPath = process.env.ARGUS_DB ?? "../../.data/argus.db";
@@ -312,7 +313,6 @@ const proposeTick = reentrant(
 // The Study's capture job (phase 3 ticket 02): Snapshots of new tokens at the fixed age (60 s), a metadata fetch and one website fetch
 // each, no brain or LLM. Its own run cap is counted in code (ARGUS_STUDY_CAPTURES_PER_DAY can only lower it). A dry run reports
 // what is due and fetches and writes nothing. It runs only in the long-running daemon, where PumpPortal feeds it.
-const STUDY_TICK_MS = 10_000;
 const studyTick = reentrant(
   async () => {
     const r = await captureDueSnapshots(store.study, { dryRun, runCap: captureRunCap(process.env), log: console.error });

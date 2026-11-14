@@ -382,6 +382,92 @@ body {
     color: var(--wr-accent-strong);
   }
 
+  /* ---- "How it works" graph (components/PipelineGraph.vue, geometry in utils/pipeline-layout.ts) ---- */
+  .pipe-scroll {
+    overflow-x: auto;
+    padding: 4px 2px 14px;
+    border-radius: var(--wr-radius);
+  }
+  .pipe-scroll:focus-visible {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: 2px;
+  }
+  .pipe-canvas {
+    position: relative;
+    margin: 0 auto;
+  }
+  .pipe-edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+  }
+  .pipe-edge {
+    fill: none;
+    stroke: #aeb2cf;
+    stroke-width: 1.6;
+  }
+  .pipe-edge.is-dashed {
+    stroke-dasharray: 5 4;
+  }
+  .pipe-arrow {
+    fill: #aeb2cf;
+  }
+  .pipe-gate {
+    fill: var(--wr-amber);
+    stroke: var(--wr-bg);
+    stroke-width: 1.5;
+  }
+  .pipe-node {
+    position: absolute;
+    overflow: hidden;
+    padding: 10px 8px;
+    border-radius: 16px;
+    background: var(--wr-surface);
+    box-shadow: var(--wr-shadow);
+  }
+  /* An off node is muted and dashed; the pill still says "off" in words. */
+  .pipe-node.is-off {
+    background: var(--wr-inset);
+    box-shadow: none;
+    outline: 1.5px dashed var(--wr-faint);
+    outline-offset: -1.5px;
+  }
+  .pipe-node.is-off .pipe-label {
+    color: var(--wr-muted);
+  }
+  .pipe-head {
+    display: grid;
+    gap: 6px;
+    justify-items: start;
+  }
+  .pipe-label {
+    font-size: 0.8125rem;
+    font-weight: 650;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .pipe-pill {
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+  }
+  .pipe-chips {
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+    list-style: none;
+  }
+  .pipe-chip {
+    display: grid;
+    justify-items: start;
+    height: 36px;
+    font-size: 0.6875rem;
+    line-height: 1.3;
+  }
+  .pipe-chip-name {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
   /* Segmented pill group (list sorts and filters). */
   .seg {
     display: inline-flex;
@@ -497,6 +583,18 @@ body {
 }
 .row-move {
   transition: transform 0.26s var(--wr-ease);
+}
+
+/* Graph nodes entering (PipelineGraph.vue): fade and rise, staggered by --i. */
+.pipe-enter-active {
+  transition:
+    opacity 0.3s var(--wr-ease),
+    transform 0.3s var(--wr-ease);
+  transition-delay: calc(var(--i, 0) * 40ms);
+}
+.pipe-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 /* The New Proposal form opening above the header band. */

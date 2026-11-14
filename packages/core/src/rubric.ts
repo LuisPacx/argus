@@ -60,7 +60,8 @@ const SEED: Record<RubricKey, string> = {
   legitimacy: "Whether it is free of scams, hate and real-person impersonation, and backed by real sources.",
 };
 
-const SEED_GATE_MIN_SCORE = 5;
+/** The buildability gate a fresh database starts with (architecture section 7). The live gate is the stored Rubric's `gateMinScore`. */
+export const SEED_GATE_MIN_SCORE = 5;
 
 /** Trusts nothing: checks shape, keys, lengths and ranges; returns the normalised dimensions in canonical order. */
 export function validateRubricInput(input: unknown): { dimensions: RubricDimension[]; gateMinScore: number } {
