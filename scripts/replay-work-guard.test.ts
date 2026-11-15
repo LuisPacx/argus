@@ -39,4 +39,12 @@ describe("workDirRefusal", () => {
     symlinkSync(outside, link);
     expect(workDirRefusal(link, roots)).toMatch(/must be a new directory under/);
   });
+
+  it("refuses a not-yet-existing path below a symlinked ancestor that points outside the roots", () => {
+    const outside = tempDir("argus-replay-guard-out2-");
+    const link = join(root, "ancestor-link");
+    symlinkSync(outside, link);
+    expect(workDirRefusal(join(link, "x"), roots)).toMatch(/must be a new directory under/);
+    expect(workDirRefusal(join(link, "a", "b"), roots)).toMatch(/must be a new directory under/);
+  });
 });

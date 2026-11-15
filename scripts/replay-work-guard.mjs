@@ -6,7 +6,10 @@ import path from 'node:path';
 
 export function workDirRefusal(work, roots) {
   const resolved = path.resolve(work);
-  const real = existsSync(resolved) ? realpathSync(resolved) : resolved;
+  // Resolve the nearest existing ancestor, so a symlinked ancestor of a not-yet-existing path cannot escape.
+  let existing = resolved;
+  while (!existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+  const real = path.join(realpathSync(existing), path.relative(existing, resolved));
   const under = (child, parent) => child !== parent && child.startsWith(parent + path.sep);
   const allowed = roots.filter((r) => r && r !== '/tmp' && r !== path.sep).map((r) => path.resolve(r));
   const inside = (p) => allowed.some((r) => under(p, r) || (existsSync(r) && under(p, realpathSync(r))));
