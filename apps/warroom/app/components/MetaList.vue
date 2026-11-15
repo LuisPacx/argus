@@ -24,6 +24,7 @@ defineProps<{ view: MetaView }>();
           <span class="pill pill-accent shrink-0 tabular-nums">{{ r.rank }}</span>
           <span class="min-w-0 break-words font-semibold" data-test="meta-label">{{ r.label }}</span>
           <span v-if="r.trend" class="pill pill-outline shrink-0" data-test="meta-trend-word">{{ r.trend.word }}</span>
+          <span v-if="r.hot" class="pill pill-accent min-w-0 max-w-full whitespace-normal break-words" data-test="meta-hot">{{ r.hot }}</span>
         </div>
         <p v-if="r.summary" class="muted min-w-0 break-words leading-relaxed" data-test="meta-summary">{{ r.summary }}</p>
         <p v-if="r.numbers.length > 0" class="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="meta-numbers">

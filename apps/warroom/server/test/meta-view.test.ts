@@ -98,7 +98,17 @@ it("metaView: a row's numbers, trend, first seen and tokens", () => {
     firstSeen: "first seen 14 hours ago",
     tokens: [{ text: "woohao ($woohao) $13M", href: null }, { text: "咪好", href: null }],
     summary: "A line",
+    hot: null,
   });
+});
+
+it("metaView: a row carries its Hot now text while the event is live, clamped, and none without one", () => {
+  const live = metaView({ computedAt: ago(1), metas: [row({ hot: { reason: "entered top 5", raisedAt: ago(90) } }), row({})] }, NOW);
+  expect(live.rows[0]!.hot).toBe("Hot now: entered top 5, 1 hour ago");
+  expect(live.rows[1]!.hot).toBeNull();
+  const odd = metaView({ computedAt: ago(1), metas: [row({ hot: { reason: `<b>${"x".repeat(500)}</b>`, raisedAt: "nonsense" } })] }, NOW);
+  expect(odd.rows[0]!.hot).toMatch(/^Hot now: <b>x+…$/);
+  expect(odd.rows[0]!.hot!.length).toBeLessThan(100);
 });
 
 it("metaView: absent or broken fields are left out, never shown as undefined or NaN", () => {
@@ -112,7 +122,7 @@ it("metaView: absent or broken fields are left out, never shown as undefined or 
     summary: "   ",
   };
   const v = metaView({ computedAt: ago(1), metas: [broken as never] }, NOW);
-  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", anchor: "meta-odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], stripLine: null, topCap: null, trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null });
+  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", anchor: "meta-odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], stripLine: null, topCap: null, trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null, hot: null });
   expect(JSON.stringify(v)).not.toMatch(/undefined|NaN/);
   const empty = metaView({ computedAt: ago(1), metas: [{ rank: 1, label: "Bare" } as never] }, NOW);
   expect(empty.rows[0]).toMatchObject({ label: "Bare", numbers: [], trend: null, tokens: [], summary: null });

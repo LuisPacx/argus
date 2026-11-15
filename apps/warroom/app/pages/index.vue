@@ -94,8 +94,17 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(metaTimer));
 
+// Hot now (missed ideas ticket 03): the same slow poll; the panel is absent while no event is live.
+const { data: hotMetas, refresh: refreshHot } = await useFetch("/api/hot-metas", { default: () => null });
+let hotTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  hotTimer = setInterval(() => void refreshHot(), HOT_POLL_MS);
+});
+onBeforeUnmount(() => clearInterval(hotTimer));
+
 const nowMs = ref(Date.now());
 const metaSection = computed(() => metaView(metas.value, nowMs.value));
+const hotSection = computed(() => hotView(hotMetas.value, nowMs.value));
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
@@ -222,6 +231,8 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         </form>
       </section>
     </Transition>
+
+    <HotNow :view="hotSection" />
 
     <MetaStrip :view="metaSection" />
 

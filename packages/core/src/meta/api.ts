@@ -29,6 +29,14 @@ export interface MetaApiRow {
   /** The one-line summary: the stored LLM line, else the templated numbers line. Untrusted text. */
   summary: string;
   summarySource: MetaSummarySource;
+  /** Present while the Meta's Hot now event is live (raised within the cool-down): why and when. */
+  hot?: HotMark;
+}
+
+/** Why a Meta is marked hot and when it was raised. `reason` is written by code. */
+export interface HotMark {
+  reason: string;
+  raisedAt: string;
 }
 
 export interface MetasResponse {
@@ -55,9 +63,11 @@ function apiToken(t: MetaTopToken): MetaApiToken {
   return t.marketCapUsd !== undefined && BASE58_ADDRESS.test(t.mint) ? { ...t, url: `https://dexscreener.com/solana/${t.mint}` } : { ...t };
 }
 
-function apiRow(row: MetaRow): MetaApiRow {
+/** One stored row in the shape the War Room renders; `hot` is set while the Meta's Hot now event is live. */
+export function apiRow(row: MetaRow, hot?: HotMark): MetaApiRow {
   const line = metaLine(row);
   return {
+    ...(hot ? { hot } : {}),
     rank: row.rank,
     label: row.label,
     firstSeenAt: row.firstSeenAt,
@@ -72,7 +82,7 @@ function apiRow(row: MetaRow): MetaApiRow {
 }
 
 /** The response for a window: the stored run, or an empty list (not an error) before the first run. */
-export function metasResponse(run: MetaRun | undefined, window: MetaWindow, noteBelow: number = META_RULE.coverageNoteBelow): MetasResponse {
+export function metasResponse(run: MetaRun | undefined, window: MetaWindow, noteBelow: number = META_RULE.coverageNoteBelow, hot: ReadonlyMap<string, HotMark> = new Map()): MetasResponse {
   if (!run) return { window, computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, coverage: null, coverageNote: null, metas: [] };
   return {
     window,
@@ -83,6 +93,6 @@ export function metasResponse(run: MetaRun | undefined, window: MetaWindow, note
     baseMigrationRate: run.baseMigrationRate,
     coverage: run.coverage,
     coverageNote: coverageNote(run.coverage, window, noteBelow),
-    metas: run.rows.map(apiRow),
+    metas: run.rows.map((r) => apiRow(r, hot.get(r.key))),
   };
 }

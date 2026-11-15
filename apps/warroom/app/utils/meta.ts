@@ -20,6 +20,7 @@ const TOKEN_NAME_CHARS = 30;
 const TICKER_CHARS = 12;
 const SUMMARY_CHARS = 200;
 const COVERAGE_NOTE_CHARS = 80;
+const HOT_REASON_CHARS = 80;
 
 export interface MetaPayloadCounts {
   tokens: number;
@@ -50,6 +51,8 @@ export interface MetaPayload {
     topTokens: MetaPayloadToken[];
     summary: string;
     summarySource?: string;
+    /** Present while the Meta's Hot now event is live. */
+    hot?: { reason: string; raisedAt: string };
   }>;
 }
 
@@ -116,6 +119,8 @@ export interface MetaRowView {
   firstSeen: string | null;
   tokens: MetaTokenView[];
   summary: string | null;
+  /** "Hot now: entered top 5, 2 hours ago" while the Meta's Hot now event is live; null otherwise. */
+  hot: string | null;
 }
 
 export interface MetaView {
@@ -142,6 +147,17 @@ export function metaAnchor(label: string): string {
   return cut === "" ? "meta" : `meta-${cut}`;
 }
 
+/** A Meta's top tokens as text; a link exists only where `safeHttpUrl` accepted the URL. Shared with the Hot now panel. */
+export function tokenViews(topTokens: MetaPayloadToken[] | undefined): MetaTokenView[] {
+  return (Array.isArray(topTokens) ? topTokens : []).flatMap((t): MetaTokenView[] => {
+    const name = clampText(t?.name, TOKEN_NAME_CHARS);
+    const symbol = clampText(t?.symbol, TICKER_CHARS);
+    const head = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "";
+    if (head === "") return [];
+    return [{ text: finite(t.marketCapUsd) ? `${head} ${fmtUsd(t.marketCapUsd)}` : head, href: safeHttpUrl(t.url) }];
+  });
+}
+
 function rowView(m: MetaPayload["metas"][number], nowMs: number, window: "6h" | "24h", anchor: string): MetaRowView {
   const c24 = m.counts?.["24h"];
   const c6 = m.counts?.["6h"];
@@ -159,15 +175,12 @@ function rowView(m: MetaPayload["metas"][number], nowMs: number, window: "6h" | 
   }
   const word = finite(c6?.tokens) && finite(c24?.tokens) ? trendWord(c6.tokens, c24.tokens) : null;
   const age = typeof m.firstSeenAt === "string" ? ageText(m.firstSeenAt, nowMs) : null;
-  const tokens = (Array.isArray(m.topTokens) ? m.topTokens : []).flatMap((t): MetaTokenView[] => {
-    const name = clampText(t?.name, TOKEN_NAME_CHARS);
-    const symbol = clampText(t?.symbol, TICKER_CHARS);
-    const head = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "";
-    if (head === "") return [];
-    return [{ text: finite(t.marketCapUsd) ? `${head} ${fmtUsd(t.marketCapUsd)}` : head, href: safeHttpUrl(t.url) }];
-  });
+  const tokens = tokenViews(m.topTokens);
   const summary = clampText(m.summary, SUMMARY_CHARS);
+  const hotAge = typeof m.hot?.raisedAt === "string" ? ageText(m.hot.raisedAt, nowMs) : null;
+  const hotReason = clampText(m.hot?.reason, HOT_REASON_CHARS);
   return {
+    hot: m.hot ? `Hot now${hotReason !== "" ? `: ${hotReason}` : ""}${hotAge !== null ? `, ${hotAge}` : ""}` : null,
     rank: m.rank,
     label: clampText(m.label, LABEL_CHARS),
     anchor,

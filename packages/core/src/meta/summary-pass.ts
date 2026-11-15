@@ -2,7 +2,9 @@ import { BrainError, type Brain } from "../brain.ts";
 import type { Datastore } from "../datastore.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
 import type { LaunchedToken } from "../study/store.ts";
+import type { MetaConfig } from "./config.ts";
 import { groupTokens } from "./group.ts";
+import { newsForKeys } from "./news.ts";
 import type { MetaRow } from "./store.ts";
 import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, parseMetaSummary, type MetaSummaryToken } from "./summary.ts";
 
@@ -99,14 +101,13 @@ function tokensFor(store: Datastore, row: MetaRow, group: LaunchedToken[] | unde
 export async function summariseMetas(
   store: Datastore,
   brain: Brain,
-  opts: { now?: Date; config?: Partial<MetaSummaryConfig>; research?: ResearchBudgetConfig; log?: (line: string) => void; signal?: AbortSignal } = {},
+  opts: { now?: Date; config?: Partial<MetaSummaryConfig>; research?: ResearchBudgetConfig; log?: (line: string) => void; signal?: AbortSignal; metaConfig?: MetaConfig } = {},
 ): Promise<MetaSummaryResult> {
   const config = { ...DEFAULT_META_SUMMARY_CONFIG, ...opts.config };
   const research = opts.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG;
   const caps = researchRunCaps(brain);
   const log = opts.log ?? console.log;
-  const clock = () => opts.now ?? new Date();
-  const out: MetaSummaryResult = { called: 0, accepted: 0, refused: 0, failed: 0 };
+  const clock = () => opts.now ?? new Date();  const out: MetaSummaryResult = { called: 0, accepted: 0, refused: 0, failed: 0 };
 
   // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
   if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };
@@ -137,7 +138,9 @@ export async function summariseMetas(
     }
 
     groups ??= groupsAsOf(store, ranking.computedAt);
-    const prompt = metaSummaryPromptFor(row, tokensFor(store, row, groups.get(row.key)));
+    // Ticket 03 of missed ideas: matching news is context for the line (ADR 0011). It is not part of the input hash: a new headline alone does not buy a call.
+    const news = newsForKeys(store, [row.key], clock(), opts.metaConfig).get(row.key) ?? [];
+    const prompt = metaSummaryPromptFor(row, tokensFor(store, row, groups.get(row.key)), news);
     const runId = store.startBrainRun({ proposalId: 0, task: "meta-summary", ...brain.routeFor("meta-summary") }, clock());
     out.called++;
     let result;

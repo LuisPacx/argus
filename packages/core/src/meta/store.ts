@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } from "./config.ts";
+import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
 
 /**
@@ -147,7 +148,46 @@ export function migrateMeta(db: DatabaseSync): void {
     input_hash TEXT NOT NULL,
     tried_at TEXT NOT NULL
   )`);
+  // Missed ideas ticket 03: one row per Meta per Hot now trigger, so a later reader (meme idea generation) asks "which Metas were hot, and when" without recomputing.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_hot_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    raised_at TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    creators INTEGER NOT NULL,
+    run_id INTEGER NOT NULL
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS meta_hot_events_key ON meta_hot_events (key, raised_at)");
 }
+
+/** A Meta that triggered Hot now: when, why, and where it stood in the 24 h ranking then. Label and reason are creator-derived or code-written text. */
+export interface MetaHotEvent {
+  id: number;
+  key: string;
+  label: string;
+  raisedAt: string;
+  /** "entered top 5" or "creators 70 to 148 in 1 h": written by code. */
+  reason: string;
+  rank: number;
+  creators: number;
+  runId: number;
+}
+
+export type NewMetaHotEvent = Omit<MetaHotEvent, "id">;
+
+/** A context-class headline as the matcher reads it: the title is third-party text, the url is only safe to link after `safeHttpUrl`. */
+export interface ContextHeadline {
+  sourceId: string;
+  sourceLabel: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+}
+
+/** The most headlines one read returns. */
+export const MAX_HEADLINES_READ = 3_000;
 
 type Row = Record<string, string | number | null>;
 
@@ -247,6 +287,37 @@ export class MetaStore {
     this.db.prepare("DELETE FROM meta_rows WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
+    this.db.prepare("DELETE FROM meta_hot_events WHERE raised_at < ?").run(cutoff);
+  }
+
+  /** WORKER ONLY. Stores one Hot now event. */
+  saveHot(e: NewMetaHotEvent): void {
+    this.db.prepare("INSERT INTO meta_hot_events (key, label, raised_at, reason, rank, creators, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(e.key, e.label, e.raisedAt, e.reason, e.rank, e.creators, e.runId);
+  }
+
+  /** When this group was last raised, or undefined. READ ONLY. */
+  lastHotAt(key: string): string | undefined {
+    const r = this.db.prepare("SELECT MAX(raised_at) AS at FROM meta_hot_events WHERE key = ?").get(key) as { at: string | null };
+    return r.at ?? undefined;
+  }
+
+  /** Events raised at or after `since` (ISO), newest first. READ ONLY. */
+  hotSince(since: string): MetaHotEvent[] {
+    const rows = this.db.prepare("SELECT * FROM meta_hot_events WHERE raised_at >= ? ORDER BY raised_at DESC, id DESC LIMIT 200").all(since) as Row[];
+    return rows.map((r) => ({ id: r.id as number, key: r.key as string, label: r.label as string, raisedAt: r.raised_at as string, reason: r.reason as string, rank: r.rank as number, creators: r.creators as number, runId: r.run_id as number }));
+  }
+
+  /**
+   * Context-class headlines (ADR 0011: every Signal whose Source is not a market one) published in [`since`, `until`], newest first, at most
+   * `limit` (capped). Only the columns the matcher needs. READ ONLY.
+   */
+  contextHeadlines(since: string, until: string, limit = MAX_HEADLINES_READ): ContextHeadline[] {
+    const n = Math.max(0, Math.min(MAX_HEADLINES_READ, Math.floor(limit)));
+    const marks = MARKET_SOURCE_IDS.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT source_id, source_label, title, url, published_at FROM signals WHERE published_at >= ? AND published_at <= ? AND source_id NOT IN (${marks}) ORDER BY published_at DESC, id LIMIT ?`)
+      .all(since, until, ...MARKET_SOURCE_IDS, n) as Row[];
+    return rows.map((r) => ({ sourceId: r.source_id as string, sourceLabel: r.source_label as string, title: r.title as string, url: r.url as string, publishedAt: r.published_at as string }));
   }
 
   /** The summary records of these group keys (those that have one). READ ONLY. */
@@ -280,10 +351,12 @@ export class MetaStore {
       .run(key, inputHash, at);
   }
 
-  /** The newest run's top `limit` rows for one window, ranked; undefined before the first run. READ ONLY. */
-  latest(window: MetaWindow, limit: number): MetaRun | undefined {
+  /** The newest run's top `limit` rows for one window, ranked; undefined before the first run. With `asOf` (ISO), the newest run computed at or before it. READ ONLY. */
+  latest(window: MetaWindow, limit: number, asOf?: string): MetaRun | undefined {
     const n = Math.max(0, Math.min(MAX_META_READ, Math.floor(limit)));
-    const r = this.db.prepare("SELECT * FROM meta_runs ORDER BY computed_at DESC, id DESC LIMIT 1").get() as Row | undefined;
+    const r = (asOf === undefined
+      ? this.db.prepare("SELECT * FROM meta_runs ORDER BY computed_at DESC, id DESC LIMIT 1").get()
+      : this.db.prepare("SELECT * FROM meta_runs WHERE computed_at <= ? ORDER BY computed_at DESC, id DESC LIMIT 1").get(asOf)) as Row | undefined;
     if (!r) return undefined;
     const rows = (this.db.prepare("SELECT * FROM meta_rows WHERE run_id = ? AND win = ? AND rank <= ? ORDER BY rank").all(r.id as number, window, n) as Row[]).map((x) => toRow(x, window));
     const windowTokens = r[`base_tokens_${window}`] as number;

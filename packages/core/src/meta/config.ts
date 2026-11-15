@@ -52,6 +52,22 @@ export interface MetaConfig {
   topTokens: number;
   /** Theme Metas (slice 2, `theme.ts`): small clusters that name a big Meta's subject join it. Null switches it off. */
   theme: ThemeConfig | null;
+  /** Hot now (missed ideas ticket 03): a Meta at this rank or better in the 24 h ranking, having been below it an hour ago, is hot. */
+  hotTopRank: number;
+  /** Hot now: the 24 h distinct creators at least this many times what they were about an hour ago. */
+  hotCreatorFactor: number;
+  /** Hot now: the comparison run is the newest one at least this many minutes older than the run being checked. */
+  hotBaselineMinutes: number;
+  /** Hot now: a baseline older than this is too old to say "within 1 h", so the creators rule is skipped (the rank rule still runs). */
+  hotBaselineMaxMinutes: number;
+  /** Hot now: a Meta raised is not raised again within this many hours, and it counts as live (marked hot) for as long. */
+  hotCooldownHours: number;
+  /** Matching news (context, ADR 0011): only headlines published within this many hours. */
+  newsWindowHours: number;
+  /** Matching news: at most this many headlines per Meta. */
+  newsMaxItems: number;
+  /** Matching news: a Meta key shorter than this many characters (spaces removed) is too short to name a subject in a headline. */
+  newsMinKeyChars: number;
 }
 
 export const META_RULE: MetaConfig = {
@@ -68,6 +84,14 @@ export const META_RULE: MetaConfig = {
   dexCandidates: 30,
   topTokens: 3,
   theme: DEFAULT_THEME_CONFIG,
+  hotTopRank: 5,
+  hotCreatorFactor: 2,
+  hotBaselineMinutes: 60,
+  hotBaselineMaxMinutes: 120,
+  hotCooldownHours: 6,
+  newsWindowHours: 24,
+  newsMaxItems: 5,
+  newsMinKeyChars: 4,
 };
 
 /** How often the worker recomputes, in minutes. */

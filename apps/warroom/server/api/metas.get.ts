@@ -1,4 +1,4 @@
-import { isMetaWindow, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
+import { isMetaWindow, liveHot, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 10;
@@ -23,5 +23,8 @@ export default defineEventHandler((event) => {
     limit = Number(rawLimit);
     if (limit < 1 || limit > MAX_LIMIT) throw bad("limit");
   }
-  return metasResponse(useStore().latestMetas(window, limit), window, metaConfigFromEnv().coverageNoteBelow);
+  const config = metaConfigFromEnv();
+  const store = useStore();
+  // A Meta whose Hot now event is live (raised within the cool-down) carries `hot`: why and when.
+  return metasResponse(store.latestMetas(window, limit), window, config.coverageNoteBelow, liveHot(store, new Date(), config));
 });

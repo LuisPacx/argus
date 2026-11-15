@@ -56,6 +56,10 @@ _Avoid_: Trend (reserved against Narrative), Narrative (when meaning a Meta)
 **Meta ranking**:
 The worker's periodic list of live Metas, grouped and ranked from launchpad tokens by plain code (distinct creators first, then migrations more than 60 s after the create, market cap, then token count), for the last 6 h and 24 h. A group is a Meta in a window only with at least 5 tokens from at least 3 distinct creators in that window (the size floor; one creator's 34 tokens are not a Meta). When a window's hours are thinly covered by ingested creates (after a pause), the War Room says "Only 1 h of data in the last 24 h" and the judge and propose prompts carry no Meta block. Migrations are unfiltered until the bot filter exists. Small clusters that name a big Meta's subject (`Ni Hao Noon`, `GTA 6 Cat`) join it as one Meta. The top five reach the judge and propose prompts as untrusted background, with a line when a Narrative's launchpad Signals match one. Each Meta in the top five carries a one-line summary, written by the Brain within a daily cap and shown with a templated numbers line when there is none. The War Room's "Current Meta (last 24h)" section shows it; it is context, not a Narrative and not a Proposal.
 
+**Hot now**:
+A Meta that has just entered the top 5 of the 24 h Meta ranking, or whose distinct creators at least doubled in about an hour, stored as an event (once per Meta per 6 h) and shown in the War Room with the Meta's summary, top tokens, migrations and the matching news. News headlines are context beside it and never raise it. Not raised from a thinly covered window.
+_Avoid_: alert (it only appears in the War Room; nothing is sent)
+
 **Beta**:
 A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it.
 

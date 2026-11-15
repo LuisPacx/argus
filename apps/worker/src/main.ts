@@ -12,6 +12,7 @@ import {
   metaConfigFromEnv,
   metaIntervalMinutes,
   metaSummaryConfigFromEnv,
+  raiseHotMetas,
   recomputeMetas,
   summariseMetas,
   FallbackBrain,
@@ -335,6 +336,8 @@ const metaTick = reentrant(
   async () => {
     const r = await recomputeMetas(store, { dex: metaDex, config: metaConfig, log: console.error });
     console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s), ${r.dexFailures} failed`);
+    // Hot now (missed ideas ticket 03): plain code over the stored runs, one event per Meta per trigger. Never a Narrative, Proposal or Score.
+    for (const e of raiseHotMetas(store, metaConfig)) console.log(`[worker] hot now: "${e.label}" (rank ${e.rank}): ${e.reason}`);
   },
   () => {}, // a slow lookup is still running: the next tick starts fresh
 );

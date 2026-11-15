@@ -25,6 +25,11 @@ const isVariationSelector = (cp: number): boolean => (cp >= 0xfe00 && cp <= 0xfe
  * real whitespace becomes one space. Combining marks stay only when they follow a kept character. Empty when nothing is left.
  */
 export function normaliseKey(text: string): string {
+  return normaliseText(text, MAX_KEY_CHARS);
+}
+
+/** `normaliseKey` with another length cut: a headline is matched against keys, so it keeps far more than a key's 64 characters (ticket 03 of missed ideas). */
+export function normaliseText(text: string, maxChars: number): string {
   const s = text.slice(0, MAX_INPUT_UNITS).normalize("NFKC").toLowerCase();
   let out = "";
   let count = 0;
@@ -35,7 +40,7 @@ export function normaliseKey(text: string): string {
     if (FORMAT.test(ch)) continue; // zero-width, bidi and joiner characters vanish; they neither join nor separate words
     if (LETTER_OR_DIGIT.test(ch) || (lastKept && MARK.test(ch) && !isVariationSelector(cp))) {
       const gap = pendingSpace && out !== "";
-      if (count + (gap ? 2 : 1) > MAX_KEY_CHARS) break;
+      if (count + (gap ? 2 : 1) > maxChars) break;
       if (gap) out += " ";
       out += ch;
       count += gap ? 2 : 1;

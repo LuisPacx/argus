@@ -26,6 +26,9 @@ export * from "./meta/compute.ts";
 export * from "./meta/api.ts";
 export * from "./meta/summary.ts";
 export * from "./meta/summary-pass.ts";
+export * from "./meta/news.ts";
+export * from "./meta/hot.ts";
+export * from "./meta/hot-api.ts";
 
 export * from "./disclosure.ts";
 export * from "./ticks.ts";

@@ -8,7 +8,7 @@ import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
-import { MetaStore, migrateMeta, type MetaRun } from "./meta/store.ts";
+import { MetaStore, migrateMeta, type ContextHeadline, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { isMaterialJoin } from "./narratives.ts";
@@ -558,6 +558,8 @@ export type WarRoomStore = Pick<
   | "recentBrainRuns"
   | "studyStats"
   | "latestMetas"
+  | "hotMetaEvents"
+  | "contextHeadlines"
   | "buildRefusalFor"
 >;
 
@@ -763,6 +765,16 @@ export class Datastore {
   /** The newest Meta ranking run's top `limit` rows for a window; undefined before the first run. */
   latestMetas(window: MetaWindow, limit: number): MetaRun | undefined {
     return this.meta.latest(window, limit);
+  }
+
+  /** Hot now events raised at or after `since` (ISO), newest first (missed ideas ticket 03). READ ONLY. */
+  hotMetaEvents(since: string): MetaHotEvent[] {
+    return this.meta.hotSince(since);
+  }
+
+  /** Context-class headlines published in [`since`, `until`], newest first (ADR 0011: context, never a trigger). READ ONLY. */
+  contextHeadlines(since: string, until: string, limit?: number): ContextHeadline[] {
+    return this.meta.contextHeadlines(since, until, limit);
   }
 
   /** The Study page's health numbers (see StudyStats); `since` (ISO) limits them to tokens first seen at or after it. */
