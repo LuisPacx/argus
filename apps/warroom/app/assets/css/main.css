@@ -362,19 +362,20 @@ body {
 
   /* ---- shell ---- */
   /* Below lg the nav is a swipeable row: no scrollbar, a right-edge fade as the cue, and end padding so the last item clears the fade. */
-  .nav-row {
+  .nav-scroll {
     scrollbar-width: none;
   }
-  .nav-row::-webkit-scrollbar {
+  .nav-scroll::-webkit-scrollbar {
     display: none;
   }
   @media (max-width: 1023.98px) {
-    .nav-row {
+    /* The mask sits on the inner scroller so the outer pill keeps its box-shadow. */
+    .nav-scroll {
       -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
       mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
     }
     /* End spacer (padding-right is overridden by the p-1.5 utility): the last item scrolls clear of the fade. */
-    .nav-row::after {
+    .nav-scroll::after {
       content: "";
       flex: 0 0 1.5rem;
     }
@@ -583,6 +584,14 @@ body {
     border-radius: 999px;
     background: var(--wr-surface);
     box-shadow: var(--wr-shadow);
+  }
+  /* Below sm a group wraps onto a second line instead of widening the page; the radius keeps it a card. */
+  @media (max-width: 639.98px) {
+    .seg {
+      flex-wrap: wrap;
+      max-width: 100%;
+      border-radius: 1.25rem;
+    }
   }
   .seg-item {
     padding: 6px 12px;

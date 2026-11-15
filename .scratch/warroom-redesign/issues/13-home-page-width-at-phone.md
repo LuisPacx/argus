@@ -3,7 +3,7 @@
 
 **What to build:** at 390 px the home page `/` still scrolls sideways: `pnpm page:check /` prints `WARN 390px: horizontal overflow (scrollWidth 404 > viewport 390)`. Ticket 12 fixed the header nav and left this as content under it. Make `/` fit 390 px with every control still usable, and fix the nav pill's clipped shadow, a cosmetic leftover from ticket 12. Leave 1240 px as it is. Seen 2026-11-15, main 665ba50, live :3100.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none.
 
@@ -32,13 +32,13 @@
 
 ## Acceptance
 
-- [ ] The cause is stated in Comments before the fix, with the widest element and width (the Sort `.seg`, 379 px) and the selector used.
-- [ ] `pnpm page:check /` has no horizontal-overflow warning at 390 px (`scrollWidth` 390), exit 0, no console, page or request errors; the Current Meta strip still scrolls sideways inside itself.
-- [ ] `pnpm page:check /narratives` at 390 px has no new overflow warning and its 1240 px screenshot is unchanged.
-- [ ] All controls usable at 390 px: Sort and Collisions options each visible and tappable, Status and Created selects usable, Clear filters reachable. Decision (wrap or scroll) and its reason are recorded in Comments, with the 390 px screenshot.
-- [ ] 1240 px screenshot of `/` unchanged from before the fix (state this by looking at both).
-- [ ] Nav shadow visible at 390 px: the pill shows the same soft shadow as at 1240 px in `home-390.png`; the right-edge fade and swipe still work, and the Tab check from ticket 12 still passes (`pnpm page:check / --keys "focus=nav[aria-label=Main] a,Tab,Tab,Tab,Tab,Tab,Tab" --watch 'nav[aria-label=Main] a[aria-current]'`, Rubric fully visible in the last `-390-keys.png`).
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] The cause is stated in Comments before the fix, with the widest element and width (the Sort `.seg`, 379 px) and the selector used.
+- [x] `pnpm page:check /` has no horizontal-overflow warning at 390 px (`scrollWidth` 390), exit 0, no console, page or request errors; the Current Meta strip still scrolls sideways inside itself.
+- [x] `pnpm page:check /narratives` at 390 px has no new overflow warning and its 1240 px screenshot is unchanged.
+- [x] All controls usable at 390 px: Sort and Collisions options each visible and tappable, Status and Created selects usable, Clear filters reachable. Decision (wrap or scroll) and its reason are recorded in Comments, with the 390 px screenshot.
+- [x] 1240 px screenshot of `/` unchanged from before the fix (state this by looking at both).
+- [x] Nav shadow visible at 390 px: the pill shows the same soft shadow as at 1240 px in `home-390.png`; the right-edge fade and swipe still work, and the Tab check from ticket 12 still passes (`pnpm page:check / --keys "focus=nav[aria-label=Main] a,Tab,Tab,Tab,Tab,Tab,Tab" --watch 'nav[aria-label=Main] a[aria-current]'`, Rubric fully visible in the last `-390-keys.png`).
+- [x] Full `pnpm check` passes once on the committed clean tree.
 
 ## Commits
 
@@ -49,3 +49,15 @@ One commit after the full `pnpm check`. Subject `War Room ticket 13: <what chang
 1. **Wrap or scroll the Sort group?** Default: wrap below `sm` (see Approach 2). Overrule if you prefer a swipeable row.
 
 ## Comments
+
+- **Decision (user, 2026-11-15): WRAP the Sort group below sm** (the recommendation), and fix the nav shadow by moving the mask to an inner wrapper. Reason for wrap: a choice among options should show every option at once, and a nested scroller would be a third sideways scroll beside the Current Meta strip and the nav row.
+- **Cause (before the fix):** widest element is the Sort `.seg` (`ListControls` first child, built by `SegmentedLinks`), 379 px, right edge 399; `.seg-item` is `white-space: nowrap` and the `.seg` could not shrink, so the `grid gap-8` track of `pages/index.vue` grew to it (grid items `min-width: auto`). `pnpm page:check /` before: 390 px `scrollWidth 404 > 390`.
+- **Fix:** `grid-cols-[minmax(0,1fr)]` on the `/` grid root; `.seg` below sm (`max-width: 639.98px`) gets `flex-wrap: wrap; max-width: 100%; border-radius: 1.25rem`; nav: the `<nav aria-label="Main">` keeps `rounded-full bg-white shadow`, and the scrolling row moved to an inner `div.nav-scroll` (mask, hidden scrollbar, end spacer, `p-1.5`); the `ref`/`scrollIntoView` and `focusin` handler are on that inner div.
+- **Evidence** (own War Room on :3213, sqlite3 `.backup` copy, stopped and deleted after; screenshots in `/var/tmp/claude-1000/-home-unknown-code-argus/07489f29-acfe-4e1e-8952-676b677ef955/scratchpad/{before,after,after-keys}/`):
+  - `/` after: no overflow warning at 390 (and 1240), exit 0, console/page/request errors 0. Before: 404 > 390 warning.
+  - 390 px screenshot `after/home-390.png`: Sort wraps to two lines (Score, Newest, Recently changed / Est. usage) in a rounded card, all options visible; Kind, Collisions, Status and Created selects fit; Current Meta strip still scrolls inside itself (cards run off the right edge).
+  - 1240 px `/`: `before/home-1240.png` and `after/home-1240.png` looked at side by side, same layout and positions.
+  - `/narratives` before and after: identical warnings (1240 scrollWidth 1349, 390 scrollWidth 1229), so no new overflow; that overflow predates this ticket and has another cause (not in scope). `/meta` clean before and after; `/pipeline` 390 overflow 501 identical before and after (pre-existing). Screenshots for all under before/ and after/.
+  - Nav shadow visible at 390 px in `after/home-390.png` (pill shows the same soft shadow as at 1240), right-edge fade present.
+  - Tab check from ticket 12 (`after-keys/`): exit 0, every focused link and the active link visible at 390 and 1240; Rubric fully visible in `after-keys/home-390-keys.png`.
+  - Clear filters: no filters are applied on this data, so it is not rendered; its markup is unchanged and sits in the same wrapping `ListControls` flex.

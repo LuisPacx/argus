@@ -211,7 +211,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
 </script>
 
 <template>
-  <div class="grid gap-8">
+  <div class="grid grid-cols-[minmax(0,1fr)] gap-8">
     <div>
       <h2 class="page-title">Proposals</h2>
       <p class="page-sub" data-test="proposal-counts">{{ proposals.length }} {{ proposals.length === 1 ? "Proposal" : "Proposals" }}, {{ newCount }} new<template v-if="memeCount > 0">, {{ memeCount }} meme</template></p>
