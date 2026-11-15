@@ -129,7 +129,7 @@ export const DEFAULT_JUDGE_RUNS_PER_DAY = 300;
  * may use is the shared budget in research-budget.ts, checked before every run; these caps only keep the judge itself bounded (and,
  * at $2 of the default $6, leave the propose pass the rest).
  */
-export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: DEFAULT_JUDGE_RUNS_PER_DAY, minSignals: DEFAULT_JUDGE_MIN_SIGNALS,maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
+export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: DEFAULT_JUDGE_RUNS_PER_DAY, minSignals: DEFAULT_JUDGE_MIN_SIGNALS, maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
 
 /**
  * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY, ARGUS_JUDGE_MIN_SIGNALS and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
