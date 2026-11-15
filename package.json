@@ -23,7 +23,7 @@
     "image:build": "node scripts/image-build.mjs",
     "verify:contain": "node scripts/verify-contain.mjs",
     "docs:graph": "node scripts/gen-architecture.mjs",
-    "prepare":"git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "oxlint": "1.91.0",
