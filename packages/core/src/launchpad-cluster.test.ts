@@ -152,6 +152,26 @@ describe("a common word does not link", () => {
     expect(narrativeHolding(await run(DEFAULT_CLUSTER_CONFIG.crossMaxDocFreq + 1), "rss:test:z0")).toEqual(["rss:test:z0"]); // 6: over it
   });
 
+  it("the document-frequency count reads the whole headline and folds apostrophes, so the headline itself and a phrase late in a long title are counted", async () => {
+    const ds = Datastore.open(":memory:");
+    const headline = (i: number, title: string): Signal => ({ id: `rss:test:df${i}`, sourceId: "rss:test", sourceLabel: "Test", title, summary: "", url: "", publishedAt: "2026-11-10T12:00:00.000Z" });
+    ds.recordSignals([headline(1, "Don't buy AR glasses"), ...[2, 3, 4].map((i) => headline(i, `Local council members spent an entire evening debating zoning rules and then Zorbex number ${i} grows`))], NOW);
+    const since = "2026-11-08T00:00:00.000Z";
+    expect(ds.recentPhraseCount("dont buy", since)).toBe(1);
+    expect(ds.recentPhraseCount("zorbex", since)).toBe(3); // the phrase sits after character 64 of each title
+  });
+
+  it("a bond does not revive a Narrative that has lapsed: it takes its create's name and goes where that name goes now", async () => {
+    const ds = Datastore.open(":memory:");
+    const create = launchpad({ id: "pumpportal:events:create:Lapse0001", title: `${CREATE_TITLE_PREFIX}Zebra Dust ($ZD)`, publishedAt: "2026-11-07T10:00:00.000Z" });
+    ds.recordSignals([create], new Date("2026-11-07T10:05:00.000Z"));
+    await clusterNewSignals(ds, fakeEmbedder().embedder, { now: new Date("2026-11-07T10:05:00.000Z") });
+    const later = new Date("2026-11-11T00:00:00.000Z"); // more than 72 h on
+    ds.recordSignals([launchpad({ id: "pumpportal:events:migrate:Lapse0001", title: `${MIGRATE_TITLE_PREFIX}Laps...0001`, publishedAt: "2026-11-10T23:00:00.000Z" })], later);
+    await clusterNewSignals(ds, fakeEmbedder().embedder, { now: later });
+    expect(narrativesOf(ds).map((g) => g.length)).toEqual([1, 1]);
+  });
+
   it("a name that is only generic words (Coin, Meme, AI) stands alone each time, and joins nothing", async () => {
     const ds = Datastore.open(":memory:");
     ds.recordSignals(

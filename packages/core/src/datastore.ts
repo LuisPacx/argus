@@ -8,7 +8,7 @@ import { expiresAtFor } from "./expiry.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
-import { normaliseKey } from "./meta/key.ts";
+import { phraseText } from "./launchpad-subject.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
@@ -1181,28 +1181,36 @@ export class Datastore {
    * WORKER ONLY. What is known of the launchpad create of `mint`: its stored title and the Narrative it is in (a bond follows its create), or, when
    * no create Signal was stored (it predates the Signals), the name and ticker the Study recorded. Undefined when neither knows the mint.
    */
-  knownToken(mint: string): { title?: string; narrativeId: number | null; narrativeKind: string | null; narrativeSignalCount: number; name?: string; symbol?: string } | undefined {
+  knownToken(mint: string):
+    | { title?: string; narrativeId: number | null; narrativeKind: string | null; narrativeSignalCount: number; narrativeLastSignalAt: string; name?: string; symbol?: string }
+    | undefined {
     const create = this.db
       .prepare(
-        `SELECT s.title, s.narrative_id, n.kind, n.signal_count FROM signals s LEFT JOIN narratives n ON n.id = s.narrative_id WHERE s.id = ?`,
+        `SELECT s.title, s.narrative_id, n.kind, n.signal_count, n.last_signal_at FROM signals s LEFT JOIN narratives n ON n.id = s.narrative_id WHERE s.id = ?`,
       )
-      .get(`pumpportal:events:create:${mint}`) as unknown as { title: string; narrative_id: number | null; kind: string | null; signal_count: number | null } | undefined;
-    if (create) return { title: create.title, narrativeId: create.narrative_id, narrativeKind: create.kind, narrativeSignalCount: create.signal_count ?? 0 };
+      .get(`pumpportal:events:create:${mint}`) as unknown as
+      | { title: string; narrative_id: number | null; kind: string | null; signal_count: number | null; last_signal_at: string | null }
+      | undefined;
+    if (create) {
+      return { title: create.title, narrativeId: create.narrative_id, narrativeKind: create.kind, narrativeSignalCount: create.signal_count ?? 0, narrativeLastSignalAt: create.last_signal_at ?? "" };
+    }
     const study = this.db.prepare("SELECT name, symbol FROM study_tokens WHERE mint = ?").get(mint) as unknown as { name: string; symbol: string } | undefined;
-    return study && (study.name !== "" || study.symbol !== "") ? { narrativeId: null, narrativeKind: null, narrativeSignalCount: 0, name: study.name, symbol: study.symbol } : undefined;
+    return study && (study.name !== "" || study.symbol !== "")
+      ? { narrativeId: null, narrativeKind: null, narrativeSignalCount: 0, narrativeLastSignalAt: "", name: study.name, symbol: study.symbol }
+      : undefined;
   }
 
   /**
    * WORKER ONLY. How many non-launchpad Signals published at or after `since` (ISO) carry `phrase` (a normalised subject key) as whole words: the
-   * document frequency the cross-Source rule cuts on. The database pre-filters on the first word; the exact test runs here.
+   * document frequency the cross-Source rule cuts on. Each title is read the way the phrase was made (`phraseText`, whole headline, apostrophes
+   * and accents folded), so the headline being clustered is always counted.
    */
   recentPhraseCount(phrase: string, since: string): number {
-    const first = phrase.split(" ")[0] ?? "";
     const rows = this.db
-      .prepare("SELECT title FROM signals WHERE source_id <> 'pumpportal:events' AND published_at >= ? AND instr(lower(title), ?) > 0")
-      .all(since, first) as unknown as Array<{ title: string }>;
+      .prepare("SELECT substr(title, 1, 400) AS title FROM signals WHERE source_id <> 'pumpportal:events' AND published_at >= ?")
+      .all(since) as unknown as Array<{ title: string }>;
     let n = 0;
-    for (const r of rows) if (` ${normaliseKey(r.title)} `.includes(` ${phrase} `)) n++;
+    for (const r of rows) if (` ${phraseText(r.title)} `.includes(` ${phrase} `)) n++;
     return n;
   }
 

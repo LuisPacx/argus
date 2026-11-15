@@ -1,6 +1,6 @@
 import type { Datastore, StoredSignal } from "./datastore.ts";
 import { crossSourceTarget, placeLaunchpadSignal } from "./launchpad-cluster.ts";
-import { parseLaunchpadSignal } from "./launchpad-subject.ts";
+import { LAUNCHPAD_SOURCE_ID } from "./launchpad-subject.ts";
 import { STOPWORDS } from "./stopwords.ts";
 
 /** A fixed-length numeric vector for a Signal's text. Related Signals point the same way (ported from helios). */
@@ -192,7 +192,7 @@ export async function clusterNewSignals(
   const candidates = store.recentNarratives(since, embedder);
   for (const signal of signals) {
     if (opts.signal?.aborted) break; // a shutdown: the Signals already clustered stay, the rest are picked up by the next pass
-    if (parseLaunchpadSignal(signal)) {
+    if (signal.sourceId === LAUNCHPAD_SOURCE_ID) {
       // Launchpad creates and bonds are grouped by the token's name and ticker, not embedded (docs/adr/0007, amendment of 2026-11-14).
       if (placeLaunchpadSignal(store, signal, now.toISOString(), since, config, embedder).created) created++;
       clustered++;

@@ -54,7 +54,8 @@ export function placeLaunchpadSignal(
     // A bond has no name of its own (the migrate message carries none): it follows its create.
     const known = store.knownToken(lp.mint);
     if (known) {
-      if (known.narrativeKind === "launchpad" && known.narrativeId !== null && known.narrativeSignalCount < config.maxNarrativeSignals) {
+      // Recent and under the bound, like any join: a bond three days after the last Signal does not revive a Narrative that has lapsed (its keys may belong to a successor).
+      if (known.narrativeKind === "launchpad" && known.narrativeId !== null && joinable({ signalCount: known.narrativeSignalCount, lastSignalAt: known.narrativeLastSignalAt }, since, config)) {
         store.joinNarrative(known.narrativeId, signal, [], now);
         return { created: false };
       }

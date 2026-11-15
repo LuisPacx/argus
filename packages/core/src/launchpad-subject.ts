@@ -98,6 +98,16 @@ const MIN_SINGLE_KEY_CHARS = 4;
 const TITLE_CASE_SHARE = 0.6;
 const MIN_MULTI_KEY_CHARS = 7;
 
+/** The words of a headline as subject keys (`Don't` is `dont`), one space apart, over its first 400 characters: the text a phrase is looked up in. Not cut at `normaliseKey`'s 64 characters. */
+export function phraseText(title: string): string {
+  const keys: string[] = [];
+  for (const m of title.slice(0, MAX_TITLE_UNITS).matchAll(WORD)) {
+    const key = normaliseKey(m[0].replace(POSSESSIVE, ""));
+    if (key !== "") keys.push(key);
+  }
+  return keys.join(" ");
+}
+
 /**
  * The phrases of a non-launchpad headline that could name a launchpad token: every run of one to three words, as a subject key. Two kinds
  * only, chosen for precision on the 3-day DB copy (docs/adr/0007, amendment of 2026-11-14):
