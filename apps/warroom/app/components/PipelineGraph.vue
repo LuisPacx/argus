@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The "How it works" graph: the pipeline stages as Soft Cards in fixed columns, left to right, with the edges between them as SVG paths.
 // Text only (no raw-HTML directive). Template-only on purpose: server/test/pipeline-render.test.ts renders it. The geometry and words
-// come from utils/pipeline-layout.ts, the graph from GET /api/pipeline. Motion is Vue's own <TransitionGroup> (the .pipe-* classes).
+// come from utils/pipeline-layout.ts, the graph from GET /api/pipeline and the last-24 h numbers from GET /api/pipeline-live (counts on the
+// edges, Claude spend on the nodes). Motion is Vue's own <TransitionGroup> and <Transition> (the .pipe-* classes): a number that changes
+// fades out and the new one in. Est. usage and real API dollars are separate lines, never added.
 import type { PipelineView } from "../utils/pipeline-layout.ts";
 defineProps<{ view: PipelineView; animate?: boolean }>();
 </script>
@@ -37,6 +39,11 @@ defineProps<{ view: PipelineView; animate?: boolean }>();
               <h3 class="pipe-label">{{ n.label }}</h3>
               <span class="pill pipe-pill" :class="n.tone" :title="n.note ?? undefined" data-test="node-status">{{ n.statusWord }}</span>
             </div>
+            <p v-if="n.spend" class="pipe-spend" :title="n.spend.title" :data-test="`spend-${n.id}`">
+              <Transition v-for="(line, k) in n.spend.lines" :key="k" name="pipe-num" mode="out-in">
+                <span :key="line" class="pipe-spend-line">{{ line }}</span>
+              </Transition>
+            </p>
             <ul v-if="n.chips.length > 0" class="pipe-chips" :data-test="`chips-${n.id}`">
               <li v-for="c in n.chips" :key="c.id" class="pipe-chip" :data-test="`chip-${c.id}`">
                 <span class="pipe-chip-name">{{ c.label }}</span>
@@ -45,6 +52,13 @@ defineProps<{ view: PipelineView; animate?: boolean }>();
             </ul>
           </article>
         </TransitionGroup>
+        <template v-for="e in view.edges" :key="e.id">
+          <span v-if="e.count" class="pipe-count" :style="{ left: `${e.count.x}px`, top: `${e.count.y}px` }" :title="e.count.title" :data-test="`count-${e.id}`">
+            <Transition name="pipe-num" mode="out-in">
+              <span :key="e.count.text">{{ e.count.text }}</span>
+            </Transition>
+          </span>
+        </template>
       </div>
     </div>
 
@@ -52,12 +66,15 @@ defineProps<{ view: PipelineView; animate?: boolean }>();
       <li v-for="n in view.nodes.filter((x) => x.note)" :key="n.id" class="note muted"><strong>{{ n.label }} ({{ n.statusWord }}):</strong> {{ n.note }}</li>
     </ul>
 
+    <p v-if="view.other" class="note muted" data-test="pipeline-other">{{ view.other }}</p>
+
     <div class="surface grid gap-3">
       <h3 class="section-title">How an item moves</h3>
       <p class="note muted">A diamond on an edge is a gate: an item passes only if it meets the rule. A dashed edge is an Operator decision or a path that is not wired yet.</p>
       <ol class="grid gap-1.5 text-sm" data-test="pipeline-legend">
         <li v-for="l in view.legend" :key="l.id" :data-test="`legend-${l.id}`">
-          {{ l.text }}<span v-if="l.gate" class="pill pill-outline ml-2" data-test="legend-gate">{{ l.gate }}</span>
+          {{ l.text }}<strong v-if="l.count" class="ml-2" data-test="legend-count">{{ l.count }}</strong
+          ><span v-if="l.gate" class="pill pill-outline ml-2" data-test="legend-gate">{{ l.gate }}</span>
         </li>
       </ol>
     </div>

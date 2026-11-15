@@ -30,6 +30,7 @@ export * from "./disclosure.ts";
 export * from "./ticks.ts";
 export * from "./pipeline-graph.ts";
 export * from "./pipeline-diagrams.ts";
+export * from "./pipeline-live.ts";
 export * from "./build-refusal.ts";
 export * from "./build-runner.ts";
 export * from "./cleanup-build.ts";

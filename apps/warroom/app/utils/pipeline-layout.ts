@@ -19,9 +19,16 @@ export interface PipelinePayload {
     to: string;
     label: string;
     dashed: boolean;
-    gates: Array<{ label: string; display: string; rubricVersion?: number }>;
+    gates: Array<{ label: string; display: string; defaultDisplay?: string; rubricVersion?: number }>;
   }>;
   rubric: { version: number; gateMinScore: number } | null;
+}
+
+/** The part of GET /api/pipeline-live the page reads (the server's `PipelineLiveResponse`; a renamed field is a type error in its server test). */
+export interface PipelineLivePayload {
+  edges: Record<string, { metric: string; count: number; passedGate?: number }>;
+  nodes: Record<string, { runs: number; spendUsd: number; apiRuns: number; apiUsd: number }>;
+  other: { tasks: string[]; runs: number; spendUsd: number; apiRuns: number; apiUsd: number };
 }
 
 /** Fixed geometry, in pixels. Ten columns fit the 1240 px content width; a narrower screen scrolls the graph sideways. */
@@ -29,7 +36,7 @@ export const NODE_W = 90;
 export const COL_GAP = 34;
 export const ROW_GAP = 46;
 /** A node's head (label and status pill); an edge leaves and enters at the middle of it. */
-export const HEAD_H = 76;
+export const HEAD_H = 104;
 /** What one Source chip adds under the head of the Sources node. */
 export const CHIP_H = 40;
 
@@ -146,16 +153,35 @@ export interface PipelineView {
     note: string | null;
     style: Record<string, string>;
     chips: Array<{ id: string; label: string; statusWord: string; tone: string }>;
+    /** Claude spend in the last 24 h, only on a node that runs a brain task and only while the live numbers are there. */
+    spend: { lines: string[]; title: string } | null;
   }>;
-  edges: Array<{ id: string; d: string; dashed: boolean; gate: { x: number; y: number; text: string } | null }>;
+  edges: Array<{
+    id: string;
+    d: string;
+    dashed: boolean;
+    gate: { x: number; y: number; text: string } | null;
+    /** The last-24 h count as a badge above the middle of the path. `text` is the short form, `title` the sentence. */
+    count: { x: number; y: number; text: string; title: string } | null;
+  }>;
   /** One sentence per edge, for reading the graph without the picture. */
-  legend: Array<{ id: string; text: string; gate: string | null }>;
+  legend: Array<{ id: string; text: string; gate: string | null; count: string | null }>;
+  /** Runs of a brain task no node owns, as one line; null when there were none (or no live numbers). */
+  other: string | null;
 }
 
-const gateText = (g: { label: string; display: string; rubricVersion?: number }): string => `${g.label}: ${g.display}${g.rubricVersion === undefined ? "" : ` (Rubric v${g.rubricVersion})`}`;
+const gateText = (g: { label: string; display: string; defaultDisplay?: string; rubricVersion?: number }): string =>
+  `${g.label}: ${g.display}${g.rubricVersion !== undefined ? ` (Rubric v${g.rubricVersion})` : g.defaultDisplay === undefined ? "" : ` (default ${g.defaultDisplay})`}`;
 
-/** Everything the template draws, from the API payload. */
-export function pipelineView(p: PipelinePayload): PipelineView {
+const group = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+/** 842, 1.2k, 12k: short enough for the badge on a 34 px gap between columns. */
+export const compactCount = (n: number): string => (n < 1000 ? String(n) : n < 10_000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${Math.round(n / 1000)}k`);
+/** Dollars: three decimals under 10 cents (a judge run is about a cent), two above. */
+export const usd = (n: number): string => (n === 0 ? "$0" : n < 0.1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`);
+const runs = (n: number): string => `${group(n)} ${n === 1 ? "run" : "runs"}`;
+
+/** Everything the template draws, from the API payloads. `live` is null before the first answer and while the live route fails: the static graph. */
+export function pipelineView(p: PipelinePayload, live: PipelineLivePayload | null = null): PipelineView {
   const layout = layoutPipeline(
     p.nodes.map((n) => ({ id: n.id, column: n.column, row: n.row, chips: n.sources.length })),
     p.edges,
@@ -176,17 +202,45 @@ export function pipelineView(p: PipelinePayload): PipelineView {
         note: n.statusNote ?? null,
         style: { left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px` },
         chips: n.sources.map((c) => ({ id: c.id, label: c.label, statusWord: c.status === "on" ? "market" : "context only", tone: c.status === "on" ? "pill-green" : "pill-accent" })),
+        spend: spendOf(live?.nodes[n.id]),
       };
     }),
     edges: p.edges.flatMap((e) => {
       const at = drawn.get(e.id);
       if (!at) return [];
-      return [{ id: e.id, d: at.d, dashed: e.dashed, gate: e.gates.length > 0 ? { x: at.mid.x, y: at.mid.y, text: e.gates.map(gateText).join("; ") } : null }];
+      const c = live?.edges[e.id];
+      return [
+        {
+          id: e.id,
+          d: at.d,
+          dashed: e.dashed,
+          gate: e.gates.length > 0 ? { x: at.mid.x, y: at.mid.y, text: e.gates.map(gateText).join("; ") } : null,
+          count: c === undefined ? null : { x: at.mid.x, y: at.mid.y, text: compactCount(c.count), title: countText(c) },
+        },
+      ];
     }),
-    legend: p.edges.map((e) => ({
-      id: e.id,
-      text: `${labelOf.get(e.from) ?? e.from} to ${labelOf.get(e.to) ?? e.to}: ${e.label}${e.dashed ? " (not an item moving: a decision or a path not wired yet)" : ""}`,
-      gate: e.gates.length > 0 ? e.gates.map(gateText).join("; ") : null,
-    })),
+    legend: p.edges.map((e) => {
+      const c = live?.edges[e.id];
+      return {
+        id: e.id,
+        text: `${labelOf.get(e.from) ?? e.from} to ${labelOf.get(e.to) ?? e.to}: ${e.label}${e.dashed ? " (not an item moving: a decision or a path not wired yet)" : ""}`,
+        gate: e.gates.length > 0 ? e.gates.map(gateText).join("; ") : null,
+        count: c === undefined ? null : countText(c),
+      };
+    }),
+    other: live && (live.other.runs > 0 || live.other.apiRuns > 0) ? `Other tasks (${live.other.tasks.join(", ")}): ${spendLine(live.other).join(", ")} in the last 24 h` : null,
   };
+}
+
+const countText = (c: { count: number; passedGate?: number }): string => `${group(c.count)} in the last 24 h${c.passedGate === undefined ? "" : `, ${group(c.passedGate)} passed the gate`}`;
+
+/** Est. usage first, real API dollars apart and only when the API ran. They are never added. */
+function spendLine(n: { runs: number; spendUsd: number; apiRuns: number; apiUsd: number }): string[] {
+  return [`${usd(n.spendUsd)} est.`, runs(n.runs), ...(n.apiRuns > 0 ? [`API ${usd(n.apiUsd)}`] : [])];
+}
+
+function spendOf(n: { runs: number; spendUsd: number; apiRuns: number; apiUsd: number } | undefined): { lines: string[]; title: string } | null {
+  if (n === undefined) return null;
+  const api = n.apiRuns > 0 ? `; API fallback: ${usd(n.apiUsd)} real dollars in ${runs(n.apiRuns)}` : "";
+  return { lines: spendLine(n), title: `Claude in the last 24 h: ${usd(n.spendUsd)} Est. usage in ${runs(n.runs)}${api}. Est. usage is the subscription's; API dollars are real and never added to it.` };
 }

@@ -125,6 +125,28 @@ export interface BrainRunRecord {
   heartbeatAt: string | null;
 }
 
+/** One brain task's runs and spend in the last 24 h, the two currencies apart (see `Datastore.pipelineLive`). */
+export interface PipelineLiveBrainRuns {
+  task: string;
+  /** Subscription runs and the cost they reported (Est. usage). */
+  runs: number;
+  estUsd: number;
+  /** API-fallback runs and their real dollars. */
+  apiRuns: number;
+  apiUsd: number;
+}
+
+/** What `Datastore.pipelineLive` reads for the "How it works" page. */
+export interface PipelineLiveData {
+  /** Start of the 24 h window (ISO). */
+  since: string;
+  /** One count per edge metric. */
+  counts: Record<string, number>;
+  /** Of the Narratives judged in the window, how many have a buildability at or above the gate. */
+  narrativesPassedGate: number;
+  brainRuns: PipelineLiveBrainRuns[];
+}
+
 /** One Source's health for the War Room Activity page. */
 export interface SourceHealth {
   sourceId: string;
@@ -380,6 +402,13 @@ export function migrate(db: DatabaseSync): void {
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS scores_narrative_id ON scores (narrative_id, id)");
   db.exec("CREATE INDEX IF NOT EXISTS brain_runs_narrative_id ON brain_runs (narrative_id)");
+  // Rolling-24 h windows on creation or event time (the spend caps and the War Room's "How it works" counts): without these each read scans its table.
+  db.exec("CREATE INDEX IF NOT EXISTS brain_runs_created_at ON brain_runs (created_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS signals_ingested_at ON signals (ingested_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS narratives_created_at ON narratives (created_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS scores_created_at ON scores (created_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS proposals_created_at ON proposals (created_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS status_history_at ON status_history (at)");
   // Proposals whose Telegram card has been queued (phase 2 ticket 11): one row each, so a restart never announces twice.
   // Proposals that exist when the table is first created count as announced, so turning notifications on does not flood the chat.
   const hadAnnounced = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_announced'").get();
@@ -521,6 +550,7 @@ export type WarRoomStore = Pick<
   | "queryNarratives"
   | "getNarrative"
   | "sourceHealth"
+  | "pipelineLive"
   | "newestNarratives"
   | "recentBrainRuns"
   | "studyStats"
@@ -948,6 +978,71 @@ export class Datastore {
       lastErrorAt: r.last_error_at,
       signals24h: r.signals_24h,
     }));
+  }
+
+  /**
+   * What the "How it works" page overlays on the pipeline, for the 24 h ending at `now`: one count per edge metric (the `metric` keys
+   * of the edges in pipeline-graph.ts; pipeline-live.test.ts fails when one is missing) and, per brain task, runs and spend. Read-only; every query is a range on one indexed time column
+   * (`created_at`, `ingested_at`, `first_seen_at` or `status_history.at`), so none scans its table.
+   *
+   * - `signals_ingested`: signals by `ingested_at` (index `signals_ingested_at`).
+   * - `creates_seen`: `study_tokens` by `first_seen_at`, the PumpPortal creates (index `study_tokens_first_seen`); a separate edge from Signals.
+   * - `narratives_created`: narratives by `created_at` (`narratives_created_at`).
+   * - `narratives_judged`: DISTINCT narratives with a Score by `created_at` (`scores_created_at`), a re-judged Narrative counting once;
+   *   `narrativesPassedGate` is how many of those have a buildability of at least `gateMinScore` in a Score of the window (the gate as the caller holds it now).
+   * - `proposals_created`: research Proposals (made from a Narrative) by `created_at` (`proposals_created_at`), as `researchProposalsSince`.
+   * - `shortlisted`, `spec_drafted`, `approved`: DISTINCT Proposals that entered that status in the window, by `status_history.at` (`status_history_at`).
+   * - `built`, `build_finished`: transitions into `built`, or into `built` or `build-failed` (each is one Build's end), same index.
+   * - `brainRuns`: `brain_runs` by `created_at` (`brain_runs_created_at`) per task; `estUsd` sums the cost runs reported on the subscription (backend not
+   *   `api`, Est. usage) and `apiUsd` the real dollars of backend `api`, never added together. No cap is applied to a run that reported no cost.
+   */
+  pipelineLive(now: Date, gateMinScore: number): PipelineLiveData {
+    const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    const one = (sql: string, ...args: Array<string | number>): number => (this.db.prepare(sql).get(...args) as unknown as { n: number }).n;
+    const judged = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT narrative_id) AS judged,
+                COUNT(DISTINCT CASE WHEN json_extract(scores, '$.buildability') >= ? THEN narrative_id END) AS passed
+         FROM scores WHERE created_at >= ?`,
+      )
+      .get(gateMinScore, since) as unknown as { judged: number; passed: number };
+    const history = new Map(
+      (this.db.prepare("SELECT to_status AS status, COUNT(*) AS runs, COUNT(DISTINCT proposal_id) AS proposals FROM status_history WHERE at >= ? AND to_status IN ('shortlisted', 'spec-drafted', 'approved', 'built', 'build-failed') GROUP BY to_status").all(since) as unknown as Array<{ status: string; runs: number; proposals: number }>).map((r) => [r.status, r]),
+    );
+    const proposals = (status: string): number => history.get(status)?.proposals ?? 0;
+    const events = (status: string): number => history.get(status)?.runs ?? 0;
+    const byTask = new Map<string, PipelineLiveBrainRuns>();
+    const runs = this.db
+      .prepare("SELECT task, backend = 'api' AS api, COUNT(*) AS runs, COALESCE(SUM(total_cost_usd), 0) AS cost FROM brain_runs WHERE created_at >= ? GROUP BY task, api")
+      .all(since) as unknown as Array<{ task: string; api: number; runs: number; cost: number }>;
+    for (const r of runs) {
+      const t = byTask.get(r.task) ?? { task: r.task, runs: 0, estUsd: 0, apiRuns: 0, apiUsd: 0 };
+      if (r.api) {
+        t.apiRuns += r.runs;
+        t.apiUsd += r.cost;
+      } else {
+        t.runs += r.runs;
+        t.estUsd += r.cost;
+      }
+      byTask.set(r.task, t);
+    }
+    return {
+      since,
+      counts: {
+        signals_ingested: one("SELECT COUNT(*) AS n FROM signals WHERE ingested_at >= ?", since),
+        creates_seen: one("SELECT COUNT(*) AS n FROM study_tokens WHERE first_seen_at >= ?", since),
+        narratives_created: one("SELECT COUNT(*) AS n FROM narratives WHERE created_at >= ?", since),
+        narratives_judged: judged.judged,
+        proposals_created: this.researchProposalsSince(since),
+        shortlisted: proposals("shortlisted"),
+        spec_drafted: proposals("spec-drafted"),
+        approved: proposals("approved"),
+        build_finished: events("built") + events("build-failed"),
+        built: events("built"),
+      },
+      narrativesPassedGate: judged.passed,
+      brainRuns: [...byTask.values()],
+    };
   }
 
   /** The newest Narratives by creation, then id, descending. */

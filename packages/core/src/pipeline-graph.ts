@@ -11,14 +11,14 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { BUILD_TICK_MS } from "./build-refusal.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS } from "./expiry.ts";
-import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
-import { META_RULE, META_WINDOWS, metaIntervalMinutes } from "./meta/config.ts";
-import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
-import { DEFAULT_PROPOSE_CONFIG } from "./propose.ts";
-import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd } from "./research-budget.ts";
+import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
+import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
+import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
+import { DEFAULT_PROPOSE_CONFIG, proposeConfigFromEnv } from "./propose.ts";
+import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd, researchConfigFromEnv } from "./research-budget.ts";
 import { SEED_GATE_MIN_SCORE } from "./rubric.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
-import { MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./study/config.ts";
+import { captureRunCap, MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./study/config.ts";
 import { INGEST_TICK_MS, JUDGE_TICK_MS, STUDY_TICK_MS } from "./ticks.ts";
 
 /** `on`: running. `off`: declared off (drawn muted). `context-only`: a Source whose Signals are only background (ADR 0011). */
@@ -26,6 +26,8 @@ export type NodeStatus = "on" | "off" | "context-only";
 
 /** How a rule's value is written: the unit decides the display, so the same number never reads two ways. */
 export type RuleUnit = "count" | "usd" | "ms" | "min" | "sec" | "hours" | "score" | "share" | "text";
+
+export type Env = Record<string, string | undefined>;
 
 export interface PipelineRule {
   label: string;
@@ -38,6 +40,12 @@ export interface PipelineRule {
   /** The value, read from the real constant at call time. */
   ref: () => number | string;
   unit: RuleUnit;
+  /**
+   * The value the running config uses when an `ARGUS_*` variable overrides the default (`ref` is always the code's default, which the
+   * sync test compares). It is called with the War Room process's environment, which is what the worker is assumed to share (the same
+   * assumption `GET /api/research` makes); there is no channel to read the worker's own. Absent: no variable can change this value.
+   */
+  live?: (env: Env) => number | string;
   /** Also written into the generated system overview diagram, beside the node's label. */
   diagram?: boolean;
   /** The value the buildability gate shows is the stored Rubric's, not this seed: the API route overrides it (architecture section 7). */
@@ -164,16 +172,17 @@ export const PIPELINE: PipelineGraph = {
       what: "Claude judges each new or changed Narrative against the Rubric and stores a Score per dimension.",
       rules: [
         { label: "Runs every", ref: () => JUDGE_TICK_MS, unit: "ms", diagram: true },
-        { label: "Signals a Narrative needs", key: "DEFAULT_JUDGE_CONFIG.minSignals", ref: () => DEFAULT_JUDGE_CONFIG.minSignals, unit: "count" },
+        { label: "Signals a Narrative needs", key: "DEFAULT_JUDGE_CONFIG.minSignals", ref: () => DEFAULT_JUDGE_CONFIG.minSignals, unit: "count", live: (env) => judgeConfigFromEnv(env).minSignals },
         { label: "Looks back", key: "DEFAULT_JUDGE_CONFIG.windowHours", ref: () => DEFAULT_JUDGE_CONFIG.windowHours, unit: "hours" },
-        { label: "Narratives per pass", key: "DEFAULT_JUDGE_CONFIG.maxPerPass", ref: () => DEFAULT_JUDGE_CONFIG.maxPerPass, unit: "count" },
-        { label: "Runs per day", key: "DEFAULT_JUDGE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_JUDGE_CONFIG.maxRunsPerDay, unit: "count" },
-        { label: "Spend per day", key: "DEFAULT_JUDGE_CONFIG.maxDailyUsd", ref: () => DEFAULT_JUDGE_CONFIG.maxDailyUsd, unit: "usd" },
-        { label: "Spend per run", ref: () => DEFAULT_ROUTING.judge.maxBudgetUsd, unit: "usd" },
+        { label: "Narratives per pass", key: "DEFAULT_JUDGE_CONFIG.maxPerPass", ref: () => DEFAULT_JUDGE_CONFIG.maxPerPass, unit: "count", live: (env) => judgeConfigFromEnv(env).maxPerPass },
+        { label: "Runs per day", key: "DEFAULT_JUDGE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_JUDGE_CONFIG.maxRunsPerDay, unit: "count", live: (env) => judgeConfigFromEnv(env).maxRunsPerDay },
+        { label: "Spend per day", key: "DEFAULT_JUDGE_CONFIG.maxDailyUsd", ref: () => DEFAULT_JUDGE_CONFIG.maxDailyUsd, unit: "usd", live: (env) => judgeConfigFromEnv(env).maxDailyUsd },
+        { label: "Spend per run", key: "DEFAULT_ROUTING.judge.maxBudgetUsd", ref: () => DEFAULT_ROUTING.judge.maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock per run", key: "DEFAULT_ROUTING.judge.timeoutMs", ref: () => DEFAULT_ROUTING.judge.timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING.judge.model, unit: "text" },
-        { label: "Research daily quota (judge and propose)", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd, unit: "usd" },
-        { label: "Research share of the quota", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.share", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.share, unit: "share" },
-        { label: "Research budget per day", ref: () => researchBudgetUsd(DEFAULT_RESEARCH_BUDGET_CONFIG), unit: "usd" },
+        { label: "Research daily quota (judge and propose)", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.dailyQuotaUsd, unit: "usd", live: (env) => researchConfigFromEnv(env).dailyQuotaUsd },
+        { label: "Research share of the quota", key: "DEFAULT_RESEARCH_BUDGET_CONFIG.share", ref: () => DEFAULT_RESEARCH_BUDGET_CONFIG.share, unit: "share", live: (env) => researchConfigFromEnv(env).share },
+        { label: "Research budget per day", ref: () => researchBudgetUsd(DEFAULT_RESEARCH_BUDGET_CONFIG), unit: "usd", live: (env) => researchBudgetUsd(researchConfigFromEnv(env)) },
       ],
       adrs: ["0001-claude-code-headless-brain-with-api-fallback.md", "0011-market-signals-decide-eligibility.md"],
       tickets: [CONTEXT_TICKET],
@@ -190,13 +199,14 @@ export const PIPELINE: PipelineGraph = {
       status: "on",
       what: "Claude turns each Narrative that passed the gate into a Proposal: a name, a ticker and a Tech to build. The Operator sees it as a card.",
       rules: [
-        { label: "New Proposals per day", key: "DEFAULT_PROPOSE_CONFIG.maxNewPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxNewPerDay, unit: "count", diagram: true },
+        { label: "New Proposals per day", key: "DEFAULT_PROPOSE_CONFIG.maxNewPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxNewPerDay, unit: "count", diagram: true, live: (env) => proposeConfigFromEnv(env).maxNewPerDay },
         { label: "New Proposals per day, hard cap", key: "MAX_NEW_PROPOSALS_PER_DAY", ref: () => MAX_NEW_PROPOSALS_PER_DAY, unit: "count" },
-        { label: "Narratives per pass", key: "DEFAULT_PROPOSE_CONFIG.maxPerPass", ref: () => DEFAULT_PROPOSE_CONFIG.maxPerPass, unit: "count" },
-        { label: "Runs per day", key: "DEFAULT_PROPOSE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxRunsPerDay, unit: "count" },
+        { label: "Narratives per pass", key: "DEFAULT_PROPOSE_CONFIG.maxPerPass", ref: () => DEFAULT_PROPOSE_CONFIG.maxPerPass, unit: "count", live: (env) => proposeConfigFromEnv(env).maxPerPass },
+        { label: "Runs per day", key: "DEFAULT_PROPOSE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_PROPOSE_CONFIG.maxRunsPerDay, unit: "count", live: (env) => proposeConfigFromEnv(env).maxRunsPerDay },
         { label: "Needs a Signal within", key: "DEFAULT_PROPOSE_CONFIG.windowHours", ref: () => DEFAULT_PROPOSE_CONFIG.windowHours, unit: "hours" },
-        { label: "Migrated examples in the prompt", key: "DEFAULT_PROPOSE_CONFIG.migratedExamples", ref: () => DEFAULT_PROPOSE_CONFIG.migratedExamples, unit: "count" },
-        { label: "Spend per run", ref: () => DEFAULT_ROUTING.propose.maxBudgetUsd, unit: "usd" },
+        { label: "Migrated examples in the prompt", key: "DEFAULT_PROPOSE_CONFIG.migratedExamples", ref: () => DEFAULT_PROPOSE_CONFIG.migratedExamples, unit: "count", live: (env) => proposeConfigFromEnv(env).migratedExamples },
+        { label: "Spend per run", key: "DEFAULT_ROUTING.propose.maxBudgetUsd", ref: () => DEFAULT_ROUTING.propose.maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock per run", key: "DEFAULT_ROUTING.propose.timeoutMs", ref: () => DEFAULT_ROUTING.propose.timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING.propose.model, unit: "text" },
         { label: "Closed as stale after", key: "EXPIRY_MS.new", ref: () => EXPIRY_MS.new ?? "never", unit: "ms" },
       ],
@@ -228,7 +238,8 @@ export const PIPELINE: PipelineGraph = {
       diagramNote: "drafted on shortlist",
       what: "Claude drafts a build Spec for the shortlisted Proposal; the Operator edits it in the War Room.",
       rules: [
-        { label: "Spend per run", ref: () => DEFAULT_ROUTING.spec.maxBudgetUsd, unit: "usd" },
+        { label: "Spend per run", key: "DEFAULT_ROUTING.spec.maxBudgetUsd", ref: () => DEFAULT_ROUTING.spec.maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock per run", key: "DEFAULT_ROUTING.spec.timeoutMs", ref: () => DEFAULT_ROUTING.spec.timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING.spec.model, unit: "text" },
       ],
       adrs: ["0003-one-build-archetype-via-template-repo.md"],
@@ -260,8 +271,8 @@ export const PIPELINE: PipelineGraph = {
       what: "Builds the approved Spec as a Cloudflare Workers web app in a rootless container, one Build at a time. The call sequence is in docs/architecture.md section 4.",
       rules: [
         { label: "Queue checked every", ref: () => BUILD_TICK_MS, unit: "ms" },
-        { label: "Spend per Build run", ref: () => DEFAULT_ROUTING.build.maxBudgetUsd, unit: "usd" },
-        { label: "Wall clock", ref: () => DEFAULT_ROUTING.build.timeoutMs, unit: "ms" },
+        { label: "Spend per Build run", key: "DEFAULT_ROUTING.build.maxBudgetUsd", ref: () => DEFAULT_ROUTING.build.maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock", key: "DEFAULT_ROUTING.build.timeoutMs", ref: () => DEFAULT_ROUTING.build.timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING.build.model, unit: "text" },
       ],
       adrs: ["0003-one-build-archetype-via-template-repo.md", "0005-builds-run-in-a-rootless-podman-container.md"],
@@ -296,7 +307,7 @@ export const PIPELINE: PipelineGraph = {
         { label: "Metadata and website Snapshot at age", key: "STUDY_CAPTURE_RULE.snapshotAgeSec", ref: () => STUDY_CAPTURE_RULE.snapshotAgeSec, unit: "sec" },
         { label: "X capture at age", key: "STUDY_CAPTURE_RULE.xCaptureAgeSec", ref: () => STUDY_CAPTURE_RULE.xCaptureAgeSec, unit: "sec" },
         { label: "Fast migration within", key: "STUDY_CAPTURE_RULE.fastMigrationSec", ref: () => STUDY_CAPTURE_RULE.fastMigrationSec, unit: "sec" },
-        { label: "Captures per day, hard cap", key: "MAX_CAPTURE_RUNS_PER_DAY", ref: () => MAX_CAPTURE_RUNS_PER_DAY, unit: "count" },
+        { label: "Captures per day, hard cap", key: "MAX_CAPTURE_RUNS_PER_DAY", ref: () => MAX_CAPTURE_RUNS_PER_DAY, unit: "count", live: (env) => captureRunCap(env) },
       ],
       adrs: ["0009-x-capture-through-a-dedicated-logged-in-browser.md"],
       tickets: [".scratch/phase-3-feedback/issues/02-snapshot-metadata-and-website.md", ".scratch/phase-3-feedback/issues/06-x-capture-job.md"],
@@ -311,13 +322,15 @@ export const PIPELINE: PipelineGraph = {
       status: "on",
       what: "Groups the last day's launchpad creates into clone clusters and ranks them as Metas (/meta). Plain code ranks; Claude writes only a one-line summary.",
       rules: [
-        { label: "Ranked every", ref: () => metaIntervalMinutes({}), unit: "min", diagram: true },
+        { label: "Ranked every", key: "DEFAULT_META_INTERVAL_MINUTES", ref: () => metaIntervalMinutes({}), unit: "min", diagram: true, live: (env) => metaIntervalMinutes(env) },
         { label: "Windows", key: "META_WINDOWS", ref: () => META_WINDOWS.join(", "), unit: "text" },
-        { label: "Rank order, first decides", key: "META_RULE.rankOrder", ref: () => META_RULE.rankOrder.join(", "), unit: "text" },
+        { label: "Rank order, first decides", key: "META_RULE.rankOrder", ref: () => META_RULE.rankOrder.join(", "), unit: "text", live: (env) => metaConfigFromEnv(env).rankOrder.join(", ") },
         { label: "Tokens a Meta needs", key: "META_RULE.minTokens", ref: () => META_RULE.minTokens, unit: "count" },
         { label: "Counted as organic after", key: "META_RULE.organicAfterSec", ref: () => META_RULE.organicAfterSec, unit: "sec" },
-        { label: "Summaries per day", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count" },
-        { label: "Summary spend per day", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd, unit: "usd" },
+        { label: "Summaries per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count", live: (env) => metaSummaryConfigFromEnv(env).maxRunsPerDay },
+        { label: "Summary spend per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd, unit: "usd", live: (env) => metaSummaryConfigFromEnv(env).maxDailyUsd },
+        { label: "Summary spend per run", key: "DEFAULT_ROUTING.meta-summary.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meta-summary"].maxBudgetUsd, unit: "usd" },
+        { label: "Summary wall clock per run", key: "DEFAULT_ROUTING.meta-summary.timeoutMs", ref: () => DEFAULT_ROUTING["meta-summary"].timeoutMs, unit: "ms" },
         { label: "Summary model", ref: () => DEFAULT_ROUTING["meta-summary"].model, unit: "text" },
       ],
       adrs: ["0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
@@ -439,9 +452,15 @@ export interface PipelineRuleView {
   key?: string;
   value: number | string;
   unit: RuleUnit;
+  /** `value` as the unit writes it. `value` is what the running config uses (an `ARGUS_*` override, or the stored Rubric's gate). */
   display: string;
+  /** Set only when the effective value differs from the code's default: the default, and how it is written. */
+  defaultValue?: number | string;
+  defaultDisplay?: string;
   /** Set when the value is the stored Rubric's, and which version. */
   rubricVersion?: number;
+  /** Set when an `ARGUS_*` variable is invalid (the worker would refuse to start): the default is shown and this says why. */
+  envError?: string;
 }
 
 export interface PipelineNodeView {
@@ -479,12 +498,32 @@ export interface PipelineResponse {
 }
 
 /** The graph as the page draws it: functions evaluated, off-page nodes and the edges that touch them left out. */
-export function resolvePipeline(graph: PipelineGraph, live: { rubric?: { version: number; gateMinScore: number } | null } = {}): PipelineResponse {
+export function resolvePipeline(graph: PipelineGraph, live: { rubric?: { version: number; gateMinScore: number } | null; env?: Env } = {}): PipelineResponse {
   const rubric = live.rubric ?? null;
   const view = (r: PipelineRule): PipelineRuleView => {
     const fromRubric = r.liveFrom === "rubric" && rubric !== null;
-    const value = fromRubric ? rubric.gateMinScore : r.ref();
-    return { label: r.label, ...(r.key === undefined ? {} : { key: r.key }), value, unit: r.unit, display: formatRuleValue(value, r.unit), ...(fromRubric ? { rubricVersion: rubric.version } : {}) };
+    const base = r.ref();
+    let value = base;
+    let envError: string | undefined;
+    if (fromRubric) value = rubric.gateMinScore;
+    else if (r.live && live.env) {
+      try {
+        value = r.live(live.env);
+      } catch (e) {
+        envError = e instanceof Error ? e.message : String(e);
+      }
+    }
+    const differs = String(value) !== String(base);
+    return {
+      label: r.label,
+      ...(r.key === undefined ? {} : { key: r.key }),
+      value,
+      unit: r.unit,
+      display: formatRuleValue(value, r.unit),
+      ...(differs ? { defaultValue: base, defaultDisplay: formatRuleValue(base, r.unit) } : {}),
+      ...(fromRubric ? { rubricVersion: rubric.version } : {}),
+      ...(envError === undefined ? {} : { envError }),
+    };
   };
   const shown = graph.nodes.filter(isOnPage);
   const ids = new Set(shown.map((n) => n.id));

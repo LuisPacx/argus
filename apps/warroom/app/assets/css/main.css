@@ -450,6 +450,37 @@ body {
     padding: 2px 8px;
     font-size: 0.6875rem;
   }
+  /* Claude spend in the last 24 h under a node's head: est. usage, runs, and API dollars only when the API ran. */
+  .pipe-spend {
+    display: grid;
+    margin-top: 6px;
+    font-size: 0.6875rem;
+    line-height: 1.35;
+    color: var(--wr-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .pipe-spend-line {
+    display: block;
+    white-space: nowrap;
+  }
+  /* The last-24 h count on an edge: a small badge above the middle of the path, in the 34 px gap between two columns. */
+  .pipe-count {
+    position: absolute;
+    transform: translate(-50%, calc(-100% - 12px));
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--wr-accent-tint);
+    color: var(--wr-accent-strong);
+    font-size: 0.6875rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .pipe-count > span {
+    display: inline-block;
+  }
   .pipe-chips {
     display: grid;
     gap: 4px;
@@ -595,6 +626,22 @@ body {
 .pipe-enter-from {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* A live number that changed (PipelineGraph.vue): the old one fades out, the new one fades in. */
+.pipe-num-enter-active,
+.pipe-num-leave-active {
+  transition:
+    opacity 0.18s var(--wr-ease),
+    transform 0.18s var(--wr-ease);
+}
+.pipe-num-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+.pipe-num-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
 }
 
 /* The New Proposal form opening above the header band. */

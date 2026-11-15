@@ -6,7 +6,8 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
-import { META_RULE, META_WINDOWS } from "./meta/config.ts";
+import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
+import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
 import { formatRuleValue, PIPELINE, pipelineGaps, resolvePipeline, type PipelineGraph, type PipelineRegistry } from "./pipeline-graph.ts";
 import { DEFAULT_PROPOSE_CONFIG } from "./propose.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG } from "./research-budget.ts";
@@ -25,6 +26,10 @@ const LEFT_OUT: Record<string, string> = {
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
+  "DEFAULT_META_SUMMARY_CONFIG.topRows": "which rows get a summary line, a detail of the one-line task",
+  "DEFAULT_META_SUMMARY_CONFIG.maxPerPass": "per-pass pacing of the one-line task, below this picture",
+  "DEFAULT_META_SUMMARY_CONFIG.minAgeMinutes": "retry spacing of the one-line task, below this picture",
+  "DEFAULT_META_SUMMARY_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "META_RULE.maxRowsPerWindow": "storage detail of the Meta ranking",
   "META_RULE.retentionDays": "storage detail of the Meta ranking",
   "META_RULE.dexGroups": "DexScreener call budget of the Meta ranking, below this picture",
@@ -51,6 +56,16 @@ function flatten(name: string, obj: object): Record<string, number | string> {
   return out;
 }
 
+/** Each task's per-run budget and wall clock in `DEFAULT_ROUTING`, as `DEFAULT_ROUTING.<task>.maxBudgetUsd` and `.timeoutMs`. */
+function routingBudgets(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [task, route] of Object.entries(DEFAULT_ROUTING)) {
+    out[`DEFAULT_ROUTING.${task}.maxBudgetUsd`] = route.maxBudgetUsd;
+    out[`DEFAULT_ROUTING.${task}.timeoutMs`] = route.timeoutMs;
+  }
+  return out;
+}
+
 /** What the code has right now: read from the source files and the real constants, nothing typed in. */
 function realRegistry(): PipelineRegistry {
   const sourcesDir = join(REPO, "packages/core/src/sources");
@@ -66,6 +81,9 @@ function realRegistry(): PipelineRegistry {
       ...flatten("DEFAULT_JUDGE_CONFIG", DEFAULT_JUDGE_CONFIG),
       ...flatten("DEFAULT_PROPOSE_CONFIG", DEFAULT_PROPOSE_CONFIG),
       ...flatten("DEFAULT_RESEARCH_BUDGET_CONFIG", DEFAULT_RESEARCH_BUDGET_CONFIG),
+      ...flatten("DEFAULT_META_SUMMARY_CONFIG", DEFAULT_META_SUMMARY_CONFIG),
+      ...routingBudgets(),
+      DEFAULT_META_INTERVAL_MINUTES,
       ...flatten("META_RULE", META_RULE),
       ...flatten("STUDY_CAPTURE_RULE", STUDY_CAPTURE_RULE),
       ...flatten("EXPIRY_MS", EXPIRY_MS),
@@ -151,6 +169,25 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(formatRuleValue(1500, "ms")).toBe("1500 ms");
   });
 
+  it("a rule an ARGUS_* variable can override shows the value the running config uses, with the code's default beside it when they differ", () => {
+    const rule = (r: ReturnType<typeof resolvePipeline>, node: string, label: string) => r.nodes.find((n) => n.id === node)!.rules.find((x) => x.label === label)!;
+    const plain = resolvePipeline(PIPELINE, { env: {} });
+    expect(rule(plain, "meta", "Ranked every")).toMatchObject({ value: 15, display: "15 min" });
+    expect(rule(plain, "meta", "Ranked every").defaultDisplay).toBeUndefined();
+    const env = { ARGUS_META_INTERVAL_MINUTES: "5", ARGUS_JUDGE_MAX_PER_PASS: "4", ARGUS_DAILY_QUOTA_USD: "10", ARGUS_META_SUMMARY_MAX_DAILY_USD: "1", ARGUS_STUDY_CAPTURES_PER_DAY: "100", ARGUS_PROPOSE_MAX_NEW_PER_DAY: "7" };
+    const live = resolvePipeline(PIPELINE, { env });
+    expect(rule(live, "meta", "Ranked every")).toMatchObject({ value: 5, display: "5 min", defaultValue: 15, defaultDisplay: "15 min" });
+    expect(rule(live, "judge", "Narratives per pass")).toMatchObject({ value: 4, defaultValue: DEFAULT_JUDGE_CONFIG.maxPerPass });
+    expect(rule(live, "judge", "Research budget per day")).toMatchObject({ display: "$3", defaultDisplay: "$6" }); // 10 x 0.3
+    expect(rule(live, "meta", "Summary spend per day")).toMatchObject({ display: "$1", defaultDisplay: "$0.25" });
+    expect(rule(live, "study", "Captures per day, hard cap")).toMatchObject({ value: 100, defaultValue: MAX_CAPTURE_RUNS_PER_DAY });
+    expect(rule(live, "proposals", "New Proposals per day")).toMatchObject({ value: 7, defaultValue: DEFAULT_PROPOSE_CONFIG.maxNewPerDay });
+    expect(rule(live, "judge", "Runs per day").defaultDisplay).toBeUndefined(); // not overridden: no default shown
+    // An invalid variable (the worker would refuse to start) shows the default and says why, and the page still renders.
+    const bad = resolvePipeline(PIPELINE, { env: { ARGUS_JUDGE_MAX_PER_PASS: "nope" } });
+    expect(rule(bad, "judge", "Narratives per pass")).toMatchObject({ value: DEFAULT_JUDGE_CONFIG.maxPerPass, envError: expect.stringContaining("ARGUS_JUDGE_MAX_PER_PASS") });
+  });
+
   it("no numeric literal stands for a gate or cap: every rule's ref() is an expression over an imported constant", () => {
     const source = read("packages/core/src/pipeline-graph.ts");
     const refs = [...source.matchAll(/ref:\s*\(\)\s*=>\s*(.+?),\s*unit:/g)].map((m) => m[1]!);
@@ -192,6 +229,8 @@ describe("pipelineGaps bites: it reports each kind of drift", () => {
 
   it("a new config key, and a rule whose value or key no longer matches the code", () => {
     expect(withRegistry({ config: { "DEFAULT_JUDGE_CONFIG.fakeCap": 7 } })).toEqual([expect.stringContaining("DEFAULT_JUDGE_CONFIG.fakeCap")]);
+    expect(withRegistry({ config: { "DEFAULT_META_SUMMARY_CONFIG.fakeCap": 1 } })).toEqual([expect.stringContaining("DEFAULT_META_SUMMARY_CONFIG.fakeCap")]);
+    expect(withRegistry({ config: { "DEFAULT_ROUTING.fake.maxBudgetUsd": 1 } })).toEqual([expect.stringContaining("DEFAULT_ROUTING.fake.maxBudgetUsd")]);
     expect(withRegistry({ config: { MAX_NEW_PROPOSALS_PER_DAY: 31 } })).toEqual([expect.stringMatching(/shows 30 but MAX_NEW_PROPOSALS_PER_DAY is 31/)]);
     const real = realRegistry();
     const config = Object.fromEntries(Object.entries(real.config).filter(([k]) => k !== "MAX_CAPTURE_RUNS_PER_DAY"));
