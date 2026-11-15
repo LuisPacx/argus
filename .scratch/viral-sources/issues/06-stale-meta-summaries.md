@@ -24,7 +24,7 @@ Origin: cos report 2026-11-15, from a `pnpm page:check` screenshot of the live `
 ## Design (the ticket writer's choice, the user can overrule)
 
 1. **Store the counts the summary was written from.** `meta_summaries` gains `base_tokens`, `base_creators` (24 h window counts at write time; the summary and the 24 h ranking are the same window). `saveSummary` writes them; additive migration like the others in `store.ts`, no backfill: an old row with NULL counts counts as stale (shows the numbers line), which fixes Jensen and Catzilla on the first read.
-2. **A pure `summaryFresh(row, record, now)` in `summary.ts`.** Fresh when tokens and creators are each within a ratio of the stored counts (default: current/stored between 0.5 and 2, so Jensen 7 vs 105 fails and Catzilla 12 vs 9 passes) and `summaryAt` is under 24 h old. Ratio and age are named config keys in `config.ts`, not literals. `store.latest()` attaches `summary` only when fresh; `metaLine` is unchanged (no summary means the templated line, `summarySource: "template"`).
+2. **A pure `summaryFresh(row, record, now)` in `summary.ts`.** Fresh when tokens and creators are each within 0.5x to 2x (current/stored) of the stored counts, so Jensen 7 vs 105 fails and Catzilla 12 vs 9 passes and `summaryAt` is under 24 h old. Ratio and age are named config keys in `config.ts`, not literals. `store.latest()` attaches `summary` only when fresh; `metaLine` is unchanged (no summary means the templated line, `summarySource: "template"`).
 3. **Queue a rewrite for a stale one, inside the caps.** The pass treats a stored-but-stale summary like a missing one (same order, same `minAgeMinutes`, `maxPerPass`, `maxRunsPerDay`, `maxDailyUsd`, research budget). Widen the pass from the top five to the rows the page shows only if the day's cap still holds; otherwise the numbers line stands, which is correct, just plainer. Rows past the cap are never shown a stale line.
 4. **Prompt: do not restate counts.** Ask for the theme and the state in words ("many", "few", "mostly migrating") and no figures, since the row beside it shows them. `parseMetaSummary` (`summary.ts:73-81`) refuses an answer that contains a digit run that is not part of a token name or year in the given input (check with a plain linear scan, no dynamic RegExp), logged as refused like the other refusals. This keeps a line true even if the row moves, at the cost of a plainer sentence. The matching-news text from `missed-ideas/03` stays; its numbers (if any) follow the same rule.
 
@@ -43,9 +43,15 @@ Origin: cos report 2026-11-15, from a `pnpm page:check` screenshot of the live `
 
 One commit after the full `pnpm check`. Subject `Viral sources ticket 06: <what changed>`; the body ends with `Ticket: .scratch/viral-sources/issues/06-stale-meta-summaries.md` before the trailers. No `Closes #N`: this repo has no GitHub issues.
 
-## Open questions
+## Open questions (answered 2026-11-15, see Comments)
 
 1. **What counts as "close"?** Default: tokens and creators each within 0.5x to 2x of the stored counts, and the summary under 24 h old. Tighten (say 0.7x to 1.4x) if you want fewer plain rows to stay out of the way, loosen if the numbers line shows too often.
+   **Answered:** keep 0.5x to 2x for tokens and for creators, each against the counts the summary was written from, plus under 24 h old. A summary is current only while all three hold; otherwise show the plain numbers line and queue a rewrite within the existing caps.
 2. **Number-free prompt or a refresh only?** Default: both (the prompt asks for no figures and a stale line is hidden). Overrule to keep figures in prose and rely on the freshness check alone; the line then reads richer but is wrong whenever the row drifts inside the ratio.
+   **Answered:** both. The summary prompt becomes number-free (no counts in prose), and stale summaries are hidden.
 
 ## Comments
+
+**2026-11-15:** Answers to the open questions from the user.
+1. "Close" is tokens and creators each within 0.5x to 2x of the counts the summary was written from, and the summary under 24 h old. A summary is current only while all three hold. Otherwise show the plain numbers line and queue a rewrite within the existing caps.
+2. Both: the summary prompt becomes number-free (no counts in prose), and stale summaries are hidden.
