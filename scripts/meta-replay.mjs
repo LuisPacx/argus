@@ -38,6 +38,16 @@ console.log(`as of ${asOf.toISOString()}: ${result.tokensRead} tokens read, ${re
 console.log(`recompute: ${((cpu.user + cpu.system) / 1000).toFixed(0)} ms CPU, ${(performance.now() - wall0).toFixed(0)} ms wall (includes the insert)`);
 
 const money = (n) => (n === undefined ? '-' : `$${Math.round(n).toLocaleString('en-US')}`);
+
+// Market-led Metas (ADR 0014): the Metas and Watching subjects of this run, with their leaders.
+const current = store.currentMetas();
+console.log(`\n== Metas (${result.metas}) and Watching (${result.watching}); ${result.leaderCalls} of the ${result.dexCalls} DexScreener calls looked up leaders`);
+for (const [kind, list] of [['Meta', current.metas], ['Watching', current.watching]]) {
+  for (const m of list) {
+    console.log(`${kind.padEnd(8)} ${JSON.stringify(m.label)} [${m.key}]  leader ${m.leader.symbol} ${m.leader.mint}  ${money(m.leader.marketCapUsd)} (${m.leader.source}${m.leader.stale ? ', stale' : ''}${m.holding ? ', holding' : ''})  creators 24h ${m.counts['24h'].creators}`);
+  }
+}
+if (current.metas.length === 0) console.log('No Meta right now.');
 for (const window of ['24h', '6h']) {
   const run = store.latestMetas(window, 20);
   console.log(`\n== ${window} window: base migration rate ${run.baseMigrationRate === null ? 'n/a' : (run.baseMigrationRate * 100).toFixed(1) + '%'} (${run.windowMigrations}/${run.windowTokens}, unfiltered)`);

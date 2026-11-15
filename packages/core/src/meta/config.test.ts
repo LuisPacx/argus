@@ -24,6 +24,23 @@ describe("meta config", () => {
     expect(metaConfigFromEnv({ ARGUS_META_THEMES: "1" }).theme).toEqual(META_RULE.theme);
   });
 
+  it("the market-led rule defaults are the user's numbers (ADR 0014)", () => {
+    expect(META_RULE).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000, minCopies: 10, maxMetas: 3, watching: 3, leaderCalls: 4, stateMaxMinutes: 120 });
+  });
+
+  it("reads each market-led knob, bounded, and junk keeps the default", () => {
+    const c = metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "2000000", ARGUS_META_STAY_MCAP_USD: "750000", ARGUS_META_MIN_COPIES: "12", ARGUS_META_MAX_METAS: "2", ARGUS_META_WATCHING: "0", ARGUS_META_LEADER_CALLS: "6", ARGUS_META_STATE_MAX_MINUTES: "60" });
+    expect(c).toMatchObject({ enterMcapUsd: 2_000_000, stayMcapUsd: 750_000, minCopies: 12, maxMetas: 2, watching: 0, leaderCalls: 6, stateMaxMinutes: 60 });
+    const junk = metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "lots", ARGUS_META_STAY_MCAP_USD: "-5", ARGUS_META_MIN_COPIES: "0", ARGUS_META_MAX_METAS: "99", ARGUS_META_WATCHING: "1.5", ARGUS_META_LEADER_CALLS: "999", ARGUS_META_STATE_MAX_MINUTES: "0" });
+    expect(junk).toEqual(META_RULE);
+  });
+
+  it("a stay above enter keeps both defaults, and stay equal to enter is allowed", () => {
+    expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "400000", ARGUS_META_STAY_MCAP_USD: "800000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
+    expect(metaConfigFromEnv({ ARGUS_META_STAY_MCAP_USD: "1500000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
+    expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "600000", ARGUS_META_STAY_MCAP_USD: "600000" })).toMatchObject({ enterMcapUsd: 600_000, stayMcapUsd: 600_000 });
+  });
+
   it("reads the DexScreener budget and the interval, ignoring junk and out-of-range numbers", () => {
     expect(metaConfigFromEnv({ ARGUS_META_DEX_GROUPS: "5", ARGUS_META_DEX_CALLS: "7" })).toMatchObject({ dexGroups: 5, dexMaxCalls: 7 });
     expect(metaConfigFromEnv({ ARGUS_META_DEX_GROUPS: "-1", ARGUS_META_DEX_CALLS: "100000" })).toMatchObject({ dexGroups: META_RULE.dexGroups, dexMaxCalls: META_RULE.dexMaxCalls });

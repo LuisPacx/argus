@@ -337,7 +337,9 @@ const metaDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_S
 const metaTick = reentrant(
   async () => {
     const r = await recomputeMetas(store, { dex: metaDex, config: metaConfig, log: console.error });
-    console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s), ${r.dexFailures} failed`);
+    console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s) (${r.leaderCalls} for leaders), ${r.dexFailures} failed, ${r.metas} Meta(s), ${r.watching} Watching`);
+    // Market-led Metas (ADR 0014): who leads each one, so the log says why a Meta is (or is not) there.
+    for (const m of r.current.metas) console.log(`[worker] Meta "${m.label}": leader ${m.leader.symbol || m.leader.name} $${Math.round(m.leader.marketCapUsd).toLocaleString("en-US")}${m.holding ? " (holding)" : ""}${m.leader.stale ? " (stale)" : ""}`);
     // Hot now (missed ideas ticket 03): plain code over the stored runs, one event per Meta per trigger. Never a Narrative, Proposal or Score.
     // A failure is logged inside and never skips the summary tick that follows this tick.
     for (const e of raiseHotMetasSafely(store, metaConfig)) console.log(`[worker] hot now: "${e.label}" (rank ${e.rank}): ${e.reason}`);

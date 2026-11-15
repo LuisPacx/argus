@@ -3,6 +3,7 @@ import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } fro
 import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
 import { summaryFresh } from "./summary.ts";
+import { TRENDING_SOURCE_ID, type TrendingSignalRow } from "./candidates.ts";
 
 /**
  * Meta runs and rows (ticket 03, slice 3): each recompute is stored additively so a day's ranking can be replayed and the Study can
@@ -45,6 +46,48 @@ export interface NewMetaRow {
   marketCapUsd?: number;
 }
 
+/** The token that leads a current Meta or Watching subject: the one of any age with the highest market cap that carries the subject. */
+export interface CurrentLeader {
+  mint: string;
+  /** Creator-written text: untrusted. */
+  name: string;
+  symbol: string;
+  marketCapUsd: number;
+  /** When the token (its pair) was created, when known. */
+  createdAt?: string;
+  /** Where the candidate came from: DexScreener's trending feed, or the biggest token of a top launch theme. */
+  source: "trending" | "theme";
+  /** True when this run's lookup did not answer: `marketCapUsd` is the last known figure. */
+  stale: boolean;
+}
+
+/** A subject led by a token's market cap (ADR 0014): a Meta, or a Watching subject. `key` is the launch-theme group key. */
+export interface CurrentMeta {
+  key: string;
+  /** Creator-written text, cleaned and cut: still untrusted. */
+  label: string;
+  leader: CurrentLeader;
+  /** A Meta whose leader is between the stay and the enter market cap. Always false for Watching. */
+  holding: boolean;
+  /** When the subject entered its present state (Meta or Watching), carried from run to run. */
+  enteredAt: string;
+  /** The subject's launch-theme counts now (zero when no copy was launched in 24 h). */
+  counts: Record<MetaWindow, MetaCounts>;
+  topTokens: MetaTopToken[];
+}
+
+export interface NewMetaCurrent {
+  /** Highest leader market cap first. */
+  metas: CurrentMeta[];
+  watching: CurrentMeta[];
+}
+
+/** One run's Metas and Watching subjects, as stored (rank is the position in each list). */
+export interface MetaCurrent extends NewMetaCurrent {
+  runId: number;
+  computedAt: string;
+}
+
 export interface NewMetaRun {
   /** The as-of time: the run describes the market at this moment. */
   computedAt: string;
@@ -59,6 +102,8 @@ export interface NewMetaRun {
   rows: Record<MetaWindow, NewMetaRow[]>;
   /** Covered hours of each window (coverage.ts); absent stores null (unknown). */
   coverage?: MetaCoverage;
+  /** The market-led Metas and Watching subjects of this run (ADR 0014). Absent stores none. */
+  current?: NewMetaCurrent;
 }
 
 export interface MetaRow extends NewMetaRow {
@@ -164,6 +209,26 @@ export function migrateMeta(db: DatabaseSync): void {
     run_id INTEGER NOT NULL
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS meta_hot_events_key ON meta_hot_events (key, raised_at)");
+  // Meta redesign ticket 01 (ADR 0014): the Metas and Watching subjects of each run, led by a token's market cap. Additive; the launch-theme tables above are untouched.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_current (
+    run_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    leader_mint TEXT NOT NULL,
+    leader_name TEXT NOT NULL,
+    leader_symbol TEXT NOT NULL,
+    leader_market_cap_usd REAL NOT NULL,
+    leader_created_at TEXT,
+    leader_source TEXT NOT NULL,
+    stale INTEGER NOT NULL,
+    holding INTEGER NOT NULL,
+    entered_at TEXT NOT NULL,
+    counts TEXT NOT NULL,
+    top_tokens TEXT NOT NULL,
+    PRIMARY KEY (run_id, kind, rank)
+  )`);
 }
 
 /** A Meta that triggered Hot now: when, why, and where it stood in the 24 h ranking then. Label and reason are creator-derived or code-written text. */
@@ -242,6 +307,42 @@ function toRow(r: Row, window: MetaWindow): MetaRow {
   };
 }
 
+function parseCounts(text: string): Record<MetaWindow, MetaCounts> {
+  const zero: MetaCounts = { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 };
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { "6h": zero, "24h": zero };
+  }
+  const one = (v: unknown): MetaCounts => {
+    if (!isRecord(v)) return zero;
+    const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+    return { tokens: n(v.tokens), creators: n(v.creators), migrations: n(v.migrations), migrationsAfter60s: n(v.migrationsAfter60s) };
+  };
+  return isRecord(data) ? { "6h": one(data["6h"]), "24h": one(data["24h"]) } : { "6h": zero, "24h": zero };
+}
+
+function toCurrent(r: Row): CurrentMeta {
+  return {
+    key: r.key as string,
+    label: r.label as string,
+    leader: {
+      mint: r.leader_mint as string,
+      name: r.leader_name as string,
+      symbol: r.leader_symbol as string,
+      marketCapUsd: r.leader_market_cap_usd as number,
+      ...(r.leader_created_at !== null ? { createdAt: r.leader_created_at as string } : {}),
+      source: r.leader_source === "theme" ? "theme" : "trending",
+      stale: r.stale === 1,
+    },
+    holding: r.holding === 1,
+    enteredAt: r.entered_at as string,
+    counts: parseCounts(r.counts as string),
+    topTokens: parseTopTokens(r.top_tokens as string),
+  };
+}
+
 /** The Meta tables. Reached as `datastore.meta`; the worker writes, readers use `Datastore.latestMetas`. */
 export class MetaStore {
   private readonly db: DatabaseSync;
@@ -264,6 +365,11 @@ export class MetaStore {
          tokens_24h, creators_24h, migrations_24h, after60_24h, top_tokens, top_market_cap_usd, market_cap_usd)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const insertCurrent = this.db.prepare(
+      `INSERT INTO meta_current (run_id, kind, rank, key, label, leader_mint, leader_name, leader_symbol, leader_market_cap_usd, leader_created_at, leader_source,
+         stale, holding, entered_at, counts, top_tokens)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
     this.db.exec("BEGIN IMMEDIATE");
     let id: number;
     try {
@@ -274,6 +380,13 @@ export class MetaStore {
           const a = row.counts["6h"];
           const b = row.counts["24h"];
           insertRow.run(id, win, i + 1, row.key, row.label, row.firstSeenAt, a.tokens, a.creators, a.migrations, a.migrationsAfter60s, b.tokens, b.creators, b.migrations, b.migrationsAfter60s, JSON.stringify(row.topTokens), row.topMarketCapUsd ?? null, row.marketCapUsd ?? null);
+        });
+      }
+      for (const kind of ["meta", "watching"] as const) {
+        const list = kind === "meta" ? run.current?.metas : run.current?.watching;
+        (list ?? []).forEach((m, i) => {
+          const l = m.leader;
+          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens));
         });
       }
       this.db.exec("COMMIT");
@@ -289,6 +402,7 @@ export class MetaStore {
     if (!Number.isFinite(beforeMs)) return;
     const cutoff = new Date(beforeMs).toISOString();
     this.db.prepare("DELETE FROM meta_rows WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
+    this.db.prepare("DELETE FROM meta_current WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_hot_events WHERE raised_at < ?").run(cutoff);
@@ -322,6 +436,33 @@ export class MetaStore {
       .prepare(`SELECT source_id, source_label, title, url, published_at FROM signals WHERE published_at >= ? AND published_at <= ? AND source_id NOT IN (${marks}) ORDER BY published_at DESC, id LIMIT ?`)
       .all(since, until, ...MARKET_SOURCE_IDS, n) as Row[];
     return rows.map((r) => ({ sourceId: r.source_id as string, sourceLabel: r.source_label as string, title: r.title as string, url: r.url as string, publishedAt: r.published_at as string }));
+  }
+
+  /**
+   * `dexscreener:trending` Signals first seen in [`since`, `until`] (ISO), newest first, at most `limit` (capped at 2,000): the candidate
+   * list of the market-led Meta rule. Uses the (source_id, ingested_at) index. READ ONLY.
+   */
+  trendingSignals(since: string, until: string, limit = 2_000): TrendingSignalRow[] {
+    const n = Math.max(0, Math.min(2_000, Math.floor(limit)));
+    const rows = this.db
+      .prepare("SELECT id, title, summary, published_at FROM signals WHERE source_id = ? AND ingested_at >= ? AND ingested_at <= ? ORDER BY ingested_at DESC, id LIMIT ?")
+      .all(TRENDING_SOURCE_ID, since, until, n) as Row[];
+    return rows.map((r) => ({ id: r.id as string, title: r.title as string, summary: r.summary as string, publishedAt: r.published_at as string }));
+  }
+
+  /**
+   * The Metas and Watching subjects of the newest run, or of the newest run computed at or before `asOf` (ISO). Undefined before the
+   * first run; a run from before ADR 0014 has the empty lists. READ ONLY.
+   */
+  current(asOf?: string): MetaCurrent | undefined {
+    const run = (asOf === undefined
+      ? this.db.prepare("SELECT id, computed_at FROM meta_runs ORDER BY computed_at DESC, id DESC LIMIT 1").get()
+      : this.db.prepare("SELECT id, computed_at FROM meta_runs WHERE computed_at <= ? ORDER BY computed_at DESC, id DESC LIMIT 1").get(asOf)) as Row | undefined;
+    if (!run) return undefined;
+    const rows = this.db.prepare("SELECT * FROM meta_current WHERE run_id = ? ORDER BY kind, rank").all(run.id as number) as Row[];
+    const out: MetaCurrent = { runId: run.id as number, computedAt: run.computed_at as string, metas: [], watching: [] };
+    for (const r of rows) (r.kind === "meta" ? out.metas : out.watching).push(toCurrent(r));
+    return out;
   }
 
   /** The summary records of these group keys (those that have one). READ ONLY. */

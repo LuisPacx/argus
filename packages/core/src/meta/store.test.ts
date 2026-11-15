@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
 import { tempDir } from "../testing/temp.ts";
 import { META_RULE } from "./config.ts";
-import type { NewMetaRow, NewMetaRun } from "./store.ts";
+import type { CurrentMeta, NewMetaCurrent, NewMetaRow, NewMetaRun } from "./store.ts";
 
 const DAY = 24 * 3_600_000;
 const T0 = Date.parse("2026-11-11T20:00:00.000Z");
@@ -123,6 +123,77 @@ describe("meta persistence", () => {
     expect(times).toEqual([T0 - 13 * DAY, T0]);
     expect(orphans).toBe(0);
     expect(rowCount).toBe(2 * 3); // two runs, each 2 rows in 24h plus 1 in 6h
+  });
+
+  it("stores the Metas and Watching subjects of a run (meta_current) and reads the newest run's back with counts; the launch-theme rows are untouched", () => {
+    const store = Datastore.open(":memory:");
+    expect(store.currentMetas()).toBeUndefined();
+    const metaRow = (key: string, cap: number, over: Partial<CurrentMeta> = {}): CurrentMeta => ({
+      key,
+      label: key.toUpperCase(),
+      leader: { mint: `Mint${key}`, name: `${key} the token`, symbol: key.toUpperCase(), marketCapUsd: cap, createdAt: "2026-11-14T10:00:00.000Z", source: "trending", stale: false },
+      holding: false,
+      enteredAt: "2026-11-15T09:00:00.000Z",
+      counts: row("A").counts,
+      topTokens: [{ mint: "MintA", name: "A", symbol: "SYM", marketCapUsd: cap }],
+      ...over,
+    });
+    const plain = run(T0);
+    const first = store.meta.saveRun(plain);
+    expect(store.currentMetas()).toEqual({ runId: first, computedAt: plain.computedAt, metas: [], watching: [] });
+
+    const current = { metas: [metaRow("jensen", 2_100_000), metaRow("gta6", 800_000, { holding: true })], watching: [metaRow("ni", 96_000, { leader: { mint: "MintNi", name: "n", symbol: "N", marketCapUsd: 96_000, source: "theme", stale: true } })] };
+    const second = store.meta.saveRun(run(T0 + 15 * 60_000, [row("A"), row("B")], { current }));
+    const read = store.currentMetas()!;
+    expect(read).toMatchObject({ runId: second, computedAt: new Date(T0 + 15 * 60_000).toISOString() });
+    expect(read.metas).toEqual(current.metas);
+    expect(read.watching).toEqual(current.watching);
+    expect(read.metas[1]).toMatchObject({ holding: true, counts: { "24h": { creators: 6 } } });
+    // as-of reads the newest run at or before the time
+    expect(store.currentMetas(new Date(T0 + 60_000).toISOString())).toMatchObject({ runId: first, metas: [] });
+    // the launch-theme rows are exactly what a run without `current` stores
+    expect(store.latestMetas("24h", 10)!.rows.map((r) => r.label)).toEqual(["A", "B"]);
+  });
+
+  it("meta_current rows are pruned with their run", () => {
+    const path = join(tempDir("meta-current-prune-"), "argus.db");
+    const store = Datastore.open(path);
+    const cur: NewMetaCurrent = { metas: [{ key: "k", label: "K", leader: { mint: "M", name: "n", symbol: "S", marketCapUsd: 1_500_000, source: "theme", stale: false }, holding: false, enteredAt: "2026-11-01T00:00:00.000Z", counts: row("K").counts, topTokens: [] }], watching: [] };
+    store.meta.saveRun(run(T0 - 20 * DAY, [row("A")], { current: cur }));
+    store.meta.saveRun(run(T0, [row("A")], { current: cur }));
+    store.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    const n = (db.prepare("SELECT COUNT(*) AS n FROM meta_current").get() as { n: number }).n;
+    const orphans = (db.prepare("SELECT COUNT(*) AS n FROM meta_current WHERE run_id NOT IN (SELECT id FROM meta_runs)").get() as { n: number }).n;
+    db.close();
+    expect([n, orphans]).toEqual([1, 0]);
+  });
+
+  it("the meta_current migration is additive and idempotent, and an older database without the table gets it", () => {
+    const path = join(tempDir("meta-current-migrate-"), "argus.db");
+    Datastore.open(path).close();
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE meta_current");
+    raw.close();
+    const reopened = Datastore.open(path);
+    reopened.meta.saveRun(run(T0));
+    expect(reopened.currentMetas()).toMatchObject({ metas: [], watching: [] });
+    reopened.close();
+    const again = Datastore.open(path);
+    expect(again.currentMetas()).toMatchObject({ metas: [], watching: [] });
+    again.close();
+    expect(tables(path)).toContain("meta_current");
+  });
+
+  it("reads the dexscreener:trending Signals first seen in a window, newest first, and no other Source's", () => {
+    const store = Datastore.open(":memory:");
+    const sig = (id: string, sourceId: string) => ({ id, sourceId, sourceLabel: "x", title: id, summary: "s", url: "", publishedAt: "2026-11-01T00:00:00.000Z" });
+    store.recordSignals([sig("dexscreener:trending:solana:old", "dexscreener:trending")], new Date("2026-11-14T00:00:00.000Z"));
+    store.recordSignals([sig("dexscreener:trending:solana:a", "dexscreener:trending"), sig("rss:1", "rss:bbc")], new Date("2026-11-15T10:00:00.000Z"));
+    store.recordSignals([sig("dexscreener:trending:solana:b", "dexscreener:trending")], new Date("2026-11-15T11:00:00.000Z"));
+    store.recordSignals([sig("dexscreener:trending:solana:later", "dexscreener:trending")], new Date("2026-11-15T20:00:00.000Z"));
+    const rows = store.meta.trendingSignals("2026-11-14T12:00:00.000Z", "2026-11-15T15:00:00.000Z");
+    expect(rows.map((r) => r.id)).toEqual(["dexscreener:trending:solana:b", "dexscreener:trending:solana:a"]);
   });
 
   it("a hostile label or token name is stored as given text and read back unchanged", () => {

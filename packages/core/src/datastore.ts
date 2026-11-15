@@ -9,7 +9,7 @@ import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
-import { MetaStore, migrateMeta, type ContextHeadline, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
+import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -656,6 +656,7 @@ export type WarRoomStore = Pick<
   | "recentBrainRuns"
   | "studyStats"
   | "latestMetas"
+  | "currentMetas"
   | "hotMetaEvents"
   | "contextHeadlines"
   | "buildRefusalFor"
@@ -868,6 +869,11 @@ export class Datastore {
   /** The newest Meta ranking run's top `limit` rows for a window; undefined before the first run. */
   latestMetas(window: MetaWindow, limit: number): MetaRun | undefined {
     return this.meta.latest(window, limit);
+  }
+
+  /** The newest run's Metas and Watching subjects, led by a token's market cap (ADR 0014); undefined before the first run. READ ONLY. */
+  currentMetas(asOf?: string): MetaCurrent | undefined {
+    return this.meta.current(asOf);
   }
 
   /** Hot now events raised at or after `since` (ISO), newest first (missed ideas ticket 03). READ ONLY. */

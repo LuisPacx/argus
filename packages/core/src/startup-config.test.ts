@@ -11,9 +11,15 @@ describe("startupConfigLine", () => {
   it("states the effective defaults on one greppable line", () => {
     const line = startupConfigLine({}, facts());
     expect(line).toBe(
-      "[config] judge_min_signals=2 judge_runs_24h=300 propose_new_24h=30 propose_runs_24h=45 daily_quota_usd=20 research_share=0.3 api_fallback=off api_key=unset study=on study_rule=v1 study_age_s=60/300 study_captures_day=20000 meta_every_min=15 meta_rank=creators,migrationsAfter60s,marketCapUsd,tokens meta_dex=10/20 meta_summary_runs_24h=40 meta_summary_usd_24h=0.25 meme_ideas=off meme_runs_24h=40 build_dry_run=off build_image=localhost/argus-build:cc-1 build_cloudflare=yes build_token=present telegram=off",
+      "[config] judge_min_signals=2 judge_runs_24h=300 propose_new_24h=30 propose_runs_24h=45 daily_quota_usd=20 research_share=0.3 api_fallback=off api_key=unset study=on study_rule=v1 study_age_s=60/300 study_captures_day=20000 meta_every_min=15 meta_rank=creators,migrationsAfter60s,marketCapUsd,tokens meta_dex=10/20 meta_mcap=1000000/500000 meta_copies=10 meta_max=3/3 meta_leader_calls=4 meta_state_min=120 meta_summary_runs_24h=40 meta_summary_usd_24h=0.25 meme_ideas=off meme_runs_24h=40 build_dry_run=off build_image=localhost/argus-build:cc-1 build_cloudflare=yes build_token=present telegram=off",
     );
     expect(line).not.toContain("\n");
+  });
+
+  it("reports the market-led Meta knobs, and a stay above enter keeps both defaults", () => {
+    const set = { ARGUS_META_ENTER_MCAP_USD: "2000000", ARGUS_META_STAY_MCAP_USD: "800000", ARGUS_META_MIN_COPIES: "12", ARGUS_META_MAX_METAS: "2", ARGUS_META_WATCHING: "4", ARGUS_META_LEADER_CALLS: "6", ARGUS_META_STATE_MAX_MINUTES: "90" };
+    for (const part of ["meta_mcap=2000000/800000", "meta_copies=12", "meta_max=2/4", "meta_leader_calls=6", "meta_state_min=90"]) expect(startupConfigLine(set, facts())).toContain(part);
+    expect(startupConfigLine({ ARGUS_META_ENTER_MCAP_USD: "400000", ARGUS_META_STAY_MCAP_USD: "800000" }, facts())).toContain("meta_mcap=1000000/500000");
   });
 
   it("reports env overrides", () => {

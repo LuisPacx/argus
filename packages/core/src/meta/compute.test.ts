@@ -459,3 +459,129 @@ describe("recomputeMetas: window coverage (ticket 05)", () => {
     again.close();
   });
 });
+
+describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)", () => {
+  const cfg = { ...META_RULE, minTokens: 2, minCreators: 1 };
+  const T = (min: number) => new Date(NOW + min * 60_000);
+
+  /** One `dexscreener:trending` Signal, first seen `ago` minutes before NOW, as the Source writes it (the figure is the one at first sight). */
+  function trend(store: Datastore, mint: string, title: string, storedCap?: number, agoMin = 120) {
+    store.recordSignals(
+      [{ id: `dexscreener:trending:solana:${mint}`, sourceId: "dexscreener:trending", sourceLabel: "DexScreener trending", title, summary: `Boosted on DexScreener.${storedCap !== undefined ? ` market cap $${storedCap.toLocaleString("en-US")}.` : ""}`, url: "", publishedAt: "2026-11-10T10:00:00.000Z" }],
+      new Date(NOW - agoMin * 60_000),
+    );
+  }
+  const recompute = (store: Datastore, dex: MetaDexClient | undefined, at: number, over: Partial<typeof cfg> = {}) => recomputeWithRule(store, { now: T(at), dex, config: { ...cfg, ...over } });
+  const jensenWave = (store: Datastore, creators = 12) => launchMany(store, creators, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}` }));
+
+  it("replay of run 143's shape: the Jensen leader at $96k gives no Meta and Watching; at $2M it gives one Meta (a fixture, not the live database)", async () => {
+    const lowStore = Datastore.open(":memory:");
+    jensenWave(lowStore);
+    launchMany(lowStore, 4, (i) => ({ name: "ASTRALIS", creator: `a${i}` }));
+    const J = mintOf();
+    trend(lowStore, J, "Jensen Huang ($JENSEN)", 96_000);
+    trend(lowStore, mintOf(), "Stand with Jensen ($STAND)", 95_000);
+    const low = await recompute(lowStore, fakeDex(new Map([[J, 96_000]])).client, 0);
+    expect(low).toMatchObject({ metas: 0, watching: 1 });
+    expect(lowStore.currentMetas()).toMatchObject({ metas: [], watching: [{ key: "jensen", leader: { mint: J, symbol: "JENSEN", marketCapUsd: 96_000, source: "trending", stale: false }, holding: false, counts: { "24h": { creators: 12 } } }] });
+
+    const highStore = Datastore.open(":memory:");
+    jensenWave(highStore);
+    const H = mintOf();
+    trend(highStore, H, "Jensen Huang ($JENSEN)", 96_000);
+    expect(await recompute(highStore, fakeDex(new Map([[H, 2_000_000]])).client, 0)).toMatchObject({ metas: 1, watching: 0 });
+    expect(highStore.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: H, marketCapUsd: 2_000_000 } });
+  });
+
+  it("the biggest token of a top launch theme leads it with no trending Signal (the theme lookup the ranking already makes)", async () => {
+    const store = Datastore.open(":memory:");
+    const mints = jensenWave(store);
+    const dex = fakeDex(new Map([[mints[3] as string, 1_500_000]]));
+    const r = await recompute(store, dex.client, 0);
+    expect(r).toMatchObject({ metas: 1, dexCalls: 1, leaderCalls: 0 });
+    expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: mints[3], source: "theme", marketCapUsd: 1_500_000 } });
+  });
+
+  it("lookups never exceed leaderCalls (30 tokens each), highest stored figure first", async () => {
+    const store = Datastore.open(":memory:");
+    const all = Array.from({ length: 100 }, (_, i) => {
+      const mint = mintOf();
+      trend(store, mint, `Token ${i} ($T${i})`, (i + 1) * 1_000);
+      return mint;
+    });
+    const dex = fakeDex(new Map(all.map((m) => [m, 50_000])));
+    const r = await recompute(store, dex.client, 0, { leaderCalls: 2 });
+    expect(dex.calls).toHaveLength(2);
+    expect(r).toMatchObject({ dexCalls: 2, leaderCalls: 2 });
+    expect(dex.calls.map((c) => c.length)).toEqual([30, 30]);
+    expect(dex.calls[0]![0]).toBe(all[99]);
+    expect(new Set(dex.calls.flat())).toEqual(new Set(all.slice(40)));
+    expect((await recompute(store, dex.client, 1, { leaderCalls: 0 })).leaderCalls).toBe(0);
+    expect(dex.calls).toHaveLength(2);
+  });
+
+  it("the previous Metas' and Watching leaders are looked up first, a failed lookup keeps the Meta as it was (stale) and creates none, and a pause drops the state", async () => {
+    const store = Datastore.open(":memory:");
+    jensenWave(store);
+    const J = mintOf();
+    trend(store, J, "Jensen Huang ($JENSEN)", 96_000);
+    expect(await recompute(store, fakeDex(new Map([[J, 2_000_000]])).client, 0)).toMatchObject({ metas: 1 });
+
+    // 100 louder candidates appear; the budget is one call, and the previous leader still goes first.
+    const loud = Array.from({ length: 100 }, (_, i) => {
+      const mint = mintOf();
+      trend(store, mint, `Loud ${i} ($L${i})`, 10_000_000 + i, 60);
+      return mint;
+    });
+    const dex = fakeDex(new Map([[J, 1_800_000], ...loud.map((m): [string, number] => [m, 5_000_000])]));
+    const second = await recompute(store, dex.client, 15, { leaderCalls: 1 });
+    expect(dex.calls).toHaveLength(2); // the launch-theme lookup of the Jensen group, then the one leader call
+    expect(dex.calls[1]![0]).toBe(J);
+    expect(second).toMatchObject({ metas: 1, leaderCalls: 1 });
+    expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: J, marketCapUsd: 1_800_000, stale: false } });
+
+    // The lookup fails: the Meta stays at its last figure, marked stale; nothing else becomes a Meta.
+    const failing = fakeDex(new Map(), { failOn: () => true });
+    const third = await recompute(store, failing.client, 30);
+    expect(third.metas).toBe(1);
+    expect(third.dexFailures).toBeGreaterThan(0);
+    expect(failing.calls.length).toBeLessThanOrEqual(1 + cfg.leaderCalls); // the theme lookup plus at most leaderCalls
+    expect(store.currentMetas()!.metas.map((m) => [m.key, m.leader.mint, m.leader.marketCapUsd, m.leader.stale])).toEqual([["jensen", J, 1_800_000, true]]);
+
+    // A pause longer than stateMaxMinutes: the stale state is not carried, and a failed lookup alone makes no Meta.
+    const fourth = await recompute(store, fakeDex(new Map(), { failOn: () => true }).client, 30 + cfg.stateMaxMinutes + 1);
+    expect(fourth).toMatchObject({ metas: 0, watching: 0 });
+  });
+
+  it("with no client no Meta is created and none is lost", async () => {
+    const store = Datastore.open(":memory:");
+    jensenWave(store);
+    const J = mintOf();
+    trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
+    expect(await recompute(store, undefined, 0)).toMatchObject({ metas: 0, watching: 0, dexCalls: 0 });
+    expect(await recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 5)).toMatchObject({ metas: 1 });
+    expect(await recompute(store, undefined, 10)).toMatchObject({ metas: 1 });
+    expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, stale: true });
+  });
+
+  it("leaves the launch-theme rows exactly as before, and creates no Narrative, Proposal or Score", async () => {
+    const plain = Datastore.open(":memory:");
+    const led = Datastore.open(":memory:");
+    for (const s of [plain, led]) {
+      seq = 100;
+      jensenWave(s);
+    }
+    const J = "J".padEnd(40, "x") + "pump";
+    trend(led, J, "Jensen Huang ($JENSEN)", 2_000_000);
+    const snapshot = (s: Datastore) => JSON.stringify([s.listNarratives(), s.listProposals(), s.queryNarratives({})]);
+    const before = snapshot(led);
+    await recompute(plain, undefined, 0);
+    await recompute(led, undefined, 0);
+    await recompute(led, fakeDex(new Map([[J, 2_000_000]])).client, 1);
+    const rowsOf = (s: Datastore, w: "6h" | "24h") => JSON.stringify(s.latestMetas(w, 100)!.rows);
+    expect(rowsOf(led, "24h")).toBe(rowsOf(plain, "24h"));
+    expect(rowsOf(led, "6h")).toBe(rowsOf(plain, "6h"));
+    expect(led.currentMetas()!.metas).toHaveLength(1);
+    expect(snapshot(led)).toBe(before);
+  });
+});

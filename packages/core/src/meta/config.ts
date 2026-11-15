@@ -70,6 +70,20 @@ export interface MetaConfig {
   newsMaxItems: number;
   /** Matching news: a Meta key shorter than this many characters (spaces removed) is too short to name a subject in a headline. */
   newsMinKeyChars: number;
+  /** Market-led Metas (ADR 0014): a leader token at or above this market cap, with the copies rule, makes its subject a Meta. */
+  enterMcapUsd: number;
+  /** A Meta stays one while its leader is at or above this market cap (never above `enterMcapUsd`); between the two it is `holding`. */
+  stayMcapUsd: number;
+  /** Distinct creators of the subject in the last 24 h that a subject needs to become a Meta or to be Watching (not to stay a Meta). */
+  minCopies: number;
+  /** At most this many Metas, highest leader market cap first. */
+  maxMetas: number;
+  /** At most this many Watching subjects: the top ones below `enterMcapUsd` that meet the copies rule. */
+  watching: number;
+  /** DexScreener calls per Meta tick for the leaders' current market caps (each takes up to 30 tokens), beside the launch-theme lookups. */
+  leaderCalls: number;
+  /** Stored Meta state older than this many minutes (a pause) is not carried into the next run. */
+  stateMaxMinutes: number;
 }
 
 export const META_RULE: MetaConfig = {
@@ -95,6 +109,13 @@ export const META_RULE: MetaConfig = {
   newsWindowHours: 24,
   newsMaxItems: 5,
   newsMinKeyChars: 4,
+  enterMcapUsd: 1_000_000,
+  stayMcapUsd: 500_000,
+  minCopies: 10,
+  maxMetas: 3,
+  watching: 3,
+  leaderCalls: 4,
+  stateMaxMinutes: 120,
 };
 
 /** How often the worker recomputes, in minutes. */
@@ -137,9 +158,14 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
  * the DexScreener budget `ARGUS_META_DEX_GROUPS` (0 to 50) and `ARGUS_META_DEX_CALLS` (0 to 60, below the rate limit), and
  * `ARGUS_META_THEMES=0` (theme merging off: clone clusters only), the size floor `ARGUS_META_MIN_TOKENS` and `ARGUS_META_MIN_CREATORS`
  * (1 to 1000), and the window coverage measure `ARGUS_META_COVERAGE_MIN_CREATES` (1 to 100000 creates for an hour to count) and
- * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8).
+ * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8). The market-led rule (ADR 0014): `ARGUS_META_ENTER_MCAP_USD`
+ * and `ARGUS_META_STAY_MCAP_USD` (1 to 999999999; stay above enter keeps both defaults), `ARGUS_META_MIN_COPIES` (1 to 1000),
+ * `ARGUS_META_MAX_METAS` and `ARGUS_META_WATCHING` (0 to 20), `ARGUS_META_LEADER_CALLS` (0 to 20) and `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080).
  */
 export function metaConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaConfig {
+  const enter = intIn(env.ARGUS_META_ENTER_MCAP_USD, 1, 999_999_999, META_RULE.enterMcapUsd);
+  const stay = intIn(env.ARGUS_META_STAY_MCAP_USD, 1, 999_999_999, META_RULE.stayMcapUsd);
+  const pairOk = stay <= enter;
   return {
     ...META_RULE,
     rankOrder: parseRankOrder(env.ARGUS_META_RANK_ORDER) ?? META_RULE.rankOrder,
@@ -150,5 +176,12 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     minCreators: intIn(env.ARGUS_META_MIN_CREATORS, 1, 1_000, META_RULE.minCreators),
     coverageMinCreates: intIn(env.ARGUS_META_COVERAGE_MIN_CREATES, 1, 100_000, META_RULE.coverageMinCreates),
     coverageNoteBelow: shareIn(env.ARGUS_META_COVERAGE_NOTE_BELOW, META_RULE.coverageNoteBelow),
+    enterMcapUsd: pairOk ? enter : META_RULE.enterMcapUsd,
+    stayMcapUsd: pairOk ? stay : META_RULE.stayMcapUsd,
+    minCopies: intIn(env.ARGUS_META_MIN_COPIES, 1, 1_000, META_RULE.minCopies),
+    maxMetas: intIn(env.ARGUS_META_MAX_METAS, 0, 20, META_RULE.maxMetas),
+    watching: intIn(env.ARGUS_META_WATCHING, 0, 20, META_RULE.watching),
+    leaderCalls: intIn(env.ARGUS_META_LEADER_CALLS, 0, 20, META_RULE.leaderCalls),
+    stateMaxMinutes: intIn(env.ARGUS_META_STATE_MAX_MINUTES, 1, 10_080, META_RULE.stateMaxMinutes),
   };
 }
