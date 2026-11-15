@@ -361,7 +361,27 @@ body {
   }
 
   /* ---- shell ---- */
+  /* Below lg the nav is a swipeable row: no scrollbar, a right-edge fade as the cue, and end padding so the last item clears the fade. */
+  .nav-row {
+    scrollbar-width: none;
+  }
+  .nav-row::-webkit-scrollbar {
+    display: none;
+  }
+  @media (max-width: 1023.98px) {
+    .nav-row {
+      -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+      mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+    }
+    /* End spacer (padding-right is overridden by the p-1.5 utility): the last item scrolls clear of the fade. */
+    .nav-row::after {
+      content: "";
+      flex: 0 0 1.5rem;
+    }
+  }
   .nav-pill {
+    flex-shrink: 0;
+    white-space: nowrap;
     display: inline-flex;
     padding: 10px 20px;
     border-radius: 999px;
@@ -376,6 +396,10 @@ body {
   .nav-pill:hover {
     color: var(--wr-ink);
     background: var(--wr-inset);
+  }
+  .nav-pill:focus-visible {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: -2px;
   }
   .nav-pill.is-active {
     background: var(--wr-accent-tint);

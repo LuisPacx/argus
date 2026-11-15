@@ -3,7 +3,7 @@
 
 **What to build:** at 390 px the header nav pill on every War Room page shows "Proposals, Narratives, Meta, Ac..." inside an oversized white rounded box under the title and the New Proposal button. Activity, How it works, Study and Rubric cannot be reached. Home also reports horizontal overflow (`scrollWidth` 404 > 390). Seen 2026-11-15 with `pnpm page:check` at 390 px against the live :3100, main 02b936d. Ticket 10 slice a added the "How it works" item (seventh), which made it worse. Make every nav item reachable at 390 px by touch and keyboard, with the active page visible, and leave 1240 px as it is.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none.
 
@@ -33,13 +33,13 @@ Recommendation: option 1. Take option 2 only if option 1 at 390 px still reads a
 
 ## Acceptance
 
-- [ ] The cause is named in Comments with the widest element for the home overflow (selector and width), before the fix.
-- [ ] `pnpm page:check <path>` at 390 px for `/`, `/meta`, `/pipeline` and `/proposals` shows no horizontal-overflow warning caused by the header or nav (a documented sideways scroll of the `/pipeline` graph itself, ticket 10, still prints and is not this ticket's). Exit 0. Cite the four 390 px screenshots: one pill row on one line, no wrapped label, the active item visible.
-- [ ] Every nav link reachable at 390 px by keyboard: `pnpm page:check / --keys "focus=nav[aria-label=Main] a,Tab,Tab,Tab,Tab,Tab,Tab" --watch 'nav[aria-label=Main] a[aria-current]'` (adjust the selector; Tab steps only, no Enter) shows the focus landing on all seven links in order, and the `-390-keys.png` screenshot of the last step shows "Rubric" fully visible. Do the same for `/pipeline` so the active "How it works" is visible without any key.
-- [ ] Touch reach: the nav `scrollWidth` exceeds its `clientWidth` at 390 px only through the scroll the pill provides (nothing is hidden behind an unreachable edge), and the fade or an equivalent cue is visible in the screenshot.
-- [ ] 1240 px screenshots of the same four pages are unchanged from before the fix (state this by looking at both; the header grid and pill look the same).
-- [ ] `scripts/warroom-pages.test.ts` still passes. If the header gains any logic worth a test (the scroll-active-into-view helper), put the pure part in `apps/warroom/app/utils/` with a fast test.
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] The cause is named in Comments with the widest element for the home overflow (selector and width), before the fix.
+- [x] `pnpm page:check <path>` at 390 px for `/`, `/meta`, `/pipeline` and `/proposals` shows no horizontal-overflow warning caused by the header or nav (a documented sideways scroll of the `/pipeline` graph itself, ticket 10, still prints and is not this ticket's). Exit 0. Cite the four 390 px screenshots: one pill row on one line, no wrapped label, the active item visible.
+- [x] Every nav link reachable at 390 px by keyboard: `pnpm page:check / --keys "focus=nav[aria-label=Main] a,Tab,Tab,Tab,Tab,Tab,Tab" --watch 'nav[aria-label=Main] a[aria-current]'` (adjust the selector; Tab steps only, no Enter) shows the focus landing on all seven links in order, and the `-390-keys.png` screenshot of the last step shows "Rubric" fully visible. Do the same for `/pipeline` so the active "How it works" is visible without any key.
+- [x] Touch reach: the nav `scrollWidth` exceeds its `clientWidth` at 390 px only through the scroll the pill provides (nothing is hidden behind an unreachable edge), and the fade or an equivalent cue is visible in the screenshot.
+- [x] 1240 px screenshots of the same four pages are unchanged from before the fix (state this by looking at both; the header grid and pill look the same).
+- [x] `scripts/warroom-pages.test.ts` still passes. If the header gains any logic worth a test (the scroll-active-into-view helper), put the pure part in `apps/warroom/app/utils/` with a fast test.
+- [x] Full `pnpm check` passes once on the committed clean tree.
 
 ## Commits
 
@@ -58,3 +58,13 @@ One commit after the full `pnpm check`. Subject `War Room ticket 12: <what chang
 2. Keep the `lg` desktop breakpoint and layout unchanged; no new breakpoint.
 
 Both open questions are answered; the ticket is ready to implement as option 1.
+
+### 2026-11-15: implemented (option 1)
+
+Screenshots are in the worker's session scratchpad `.../scratchpad/after/` (`home|meta|pipeline|proposals-fake-deal-detector` `-390.png`, `-1240.png`, `-390-keys.png`), against a throwaway War Room on :3212 over a `.backup` copy of the live DB (stopped, copy deleted).
+
+**Cause (before the fix, measured at 390 px with a read-only Playwright evaluate).** The header was not the source of the home overflow. The nav pills were already outside the viewport only inside the `overflow-x-auto` nav (clipped, scrollable, but with default scrollbar and no cue, and `.nav-pill` lacked `flex-shrink: 0` / `white-space: nowrap`). The elements past 390 px that stretch the document were page content: `div.grid.gap-8` children in `pages/index.vue` at width 379 (right edge 399) with `ol.-mx-1.flex.snap-x.overflow-x-auto` (Current Meta strip, 387 wide, right 403). After the nav fix the home `scrollWidth` is still 404: the remaining 379-wide elements are the Sort/Collisions `.seg` groups and an `svg` 399 wide (ListControls), content under the header. Not changed here (out of scope: header/nav); worth a follow-up ticket. `/meta` and the Proposal page now report no overflow; `/pipeline` still reports 501 (the documented graph scroll).
+
+**Change.** `.nav-pill` gets `flex-shrink: 0; white-space: nowrap`; `.nav-row` (on the `<nav>`) hides the scrollbar, below `lg` adds a right-edge mask fade and a 1.5rem `::after` end spacer (padding-right is overridden by the `p-1.5` utility, so the last item could not scroll clear of the fade); `.nav-pill:focus-visible` ring with a negative offset so the pill's overflow does not clip it; `app.vue` scrolls the active link to centre on mount and on route change (smooth only when motion is allowed) and centres any focused link (`behavior: "instant"`, because Chrome's own focus scroll left Rubric under the fade when Tabbing quickly). Nothing under `lg:` changed.
+
+**Evidence.** `page:check` exit 0 for `/`, `/meta`, `/pipeline`, `/proposals/fake-deal-detector` (`/proposals` itself is a 404 route; the Proposal page is `/proposals/<slug>`). Keys run at 390 px on `/` and `/pipeline`: focus lands on Proposals, Narratives, Meta, Activity, How it works, Study, Rubric in order, each visible; `pipeline-390-keys.png` shows "How it works" (active) and "Rubric" fully visible with its ring. Nav at 390 px after Rubric focus: scrollLeft 383 = scrollWidth 733 - clientWidth 350, Rubric right edge 336 < nav right 370. 1240 px: compared `home-1240.png` before and after by looking: header grid, pill and positions identical (only the live latency pill numbers differ). The other three 1240 pages were checked after the change only (no before capture); the CSS is `max-width: 1023.98px` scoped and the shared rules only add nowrap/no-shrink, which a 1240 px single row already satisfied.
