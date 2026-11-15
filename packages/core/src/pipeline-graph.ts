@@ -495,6 +495,8 @@ export interface PipelineResponse {
   nodes: PipelineNodeView[];
   edges: PipelineEdgeView[];
   rubric: { version: number; gateMinScore: number } | null;
+  /** Where the limit values come from: the War Room process's `ARGUS_*` variables (may differ from the worker's), or the code's defaults when none were given. */
+  envSource: "warroom-process" | "defaults";
 }
 
 /** The graph as the page draws it: functions evaluated, off-page nodes and the edges that touch them left out. */
@@ -548,6 +550,7 @@ export function resolvePipeline(graph: PipelineGraph, live: { rubric?: { version
       .filter((e) => ids.has(e.from) && ids.has(e.to))
       .map((e) => ({ id: e.id, from: e.from, to: e.to, label: e.label, ...(e.metric === undefined ? {} : { metric: e.metric }), dashed: e.dashed === true, gates: (e.gates ?? []).map(view) })),
     rubric,
+    envSource: live.env ? "warroom-process" : "defaults",
   };
 }
 

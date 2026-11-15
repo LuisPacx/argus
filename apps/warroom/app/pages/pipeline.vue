@@ -32,6 +32,9 @@ onBeforeUnmount(() => clearInterval(poll));
         The numbers on the lines are the last 24 hours, refreshed every 10 seconds. The figures on a node are Claude spend: Est. usage on the subscription, and real
         API dollars on their own line when the API fallback ran. They are never added together.
       </p>
+      <p v-if="pipeline?.envSource === 'warroom-process'" class="note muted" data-test="pipeline-env-note">
+        Limit values come from the War Room process's ARGUS_* settings and may differ from the worker's.
+      </p>
       <PipelineGraph :view="view" :animate="animate" />
     </template>
     <p v-else class="surface muted text-sm">No pipeline graph yet.</p>

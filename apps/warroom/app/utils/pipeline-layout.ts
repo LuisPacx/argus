@@ -22,6 +22,7 @@ export interface PipelinePayload {
     gates: Array<{ label: string; display: string; defaultDisplay?: string; rubricVersion?: number }>;
   }>;
   rubric: { version: number; gateMinScore: number } | null;
+  envSource: "warroom-process" | "defaults";
 }
 
 /** The part of GET /api/pipeline-live the page reads (the server's `PipelineLiveResponse`; a renamed field is a type error in its server test). */

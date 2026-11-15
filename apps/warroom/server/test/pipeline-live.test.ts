@@ -8,6 +8,7 @@ vi.stubGlobal("defineEventHandler", (f: unknown) => f);
 vi.stubGlobal("useStore", () => store);
 const live = (await import("../api/pipeline-live.get.ts")).default as unknown as () => PipelineLiveResponse;
 const graph = (await import("../api/pipeline.get.ts")).default as unknown as () => {
+  envSource: string;
   nodes: Array<{ id: string; rules: Array<{ label: string; value: number | string; display: string; defaultDisplay?: string }> }>;
 };
 
@@ -57,6 +58,7 @@ it("counts Narratives that passed the gate against the stored Rubric's gate, not
 
 it("GET /api/pipeline shows an env-overridden value as the effective one, with the code's default beside it", () => {
   const meta = () => graph().nodes.find((n) => n.id === "meta")!.rules.find((r) => r.label === "Ranked every")!;
+  expect(graph().envSource).toBe("warroom-process");
   expect(meta()).toMatchObject({ display: "15 min" });
   expect(meta().defaultDisplay).toBeUndefined();
   process.env.ARGUS_META_INTERVAL_MINUTES = "5";

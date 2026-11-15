@@ -75,6 +75,7 @@ it("no raw HTML: hostile labels, notes and gate text come out escaped, and nothi
     ],
     edges: [{ id: "a-b", from: "a", to: "b", label: evil, dashed: false, gates: [{ label: evil, display: evil }] }],
     rubric: null,
+    envSource: "defaults",
   };
   const html = await draw(payload);
   expect(html).not.toContain("<script");
@@ -96,6 +97,14 @@ it("no client code imports @argus/core, and no timer drives the animation (the p
   expect(page.match(/setInterval\(/g)).toHaveLength(1);
   expect(page).toMatch(/setInterval\(\(\) => void refreshLive\(\), 10_000\)/);
   expect(page).toContain("clearInterval(poll)");
+});
+
+it("the page says where limit values come from, and the API names the source", () => {
+  const page = readFileSync(new URL("../../app/pages/pipeline.vue", import.meta.url), "utf8");
+  expect(page).toContain('data-test="pipeline-env-note"');
+  expect(page).toContain("War Room process's ARGUS_* settings and may differ from the worker's");
+  expect(resolvePipeline(PIPELINE, { env: {} }).envSource).toBe("warroom-process");
+  expect(resolvePipeline(PIPELINE).envSource).toBe("defaults");
 });
 
 it("the page keeps the static graph and says so when the live route fails, and shows no stale numbers", () => {
