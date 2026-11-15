@@ -47,7 +47,14 @@ One commit after the full `pnpm check`. Subject `War Room ticket 12: <what chang
 
 ## Open questions
 
-1. **Scrollable row or menu button?** Default: option 1, the scrollable pill row with a fade cue. Overrule if you prefer a menu button.
-2. **Breakpoint:** keep the existing `lg` (1024 px) switch, so tablets (768 px) get the same scrollable row, or give the row its full width only below `md`? Default: keep `lg`, no new breakpoint.
+1. **Scrollable row or menu button?** Default: option 1, the scrollable pill row with a fade cue. Overrule if you prefer a menu button. **Answered 2026-11-15: swipeable pill row (option 1), not a menu button.**
+2. **Breakpoint:** keep the existing `lg` (1024 px) switch, so tablets (768 px) get the same scrollable row, or give the row its full width only below `md`? Default: keep `lg`, no new breakpoint. **Answered 2026-11-15: keep the `lg` desktop breakpoint and layout unchanged.**
 
 ## Comments
+
+### 2026-11-15: user answers
+
+1. Swipeable pill row (option 1), not a menu button.
+2. Keep the `lg` desktop breakpoint and layout unchanged; no new breakpoint.
+
+Both open questions are answered; the ticket is ready to implement as option 1.
