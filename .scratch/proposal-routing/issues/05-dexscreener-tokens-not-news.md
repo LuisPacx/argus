@@ -3,7 +3,7 @@
 
 **What to build:** `dexscreener:trending` token Signals (`Name ($TICKER)`) are embedded and clustered like headlines (`narratives.ts:208-219`), so a news Narrative can be made of token names alone: legacy rows 3881 and 4059 are exactly that. The user approved on 2026-11-15 that DexScreener tokens stop being embedded into news Narratives and are routed the way launchpad Signals are (grouped by name and ticker, or kept out of Narratives). A news Narrative must not form from token names alone. This amends ADR 0007 (clustering) and ADR 0011 (what a market Signal does).
 
-**Status:** ready (open questions below each carry a recommended answer; confirm Q1 before building)
+**Status:** ready (blocked by 04)
 **Blocked by:** 04
 
 Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... write dexscreener-routing follow-up ticket (build after 04)". Follows `.scratch/proposal-routing/issues/04-news-meme-proposals.md`, whose acceptance criterion "a qualifying Narrative has at least one news Signal" is the read-side half of this rule; this ticket is the write side.
@@ -35,10 +35,9 @@ Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... wr
 4. **No backfill, no migration.** Legacy token-only news rows stay as they are; the guard hides them from judge and propose, and they leave the window. (Q3.)
 5. **Docs.** ADR 0011 amendment: a market Signal makes a *news* Narrative eligible only together with at least one non-market Signal; a token never founds a news Narrative. ADR 0007 amendment: DexScreener tokens are grouped by name like launchpad Signals when they match no news Narrative. GLOSSARY (**Narrative**, **Signal**) and `docs/architecture.md` agree; `pnpm docs:graph` if the pipeline graph names the edge.
 
-## Open design questions (recommended answer first)
+## Decisions (user, 2026-11-15: all as recommended)
 
-1. **Do tokens keep joining existing news Narratives, or are they kept out entirely?** Recommend: keep joining, never found. If tokens were kept out of news Narratives completely, no news Narrative would ever hold a market Signal (PumpPortal never joins news), so ADR 0011 would judge nothing and the whole Tech path would stop. Keeping them out entirely is only possible with a different market-evidence rule (for example, a headline that names a token a Meta or DexScreener lists), which is a bigger design and its own ticket. **Needs the user's confirmation**, because "stop being embedded into news Narratives" can be read the stricter way.
-2. **Where does an unmatched token go: a launchpad-kind Narrative keyed by name, or unclustered with a marker?** Recommend: launchpad-kind Narrative keyed by name and ticker. It reuses `createNarrative`'s launchpad path and the key claims, repeated trending tokens of the same name then group instead of piling up as singletons, and nothing is left unclustered.
+1. **Do tokens keep joining existing news Narratives, or are they kept out entirely?** Recommend: keep joining, never found. If tokens were kept out of news Narratives completely, no news Narrative would ever hold a market Signal (PumpPortal never joins news), so ADR 0011 would judge nothing and the whole Tech path would stop. Keeping them out entirely is only possible with a different market-evidence rule (for example, a headline that names a token a Meta or DexScreener lists), which is a bigger design and its own ticket.2. **Where does an unmatched token go: a launchpad-kind Narrative keyed by name, or unclustered with a marker?** Recommend: launchpad-kind Narrative keyed by name and ticker. It reuses `createNarrative`'s launchpad path and the key claims, repeated trending tokens of the same name then group instead of piling up as singletons, and nothing is left unclustered.
 3. **Backfill the legacy token-only news rows (3881, 4059)?** Recommend: no. They are two rows, they age out, and the `HAS_NEWS_SIGNAL` guard already stops them being judged, proposed or made into a news meme.
 4. **Should the guard also apply to judge and propose, or only to 04's meme path?** Recommend: all three, one shared fragment. A token-only news Narrative must not be judged either (that costs a Brain run for no story).
 5. **Should a token join a news Narrative that has no news Signal yet (a legacy token-only one still inside the window)?** Recommend: no special case. Leave `recentNarratives` as it is; such a Narrative stays ineligible through the guard and ages out. Excluding it from candidates would add a query for two rows.
@@ -66,3 +65,4 @@ Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... wr
 ## Comments
 
 - **Written 2026-11-15** from the user's approval of the DexScreener routing follow-up (cos journal "LEGACY ROWS CHECK" and "USER: ... write dexscreener-routing follow-up ticket"). Build after 04.
+- 2026-11-15: user accepted all 7 recommended answers (journal .scratch/cos.md, "USER 05").
