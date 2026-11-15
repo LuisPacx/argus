@@ -24,8 +24,12 @@ _Avoid_: Trend, topic
 The new technology (product) that could be built to ride a Narrative. For example, the "tokenized stocks" Narrative yields the Tech "a launchpad that pairs each token with a stock". A Tech is a concept until a Build exists.
 
 **Proposal**:
-A Narrative paired with a Tech and a token angle (name, ticker, pitch). It is the unit shown in the War Room and decided on by the Operator, and it carries a Spec once one is drafted.
-_Avoid_: Idea, candidate
+A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for a `meme` Proposal, a Meta paired with a token idea. It has a kind, `narrative` or `meme` (ADR 0013); older Proposals are `narrative`. It is the unit shown in the War Room and decided on by the Operator, and a `narrative` Proposal carries a Spec once one is drafted.
+_Avoid_: Idea (as a bare noun for a Proposal), candidate
+
+**Meme Proposal**:
+A Proposal of kind `meme`: a token idea that rides a live Meta that is Hot now, generated from the Meta and not from a Narrative. It has a name, ticker, angle, how it differs from the Meta's leader (name copies are rejected), a short description, an X first-post hook, an image idea as text, risk labels and evidence links. It has no Tech, no Spec, no Build and no Rubric score of its own; the Operator can shortlist it or dismiss it with a reason, and it expires after 6 hours in new unless shortlisted. Legitimacy follows the Rubric (impersonation and fraud only). See ADR 0013.
+_Avoid_: Beta Proposal (the kind that was planned under that name is `meme`)
 
 **Spec**:
 The written description of a Tech from which a Build is produced. It is drafted by the system, refined by the Operator, and is the artifact of the decision to build.
@@ -61,7 +65,7 @@ A Meta that has just entered the top 5 of the 24 h Meta ranking, or whose distin
 _Avoid_: alert (it only appears in the War Room; nothing is sent)
 
 **Beta**:
-A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it.
+A token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar to it. A Beta belongs to the same Meta, or to one close to it. Argus proposes one as a Meme Proposal.
 
 **Vamping**:
 Launching a token to take the volume of a token that is rising in market cap but has a mistake in its ticker, name, links or image, or in the type of token it was created as (for example one that was meant to have fee sharing, holder rewards, or a stock pairing). Unlike a Beta, which imitates a narrative, a vamp targets one specific token's flaw. When the Operator does this it is a Launch.
@@ -83,7 +87,7 @@ The view where the Operator sees all live Proposals with their evidence and stat
 The Operator's decision not to pursue a Proposal. Dismissals, like approvals, are recorded as feedback that sharpens future research.
 
 **Proposal status**:
-The state of a Proposal, which is one of: new, shortlisted, spec-drafted, approved, building, built, build-failed, needs-human, launched, or closed. A Proposal may enter dismissed from any state except closed. The system sets new (on creation), spec-drafted (after the Operator shortlists), and closed on expiry (48 hours in new, counted from creation, and 7 days in shortlisted); the Operator sets shortlisted, new again (an undone shortlist, possible until the Spec is approved; it is not a Dismissal and records no feedback), approved, dismissed, launched, and closed after a Launch; the Build step sets building, built, build-failed (when a Build fails after its retry), and needs-human (when a Spec requires something that cannot be built unattended, such as an on-chain program).
+The state of a Proposal, which is one of: new, shortlisted, spec-drafted, approved, building, built, build-failed, needs-human, launched, or closed. A Proposal may enter dismissed from any state except closed. The system sets new (on creation), spec-drafted (after the Operator shortlists), and closed on expiry (48 hours in new, counted from creation, 6 hours for a Meme Proposal, and 7 days in shortlisted); the Operator sets shortlisted, new again (an undone shortlist, possible until the Spec is approved; it is not a Dismissal and records no feedback), approved, dismissed, launched, and closed after a Launch; the Build step sets building, built, build-failed (when a Build fails after its retry), and needs-human (when a Spec requires something that cannot be built unattended, such as an on-chain program).
 
 **Est. usage**:
 The API-equivalent dollar figure (`total_cost_usd`) that `claude -p` reports for each run. On the Claude subscription it measures usage against plan limits, not money billed. Per-task caps (`--max-budget-usd`) limit how much usage one run can take.
