@@ -73,7 +73,7 @@ Slice b:
 
 Slice c:
 - [ ] A node opens a panel with `what`, status, rules with the real values, ADRs, tickets, files and spend; closing returns focus; Escape works; the panel text is escaped.
-- [ ] The buildability gate in the panel is the stored Rubric's value with its version, and equals the number on the Rubric page.
+- [x] The buildability gate in the panel is the stored Rubric's value with its version, and equals the number on the Rubric page.
 
 All slices:
 - [ ] Full `pnpm check` passes once on the committed clean tree, per slice.
@@ -116,6 +116,13 @@ One commit per slice, after the full `pnpm check`. Subjects `War Room ticket 10a
 - Interval constants went to `packages/core/src/ticks.ts`; `SEED_GATE_MIN_SCORE` is exported from `rubric.ts`.
 - The page has no poll yet (slice b adds it). The layout puts the Sources chips in a taller Sources node, so the side row (Study, Meta, Beta finder) sits beneath it; a screen narrower than 1206 px scrolls the graph sideways.
 - Not done on purpose: the browser box (cos does the Chrome check at 1240 px and a phone width) and the shared "full `pnpm check` per slice" box (kept open for b and c).
+
+**Slice c, 2026-11-14.** Panel built (`PipelineNodePanel.vue`; page state in `pipeline.vue`). Decisions the ticket did not settle:
+- Panel is a fixed card on the right of a wide screen and a bottom sheet (max 78vh) under 640 px; it is not modal and has no backdrop. Clicking another node swaps it. Escape is a window listener on the page; focus moves to Close on open and returns to the node on close.
+- Nodes are `role="button"` articles (Enter, Space, click). Paths (ADRs, tickets, code) are plain text, no links.
+- Gates live on edges, so the panel lists "Lines in and out" for the node with each edge's gates and 24 h count; the Judge panel shows both gates there (the buildability gate is the stored Rubric's value with its version, from the same `getRubric()` the Rubric page reads).
+- "used / cap" is shown only for `*.maxRunsPerDay` rules, from slice b's per-node runs (rolling 24 h, as the caps are). Spend caps show no used figure.
+- First slice-c box left open: Escape and focus return are asserted on the source only; cos checks them in the browser. Check passed (130 files, 1972 tests), stamped tree `86f240dd07`.
 
 **Recorded manual bite run (slice a).** Added `"fake:bite": "context"` to `SOURCE_CLASS` in `packages/core/src/sources/source-class.ts` with no graph node, ran `pnpm exec vitest run packages/core/src/pipeline-graph.test.ts`, and the sync test failed with: `Source "fake:bite" (class context) is in the Source class table but on no Sources node chip.` Reverted; the tree was clean again.
 
