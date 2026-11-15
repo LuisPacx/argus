@@ -107,7 +107,8 @@ export async function summariseMetas(
   const research = opts.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG;
   const caps = researchRunCaps(brain);
   const log = opts.log ?? console.log;
-  const clock = () => opts.now ?? new Date();  const out: MetaSummaryResult = { called: 0, accepted: 0, refused: 0, failed: 0 };
+  const clock = () => opts.now ?? new Date();
+  const out: MetaSummaryResult = { called: 0, accepted: 0, refused: 0, failed: 0 };
 
   // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
   if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };

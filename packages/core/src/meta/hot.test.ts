@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
 import { META_RULE } from "./config.ts";
-import { hotEvents, raiseHotMetas } from "./hot.ts";
+import { hotEvents, raiseHotMetas, raiseHotMetasSafely } from "./hot.ts";
 import { hotNowResponse, liveHot } from "./hot-api.ts";
 import type { MetaCoverage } from "./coverage.ts";
 import type { NewMetaRow, NewMetaRun } from "./store.ts";
@@ -101,7 +101,7 @@ describe("hotEvents: the trigger", () => {
   });
 
   it("the thresholds come from the config object", () => {
-    const s =store([run(at(0), [["a", 10], ["b", 10], ["x", 8]]), run(at(HOUR), [["a", 10], ["b", 10], ["x", 12]])]);
+    const s = store([run(at(0), [["a", 10], ["b", 10], ["x", 8]]), run(at(HOUR), [["a", 10], ["b", 10], ["x", 12]])]);
     const now = s.latestMetas("24h", 10)!;
     const prev = s.meta.latest("24h", 10, new Date(at(0)).toISOString())!;
     expect(hotEvents(now, prev, { ...META_RULE, hotTopRank: 2 }).map((e) => e.reason)).toEqual([]);
@@ -165,6 +165,22 @@ describe("raiseHotMetas: stored events and the cool-down", () => {
     const s = store([run(at(0), [...filler(1), ["x", 60]]), run(at(HOUR), [...filler(1), ["x", 60]])]);
     s.recordSignals([{ id: "rss:1", sourceId: "rss:wired", sourceLabel: "Wired", title: "x x x x everywhere", summary: "", url: "", publishedAt: new Date(at(HOUR)).toISOString() }]);
     expect(raiseHotMetas(s)).toEqual([]);
+  });
+});
+
+describe("raiseHotMetasSafely: a Hot now failure never stops the Meta tick", () => {
+  it("logs and returns no events when the check throws, so the tick carries on to the summary tick", () => {
+    const broken = { meta: { latest: () => { throw new Error("disk I/O error"); } } } as unknown as Datastore;
+    const logged: unknown[][] = [];
+    expect(() => raiseHotMetasSafely(broken, META_RULE, (...a) => logged.push(a))).not.toThrow();
+    expect(raiseHotMetasSafely(broken, META_RULE, (...a) => logged.push(a))).toEqual([]);
+    expect(logged[0]![0]).toBe("[worker] hot now failed");
+    expect((logged[0]![1] as Error).message).toBe("disk I/O error");
+  });
+
+  it("passes the events through when nothing fails", () => {
+    const s = store([run(at(0), placed(9)), run(at(HOUR), placed(4))]);
+    expect(raiseHotMetasSafely(s).filter((e) => e.key === "x")).toHaveLength(1);
   });
 });
 

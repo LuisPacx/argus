@@ -43,6 +43,19 @@ export function hotEvents(now: MetaRun, before: MetaRun | undefined, config: Met
 }
 
 /**
+ * WORKER ONLY. `raiseHotMetas` for the Meta tick: a failure is logged and swallowed, so a Hot now problem never stops the ranking tick that
+ * called it or the summary tick that follows it. Returns the events stored (none on failure).
+ */
+export function raiseHotMetasSafely(store: Datastore, config: MetaConfig = META_RULE, log: (line: string, error?: unknown) => void = console.error): NewMetaHotEvent[] {
+  try {
+    return raiseHotMetas(store, config);
+  } catch (e) {
+    log("[worker] hot now failed", e);
+    return [];
+  }
+}
+
+/**
  * WORKER ONLY. Checks the newest stored 24 h ranking against the run about `hotBaselineMinutes` before it and stores an event for each Meta
  * that is hot and was not raised within the last `hotCooldownHours`. Returns the events stored. Safe to call twice for one run: the
  * cool-down makes the second call store nothing. Nothing here creates a Narrative, Proposal or Score.
