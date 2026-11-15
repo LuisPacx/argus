@@ -24,13 +24,13 @@
 
 ## Acceptance criteria
 
-- [ ] A Datastore method returns the Techs of Proposals created in the last 14 days, newest first, max 20, one line each, deduplicated, skipping Proposals with no Tech; a test covers the 14-day edge, the cap of 20, dedupe and a meme Proposal.
-- [ ] `proposePromptFor` with recent Techs contains the rule section and a fenced `recent-techs` block with one line per Tech; with none it contains neither. Tests on the built prompt: block present and fenced by the boundary, each Tech on its own line, a Tech containing a newline or a fake boundary marker stays on one line and cannot close the block, rule text says "different" and "data".
-- [ ] The retry-after-refusal prompt (`:398`), the repair prompt (`:437`) and the first-run prompt (`:476`) all carry the block (test through the pass with the fake brain, reading the prompts it logged, as `propose-pass.test.ts` does).
-- [ ] A Datastore read error is logged and the pass still prompts without the block (test).
-- [ ] `.claude/skills/propose/SKILL.md` has the one-sentence rule.
-- [ ] No similarity check in code; the pass still stores whatever valid Tech the model returns.
-- [ ] Type-check and the full test suite pass.
+- [x] A Datastore method returns the Techs of Proposals created in the last 14 days, newest first, max 20, one line each, deduplicated, skipping Proposals with no Tech; a test covers the 14-day edge, the cap of 20, dedupe and a meme Proposal.
+- [x] `proposePromptFor` with recent Techs contains the rule section and a fenced `recent-techs` block with one line per Tech; with none it contains neither. Tests on the built prompt: block present and fenced by the boundary, each Tech on its own line, a Tech containing a newline or a fake boundary marker stays on one line and cannot close the block, rule text says "different" and "data".
+- [x] The retry-after-refusal prompt (`:398`), the repair prompt (`:437`) and the first-run prompt (`:476`) all carry the block (test through the pass with the fake brain, reading the prompts it logged, as `propose-pass.test.ts` does).
+- [x] A Datastore read error is logged and the pass still prompts without the block (test).
+- [x] `.claude/skills/propose/SKILL.md` has the one-sentence rule.
+- [x] No similarity check in code; the pass still stores whatever valid Tech the model returns.
+- [x] Type-check and the full test suite pass.
 
 ## Constraints
 
