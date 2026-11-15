@@ -5,7 +5,8 @@
 // edges, Claude spend on the nodes). Motion is Vue's own <TransitionGroup> and <Transition> (the .pipe-* classes): a number that changes
 // fades out and the new one in. Est. usage and real API dollars are separate lines, never added.
 import type { PipelineView } from "../utils/pipeline-layout.ts";
-defineProps<{ view: PipelineView; animate?: boolean }>();
+defineProps<{ view: PipelineView; animate?: boolean; selected?: string | null }>();
+defineEmits<{ open: [id: string] }>();
 </script>
 
 <template>
@@ -30,10 +31,19 @@ defineProps<{ view: PipelineView; animate?: boolean }>();
           <article
             v-for="(n, i) in view.nodes"
             :key="n.id"
+            :id="`pipe-node-${n.id}`"
             class="pipe-node"
-            :class="`is-${n.status}`"
+            :class="[`is-${n.status}`, { 'is-selected': selected === n.id }]"
             :style="{ ...n.style, '--i': i }"
             :data-test="`node-${n.id}`"
+            role="button"
+            tabindex="0"
+            aria-haspopup="dialog"
+            :aria-expanded="selected === n.id"
+            :aria-label="`${n.label}, ${n.statusWord}. Open its details`"
+            @click="$emit('open', n.id)"
+            @keydown.enter.prevent="$emit('open', n.id)"
+            @keydown.space.prevent="$emit('open', n.id)"
           >
             <div class="pipe-head">
               <h3 class="pipe-label">{{ n.label }}</h3>

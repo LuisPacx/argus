@@ -70,8 +70,8 @@ it("no raw HTML: hostile labels, notes and gate text come out escaped, and nothi
   const evil = `<img src=x onerror=alert(1)></script><script>alert(1)</script>`;
   const payload: PipelinePayload = {
     nodes: [
-      { id: "a", label: evil, column: 0, row: 0, status: "off", statusNote: evil, sources: [{ id: "x", label: evil, status: "on" }] },
-      { id: "b", label: "B", column: 1, row: 0, status: "on", sources: [] },
+      { id: "a", label: evil, column: 0, row: 0, status: "off", statusNote: evil, what: evil, rules: [], adrs: [], tickets: [], files: [], worker: [], sources: [{ id: "x", label: evil, status: "on" }] },
+      { id: "b", label: "B", column: 1, row: 0, status: "on", what: "b", rules: [], adrs: [], tickets: [], files: [], worker: [], sources: [] },
     ],
     edges: [{ id: "a-b", from: "a", to: "b", label: evil, dashed: false, gates: [{ label: evil, display: evil }] }],
     rubric: null,
@@ -174,4 +174,77 @@ it("compact counts and dollars", () => {
 it("the nav has the page as 'How it works' at /pipeline", () => {
   const app = readFileSync(new URL("../../app/app.vue", import.meta.url), "utf8");
   expect(app).toContain('{ to: "/pipeline", label: "How it works" }');
+});
+
+// ---------------------------------------------------------------- slice c: the node panel
+
+const renderPanel = await load("PipelineNodePanel.vue");
+const panelOf = async (payload: PipelinePayload, id: string, live: PipelineLivePayload | null = null): Promise<string> => {
+  const node = pipelineView(payload, live).nodes.find((n) => n.id === id)!;
+  return renderToString(createSSRApp({ render: () => renderPanel({ node }, []) as ReturnType<typeof h> }));
+};
+
+it("a node opens by mouse, Enter and Space, and says so to a screen reader; the panel closes by button and Escape", () => {
+  const graph = readFileSync(new URL("../../app/components/PipelineGraph.vue", import.meta.url), "utf8");
+  for (const s of ['role="button"', 'tabindex="0"', "@click=\"$emit('open'", "@keydown.enter.prevent", "@keydown.space.prevent", 'aria-haspopup="dialog"']) expect(graph, s).toContain(s);
+  const page = readFileSync(new URL("../../app/pages/pipeline.vue", import.meta.url), "utf8");
+  expect(page).toContain('e.key === "Escape"');
+  expect(page).toContain("getElementById(`pipe-node-${id}`)?.focus()"); // focus returns to the node
+  expect(page).toContain('name="pipe-panel"'); // Vue's own <Transition>
+  const panel = readFileSync(new URL("../../app/components/PipelineNodePanel.vue", import.meta.url), "utf8");
+  expect(panel).toContain("closeButton.value?.focus()"); // focus moves in
+  expect(panel).toContain('data-test="panel-close"');
+  for (const f of [graph, page, panel]) expect(f).not.toMatch(/v-html|href=|setTimeout/);
+});
+
+it("the Judge panel shows what it does, its rules, both gates with the stored Rubric's value and version, used of the cap, spend, ADRs, tickets and code", async () => {
+  const live: PipelineLivePayload = { edges: {}, nodes: { judge: { runs: 12, spendUsd: 0.2, apiRuns: 0, apiUsd: 0 } }, other: { tasks: [], runs: 0, spendUsd: 0, apiRuns: 0, apiUsd: 0 } };
+  const html = await panelOf(resolvePipeline(PIPELINE, { rubric: { version: 3, gateMinScore: 6 } }), "judge", live);
+  const node = PIPELINE.nodes.find((n) => n.id === "judge")!;
+  expect(html).toContain(node.what);
+  expect(html).toContain('data-test="panel-status">on</span>');
+  expect(html).toContain("12 used of 300 in the last 24 h"); // Runs per day: used / cap from slice b's runs
+  expect(html).toContain("$0.20 est.");
+  expect(html).toContain("Gate: Buildability gate, minimum: 6 (Rubric v3)");
+  expect(html).toContain("Gate: Needs a market Signal from: pumpportal:events, dexscreener:trending");
+  expect(html).toContain("Claude task: judge");
+  for (const p of [...node.adrs, ...node.tickets, ...node.files]) expect(html, p).toContain(p);
+  expect(html).not.toContain("<a ");
+});
+
+it("an effective value that differs from the code's default shows both; one that matches shows only itself", async () => {
+  const withEnv = resolvePipeline(PIPELINE, { rubric: { version: 1, gateMinScore: 5 }, env: { ARGUS_JUDGE_MAX_RUNS_PER_DAY: "50" } });
+  const html = await panelOf(withEnv, "judge");
+  expect(html).toContain('data-test="rule-default">(default 300)</span>');
+  const plain = await panelOf(resolvePipeline(PIPELINE, { rubric: { version: 1, gateMinScore: 5 } }), "judge");
+  expect(plain).not.toContain("rule-default");
+});
+
+it("a node with no Claude task says it is plain code; a missing live answer says no numbers; Beta finder says why it is off", async () => {
+  expect(await panelOf(real(), "study")).toContain("Plain code: it spends no Claude.");
+  expect(await panelOf(real(), "build")).toContain("Task build: no live numbers right now.");
+  const beta = await panelOf(real(), "beta");
+  expect(beta).toContain('data-test="panel-status">off</span>');
+  expect(beta).toContain("slices 3 and 4 are paused");
+});
+
+it("the Sources panel lists its Sources with their class", async () => {
+  const html = await panelOf(real(), "sources");
+  expect(html).toContain('data-test="panel-sources"');
+  expect(html).toContain("context only");
+  expect(html).toContain("market");
+});
+
+it("panel text is escaped: hostile what, rule labels, paths and gate text come out as text", async () => {
+  const evil = `<img src=x onerror=alert(1)><script>alert(1)</script>`;
+  const payload: PipelinePayload = {
+    nodes: [{ id: "a", label: evil, column: 0, row: 0, status: "on", what: evil, rules: [{ label: evil, display: evil, defaultDisplay: evil, envError: evil }], adrs: [evil], tickets: [evil], files: [evil], worker: [evil], brainTask: evil, sources: [] }],
+    edges: [],
+    rubric: null,
+    envSource: "defaults",
+  };
+  const html = await panelOf(payload, "a");
+  expect(html).not.toContain("<img");
+  expect(html).not.toContain("<script");
+  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
 });

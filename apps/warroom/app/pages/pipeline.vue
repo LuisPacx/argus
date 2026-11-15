@@ -12,11 +12,28 @@ const animate = !useNuxtApp().isHydrating;
 const live = computed(() => (liveError.value ? null : (liveData.value ?? null)));
 const view = computed(() => (pipeline.value ? pipelineView(pipeline.value, live.value) : null));
 
+// The node whose panel is open. The panel reads the same view (so its numbers refresh with the poll); closing it returns focus to the node.
+const selectedId = ref<string | null>(null);
+const selectedNode = computed(() => view.value?.nodes.find((n) => n.id === selectedId.value) ?? null);
+async function close() {
+  const id = selectedId.value;
+  selectedId.value = null;
+  await nextTick();
+  if (id !== null) document.getElementById(`pipe-node-${id}`)?.focus();
+}
+const onKey = (e: KeyboardEvent) => {
+  if (e.key === "Escape" && selectedId.value !== null) void close();
+};
+
 let poll: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   poll = setInterval(() => void refreshLive(), 10_000);
+  window.addEventListener("keydown", onKey);
 });
-onBeforeUnmount(() => clearInterval(poll));
+onBeforeUnmount(() => {
+  clearInterval(poll);
+  window.removeEventListener("keydown", onKey);
+});
 </script>
 
 <template>
@@ -35,7 +52,10 @@ onBeforeUnmount(() => clearInterval(poll));
       <p v-if="pipeline?.envSource === 'warroom-process'" class="note muted" data-test="pipeline-env-note">
         Limit values come from the War Room process's ARGUS_* settings and may differ from the worker's.
       </p>
-      <PipelineGraph :view="view" :animate="animate" />
+      <PipelineGraph :view="view" :animate="animate" :selected="selectedId" @open="selectedId = $event" />
+      <Transition name="pipe-panel" mode="out-in">
+        <PipelineNodePanel v-if="selectedNode" :key="selectedNode.id" :node="selectedNode" @close="close" />
+      </Transition>
     </template>
     <p v-else class="surface muted text-sm">No pipeline graph yet.</p>
     <p class="faint text-xs">

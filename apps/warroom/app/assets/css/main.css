@@ -499,6 +499,58 @@ body {
     white-space: nowrap;
   }
 
+  .pipe-node[role="button"] {
+    cursor: pointer;
+    transition: box-shadow 0.18s var(--wr-ease);
+  }
+  .pipe-node[role="button"]:hover {
+    box-shadow: var(--wr-shadow-lift);
+  }
+  .pipe-node[role="button"]:focus-visible,
+  .pipe-node.is-selected {
+    outline: 2px solid var(--wr-accent);
+    outline-offset: 2px;
+  }
+
+  /* The node detail panel (PipelineNodePanel.vue): a card on the right of a wide screen, a bottom sheet on a phone. */
+  .pipe-panel {
+    position: fixed;
+    z-index: 40;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: min(400px, calc(100vw - 24px));
+    overflow-y: auto;
+    padding: 18px 18px 22px;
+    border-radius: var(--wr-radius);
+    background: var(--wr-surface);
+    box-shadow: var(--wr-shadow-lift);
+  }
+  .pipe-panel:focus-visible {
+    outline: 2px solid var(--wr-accent);
+  }
+  .pipe-panel-list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    font-size: 0.8125rem;
+  }
+  .pipe-panel-path {
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 640px) {
+    .pipe-panel {
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      max-height: 78vh;
+      border-radius: var(--wr-radius) var(--wr-radius) 0 0;
+    }
+  }
+
   /* Segmented pill group (list sorts and filters). */
   .seg {
     display: inline-flex;
@@ -642,6 +694,25 @@ body {
 .pipe-num-leave-to {
   opacity: 0;
   transform: translateY(-3px);
+}
+
+/* The node panel (pages/pipeline.vue): slides in from the right, or up from the bottom on a phone. */
+.pipe-panel-enter-active,
+.pipe-panel-leave-active {
+  transition:
+    opacity 0.2s var(--wr-ease),
+    transform 0.2s var(--wr-ease);
+}
+.pipe-panel-enter-from,
+.pipe-panel-leave-to {
+  opacity: 0;
+  transform: translateX(24px);
+}
+@media (max-width: 640px) {
+  .pipe-panel-enter-from,
+  .pipe-panel-leave-to {
+    transform: translateY(24px);
+  }
 }
 
 /* The New Proposal form opening above the header band. */

@@ -2,6 +2,15 @@
 // and the words on the page. The graph itself comes from GET /api/pipeline (the server's `PipelineResponse`, one definition in
 // packages/core/src/pipeline-graph.ts); this file only places and words it. Every string is drawn as text by the template.
 
+export interface PipelineRulePayload {
+  label: string;
+  key?: string;
+  display: string;
+  defaultDisplay?: string;
+  rubricVersion?: number;
+  envError?: string;
+}
+
 /** The part of GET /api/pipeline the page reads (a field renamed in the server's `PipelineResponse` is a type error in its server test). */
 export interface PipelinePayload {
   nodes: Array<{
@@ -11,6 +20,13 @@ export interface PipelinePayload {
     row: number;
     status: "on" | "off" | "context-only";
     statusNote?: string;
+    what: string;
+    rules: PipelineRulePayload[];
+    adrs: string[];
+    tickets: string[];
+    files: string[];
+    worker: string[];
+    brainTask?: string;
     sources: Array<{ id: string; label: string; status: "on" | "context-only" }>;
   }>;
   edges: Array<{
@@ -19,7 +35,7 @@ export interface PipelinePayload {
     to: string;
     label: string;
     dashed: boolean;
-    gates: Array<{ label: string; display: string; defaultDisplay?: string; rubricVersion?: number }>;
+    gates: PipelineRulePayload[];
   }>;
   rubric: { version: number; gateMinScore: number } | null;
   envSource: "warroom-process" | "defaults";
@@ -156,6 +172,17 @@ export interface PipelineView {
     chips: Array<{ id: string; label: string; statusWord: string; tone: string }>;
     /** Claude spend in the last 24 h, only on a node that runs a brain task and only while the live numbers are there. */
     spend: { lines: string[]; title: string } | null;
+    /** What the side panel shows. */
+    what: string;
+    rules: RuleLine[];
+    adrs: string[];
+    tickets: string[];
+    files: string[];
+    /** The worker passes that run it, and the Claude task it spends on (null: plain code, no Claude cost). */
+    worker: string[];
+    brainTask: string | null;
+    /** The lines (edges) that touch it, with their last-24 h count and gates. */
+    lines: Array<{ id: string; text: string; count: string | null; gates: string[] }>;
   }>;
   edges: Array<{
     id: string;
@@ -170,6 +197,25 @@ export interface PipelineView {
   /** Runs of a brain task no node owns, as one line; null when there were none (or no live numbers). */
   other: string | null;
 }
+
+/** One rule in the panel: the effective value, the default only when it differs, the Rubric version for the gate, and used / cap for a per-day run cap. */
+export interface RuleLine {
+  label: string;
+  value: string;
+  defaultValue: string | null;
+  rubric: string | null;
+  used: string | null;
+  error: string | null;
+}
+
+const ruleLine = (r: PipelineRulePayload, runsUsed: number | null): RuleLine => ({
+  label: r.label,
+  value: r.display,
+  defaultValue: r.defaultDisplay ?? null,
+  rubric: r.rubricVersion === undefined ? null : `Rubric v${r.rubricVersion}`,
+  used: runsUsed !== null && r.key?.endsWith(".maxRunsPerDay") ? `${group(runsUsed)} used of ${r.display} in the last 24 h` : null,
+  error: r.envError ?? null,
+});
 
 const gateText = (g: { label: string; display: string; defaultDisplay?: string; rubricVersion?: number }): string =>
   `${g.label}: ${g.display}${g.rubricVersion !== undefined ? ` (Rubric v${g.rubricVersion})` : g.defaultDisplay === undefined ? "" : ` (default ${g.defaultDisplay})`}`;
@@ -204,6 +250,20 @@ export function pipelineView(p: PipelinePayload, live: PipelineLivePayload | nul
         style: { left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px` },
         chips: n.sources.map((c) => ({ id: c.id, label: c.label, statusWord: c.status === "on" ? "market" : "context only", tone: c.status === "on" ? "pill-green" : "pill-accent" })),
         spend: spendOf(live?.nodes[n.id]),
+        what: n.what,
+        rules: n.rules.map((r) => ruleLine(r, live?.nodes[n.id]?.runs ?? null)),
+        adrs: n.adrs,
+        tickets: n.tickets,
+        files: n.files,
+        worker: n.worker,
+        brainTask: n.brainTask ?? null,
+        lines: p.edges
+          .filter((e) => e.from === n.id || e.to === n.id)
+          .map((e) => {
+            const c = live?.edges[e.id];
+            const out = e.from === n.id;
+            return { id: e.id, text: `${out ? "to" : "from"} ${labelOf.get(out ? e.to : e.from) ?? (out ? e.to : e.from)}: ${e.label}`, count: c === undefined ? null : countText(c), gates: e.gates.map(gateText) };
+          }),
       };
     }),
     edges: p.edges.flatMap((e) => {
