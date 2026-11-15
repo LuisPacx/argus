@@ -3,7 +3,7 @@ import { BrainError, DEFAULT_ROUTING, type Brain, type BrainInput, type BrainRun
 import { Datastore } from "../datastore.ts";
 import { researchUsage } from "../research-budget.ts";
 import { recomputeMetas } from "./compute.ts";
-import { metaLine } from "./summary.ts";
+import { metaInputHash, metaLine } from "./summary.ts";
 import { metaSummaryConfigFromEnv, summariseMetas, type MetaSummaryConfig } from "./summary-pass.ts";
 
 const NOW = Date.parse("2026-11-11T20:00:00.000Z");
@@ -144,7 +144,7 @@ describe("summariseMetas: caching and cost", () => {
 
   it("a count crossing a power-of-two bucket makes a new call only after 60 minutes", async () => {
     const store = await seed(1, undefined, 12); // 12 tokens: bucket 4 (8..15)
-    const { brain, prompts } = fakeBrain((n) => `${GOOD} ${n}`);
+    const { brain, prompts } = fakeBrain((n) => `${GOOD} ${["one", "two"][n - 1]}`);
     await run(store, brain, { now: at(1) });
     for (let i = 0; i < 5; i++) launch(store, "Meta0", `late-${i}`, { createdMin: -2 }); // 17 tokens: bucket 5 (16..31)
     await recomputeMetas(store, { now: at(20) });
@@ -152,7 +152,67 @@ describe("summariseMetas: caching and cost", () => {
     await recomputeMetas(store, { now: at(63) });
     expect((await run(store, brain, { now: at(64) })).called).toBe(1);
     expect(prompts).toHaveLength(2);
-    expect(row(store, 0).summary).toBe(`${GOOD} 2`);
+    expect(row(store, 0).summary).toBe(`${GOOD} two`);
+  });
+
+  it("refuses an answer that restates a count and keeps the numbers line (ticket 06)", async () => {
+    const store = await seed(1);
+    const lines: string[] = [];
+    const { brain } = fakeBrain(() => "Cat theme: 105 launches by 64 creators");
+    const r = await run(store, brain, { lines });
+    expect(r).toMatchObject({ called: 1, accepted: 0, refused: 1 });
+    expect(metaLine(row(store, 0)).summarySource).toBe("template");
+    expect(lines.join("\n")).toMatch(/refused: the answer states a figure/);
+  });
+
+  it("a stored line gone stale is hidden at once, rewritten within the caps, and counted against them (ticket 06)", async () => {
+    const store = await seed(1); // 12 tokens, 12 creators
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    store.meta.saveSummary(row(store, 0).key, "old line for 105 tokens", "stale-hash", at(-120).toISOString(), { tokens: 105, creators: 64 });
+    expect(metaLine(row(store, 0)).summarySource).toBe("template"); // hidden before any rewrite
+    const r = await run(store, brain, { now: at(1) });
+    expect(r).toMatchObject({ called: 1, accepted: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(metaLine(row(store, 0))).toEqual({ summary: GOOD, summarySource: "llm" });
+    expect(store.metaSummarySpendSince(at(-60).toISOString()).runs).toBe(1);
+  });
+
+  it("a line whose hash still holds and whose counts match is rewritten once it is 24 hours old, not before", async () => {
+    const store = await seed(1);
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    const r0 = row(store, 0);
+    const base = { tokens: r0.counts["24h"].tokens, creators: r0.counts["24h"].creators };
+    store.meta.saveSummary(r0.key, "an hour-old line", metaInputHash(r0), at(-23 * 60).toISOString(), base);
+    expect((await run(store, brain, { now: at(1) })).called).toBe(0); // 23 h old: the line stands
+    expect(metaLine(row(store, 0)).summary).toBe("an hour-old line");
+    store.meta.saveSummary(r0.key, "a day-old line", metaInputHash(r0), at(-25 * 60).toISOString(), base);
+    expect(metaLine(row(store, 0)).summarySource).toBe("template");
+    expect((await run(store, brain, { now: at(1) })).called).toBe(1);
+    expect(prompts).toHaveLength(1);
+    expect(metaLine(row(store, 0)).summary).toBe(GOOD);
+  });
+
+  it("with the daily cap reached, a stale line is not rewritten and the numbers line shows, never the old text", async () => {
+    const store = await seed(1);
+    store.meta.saveSummary(row(store, 0).key, "old line", "stale-hash", at(-120).toISOString(), { tokens: 105, creators: 64 });
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    const r = await run(store, brain, { config: { maxRunsPerDay: 1 }, now: at(1) });
+    expect(r.called).toBe(1);
+    store.meta.saveSummary(row(store, 0).key, "old line", "stale-hash", at(-120).toISOString(), { tokens: 105, creators: 64 });
+    const capped = await run(store, brain, { config: { maxRunsPerDay: 1 }, now: at(200) });
+    expect(capped).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
+    expect(prompts).toHaveLength(1);
+    expect(metaLine(row(store, 0))).toMatchObject({ summarySource: "template" });
+  });
+
+  it("rows below the top rows are rewritten only when they hold a stale line", async () => {
+    const store = await seed(8);
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    store.meta.saveSummary(row(store, 6).key, "old line", "stale-hash", at(-120).toISOString(), { tokens: 105, creators: 64 });
+    await run(store, brain, { config: { maxPerPass: 20 } });
+    expect(prompts).toHaveLength(6); // the top 5, plus row 7 holding a stale line; rows 6 and 8 never had one
+    expect(metaLine(row(store, 6)).summarySource).toBe("llm");
+    expect(metaLine(row(store, 5)).summarySource).toBe("template");
   });
 
   it("a refused answer is not retried at once; it is tried again after 60 minutes", async () => {

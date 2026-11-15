@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } from "./config.ts";
 import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
+import { summaryFresh } from "./summary.ts";
 
 /**
  * Meta runs and rows (ticket 03, slice 3): each recompute is stored additively so a day's ranking can be replayed and the Study can
@@ -83,6 +84,9 @@ export interface MetaSummaryRecord {
   inputHash: string;
   /** Last attempt, accepted or refused. */
   triedAt: string;
+  /** The 24 h token and creator counts the summary was written from; null on a row from before ticket 06 (unknown, so stale). */
+  baseTokens: number | null;
+  baseCreators: number | null;
 }
 
 export interface MetaRun {
@@ -326,19 +330,20 @@ export class MetaStore {
     const get = this.db.prepare("SELECT * FROM meta_summaries WHERE key = ?");
     for (const key of new Set(keys)) {
       const r = get.get(key) as Row | undefined;
-      if (r) out.set(key, { key, summary: r.summary as string | null, summaryAt: r.summary_at as string | null, inputHash: r.input_hash as string, triedAt: r.tried_at as string });
+      if (r) out.set(key, { key, summary: r.summary as string | null, summaryAt: r.summary_at as string | null, inputHash: r.input_hash as string, triedAt: r.tried_at as string, baseTokens: (r.base_tokens as number | null) ?? null, baseCreators: (r.base_creators as number | null) ?? null });
     }
     return out;
   }
 
-  /** WORKER ONLY. Stores an accepted summary for a group, replacing the earlier one. */
-  saveSummary(key: string, summary: string, inputHash: string, at: string): void {
+  /** WORKER ONLY. Stores an accepted summary for a group, replacing the earlier one, with the 24 h counts it was written from. */
+  saveSummary(key: string, summary: string, inputHash: string, at: string, base: { tokens: number; creators: number }): void {
     this.db
       .prepare(
-        `INSERT INTO meta_summaries (key, summary, summary_at, input_hash, tried_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET summary = excluded.summary, summary_at = excluded.summary_at, input_hash = excluded.input_hash, tried_at = excluded.tried_at`,
+        `INSERT INTO meta_summaries (key, summary, summary_at, input_hash, tried_at, base_tokens, base_creators) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET summary = excluded.summary, summary_at = excluded.summary_at, input_hash = excluded.input_hash, tried_at = excluded.tried_at,
+           base_tokens = excluded.base_tokens, base_creators = excluded.base_creators`,
       )
-      .run(key, summary, at, inputHash, at);
+      .run(key, summary, at, inputHash, at, base.tokens, base.creators);
   }
 
   /** WORKER ONLY. Records a refused attempt without touching an earlier accepted line, so the same input is not tried again before the retry gap. */
@@ -362,9 +367,11 @@ export class MetaStore {
     const windowTokens = r[`base_tokens_${window}`] as number;
     const windowMigrations = r[`base_migrations_${window}`] as number;
     const summaries = this.summaries(rows.map((x) => x.key));
+    const nowMs = Date.parse(r.computed_at as string); // the run's own time: a summary's age is judged as of the ranking it sits on
     for (const row of rows) {
       const s = summaries.get(row.key);
-      if (s?.summary != null && s.summaryAt != null) {
+      // Ticket 06: a stored line is shown only while the row is still close to the counts it was written from.
+      if (s?.summary != null && s.summaryAt != null && summaryFresh(row, s, nowMs)) {
         row.summary = s.summary;
         row.summaryAt = s.summaryAt;
       }

@@ -6,7 +6,7 @@ import type { MetaConfig } from "./config.ts";
 import { groupTokens } from "./group.ts";
 import { newsForKeys } from "./news.ts";
 import type { MetaRow } from "./store.ts";
-import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, parseMetaSummary, type MetaSummaryToken } from "./summary.ts";
+import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, parseMetaSummary, summaryFresh, type MetaSummaryToken } from "./summary.ts";
 
 /**
  * The Meta summary pass (ticket 03, slice 5): after each ranking refresh, writes the one-line summary of the top Metas of the 24 h
@@ -21,6 +21,8 @@ import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, parseMeta
 export interface MetaSummaryConfig {
   /** Only this many of the top rows of the 24 h ranking are summarised. */
   topRows: number;
+  /** Rows below the top rows (down to this many in all) are rewritten only when they hold a stored summary that has gone stale, so the page never shows one. */
+  staleRows: number;
   /** Most Brain calls in one pass (one ranking refresh). */
   maxPerPass: number;
   /** Most `meta-summary` runs started in any rolling 24 hours, refused and failed ones included. */
@@ -33,7 +35,7 @@ export interface MetaSummaryConfig {
   maxConsecutiveFailures: number;
 }
 
-export const DEFAULT_META_SUMMARY_CONFIG: MetaSummaryConfig = { topRows: 5, maxPerPass: 5, maxRunsPerDay: 40, maxDailyUsd: 0.25, minAgeMinutes: 60, maxConsecutiveFailures: 3 };
+export const DEFAULT_META_SUMMARY_CONFIG: MetaSummaryConfig = { topRows: 5, staleRows: 15, maxPerPass: 5, maxRunsPerDay: 40, maxDailyUsd: 0.25, minAgeMinutes: 60, maxConsecutiveFailures: 3 };
 
 /** The config with ARGUS_META_SUMMARY_MAX_PER_DAY and ARGUS_META_SUMMARY_MAX_DAILY_USD applied. A value that is not a positive number is an error, as for ARGUS_JUDGE_*. */
 export function metaSummaryConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaSummaryConfig {
@@ -113,17 +115,20 @@ export async function summariseMetas(
   // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
   if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };
 
-  const ranking = store.latestMetas("24h", config.topRows);
+  const ranking = store.latestMetas("24h", Math.max(config.topRows, config.staleRows));
   if (!ranking) return out;
   const saved = store.meta.summaries(ranking.rows.map((r) => r.key));
   let groups: Map<string, LaunchedToken[]> | undefined;
   let transientInARow = 0;
 
-  for (const row of ranking.rows) {
+  for (const [index, row] of ranking.rows.entries()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const hash = metaInputHash(row);
     const rec = saved.get(row.key);
-    if (rec && rec.summary !== null && rec.inputHash === hash) continue; // nothing material moved: the line stands
+    // Ticket 06: a stored line that no longer matches the row (counts out of ratio, too old, counts unknown) counts as missing.
+    const stale = rec !== undefined && rec.summary !== null && !summaryFresh(row, rec, clock().getTime());
+    if (index >= config.topRows && !stale) continue; // below the top rows only a stale line is rewritten, so it is never shown wrong
+    if (rec && rec.summary !== null && rec.inputHash === hash && !stale) continue; // nothing material moved: the line stands
     if (rec && clock().getTime() - Date.parse(rec.triedAt) < config.minAgeMinutes * 60_000) continue; // tried lately
     if (out.called >= config.maxPerPass) break;
 
@@ -175,7 +180,8 @@ export async function summariseMetas(
       log("[worker] meta summary: dry-run, nothing spawned; stopping the pass");
       return { ...out, stoppedBy: "dry-run" };
     }
-    const parsed = parseMetaSummary(result.output);
+    const shownTokens = tokensFor(store, row, groups.get(row.key));
+    const parsed = parseMetaSummary(result.output, [row.label, ...shownTokens.flatMap((t) => [t.name, t.symbol])].join(" "));
     store.finishBrainRun(runId, { sessionId: result.sessionId ?? null, totalCostUsd: result.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: result.backend, model: result.model });
     // The spend is recorded. Nothing below calls the brain again.
     if (!parsed.ok) {
@@ -184,7 +190,7 @@ export async function summariseMetas(
       out.refused++;
       continue;
     }
-    store.meta.saveSummary(row.key, parsed.summary, hash, clock().toISOString());
+    store.meta.saveSummary(row.key, parsed.summary, hash, clock().toISOString(), { tokens: row.counts["24h"].tokens, creators: row.counts["24h"].creators });
     out.accepted++;
   }
   return out;

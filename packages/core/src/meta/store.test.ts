@@ -78,6 +78,26 @@ describe("meta persistence", () => {
     expect(store.latestMetas("6h", 10)!.rows.map((r) => r.label)).toEqual(["A"]);
   });
 
+  it("attaches a stored summary only while the row is close to the counts it was written from (ticket 06), and a pre-ticket row with no counts is stale", () => {
+    const path = join(tempDir("meta-stale-"), "argus.db");
+    const store = Datastore.open(path);
+    store.meta.saveRun(run(T0, [row("A"), row("B"), row("C"), row("D")])); // each row: 10 tokens, 6 creators in 24 h
+    const at = new Date(T0 + 60_000).toISOString();
+    store.meta.saveSummary("a", "written for ten times the row", "h", at, { tokens: 105, creators: 64 });
+    store.meta.saveSummary("b", "written for about the row", "h", at, { tokens: 8, creators: 5 });
+    store.meta.saveSummary("c", "written two days ago", "h", new Date(T0 - 2 * DAY).toISOString(), { tokens: 10, creators: 6 });
+    store.meta.saveSummary("d", "written before ticket 06", "h", at, { tokens: 10, creators: 6 });
+    store.close();
+    const db = new DatabaseSync(path);
+    db.exec("UPDATE meta_summaries SET base_tokens = NULL, base_creators = NULL WHERE key = 'd'");
+    db.close();
+    const again = Datastore.open(path);
+    const rows = again.meta.latest("24h", 10, at)!.rows;
+    expect(rows.map((r) => r.summary)).toEqual([undefined, "written for about the row", undefined, undefined]);
+    expect(again.meta.summaries(["d"]).get("d")).toMatchObject({ baseTokens: null, baseCreators: null }); // the record is kept, only hidden
+    again.close();
+  });
+
   it("derives migrationRate and createsPerMigration for the ranked window from the stored counts", () => {
     const store = Datastore.open(":memory:");
     store.meta.saveRun(run(T0, [row("A"), row("Dud", { counts: { "6h": { tokens: 3, creators: 3, migrations: 0, migrationsAfter60s: 0 }, "24h": { tokens: 3, creators: 3, migrations: 0, migrationsAfter60s: 0 } } })]));

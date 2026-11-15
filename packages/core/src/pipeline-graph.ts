@@ -14,6 +14,7 @@ import { EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
+import { META_SUMMARY_FRESH } from "./meta/summary.ts";
 import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
 import { DEFAULT_PROPOSE_CONFIG, proposeConfigFromEnv } from "./propose.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd, researchConfigFromEnv } from "./research-budget.ts";
@@ -345,6 +346,9 @@ export const PIPELINE: PipelineGraph = {
         { label: "Hot now: one Meta not raised again within", key: "META_RULE.hotCooldownHours", ref: () => META_RULE.hotCooldownHours, unit: "hours" },
         { label: "Summaries per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count", live: (env) => metaSummaryConfigFromEnv(env).maxRunsPerDay },
         { label: "Summary spend per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd, unit: "usd", live: (env) => metaSummaryConfigFromEnv(env).maxDailyUsd },
+        { label: "A summary shows while tokens and creators stay at least (times) its counts", key: "META_SUMMARY_FRESH.minRatio", ref: () => META_SUMMARY_FRESH.minRatio, unit: "count" },
+        { label: "A summary shows while tokens and creators stay at most (times) its counts", key: "META_SUMMARY_FRESH.maxRatio", ref: () => META_SUMMARY_FRESH.maxRatio, unit: "count" },
+        { label: "A summary shows for at most", key: "META_SUMMARY_FRESH.maxAgeHours", ref: () => META_SUMMARY_FRESH.maxAgeHours, unit: "hours" },
         { label: "Summary spend per run", key: "DEFAULT_ROUTING.meta-summary.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meta-summary"].maxBudgetUsd, unit: "usd" },
         { label: "Summary wall clock per run", key: "DEFAULT_ROUTING.meta-summary.timeoutMs", ref: () => DEFAULT_ROUTING["meta-summary"].timeoutMs, unit: "ms" },
         { label: "Summary model", ref: () => DEFAULT_ROUTING["meta-summary"].model, unit: "text" },

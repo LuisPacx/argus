@@ -83,8 +83,10 @@ it("GET /api/metas carries a stored LLM line as the summary, with summarySource 
   for (let i = 0; i < 4; i++) launch("Rocketfuel", `c${i}`);
   await recomputeMetas(store, { now: new Date(NOW) });
   const key = store.latestMetas("24h", 5)!.rows[0]!.key;
-  store.meta.saveSummary(key, "A cat theme with a few launches", "h", "2026-11-11T20:01:00.000Z");
+  store.meta.saveSummary(key, "A cat theme with a few launches", "h", "2026-11-11T20:01:00.000Z", { tokens: 4, creators: 4 });
   expect(get().metas[0]).toMatchObject({ summary: "A cat theme with a few launches", summarySource: "llm" });
+  store.meta.saveSummary(key, "A cat theme with a few launches", "h", "2026-11-11T20:01:00.000Z", { tokens: 40, creators: 40 }); // written for ten times the row: not shown
+  expect(get().metas[0]).toMatchObject({ summarySource: "template" });
 });
 
 it("GET /api/metas takes window (6h or 24h) and limit, and answers 400 for anything else", async () => {
@@ -109,7 +111,7 @@ it("GET /api/metas is JSON text only: hostile names pass through as strings, and
   const hostile = `<script>alert(1)</script>\u0000 javascript:alert(1) ${"A".repeat(10_000)}`;
   for (let i = 0; i < 3; i++) launch(hostile, `h${i}`);
   await recomputeMetas(store, { now: new Date(NOW) });
-  store.meta.saveSummary(store.latestMetas("24h", 5)!.rows[0]!.key, "x", "h", "2026-11-11T20:01:00.000Z");
+  store.meta.saveSummary(store.latestMetas("24h", 5)!.rows[0]!.key, "x", "h", "2026-11-11T20:01:00.000Z", { tokens: 3, creators: 3 });
   const r = JSON.parse(JSON.stringify(get())) as MetasResponse;
   const row = r.metas[0]!;
   expect(typeof row.label).toBe("string");

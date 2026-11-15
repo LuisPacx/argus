@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MetaRow } from "./store.ts";
-import { META_SUMMARY_MAX_CHARS, metaInputHash, metaLine, metaSummaryPromptFor, parseMetaSummary, templateLine } from "./summary.ts";
+import { META_SUMMARY_MAX_CHARS, metaInputHash, metaLine, metaSummaryPromptFor, parseMetaSummary, summaryFresh, templateLine } from "./summary.ts";
 
 const counts = (tokens: number, creators: number, migrations: number, migrationsAfter60s = 0) => ({ tokens, creators, migrations, migrationsAfter60s });
 
@@ -92,6 +92,59 @@ describe("parseMetaSummary: repair-free validation", () => {
 
   it("accepts exactly the cap", () => {
     expect(parseMetaSummary("a".repeat(META_SUMMARY_MAX_CHARS))).toMatchObject({ ok: true });
+  });
+
+  it("refuses an answer that states a figure, unless the figure is part of a name in the input", () => {
+    expect(parseMetaSummary("Jensen Huang meme theme: 105 launches by 64 creators in 24h")).toMatchObject({ ok: false, problem: expect.stringContaining("105") });
+    expect(parseMetaSummary("Only 2 migrations so far")).toMatchObject({ ok: false });
+    expect(parseMetaSummary("A plain theme line with many launches and few migrations")).toMatchObject({ ok: true });
+    expect(parseMetaSummary("Coin2024 leads the cat theme", "cats Coin2024 CN")).toMatchObject({ ok: true });
+    expect(parseMetaSummary("Coin2024 leads with 99 launches", "cats Coin2024 CN")).toMatchObject({ ok: false });
+  });
+});
+
+describe("summaryFresh: a stored line is current only while the row is close to what it was written from", () => {
+  const NOW = Date.parse("2026-11-15T12:00:00.000Z");
+  const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
+  const row = (tokens: number, creators: number) => metaRow({ label: "Cats", counts: { "6h": counts(1, 1, 0), "24h": counts(tokens, creators, 1) } });
+  const rec = (baseTokens: number | null, baseCreators: number | null, summaryAt: string | null = hoursAgo(1)) => ({ summaryAt, baseTokens, baseCreators });
+
+  it("105 tokens / 64 creators is not current on a row of 7 / 3; 9 / 7 is current on 12 / 9", () => {
+    expect(summaryFresh(row(7, 3), rec(105, 64), NOW)).toBe(false);
+    expect(summaryFresh(row(12, 9), rec(9, 7), NOW)).toBe(true);
+  });
+
+  it("holds at both bounds of 0.5x and 2x and breaks just outside, for tokens and for creators alike", () => {
+    expect(summaryFresh(row(20, 10), rec(10, 10), NOW)).toBe(true); // 2x tokens
+    expect(summaryFresh(row(21, 10), rec(10, 10), NOW)).toBe(false);
+    expect(summaryFresh(row(5, 10), rec(10, 10), NOW)).toBe(true); // 0.5x tokens
+    expect(summaryFresh(row(4, 10), rec(10, 10), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 20), rec(10, 10), NOW)).toBe(true);
+    expect(summaryFresh(row(10, 21), rec(10, 10), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 5), rec(10, 10), NOW)).toBe(true);
+    expect(summaryFresh(row(10, 4), rec(10, 10), NOW)).toBe(false);
+  });
+
+  it("is not current at 24 hours old, and is current just under", () => {
+    expect(summaryFresh(row(10, 10), rec(10, 10, hoursAgo(23.9)), NOW)).toBe(true);
+    expect(summaryFresh(row(10, 10), rec(10, 10, hoursAgo(24)), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 10), rec(10, 10, hoursAgo(30)), NOW)).toBe(false);
+  });
+
+  it("is not current when the counts it was written from are unknown (a row from before ticket 06), or the time is unreadable", () => {
+    expect(summaryFresh(row(10, 10), rec(null, null), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 10), rec(10, null), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 10), rec(10, 10, null), NOW)).toBe(false);
+    expect(summaryFresh(row(10, 10), rec(10, 10, "nonsense"), NOW)).toBe(false);
+  });
+});
+
+describe("metaSummaryPromptFor: no figures in the line", () => {
+  it("tells the model to use no figures, in words only, while the counts stay in the data block", () => {
+    const prompt = metaSummaryPromptFor(NI_HAO, [{ name: "woohao", symbol: "woohao", migrated: false }]);
+    expect(prompt).toMatch(/Use no figures at all: no counts/);
+    expect(prompt).toContain("many launches or few");
+    expect(prompt).toContain("312 tokens, 190 creators");
   });
 });
 

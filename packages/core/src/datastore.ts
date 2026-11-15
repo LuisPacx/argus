@@ -443,6 +443,9 @@ export function migrate(db: DatabaseSync): void {
   // Covered hours of the 6 h and 24 h windows at each run (viral sources ticket 05); NULL on older runs means unknown, no note.
   ensureColumn(db, "meta_runs", "coverage_hours_6h", "INTEGER");
   ensureColumn(db, "meta_runs", "coverage_hours_24h", "INTEGER");
+  // The 24 h token and creator counts a summary was written from (viral sources ticket 06); NULL on older rows means unknown, so the line is stale.
+  ensureColumn(db, "meta_summaries", "base_tokens", "INTEGER");
+  ensureColumn(db, "meta_summaries", "base_creators", "INTEGER");
 }
 
 export function slugify(text: string): string {

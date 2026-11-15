@@ -8,6 +8,7 @@ import { EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
+import { META_SUMMARY_FRESH } from "./meta/summary.ts";
 import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
 import { formatRuleValue, PIPELINE, pipelineGaps, resolvePipeline, type PipelineGraph, type PipelineRegistry } from "./pipeline-graph.ts";
 import { DEFAULT_PROPOSE_CONFIG } from "./propose.ts";
@@ -29,6 +30,7 @@ const LEFT_OUT: Record<string, string> = {
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_META_SUMMARY_CONFIG.topRows": "which rows get a summary line, a detail of the one-line task",
+  "DEFAULT_META_SUMMARY_CONFIG.staleRows": "how far down the ranking a stale line is rewritten, a detail of the one-line task",
   "DEFAULT_META_SUMMARY_CONFIG.maxPerPass": "per-pass pacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.minAgeMinutes": "retry spacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
@@ -93,6 +95,7 @@ function realRegistry(): PipelineRegistry {
       ...routingBudgets(),
       DEFAULT_META_INTERVAL_MINUTES,
       ...flatten("META_RULE", META_RULE),
+      ...flatten("META_SUMMARY_FRESH", META_SUMMARY_FRESH),
       ...flatten("STUDY_CAPTURE_RULE", STUDY_CAPTURE_RULE),
       ...flatten("EXPIRY_MS", EXPIRY_MS),
       META_WINDOWS: META_WINDOWS.join(", "),
