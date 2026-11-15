@@ -104,6 +104,22 @@ it("GET /api/activity/narratives: newest 20 by createdAt, ties by id descending"
   expect(rows.map((r) => r.id)).toEqual([b, a, ...ids.slice().reverse().slice(0, 18)]);
 });
 
+it("GET /api/activity/narratives: launchpad singletons are left out until they have a Score; news Narratives always show", () => {
+  const lp = (createdAt: Date) => {
+    n += 1;
+    store.recordSignals([sig(2000 + n, "pumpportal:events")]);
+    const signal = store.unclusteredSignals(500).find((s) => s.id === `pumpportal:events:${2000 + n}`)!;
+    return store.createNarrative(signal, [], createdAt.toISOString(), { id: "e", dimension: 2 }, { title: `Token ${n}`, keys: [] });
+  };
+  const newsOne = narrative(hoursAgo(5));
+  const lone = lp(hoursAgo(1));
+  const scored = lp(hoursAgo(2));
+  score(scored, 8);
+  const newer = narrative(hoursAgo(0.5));
+  expect(narratives().map((r) => r.id)).toEqual([newer, scored, newsOne]);
+  expect(narratives().map((r) => r.id)).not.toContain(lone);
+});
+
 it("GET /api/activity/brain-runs: finished, in-flight, interrupted, pre-migration, API and excluded runs", () => {
   const start = (task: string, backend = "claude-code", narrativeId?: number) =>
     store.startBrainRun({ proposalId: 0, task, backend, model: "m", ...(narrativeId ? { narrativeId } : {}) }, new Date(Date.now() - 90_000));

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import { Datastore, type NarrativeEmbedder } from "./datastore.ts";
-import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
+import { DEFAULT_JUDGE_CONFIG, DEFAULT_JUDGE_MIN_SIGNALS_LAUNCHPAD, judgeConfigFromEnv, judgePendingNarratives, type JudgeConfig } from "./judge.ts";
 import type { ResearchBudgetConfig } from "./research-budget.ts";
 import { FAKE_CLAUDE } from "./testing/fake-claude.ts";
 import { tempDir } from "./testing/temp.ts";
@@ -39,6 +39,14 @@ function addNarrative(store: Datastore, title: string, opts: { embedder?: Narrat
   store.recordSignals([{ id, sourceId: opts.sourceId ?? "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   return store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
+}
+
+/** A one-Signal launchpad Narrative (a token create), last changed at `at`. Returns its id. */
+function addLaunchpadNarrative(store: Datastore, title: string, at: Date = NOW): number {
+  const id = `s:${++n}`;
+  store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: "", url: `https://a.example/${id}`, publishedAt: at.toISOString() }]);
+  const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
+  return store.createNarrative(sig, [], at.toISOString(), CUR, { title, keys: [] });
 }
 
 /** Another Signal joins the Narrative; from a new Source it is a material change. */
@@ -88,6 +96,47 @@ describe("the judge pass: minimum Signals", () => {
     expect(judgeConfigFromEnv({})).toMatchObject({ maxRunsPerDay: 300, minSignals: 2 });
     expect(judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS: "3" }).minSignals).toBe(3);
     expect(() => judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS: "0" })).toThrow(/ARGUS_JUDGE_MIN_SIGNALS/);
+  });
+
+  it("a launchpad Narrative has its own minimum, ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD; the news minimum stays 2", () => {
+    expect(judgeConfigFromEnv({})).toMatchObject({ minSignals: 2, minSignalsLaunchpad: DEFAULT_JUDGE_MIN_SIGNALS_LAUNCHPAD });
+    expect(DEFAULT_JUDGE_MIN_SIGNALS_LAUNCHPAD).toBeGreaterThan(2);
+    expect(judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD: "7" })).toMatchObject({ minSignals: 2, minSignalsLaunchpad: 7 });
+    expect(() => judgeConfigFromEnv({ ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD: "0" })).toThrow(/ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD/);
+  });
+
+  it("candidate selection applies each kind's minimum: a news Narrative of 2 and a launchpad one of 3 and of 5, with 2 and 5", () => {
+    const { store } = setup();
+    const news = addNarrative(store, "News pair");
+    addSignal(store, news, "dexscreener:trending", NOW);
+    const lpThree = addLaunchpadNarrative(store, "Three");
+    for (let i = 0; i < 2; i++) addSignal(store, lpThree, "pumpportal:events", NOW);
+    const lpFive = addLaunchpadNarrative(store, "Five");
+    for (let i = 0; i < 4; i++) addSignal(store, lpFive, "pumpportal:events", NOW);
+    expect(store.narrativesToJudge(CUR, since, 50, Infinity, 2, 5).map((x) => x.id)).toEqual([news, lpFive]);
+    // The launchpad minimum defaults to the news one; news first, then the busiest launchpad Narrative.
+    expect(store.narrativesToJudge(CUR, since, 50, Infinity, 2).map((x) => x.id)).toEqual([news, lpFive, lpThree]);
+  });
+
+  it("news Narratives are served before launchpad ones, however large the launchpad ones are: a pass of one picks the news pair", () => {
+    const { store } = setup();
+    const lp = addLaunchpadNarrative(store, "Huge wave");
+    for (let i = 0; i < 20; i++) addSignal(store, lp, "pumpportal:events", NOW);
+    const news = addNarrative(store, "News pair");
+    addSignal(store, news, "dexscreener:trending", NOW);
+    expect(store.narrativesToJudge(CUR, since, 1, Infinity, 2, 5).map((x) => x.id)).toEqual([news]);
+    expect(store.narrativesToJudge(CUR, since, 2, Infinity, 2, 5).map((x) => x.id)).toEqual([news, lp]);
+  });
+
+  it("a pass judges a launchpad Narrative only once it reaches the launchpad minimum", async () => {
+    const { store, pass } = setup();
+    const lp = addLaunchpadNarrative(store, "Wave");
+    for (let i = 0; i < 2; i++) addSignal(store, lp, "pumpportal:events", NOW); // 3 Signals
+    expect(await pass({ minSignals: 2, minSignalsLaunchpad: 5 })).toEqual({ judged: 0, refused: 0, failed: 0 });
+    addSignal(store, lp, "pumpportal:events", minutes(5));
+    expect(await pass({ minSignals: 2, minSignalsLaunchpad: 5 }, { now: minutes(30) })).toEqual({ judged: 0, refused: 0, failed: 0 });
+    addSignal(store, lp, "pumpportal:events", minutes(35));
+    expect(await pass({ minSignals: 2, minSignalsLaunchpad: 5 }, { now: minutes(60) })).toMatchObject({ judged: 1, failed: 0 });
   });
 });
 

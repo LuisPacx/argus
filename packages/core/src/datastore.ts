@@ -1073,12 +1073,17 @@ export class Datastore {
     };
   }
 
-  /** The newest Narratives by creation, then id, descending. */
+  /**
+   * The newest Narratives by creation, then id, descending. A launchpad Narrative appears only once it has a Score: they are made at
+   * thousands a day, mostly one create each, and unfiltered they would fill the Activity feed's twenty rows with unjudged singletons.
+   */
   newestNarratives(limit = 20): Narrative[] {
     const rows = this.db
       .prepare(
         `SELECT id, title, summary, signal_count, created_at, last_signal_at, changed_materially_at
-         FROM narratives ORDER BY created_at DESC, id DESC LIMIT ?`,
+         FROM narratives n
+         WHERE n.kind <> 'launchpad' OR EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id)
+         ORDER BY created_at DESC, id DESC LIMIT ?`,
       )
       .all(limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
@@ -1319,13 +1324,23 @@ export class Datastore {
    * refused (`budget-exceeded`, `invalid-output`): those say something about the Narrative, so it is tried again when it changes, not
    * before. Every other ending (`failed`, `timed-out`, `rate-limited`, `interrupted`) says something about claude, the network or the
    * worker, so the Narrative stays eligible; the 24 h run and spend caps and the consecutive-failure backoff bound the retries.
-   * Also left out: a Narrative backed by fewer than `minSignals` Signals. It is skipped, not scored, and starts no run, so it never
-   * counts against the run cap; it becomes eligible the moment it gains Signals to reach `minSignals`. Default 1 (no filter); the judge
-   * passes `JudgeConfig.minSignals`.
+   * Also left out: a Narrative backed by fewer than `minSignals` Signals (`minSignalsLaunchpad` for a launchpad Narrative, viral sources
+   * ticket 01: they are far more numerous, so they get their own, higher minimum; it defaults to `minSignals`). It is skipped, not
+   * scored, and starts no run, so it never counts against the run cap; it becomes eligible the moment it gains Signals to reach its
+   * minimum. Default 1 (no filter); the judge passes `JudgeConfig.minSignals` and `minSignalsLaunchpad`.
+   * Order: news Narratives first, then launchpad ones, each busiest first. A flood of launchpad Narratives can then never push a news one
+   * out of the 24 h run cap (news demand is small and was the whole judge load before ticket 01).
    * Also left out: a Narrative with no market Signal (ticket 24, `sources/source-class.ts`): context Signals are background only. Same
    * for a skipped Narrative: no run, no cap use; it is eligible the moment it gains a market Signal.
    */
-  narrativesToJudge(embedder: NarrativeEmbedder, since: string, limit: number, maxConsecutiveTimeouts = Infinity, minSignals = 1): Narrative[] {
+  narrativesToJudge(
+    embedder: NarrativeEmbedder,
+    since: string,
+    limit: number,
+    maxConsecutiveTimeouts = Infinity,
+    minSignals = 1,
+    minSignalsLaunchpad = minSignals,
+  ): Narrative[] {
     // Also left out: a Narrative whose last `maxConsecutiveTimeouts` judge runs since its last material change all timed out (a poison
     // Narrative would otherwise be retried, and starve the pass, until the daily cap). Counted from brain_runs, so a restart keeps it.
     const n = Number.isFinite(maxConsecutiveTimeouts) ? Math.max(1, Math.floor(maxConsecutiveTimeouts)) : 0;
@@ -1333,7 +1348,8 @@ export class Datastore {
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
          FROM narratives n
-         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ? AND n.signal_count >= ?
+         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND n.signal_count >= CASE n.kind WHEN 'launchpad' THEN ? ELSE ? END
            AND ${HAS_MARKET_SIGNAL}
            AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
@@ -1345,10 +1361,10 @@ export class Datastore {
              SELECT b.exit_status FROM brain_runs b
              WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
              ORDER BY b.id DESC LIMIT ?) WHERE exit_status = 'timed-out') < ?)
-         ORDER BY n.signal_count DESC, n.id
+         ORDER BY (n.kind = 'launchpad'), n.signal_count DESC, n.id
          LIMIT ?`,
       )
-      .all(embedder.id, embedder.dimension, since, Math.max(1, Math.floor(minSignals)), n, n, n, limit) as unknown as NarrativeRow[];
+      .all(embedder.id, embedder.dimension, since, Math.max(1, Math.floor(minSignalsLaunchpad)), Math.max(1, Math.floor(minSignals)), n, n, n, limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
   }
 

@@ -4,15 +4,17 @@
 //
 // Usage: sqlite3 .data/argus.db ".backup <home-disk path>/copy.db"     (make the copy first; this never opens the live file)
 //        node scripts/replay-launchpad-clustering.mjs <copy.db> [--work <dir>] [--chunk 400] [--json out.json] [--map signal-to-narrative.json]
-//   --work   where the throwaway datastore goes (default ~/.cache/argus-scratch/viral01/replay); it is deleted first and left for inspection
+//   --work   where the throwaway datastore goes (default ~/.cache/argus-scratch/viral01/replay); must be new or empty and under ~/.cache or the
+//            temp dir (the script deletes nothing); left for inspection. Its <work>/replay.db feeds scripts/simulate-judge-load.mjs.
 //   --chunk  Signals per clustering pass (the worker clusters whatever arrived in the last 5 minutes; 400 is about that at 14k creates a day)
 //   --map    writes each Signal's Narrative id, to compare this replay with one of the same copy under other code
 // The copy is only read (read-only handle). Delete the copy and the work directory afterwards. The model must already be in ~/.cache/argus/models.
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isLiveDb } from './live-db-guard.mjs';
+import { workDirRefusal } from './replay-work-guard.mjs';
 import { Datastore } from '../packages/core/src/datastore.ts';
 import { clusterNewSignals } from '../packages/core/src/narratives.ts';
 import { CREATE_TITLE_PREFIX } from '../packages/core/src/sources/pumpportal.ts';
@@ -34,15 +36,15 @@ if (isLiveDb(copyPath, [path.resolve(import.meta.dirname, '../.data/argus.db'), 
   process.exit(2);
 }
 const work = path.resolve(flag('work', path.join(homedir(), '.cache', 'argus-scratch', 'viral01', 'replay')));
-if (work.startsWith('/tmp/')) {
-  console.error('the work directory must be on the home disk, not /tmp');
+const refusal = workDirRefusal(work, [path.join(homedir(), '.cache'), tmpdir()]);
+if (refusal) {
+  console.error(refusal);
   process.exit(2);
 }
 const chunk = Number(flag('chunk', '400'));
 const jsonOut = flag('json', undefined);
 const mapOut = flag('map', undefined);
 
-rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
 const replayPath = path.join(work, 'replay.db');
 

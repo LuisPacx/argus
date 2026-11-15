@@ -1,5 +1,5 @@
 /**
- * The newest 20 Narratives with their latest Score and gate result. The gate is buildability against the minimum of the Rubric
+ * The newest 20 Narratives (launchpad ones only once scored: unjudged launchpad singletons are thousands a day) with their latest Score and gate result. The gate is buildability against the minimum of the Rubric
  * version the Score used (versions are immutable), derived here and never stored.
  */
 export default defineEventHandler(() => {
