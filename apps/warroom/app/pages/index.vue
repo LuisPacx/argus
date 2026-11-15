@@ -95,7 +95,7 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(timer));
 
 // The Meta ranking changes every 15 minutes at most, so it has its own, slower poll.
-const { data: metas, refresh: refreshMetas } = await useFetch("/api/metas", { query: { window: "24h", limit: META_ROWS }, default: () => null });
+const { data: currentMeta, refresh: refreshMetas } = await useFetch("/api/current-meta", { default: () => null });
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   metaTimer = setInterval(() => void refreshMetas(), META_POLL_MS);
@@ -111,7 +111,7 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(hotTimer));
 
 const nowMs = ref(Date.now());
-const metaSection = computed(() => metaView(metas.value, nowMs.value));
+const metaSection = computed(() => currentMetaView(currentMeta.value, nowMs.value));
 const hotSection = computed(() => hotView(hotMetas.value, nowMs.value));
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
@@ -243,7 +243,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
 
     <HotNow :view="hotSection" />
 
-    <MetaStrip :view="metaSection" />
+    <CurrentMeta :view="metaSection" home />
 
     <ResearchBar v-if="researchView" :view="researchView" />
 

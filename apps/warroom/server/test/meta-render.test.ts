@@ -57,7 +57,6 @@ async function load(file: string): Promise<Render> {
   return new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} from "vue"/, (_m, names: string) => `const {${names.replaceAll(" as ", ": ")}} = Vue`).replace("export function render", "return function render")}`)(await import("vue")) as Render;
 }
 const renderList = await load("MetaList.vue");
-const renderStrip = await load("MetaStrip.vue");
 
 async function draw(render: Render, payload: MetasResponse | null, opts: { window?: "6h" | "24h"; rows?: number } = {}): Promise<string> {
   const view = metaView(payload, NOW, opts);
@@ -68,8 +67,6 @@ async function draw(render: Render, payload: MetasResponse | null, opts: { windo
 }
 /** The /meta page body: every Meta of the run. */
 const section = (payload: MetasResponse | null, opts: { window?: "6h" | "24h" } = {}) => draw(renderList, payload, { rows: 50, ...opts });
-/** The home strip. */
-const strip = (payload: MetasResponse | null) => draw(renderStrip, payload);
 
 it("the /meta list shows the ni hao, GTA VI and DeepSeek rows with every number, each row id'd by its anchor", async () => {
   const html = await section(response([NI_HAO, GTA, DEEPSEEK]));
@@ -77,25 +74,25 @@ it("the /meta list shows the ni hao, GTA VI and DeepSeek rows with every number,
   for (const id of ["meta-woohao", "meta-gta-vi", "meta-deepseek"]) expect(html).toContain(`id="${id}"`);
   expect(html).toContain("6 after 60 s");
   // ni hao
-  for (const text of ["woohao", "312 tokens", "190 creators", "15 migrations (unfiltered)", "21 creates per migration", "140 of 312 in the last 6 h", "accelerating", "first seen 14 hours ago", "woohao ($woohao) $13M", "NIHAO ($NIHAO) $2.1M", "咪好 ($咪好)", "Chinese-cat &#39;ni hao&#39; theme around Ansem&#39;s pfp; many launches, few migrations"]) expect(html, text).toContain(text);
+  for (const text of ["woohao", "312 tokens", "190 creators", "15 migrations (unfiltered)", "21 creates per migration", "140 of 312 in the last 6 h", "accelerating", "first seen 14 hours ago", "woohao ($woohao) $13M", "NIHAO ($NIHAO) $2.1M", "咪好 ($咪好)"]) expect(html, text).toContain(text);
+  // counts only: the stored summary lines belong to the Current Meta, not to the launch-theme list
+  for (const text of ["Chinese-cat", "top: GATO", "meta-summary", "meta-ideas", "A line"]) expect(html, text).not.toContain(text);
   // GTA VI: steady, a templated line shown as is
-  for (const text of ["GTA VI", "153 tokens", "110 creators", "31 migrations (unfiltered)", "4.9 creates per migration", "30 of 153 in the last 6 h", "steady", "first seen 22 hours ago", "GATO ($GATO) $8.5M", "top: GATO $8.5M"]) expect(html, text).toContain(text);
+  for (const text of ["GTA VI", "153 tokens", "110 creators", "31 migrations (unfiltered)", "4.9 creates per migration", "30 of 153 in the last 6 h", "steady", "first seen 22 hours ago", "GATO ($GATO) $8.5M"]) expect(html, text).toContain(text);
   // DeepSeek: fading, no market cap shown
   for (const text of ["DeepSeek ($DEEPSEEK)", "11 tokens", "10 migrations (unfiltered)", "1.1 creates per migration", "1 of 11 in the last 6 h", "fading"]) expect(html, text).toContain(text);
   expect(html).not.toMatch(/undefined|NaN|null/);
 });
 
-it("both the /meta list and the home strip show the coverage note above the list when the API sends one, and nothing when it is null", async () => {
+it("the /meta list shows the coverage note above the list when the API sends one, and nothing when it is null", async () => {
   const note = "Only 1 h of data in the last 24 h";
-  for (const render of [section, strip]) {
-    const html = await render(response([NI_HAO], ago(12), note));
-    expect(html).toContain('data-test="meta-coverage-note"');
-    expect(html).toContain(note);
-    expect(html.indexOf(note)).toBeLessThan(html.indexOf("woohao"));
-    const quiet = await render(response([NI_HAO]));
-    expect(quiet).not.toContain("meta-coverage-note");
-    expect(quiet).toContain("woohao"); // the list still shows
-  }
+  const html = await section(response([NI_HAO], ago(12), note));
+  expect(html).toContain('data-test="meta-coverage-note"');
+  expect(html).toContain(note);
+  expect(html.indexOf(note)).toBeLessThan(html.indexOf("woohao"));
+  const quiet = await section(response([NI_HAO]));
+  expect(quiet).not.toContain("meta-coverage-note");
+  expect(quiet).toContain("woohao"); // the list still shows
   expect(await section(response([NI_HAO], ago(12), note), { window: "6h" })).toContain(note); // the note travels with the window the API answered for
 });
 
@@ -135,14 +132,14 @@ it("hostile labels, token names, summaries and URLs render as clamped text, with
 });
 
 it("shows its message before the first run, when a run has no Meta, and when the run is stale", async () => {
-  expect(await section(null)).toContain("No Meta ranking yet. The worker computes it every 15 minutes.");
-  expect(await section(response([], null))).toContain("No Meta ranking yet.");
+  expect(await section(null)).toContain("No launch-theme ranking yet. The worker computes it every 15 minutes.");
+  expect(await section(response([], null))).toContain("No launch-theme ranking yet.");
   const none = await section(response([]));
-  expect(none).toContain("No Meta stands out in the last 24 hours yet.");
+  expect(none).toContain("No launch theme stands out in the last 24 hours yet.");
   expect(none).not.toContain("<li");
   const stale = await section(response([DEEPSEEK], ago(5 * 60)));
   expect(stale).toContain('class="note note-amber"');
-  expect(stale).toContain("The Meta ranking is stale (computed 5 hours ago).");
+  expect(stale).toContain("The launch-theme ranking is stale (computed 5 hours ago).");
   expect(stale).toContain('data-test="meta-3"');
   expect(await section(response([DEEPSEEK]))).not.toContain("stale");
 });
@@ -154,57 +151,26 @@ it("the window toggle: the 6 h view's numbers come from the 6 h counts", async (
   expect(html).not.toContain("312 tokens");
 });
 
-it("the strip: one compact card per Meta with rank, label, momentum, creators and migrations after 60s, and top market cap, linking to /meta#anchor", async () => {
-  const html = await strip(response([NI_HAO, GTA, DEEPSEEK, apiRow({ rank: 4, label: "Four" }), apiRow({ rank: 5, label: "Five" }), apiRow({ rank: 6, label: "Six" })]));
-  expect(html).toContain('data-test="meta-strip"');
-  for (const n of [1, 2, 3, 4, 5]) expect(html).toContain(`data-test="meta-strip-${n}"`);
-  expect(html).not.toContain('data-test="meta-strip-6"');
-  for (const text of ["woohao", "accelerating", "190 creators · 6 migrations after 60s", "$13M", "GTA VI", "steady", "110 creators · 12 migrations after 60s", "$8.5M", "fading"]) expect(html, text).toContain(text);
-  expect(html).toContain('href="/meta#meta-woohao"');
-  expect(html).toContain('href="/meta#meta-gta-vi"');
-  expect(html).toMatch(/href="\/meta"[^>]*>[^<]*All Metas/);
-  expect(html).toContain("overflow-x-auto");
-  expect(html).toContain("ranking from 12 minutes ago");
-  expect(html).not.toMatch(/undefined|NaN|null/);
-  expect(html).not.toContain("Chinese-cat"); // the summary and the token list belong to the page
-});
-
-it("the strip: before the first run, with no Meta, and stale, it says so in one line and keeps the All Metas link", async () => {
-  expect(await strip(null)).toContain("No Meta ranking yet.");
-  expect(await strip(response([]))).toContain("No Meta stands out");
-  const stale = await strip(response([DEEPSEEK], ago(5 * 60)));
-  expect(stale).toContain("stale (computed 5 hours ago)");
-  expect(stale).toContain('data-test="meta-strip-3"');
-  expect(await strip(null)).toContain("All Metas");
-});
-
-it("the strip: hostile labels render as clamped text; every card href is an internal /meta fragment", async () => {
-  const evil = `<img src=x onerror=alert(1)></script><script>alert(1)</script> javascript:alert(1) ${"A".repeat(10_000)}`;
-  const html = await strip(response([apiRow({ rank: 1, label: evil, topTokens: [{ mint: "x", name: evil, symbol: evil, marketCapUsd: 5, url: "javascript:alert(1)" }] })]));
-  expect(html).not.toContain("<script");
-  expect(html).not.toContain("<img");
-  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
-  const hrefs = [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]!);
-  expect(hrefs.length).toBeGreaterThan(0);
-  for (const href of hrefs) expect(href).toMatch(/^\/meta(#[\p{L}\p{N}-]+)?$/u);
-  expect(html.length).toBeLessThan(3_000);
-});
-
-it("the sources: the home page has the strip and no tall section; /meta and the nav exist; both pages poll every 60 s; no raw links or v-html", () => {
+it("the sources: the home page has the Current Meta and no launch-theme list; /meta has it first, then the closed All launch themes; both poll every 60 s; no raw links or v-html", () => {
   const read = (p: string) => readFileSync(new URL(`../../app/${p}`, import.meta.url), "utf8");
   const home = read("pages/index.vue");
   const page = read("pages/meta.vue");
-  expect(home).not.toMatch(/Latest Signals|api\/signals|refreshSignals|CurrentMeta/);
-  expect(home).toContain('<MetaStrip :view="metaSection" />');
-  expect(home).toContain('useFetch("/api/metas", { query: { window: "24h", limit: META_ROWS }');
+  expect(home).not.toMatch(/Latest Signals|api\/signals|refreshSignals|MetaStrip|MetaList|"\/api\/metas"/);
+  expect(home).toContain('<CurrentMeta :view="metaSection" home />');
+  expect(home).toContain('useFetch("/api/current-meta"');
   expect(home).toContain("setInterval(() => void refreshMetas(), META_POLL_MS)");
   expect(home).not.toMatch(/refreshMetas\(\)[^;]*\], 3000/); // not part of the 3 s poll
-  expect(page).toContain("setInterval(() => void refreshMetas(), META_POLL_MS)");
+  expect(page).toContain("setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS)");
   expect(page).toContain('"/api/metas"');
+  expect(page).toContain('"/api/current-meta"');
   expect(page).toContain("<MetaList");
+  expect(page).toMatch(/<details id="all-launch-themes"[^>]*>/);
+  expect(page).not.toMatch(/<details[^>]*\sopen[\s>=]/); // closed by default
+  expect(page.indexOf("<CurrentMeta")).toBeLessThan(page.indexOf("<details"));
+  expect(page.indexOf("<details")).toBeLessThan(page.indexOf("<SegmentedLinks")); // the window toggle sits inside the list
   expect(read("app.vue")).toContain('{ to: "/meta", label: "Meta" }');
   expect(META_POLL_MS).toBe(60_000);
-  for (const file of ["components/MetaList.vue", "components/MetaStrip.vue", "pages/meta.vue"]) {
+  for (const file of ["components/MetaList.vue", "components/CurrentMeta.vue", "pages/meta.vue"]) {
     const src = read(file);
     expect(src, file).not.toContain("v-html");
     expect(src, file).not.toMatch(/<a[\s>]|\shref=/); // an external link is UrlLink, an internal one NuxtLink

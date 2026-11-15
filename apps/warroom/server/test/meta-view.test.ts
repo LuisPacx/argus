@@ -64,12 +64,12 @@ const row = (over: Record<string, unknown> = {}) => ({
 });
 
 it("metaView: before the first run it waits; with a run and no rows it says none; after 2 hours it is stale (rows still shown)", () => {
-  expect(metaView(null, NOW)).toMatchObject({ state: "waiting", rows: [], footer: null, note: "No Meta ranking yet. The worker computes it every 15 minutes." });
+  expect(metaView(null, NOW)).toMatchObject({ state: "waiting", rows: [], footer: null, note: "No launch-theme ranking yet. The worker computes it every 15 minutes." });
   expect(metaView({ computedAt: null, metas: [] }, NOW).state).toBe("waiting");
   expect(metaView({ computedAt: ago(3), metas: [] }, NOW)).toMatchObject({ state: "none", footer: "ranking from 3 minutes ago" });
   expect(metaView({ computedAt: ago(119), metas: [row()] }, NOW).state).toBe("ok");
   const stale = metaView({ computedAt: ago(3 * 60 + 5), metas: [row()] }, NOW);
-  expect(stale).toMatchObject({ state: "stale", note: "The Meta ranking is stale (computed 3 hours ago).", footer: "ranking from 3 hours ago" });
+  expect(stale).toMatchObject({ state: "stale", note: "The launch-theme ranking is stale (computed 3 hours ago).", footer: "ranking from 3 hours ago" });
   expect(stale.rows).toHaveLength(1);
   expect(metaView({ computedAt: ago(0), metas: [row()] }, NOW).footer).toBe("ranking computed just now");
 });

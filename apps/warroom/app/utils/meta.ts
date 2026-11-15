@@ -206,7 +206,7 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
   const limit = opts.rows ?? META_ROWS;
   const window = opts.window ?? "24h";
   const computedAt = payload?.computedAt;
-  if (!payload || typeof computedAt !== "string") return { state: "waiting", rows: [], footer: null, note: "No Meta ranking yet. The worker computes it every 15 minutes.", coverageNote: null };
+  if (!payload || typeof computedAt !== "string") return { state: "waiting", rows: [], footer: null, note: "No launch-theme ranking yet. The worker computes it every 15 minutes.", coverageNote: null };
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "ranking computed just now" : `ranking from ${age}`;
   const seen = new Map<string, number>();
@@ -229,8 +229,117 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
   const computedMs = Date.parse(computedAt);
   if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
-    return { state: "stale", rows, footer, note: `The Meta ranking is stale (computed ${plural(hours, "hour")} ago).`, coverageNote };
+    return { state: "stale", rows, footer, note: `The launch-theme ranking is stale (computed ${plural(hours, "hour")} ago).`, coverageNote };
   }
-  if (rows.length === 0) return { state: "none", rows, footer, note: "No Meta stands out in the last 24 hours yet.", coverageNote };
+  if (rows.length === 0) return { state: "none", rows, footer, note: "No launch theme stands out in the last 24 hours yet.", coverageNote };
   return { state: "ok", rows, footer, note: null, coverageNote };
+}
+
+/** The part of GET /api/current-meta the section reads (the server's `CurrentMetaResponse`; a field renamed there is a type error in the server test). */
+export interface CurrentMetaPayload {
+  computedAt: string | null;
+  coverageNote?: string | null;
+  metas: CurrentMetaPayloadRow[];
+  watching: CurrentMetaPayloadRow[];
+}
+
+export interface CurrentMetaPayloadRow {
+  key?: string;
+  label: string;
+  leader: { mint?: string; name: string; symbol: string; marketCapUsd: number; stale?: boolean; url?: string };
+  holding?: boolean;
+  enteredAt: string;
+  counts: { "6h": MetaPayloadCounts; "24h": MetaPayloadCounts };
+  topTokens: MetaPayloadToken[];
+  summary: string;
+  summarySource?: string;
+  hot?: { reason: string; raisedAt: string };
+  ideas?: MetaIdeaPayload[];
+}
+
+export interface CurrentMetaRowView {
+  label: string;
+  /** The leader as text: "Jensen Huang ($JENSEN)". */
+  leader: string;
+  /** "$2.4M", with "cap as of the last answer" in `capNote` when the figure was not read this run. */
+  cap: string;
+  capNote: string | null;
+  /** A DexScreener link, only where `safeHttpUrl` accepted it. */
+  leaderHref: string | null;
+  /** "190 creators copying in 24 h"; "no copies launched in 24 h" when there are none. */
+  copies: string;
+  /** "Meta since 3 hours ago" / "Watching since 3 hours ago"; null when the time is unreadable. */
+  since: string | null;
+  summary: string | null;
+  tokens: MetaTokenView[];
+  /** A Meta below the entry cap but still at or above the stay cap. */
+  cooling: boolean;
+  /** Why it is called cooling (title text); null when it is not. */
+  coolingWhy: string | null;
+  hot: string | null;
+  /** A Meta's live meme ideas; absent for Watching and for a Meta without any. */
+  ideas?: MetaIdeaView[];
+}
+
+export interface CurrentMetaView {
+  /** `waiting`: no run yet; `stale`: a run older than two hours (rows still shown); `ok`. */
+  state: "waiting" | "stale" | "ok";
+  metas: CurrentMetaRowView[];
+  watching: CurrentMetaRowView[];
+  /** "No Meta right now" when a run has none; null otherwise. */
+  emptyNote: string | null;
+  /** The message for `waiting` and `stale`; null when the run is current. */
+  note: string | null;
+  footer: string | null;
+  coverageNote: string | null;
+}
+
+const COOLING_WHY = "Cooling: its leading token is below the market cap that makes a Meta, but still above the one that keeps it.";
+const SHOWN = 3;
+
+function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean): CurrentMetaRowView {
+  const name = clampText(m?.leader?.name, TOKEN_NAME_CHARS);
+  const symbol = clampText(m?.leader?.symbol, TICKER_CHARS);
+  const leader = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "unknown token";
+  const creators = m?.counts?.["24h"]?.creators;
+  const age = typeof m?.enteredAt === "string" ? ageText(m.enteredAt, nowMs) : null;
+  const summary = clampText(m?.summary, SUMMARY_CHARS);
+  const hotAge = typeof m?.hot?.raisedAt === "string" ? ageText(m.hot.raisedAt, nowMs) : null;
+  const hotReason = clampText(m?.hot?.reason, HOT_REASON_CHARS);
+  const ideas = isMeta ? ideaViews(m?.ideas, nowMs) : [];
+  const cooling = isMeta && m?.holding === true;
+  return {
+    ...(ideas.length > 0 ? { ideas } : {}),
+    label: clampText(m?.label, LABEL_CHARS),
+    leader,
+    cap: finite(m?.leader?.marketCapUsd) ? fmtUsd(m.leader.marketCapUsd) : "",
+    capNote: m?.leader?.stale === true ? "cap as of the last answer" : null,
+    leaderHref: safeHttpUrl(m?.leader?.url),
+    copies: finite(creators) && creators > 0 ? `${plural(creators, "creator")} copying in 24 h` : "no copies launched in 24 h",
+    since: age !== null ? `${isMeta ? "Meta" : "Watching"} since ${age}` : null,
+    summary: summary !== "" ? summary : null,
+    // the leader is already shown above; list only the other top tokens
+    tokens: tokenViews(Array.isArray(m?.topTokens) ? m.topTokens.filter((t) => t?.mint === undefined || t.mint !== m?.leader?.mint) : undefined),
+    cooling,
+    coolingWhy: cooling ? COOLING_WHY : null,
+    hot: isMeta && m?.hot ? `Hot now${hotReason !== "" ? `: ${hotReason}` : ""}${hotAge !== null ? `, ${hotAge}` : ""}` : null,
+  };
+}
+
+/** What the Current Meta section renders, from the API payload (null when it has not loaded) and the clock. */
+export function currentMetaView(payload: CurrentMetaPayload | null | undefined, nowMs: number): CurrentMetaView {
+  const computedAt = payload?.computedAt;
+  if (!payload || typeof computedAt !== "string") return { state: "waiting", metas: [], watching: [], emptyNote: null, note: "No Meta run yet. The worker computes it every 15 minutes.", footer: null, coverageNote: null };
+  const age = ageText(computedAt, nowMs);
+  const footer = age === null ? null : age === "just now" ? "computed just now" : `computed ${age}`;
+  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true));
+  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false));
+  const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
+  const emptyNote = metas.length === 0 ? "No Meta right now" : null;
+  const computedMs = Date.parse(computedAt);
+  if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
+    const hours = Math.floor((nowMs - computedMs) / 3_600_000);
+    return { state: "stale", metas, watching, emptyNote, note: `The Meta run is stale (computed ${plural(hours, "hour")} ago).`, footer, coverageNote };
+  }
+  return { state: "ok", metas, watching, emptyNote, note: null, footer, coverageNote };
 }

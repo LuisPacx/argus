@@ -3,7 +3,7 @@
 
 **What to build:** `/meta` and the home page show what the user asked for: at most **3 Metas** (each led by a token at millions of market cap), **"No Meta right now"** when there is none, and under it **Watching** (up to 3 subjects, labelled **not a Meta**). The old ranked list of launch themes (about 50 rows, counts only) moves into a **collapsed "All launch themes"** section on `/meta`. Decided by the user on 2026-11-15 (`.scratch/cos.md`: USER COMPLAINT, "USER (all rec) Q11 (a), Q12 (b), Q15 (b)", "META R USER", Q23 (a) "All launch themes counts only").
 
-**Status:** open
+**Status:** done (2026-11-15)
 
 **Blocked by:** 01 (the `meta_current` table, `Datastore.currentMetas()` and the rule). Ticket 03 changes the "Hot now" panel on the same pages; the two touch `index.vue` and `meta.vue` in different places, so land 02 first.
 
@@ -25,14 +25,14 @@
 
 ## Acceptance criteria
 
-- [ ] `GET /api/current-meta` returns at most 3 Metas and 3 Watching in leader-cap order with leader token, cap, copies, `holding`, `enteredAt`, summary, ideas; empty lists and `computedAt: null` before the first run; a status 400 is not needed (no query); test in `server/test/current-meta.test.ts` with a seeded datastore.
-- [ ] `currentMetaView` and `CurrentMeta.vue` render: 2 Metas + 3 Watching; no Meta + 2 Watching ("No Meta right now" and the Watching list); nothing at all (waiting); a stale run; a `holding` Meta with the cooling pill and a `stale` cap. Hostile text (`<script>`, `javascript:` URLs, 5,000-character names, bidi controls) in a label, ticker, summary or leader name is cut and shown as text, never as markup or a link (render tests beside `server/test/meta-render.test.ts`).
-- [ ] `/meta` shows Current Meta first, then the collapsed "All launch themes" with the window toggle inside it; the closed `<details>` renders no row HTML above the fold; opening it shows the 50-row list with counts only and no summary text; `/meta#all-launch-themes` opens it.
-- [ ] The home page shows Current Meta in place of the old strip, with the empty state and the Watching label; no launch-theme list on it.
-- [ ] Words: "Watching" rows say "not a Meta" in the row or its heading; a cooling Meta says why; no row of the launch-theme list is called a Meta.
-- [ ] **Browser** (`pnpm page:check`, never the user's Chrome): `/` and `/meta` and `/meta#all-launch-themes` on a seeded private War Room (port 3217, a `.backup` copy of the DB, deleted afterwards), at 1240 and 390 px: exit 0, no console, page or request errors, no horizontal overflow at 390, screenshot paths in Comments. For the `<details>` keyboard check use `--keys "focus=<the summary selector>,Enter" --watch <the details selector>` (the script aborts any non-GET and counts it a failure). Both a seed with Metas and one with none are checked (two DB copies, or one copy edited between runs).
-- [ ] Existing War Room tests for the old strip and list are updated, not loosened (`meta-render`, `meta-view`, `metas`).
-- [ ] Type-check and the full `pnpm check` pass, run once before the commit.
+- [x] `GET /api/current-meta` returns at most 3 Metas and 3 Watching in leader-cap order with leader token, cap, copies, `holding`, `enteredAt`, summary, ideas; empty lists and `computedAt: null` before the first run; a status 400 is not needed (no query); test in `server/test/current-meta.test.ts` with a seeded datastore.
+- [x] `currentMetaView` and `CurrentMeta.vue` render: 2 Metas + 3 Watching; no Meta + 2 Watching ("No Meta right now" and the Watching list); nothing at all (waiting); a stale run; a `holding` Meta with the cooling pill and a `stale` cap. Hostile text (`<script>`, `javascript:` URLs, 5,000-character names, bidi controls) in a label, ticker, summary or leader name is cut and shown as text, never as markup or a link (render tests beside `server/test/meta-render.test.ts`).
+- [x] `/meta` shows Current Meta first, then the collapsed "All launch themes" with the window toggle inside it; the closed `<details>` renders no row HTML above the fold; opening it shows the 50-row list with counts only and no summary text; `/meta#all-launch-themes` opens it.
+- [x] The home page shows Current Meta in place of the old strip, with the empty state and the Watching label; no launch-theme list on it.
+- [x] Words: "Watching" rows say "not a Meta" in the row or its heading; a cooling Meta says why; no row of the launch-theme list is called a Meta.
+- [x] **Browser** (`pnpm page:check`, never the user's Chrome): `/` and `/meta` and `/meta#all-launch-themes` on a seeded private War Room (port 3217, a `.backup` copy of the DB, deleted afterwards), at 1240 and 390 px: exit 0, no console, page or request errors, no horizontal overflow at 390, screenshot paths in Comments. For the `<details>` keyboard check use `--keys "focus=<the summary selector>,Enter" --watch <the details selector>` (the script aborts any non-GET and counts it a failure). Both a seed with Metas and one with none are checked (two DB copies, or one copy edited between runs).
+- [x] Existing War Room tests for the old strip and list are updated, not loosened (`meta-render`, `meta-view`, `metas`).
+- [x] Type-check and the full `pnpm check` pass, run once before the commit.
 
 ## Constraints
 
@@ -49,4 +49,5 @@
 
 - **Written 2026-11-15.** Split as asked (Metas, Watching, cooling, collapsed list, `page:check`); one adjustment: the API is a new read (`/api/current-meta`) instead of widening `/api/metas`, so the launch-theme list keeps its own cache and limit and the two payloads cannot be confused. `MetaStrip.vue` goes away because the home page no longer lists themes.
 - **Interplay with 03:** the "Hot now" panel stays on both pages until 03 swaps it for "New Meta"; this ticket leaves its place in the layout (above Current Meta) alone.
+- **Done 2026-11-15.** Tests: `current-meta.test.ts` (API, seeded store), `current-meta-render.test.ts` (view and `CurrentMeta.vue`, hostile text), `meta-render`/`meta-view`/`meme-render` updated. `page:check` on a private War Room (port 3217, DB copies deleted), exit 0, 0 console/page/request errors, no overflow at 390: `/`, `/meta`, `/meta#all-launch-themes` (fragment opens the list) and the `<details>` keyboard check (`focus=[data-test=all-launch-themes-summary],Enter`), on a seed with 2 Metas (one cooling, a stale cap) + 3 Watching, a seed with no Meta + Watching (Lucia From GTA 6, Jensen Huang, Nyajira), and a copy of the live DB (no `meta_current` rows yet because the live worker predates ticket 01: "No Meta right now", no Watching). Screenshots in the session scratchpad (`metas-*`, `watch-*`, `real-*`). The first load after a cold dev-server compile can log one console error (Vite reload); a rerun is clean. New read `Datastore.metaSummaries` (also in `WarRoomStore`) serves the stored lines. Launch-theme rows keep the Hot now pill (ticket 03 owns it).
 - **Answered 2026-11-15 (user answers 11-15):** Watching has no market-cap floor, so a Watching row is any subject that is up but not a Meta, in leader-cap order, at most 3 on the page. Every Watching row gets an LLM summary, at most 6 summarised rows in all (see ticket 03).

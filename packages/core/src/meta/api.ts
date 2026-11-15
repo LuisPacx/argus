@@ -1,9 +1,9 @@
 import type { Proposal } from "../datastore.ts";
 import type { MemeIdeaRef } from "../meme/types.ts";
-import type { MetaCounts, MetaRow, MetaRun, MetaTopToken } from "./store.ts";
+import type { CurrentMeta, MetaCounts, MetaCurrent, MetaRow, MetaRun, MetaSummaryRecord, MetaTopToken } from "./store.ts";
 import { META_RULE, type MetaWindow } from "./config.ts";
 import { coverageNote, type MetaCoverage } from "./coverage.ts";
-import { metaLine, type MetaSummarySource } from "./summary.ts";
+import { metaLine, summaryFresh, type MetaSummarySource } from "./summary.ts";
 
 /**
  * The read-only Meta API (ticket 03, slice 4): the stored latest run in the shape the War Room renders, so the page computes nothing.
@@ -118,4 +118,93 @@ export function memeIdeasByKey(live: readonly Proposal[]): Map<string, MemeIdeaR
     out.set(p.metaKey, list);
   }
   return out;
+}
+
+/** The token that leads a current Meta or Watching subject, as the page shows it. `url` only for a plain address. */
+export interface CurrentLeaderApi {
+  mint: string;
+  /** Creator-written text: untrusted. */
+  name: string;
+  symbol: string;
+  marketCapUsd: number;
+  /** True when the figure is the last one DexScreener gave, not read this run. */
+  stale: boolean;
+  url?: string;
+}
+
+/** One Meta or Watching subject (ADR 0014) in the shape the War Room renders. */
+export interface CurrentMetaApiRow {
+  /** The launch-theme group key: what its summary and meme ideas are stored under. */
+  key: string;
+  label: string;
+  leader: CurrentLeaderApi;
+  /** A Meta whose leader is between the stay and the enter market cap (cooling). Always false for Watching. */
+  holding: boolean;
+  enteredAt: string;
+  counts: Record<MetaWindow, MetaCounts>;
+  topTokens: MetaApiToken[];
+  /** The stored LLM line while it is fresh, else the templated numbers line. Untrusted text. */
+  summary: string;
+  summarySource: MetaSummarySource;
+  /** Present while the Meta's Hot now event is live (ticket 03 replaces it). */
+  hot?: HotMark;
+  /** The live meme ideas of a Meta, newest first; absent when it has none (and always for Watching). */
+  ideas?: MemeIdeaRef[];
+}
+
+export interface CurrentMetaResponse {
+  /** The run's as-of time; null before the first run. */
+  computedAt: string | null;
+  /** "Only 1 h of data in the last 24 h" when the 24 h window is thinly covered; null otherwise. */
+  coverageNote: string | null;
+  metas: CurrentMetaApiRow[];
+  watching: CurrentMetaApiRow[];
+}
+
+/** What the page shows at most: three Metas, three Watching subjects. */
+export const CURRENT_META_SHOWN = 3;
+
+/** The Current Meta response: the stored Metas and Watching in leader-cap order, with their summaries and meme ideas. Empty lists, not an error, before the first run. */
+export function currentMetaResponse(
+  current: MetaCurrent | undefined,
+  coverage: MetaCoverage | null,
+  summaries: ReadonlyMap<string, MetaSummaryRecord> = new Map(),
+  hot: ReadonlyMap<string, HotMark> = new Map(),
+  ideas: ReadonlyMap<string, readonly MemeIdeaRef[]> = new Map(),
+  noteBelow: number = META_RULE.coverageNoteBelow,
+): CurrentMetaResponse {
+  if (!current) return { computedAt: null, coverageNote: null, metas: [], watching: [] };
+  const nowMs = Date.parse(current.computedAt);
+  const row = (m: CurrentMeta, isMeta: boolean): CurrentMetaApiRow => {
+    // The same line rule as a launch-theme row: the stored line while its input still holds, else the numbers.
+    const asRow: MetaRow = { key: m.key, label: m.label, firstSeenAt: m.enteredAt, counts: m.counts, topTokens: m.topTokens, rank: 1, window: "24h", migrationRate: 0, createsPerMigration: null };
+    const saved = summaries.get(m.key);
+    if (saved?.summary != null && saved.summaryAt !== null && summaryFresh(asRow, saved, nowMs)) {
+      asRow.summary = saved.summary;
+      asRow.summaryAt = saved.summaryAt;
+    }
+    const line = metaLine(asRow);
+    const found = ideas.get(m.key);
+    const mark = hot.get(m.key);
+    const l = m.leader;
+    return {
+      key: m.key,
+      label: m.label,
+      leader: { mint: l.mint, name: l.name, symbol: l.symbol, marketCapUsd: l.marketCapUsd, stale: l.stale, ...(BASE58_ADDRESS.test(l.mint) ? { url: `https://dexscreener.com/solana/${l.mint}` } : {}) },
+      holding: m.holding,
+      enteredAt: m.enteredAt,
+      counts: m.counts,
+      topTokens: m.topTokens.map(apiToken),
+      summary: line.summary,
+      summarySource: line.summarySource,
+      ...(isMeta && mark ? { hot: mark } : {}),
+      ...(isMeta && found && found.length > 0 ? { ideas: [...found] } : {}),
+    };
+  };
+  return {
+    computedAt: current.computedAt,
+    coverageNote: coverageNote(coverage, "24h", noteBelow),
+    metas: current.metas.slice(0, CURRENT_META_SHOWN).map((m) => row(m, true)),
+    watching: current.watching.slice(0, CURRENT_META_SHOWN).map((m) => row(m, false)),
+  };
 }

@@ -9,7 +9,7 @@ import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
-import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
+import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaHotEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -658,6 +658,7 @@ export type WarRoomStore = Pick<
   | "studyStats"
   | "latestMetas"
   | "currentMetas"
+  | "metaSummaries"
   | "hotMetaEvents"
   | "contextHeadlines"
   | "buildRefusalFor"
@@ -875,6 +876,11 @@ export class Datastore {
   /** The newest run's Metas and Watching subjects, led by a token's market cap (ADR 0014); undefined before the first run. READ ONLY. */
   currentMetas(asOf?: string): MetaCurrent | undefined {
     return this.meta.current(asOf);
+  }
+
+  /** The stored summary records of these launch-theme group keys (those that have one). READ ONLY. */
+  metaSummaries(keys: readonly string[]): Map<string, MetaSummaryRecord> {
+    return this.meta.summaries(keys);
   }
 
   /** Hot now events raised at or after `since` (ISO), newest first (missed ideas ticket 03). READ ONLY. */

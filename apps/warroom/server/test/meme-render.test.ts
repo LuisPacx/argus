@@ -5,7 +5,7 @@ import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ideaViews, memeRowView, memeView, type MemeProposalPayload } from "../../app/utils/meme.ts";
-import { metaView } from "../../app/utils/meta.ts";
+import { currentMetaView, type CurrentMetaPayload } from "../../app/utils/meta.ts";
 import { researchBar } from "../../app/utils/research-bar.ts";
 
 /**
@@ -146,7 +146,7 @@ async function load(file: string): Promise<Render> {
   return new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} from "vue"/, (_m, names: string) => `const {${names.replaceAll(" as ", ": ")}} = Vue`).replace("export function render", "return function render")}`)(await import("vue")) as Render;
 }
 const renderCard = await load("MemeCard.vue");
-const renderList = await load("MetaList.vue");
+const renderCurrent = await load("CurrentMeta.vue");
 async function draw(render: Render, ctx: Record<string, unknown>): Promise<string> {
   const app = createSSRApp({ render: () => render(ctx, []) as ReturnType<typeof h> });
   app.component("UrlLink", { props: ["href", "label"], render() { return h("a", { class: "url-link", href: this.href }, this.label); } });
@@ -234,21 +234,16 @@ describe("the Proposal page's meme card", () => {
   });
 });
 
-describe("the /meta list shows a Meta's ideas", () => {
-  const response = (ideas: unknown): MetasResponse =>
+describe("the Current Meta shows a Meta's ideas", () => {
+  const response = (ideas: unknown): CurrentMetaPayload =>
     ({
-      window: "24h",
       computedAt: ago(5),
-      note: "n",
-      windowTokens: 1000,
-      windowMigrations: 30,
-      baseMigrationRate: 0.03,
-      coverage: null,
       coverageNote: null,
-      metas: [{ rank: 2, label: "Jensen", firstSeenAt: ago(600), counts: { "6h": { tokens: 100, creators: 70, migrations: 3, migrationsAfter60s: 1 }, "24h": { tokens: 256, creators: 141, migrations: 9, migrationsAfter60s: 4 } }, migrationRate: 0.04, createsPerMigration: 28, topTokens: [], summary: "A line", summarySource: "llm", ideas }],
-    }) as unknown as MetasResponse;
+      metas: [{ key: "jensen", label: "Jensen", leader: { mint: "Ja", name: "Jensen", symbol: "JENSEN", marketCapUsd: 2_400_000, stale: false }, holding: false, enteredAt: ago(600), counts: { "6h": { tokens: 100, creators: 70, migrations: 3, migrationsAfter60s: 1 }, "24h": { tokens: 256, creators: 141, migrations: 9, migrationsAfter60s: 4 } }, topTokens: [], summary: "A line", summarySource: "llm", ideas }],
+      watching: [],
+    }) as unknown as CurrentMetaPayload;
   const idea = (id: number, over: Record<string, unknown> = {}) => ({ id, name: `Idea ${id}`, ticker: `T${id}`, angle: `Angle ${id}`, status: "new", riskLabels: ["real person"], createdAt: ago(10), expiresAt: new Date(NOW + 5 * 3_600_000).toISOString(), ...over });
-  const section = (payload: MetasResponse) => draw(renderList, { view: metaView(payload, NOW, { rows: 50 }) });
+  const section = (payload: CurrentMetaPayload) => draw(renderCurrent, { view: currentMetaView(payload, NOW) });
 
   it("lists each idea under its Meta with its name, ticker, status, risk label, time left and angle, linking to its card by id", async () => {
     const html = await section(response([idea(11), idea(12, { status: "shortlisted" }), idea(13)]));
@@ -277,8 +272,8 @@ describe("the /meta list shows a Meta's ideas", () => {
   });
 
   it("the view keeps `ideas` out of a row that has none, so older payloads render as before", () => {
-    const v = metaView(response([]), NOW, { rows: 5 });
-    expect(v.rows[0]).not.toHaveProperty("ideas");
+    const v = currentMetaView(response([]), NOW);
+    expect(v.metas[0]).not.toHaveProperty("ideas");
     expect(ideaViews(undefined, NOW)).toEqual([]);
     expect(ideaViews([idea(1, { status: "new", expiresAt: new Date(NOW - 1000).toISOString() })], NOW)[0]!.expires).toBe("closes on the next worker tick");
     expect(ideaViews([idea(1, { status: "shortlisted" })], NOW)[0]!.expires).toBe("shortlisted");

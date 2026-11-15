@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// /meta: every Meta of the latest run with all the detail the home strip leaves out. The ranking, grouping and summary lines come from
-// GET /api/metas; this page only displays them (see utils/meta.ts). The 6 h / 24 h toggle is a link, so the choice lives in the URL.
+// /meta: the Current Meta first (Metas, then Watching; GET /api/current-meta), then the collapsed "All launch themes": every launch theme
+// of the latest run, counts only (GET /api/metas). This page only displays what the worker stored (see utils/meta.ts). The 6 h / 24 h
+// toggle is a link, so the choice lives in the URL; `/meta#all-launch-themes` opens the closed list.
 import { HOT_POLL_MS, hotView } from "../utils/hot.ts";
-import { META_POLL_MS, metaView } from "../utils/meta.ts";
+import { currentMetaView, META_POLL_MS, metaView } from "../utils/meta.ts";
 
 const route = useRoute();
 const window = computed<"6h" | "24h">(() => (route.query.window === "6h" ? "6h" : "24h"));
 const { data: metas, refresh: refreshMetas } = await useFetch("/api/metas", { query: { window, limit: 50 }, default: () => null });
+const { data: current, refresh: refreshCurrent } = await useFetch("/api/current-meta", { default: () => null });
 
 const { data: hotMetas, refresh: refreshHot } = await useFetch("/api/hot-metas", { default: () => null });
 
@@ -14,11 +16,27 @@ const nowMs = ref(Date.now());
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 let hotTimer: ReturnType<typeof setInterval> | undefined;
 let clock: ReturnType<typeof setInterval> | undefined;
+const themes = ref<HTMLDetailsElement | null>(null);
+// The fragment names the closed list (or a theme row inside it): open it so the target is visible.
+const openForHash = () => {
+  let target: HTMLElement | null = null;
+  try {
+    target = route.hash.length > 1 ? document.getElementById(decodeURIComponent(route.hash.slice(1))) : null;
+  } catch {
+    // a malformed fragment names nothing
+  }
+  if (themes.value && (route.hash === "#all-launch-themes" || (target !== null && themes.value.contains(target)))) {
+    themes.value.open = true;
+    target?.scrollIntoView();
+  }
+};
 onMounted(() => {
-  metaTimer = setInterval(() => void refreshMetas(), META_POLL_MS);
+  metaTimer = setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS);
   hotTimer = setInterval(() => void refreshHot(), HOT_POLL_MS);
   clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
+  openForHash();
 });
+watch(() => route.hash, () => nextTick(openForHash));
 onBeforeUnmount(() => {
   clearInterval(metaTimer);
   clearInterval(hotTimer);
@@ -26,25 +44,36 @@ onBeforeUnmount(() => {
 });
 
 const view = computed(() => metaView(metas.value, nowMs.value, { rows: 50, window: window.value }));
+const currentSection = computed(() => currentMetaView(current.value, nowMs.value));
 const hotSection = computed(() => hotView(hotMetas.value, nowMs.value));
 const windows = computed(() => [
-  { label: "Last 24 h", to: { path: "/meta", query: {} }, active: window.value === "24h" },
-  { label: "Last 6 h", to: { path: "/meta", query: { window: "6h" } }, active: window.value === "6h" },
+  { label: "Last 24 h", to: { path: "/meta", query: {}, hash: "#all-launch-themes" }, active: window.value === "24h" },
+  { label: "Last 6 h", to: { path: "/meta", query: { window: "6h" }, hash: "#all-launch-themes" }, active: window.value === "6h" },
 ]);
 </script>
 
 <template>
   <div class="grid gap-6">
-    <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-      <h2 class="page-title">Meta</h2>
-      <SegmentedLinks label="Ranking window" :options="windows" />
-    </div>
+    <h2 class="page-title">Meta</h2>
     <p class="note muted">
-      The themes the token market is launching around, ranked over the {{ window === "6h" ? "last 6 hours" : "last 24 hours" }}. Migrations are unfiltered (no bot filter);
-      "after 60 s" counts only those that came more than a minute after the launch.
+      A Meta is a current trend with a token really high: its leading token has a market cap in the millions. Watching is not a Meta: a token is up, but has not
+      reached that market cap yet. The list at the bottom is launch counts, not Metas.
     </p>
     <HotNow :view="hotSection" />
-    <MetaList :view="view" />
-    <p v-if="view.footer" class="faint text-xs" data-test="meta-footer">{{ view.footer }}</p>
+    <CurrentMeta :view="currentSection" />
+    <details id="all-launch-themes" ref="themes" class="grid gap-4" data-test="all-launch-themes">
+      <summary class="surface flex min-h-11 cursor-pointer items-center font-semibold" data-test="all-launch-themes-summary">All launch themes ({{ view.rows.length }})</summary>
+      <div class="mt-4 grid gap-4">
+        <div class="grid min-w-0 gap-3">
+          <SegmentedLinks label="Ranking window" :options="windows" class="w-fit" />
+          <p class="muted min-w-0 text-sm">
+            What the token market is launching, ranked over the {{ window === "6h" ? "last 6 hours" : "last 24 hours" }}: counts only. Migrations are unfiltered (no bot filter);
+            "after 60 s" counts only those that came more than a minute after the launch.
+          </p>
+        </div>
+        <MetaList :view="view" />
+        <p v-if="view.footer" class="faint text-xs" data-test="meta-footer">{{ view.footer }}</p>
+      </div>
+    </details>
   </div>
 </template>
