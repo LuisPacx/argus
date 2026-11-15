@@ -8,7 +8,8 @@ import type { MetaRun, NewMetaHotEvent } from "./store.ts";
  * ranking, the one being checked and one about an hour older, with the thresholds in `MetaConfig`. A Meta is hot when
  *   - it entered the top `hotTopRank` (it ranked below that, or was not a Meta at all, in the older run), or
  *   - its distinct creators in the 24 h window are at least `hotCreatorFactor` times what they were in the older run, which must be no
- *     more than `hotBaselineMaxMinutes` older (so "within 1 h" stays about an hour).
+ *     more than `hotBaselineMaxMinutes` older (so "within 1 h" stays about an hour), and it is at `hotCreatorMaxRank` (10) or better now
+ *     (a rank-40 Meta going 3 to 6 creators is not news).
  * News never triggers it (ADR 0011); the matching news is only shown beside the event (`hot-api.ts`).
  *
  * Coverage (viral sources ticket 05, ADR 0012 addendum): no event is raised when either run's 24 h window is thinly covered
@@ -34,7 +35,7 @@ export function hotEvents(now: MetaRun, before: MetaRun | undefined, config: Met
     if (row.rank <= config.hotTopRank && (!prev || prev.rank > config.hotTopRank)) reasons.push(`entered top ${config.hotTopRank}`);
     const creators = row.counts["24h"].creators;
     const prevCreators = prev?.counts["24h"].creators ?? 0;
-    if (creatorsComparable && prevCreators > 0 && creators >= config.hotCreatorFactor * prevCreators) {
+    if (creatorsComparable && row.rank <= config.hotCreatorMaxRank && prevCreators > 0 && creators >= config.hotCreatorFactor * prevCreators) {
       reasons.push(`creators ${prevCreators} to ${creators} in ${Math.max(1, Math.round(gapMin / 60))} h`);
     }
     if (reasons.length > 0) out.push({ key: row.key, label: row.label, raisedAt: now.computedAt, reason: reasons.join("; "), rank: row.rank, creators, runId: now.id });

@@ -340,6 +340,7 @@ export const PIPELINE: PipelineGraph = {
         { label: "Counted as organic after", key: "META_RULE.organicAfterSec", ref: () => META_RULE.organicAfterSec, unit: "sec" },
         { label: "Hot now: a Meta entering the top", key: "META_RULE.hotTopRank", ref: () => META_RULE.hotTopRank, unit: "count" },
         { label: "Hot now: or distinct creators growing by (times)", key: "META_RULE.hotCreatorFactor", ref: () => META_RULE.hotCreatorFactor, unit: "count" },
+        { label: "Hot now: creators rule only for a Meta in the top", key: "META_RULE.hotCreatorMaxRank", ref: () => META_RULE.hotCreatorMaxRank, unit: "count" },
         { label: "Hot now: compared with the ranking from about", key: "META_RULE.hotBaselineMinutes", ref: () => META_RULE.hotBaselineMinutes, unit: "min" },
         { label: "Hot now: one Meta not raised again within", key: "META_RULE.hotCooldownHours", ref: () => META_RULE.hotCooldownHours, unit: "hours" },
         { label: "Summaries per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count", live: (env) => metaSummaryConfigFromEnv(env).maxRunsPerDay },

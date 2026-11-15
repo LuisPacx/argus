@@ -36,6 +36,7 @@ Offline in `pnpm check` (fixtures, fake Brain).
 - [x] **No other behaviour changes.** A Meta is still context only: no Narrative, Proposal or Score is created by this ticket (ADR 0012, tested).
 - [x] **Docs.** `docs/architecture.md` Meta section and `/pipeline` graph (`packages/core/src/pipeline-graph.ts`, `pnpm docs:graph`) show the new edge; ADR 0012 gets a dated note that the summary now sees news.
 - [x] Full `pnpm check` passes once before the commit.
+- [x] **Follow-up (user decision 2026-11-15): the creators x2 trigger fires only for a Meta currently in the top 10** (`META_RULE.hotCreatorMaxRank`, 10). The "entered top 5" trigger is unchanged. A rank-40 Meta going 3 to 6 creators raises nothing; test in `hot.test.ts` (rank 10 fires, rank 11 and rank 40 do not). ADR 0012 addendum, GLOSSARY and `docs/architecture.md` state the limit; the `/pipeline` graph draws it.
 
 ## Interplay
 

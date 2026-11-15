@@ -56,6 +56,8 @@ export interface MetaConfig {
   hotTopRank: number;
   /** Hot now: the 24 h distinct creators at least this many times what they were about an hour ago. */
   hotCreatorFactor: number;
+  /** Hot now: the creators rule applies only to a Meta at this rank or better now (user decision 2026-11-15: a rank-40 Meta going 3 to 6 creators is not news). */
+  hotCreatorMaxRank: number;
   /** Hot now: the comparison run is the newest one at least this many minutes older than the run being checked. */
   hotBaselineMinutes: number;
   /** Hot now: a baseline older than this is too old to say "within 1 h", so the creators rule is skipped (the rank rule still runs). */
@@ -86,6 +88,7 @@ export const META_RULE: MetaConfig = {
   theme: DEFAULT_THEME_CONFIG,
   hotTopRank: 5,
   hotCreatorFactor: 2,
+  hotCreatorMaxRank: 10,
   hotBaselineMinutes: 60,
   hotBaselineMaxMinutes: 120,
   hotCooldownHours: 6,

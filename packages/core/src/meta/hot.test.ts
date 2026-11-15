@@ -76,6 +76,14 @@ describe("hotEvents: the trigger", () => {
     expect(raised([before, run(at(HOUR), [...filler(6), ["x", 80]])]).map((e) => e.key)).toEqual(["x"]); // exactly double
   });
 
+  it("creators x2 fires only for a Meta at rank 10 or better now: rank 10 fires, rank 11 and rank 40 do not", () => {
+    const b = (rank: number) => run(at(0), placed(rank, 40)); // 40 creators an hour ago, same rank
+    expect(raised([b(10), run(at(HOUR), placed(10, 90))])).toEqual([{ key: "x", reason: "creators 40 to 90 in 1 h", rank: 10 }]);
+    expect(raised([b(11), run(at(HOUR), placed(11, 90))])).toEqual([]);
+    const deep = (creators: number) => [...filler(39), ["x", creators] as [string, number]];
+    expect(raised([run(at(0), deep(3)), run(at(HOUR), deep(6))])).toEqual([]); // rank 40, 3 to 6
+  });
+
   it("both reasons are written when both hold", () => {
     const before = run(at(0), [...filler(8), ["x", 40]]);
     const now = run(at(HOUR), [...filler(2), ["x", 90]]);
