@@ -48,9 +48,9 @@ describe("Rubric storage", () => {
       expect(r.dimensions.find((d) => d.key === "hook")!.description).toContain(TECH_VALUE_LINE);
     });
 
-    it("an existing database gets one new version: the line appended to hook, everything else and version 1 untouched", () => {
+    it("an existing database gets the line as a new version: appended to hook, everything else and version 1 untouched", () => {
       const ds = Datastore.open(oldDb());
-      expect(ds.listRubricVersions()).toEqual([2, 1]);
+      expect(ds.listRubricVersions()).toEqual([3, 2, 1]);
       const v1 = ds.getRubric(1);
       const v2 = ds.getRubric(2);
       expect(v1.dimensions.find((d) => d.key === "hook")!.description).toBe(OLD_HOOK);
@@ -58,19 +58,19 @@ describe("Rubric storage", () => {
       expect(v2.dimensions.filter((d) => d.key !== "hook")).toEqual(v1.dimensions.filter((d) => d.key !== "hook"));
       expect(v2.dimensions.map((d) => d.weight)).toEqual([1, 2, 3, 4, 5]);
       expect(v2.gateMinScore).toBe(6);
-      expect(ds.getRubric().version).toBe(2);
+      expect(ds.getRubric().version).toBe(3);
     });
 
     it("runs once: a second migration, or an Operator who later removes the line, adds nothing", () => {
       const path = oldDb();
       Datastore.open(path).close();
       const ds = Datastore.open(path);
-      expect(ds.listRubricVersions()).toEqual([2, 1]);
+      expect(ds.listRubricVersions()).toEqual([3, 2, 1]);
       const cur = ds.getRubric();
-      ds.saveRubric({ baseVersion: 2, dimensions: cur.dimensions.map((d) => ({ key: d.key, weight: d.weight, description: d.key === "hook" ? OLD_HOOK : d.description })), gateMinScore: cur.gateMinScore });
+      ds.saveRubric({ baseVersion: 3, dimensions: cur.dimensions.map((d) => ({ key: d.key, weight: d.weight, description: d.key === "hook" ? OLD_HOOK : d.description })), gateMinScore: cur.gateMinScore });
       ds.close();
       const again = Datastore.open(path);
-      expect(again.listRubricVersions()).toEqual([3, 2, 1]);
+      expect(again.listRubricVersions()).toEqual([4, 3, 2, 1]);
       again.close();
     });
 
@@ -80,8 +80,9 @@ describe("Rubric storage", () => {
           JSON.stringify(["momentum", "novelty", "buildability", "hook", "legitimacy"].map((key) => ({ key, description: `${key} edited`, weight: 1 }))),
         ),
       );
-      const v3 = Datastore.open(path).getRubric();
-      expect(v3.version).toBe(3);
+      const ds = Datastore.open(path);
+      const v3 = ds.getRubric(3);
+      expect(ds.getRubric().version).toBe(4);
       expect(v3.gateMinScore).toBe(7);
       expect(v3.dimensions.find((d) => d.key === "hook")!.description).toBe(`hook edited ${TECH_VALUE_LINE}`);
       expect(v3.dimensions.find((d) => d.key === "momentum")!.description).toBe("momentum edited");

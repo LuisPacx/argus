@@ -46,7 +46,7 @@ The on-chain token created for a Proposal. Launches happen outside this system, 
 _Avoid_: Deploy, mint
 
 **Rubric**:
-The editable dimensions (momentum, novelty, buildability, hook, legitimacy) by which a Narrative is scored before it becomes a Proposal; buildability is a hard gate. Owned by the Operator.
+The editable dimensions (momentum, novelty, buildability, hook, legitimacy) by which a Narrative is scored before it becomes a Proposal; buildability is a hard gate. Owned by the Operator. From Rubric v3, legitimacy penalises impersonation (pretending to be a real person, brand or project, claiming to be official, fake endorsements) and fraud (a false claim meant to take money) only; satire, parody and memes about public figures are not penalised.
 
 **Score**:
 A Narrative's Rubric result (a Proposal carries its Narrative's latest), re-computed when the Narrative changes materially; each is stored with the Rubric version it used, and its history is kept.

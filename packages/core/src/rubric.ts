@@ -52,12 +52,25 @@ export class RubricConflictError extends DomainError {
 /** The Tech-value line (ticket 17), part of the `hook` dimension. Its text is also the marker `migrateRubric` looks for. */
 export const TECH_VALUE_LINE = "Tech value: the Tech it implies does more than fetch data and display it (an interaction, or a reason to come back).";
 
+/**
+ * Missed ideas ticket 04 (Rubric v3): the `legitimacy` dimension penalises impersonation and fraud only. Satire, parody and memes
+ * about public figures are normal comedy and are not penalised. Its own constant so the later meme idea task reads the same text
+ * (`LEGITIMACY_RULE`), and so a later lesson edits one place. It starts with `LEGITIMACY_RULE_MARKER`, which `migrateRubric` looks
+ * for. The v2 text lives on in the stored `rubric_versions` row, so a replay under v2 is reproducible.
+ */
+export const LEGITIMACY_RULE_MARKER = "Legitimacy is impersonation and fraud only.";
+export const LEGITIMACY_RULE =
+  `${LEGITIMACY_RULE_MARKER} Score 0 to 2 for impersonation (a token, account or Tech that pretends to be a real person, brand or project, claims to be official, or uses someone's name as a fake endorsement), ` +
+  "for fraud (a false claim meant to take money: a scam, a fake giveaway, rug-pull framing), and for hate or harassment. " +
+  "Do not lower it for satire, parody or comedy about a public figure or event, a token named after a person as an obvious joke that does not claim to be them, " +
+  "or a news-based meme; a real person in the story is a risk to show, not a penalty. Backed by real sources scores higher.";
+
 const SEED: Record<RubricKey, string> = {
   momentum: "How fast the Narrative is growing across Signals right now.",
   novelty: "How fresh it is: not already a crowded or recently launched coin theme.",
   buildability: "Whether a small web app can credibly be built and deployed from it unattended (hard gate).",
   hook: `How easily the idea is explained and shared in one line. ${TECH_VALUE_LINE}`,
-  legitimacy: "Whether it is free of scams, hate and real-person impersonation, and backed by real sources.",
+  legitimacy: LEGITIMACY_RULE,
 };
 
 /** The buildability gate a fresh database starts with (architecture section 7). The live gate is the stored Rubric's `gateMinScore`. */
@@ -112,6 +125,26 @@ export function migrateRubric(db: DatabaseSync): void {
     return;
   }
   addTechValueVersion(db);
+  addLegitimacyRuleVersion(db);
+}
+
+/**
+ * Missed ideas ticket 04: a database whose Rubric history has no version with the impersonation-and-fraud legitimacy rule gets one
+ * new version, the current one with only `legitimacy` replaced. Weights, gate and the other descriptions are kept, older versions
+ * (and the Scores that name them) are untouched and never re-judged. Like the Tech-value step it runs once: after any version
+ * carries the rule, an Operator edit is never overridden, and a concurrent opener hits the version primary key and adds nothing.
+ */
+function addLegitimacyRuleVersion(db: DatabaseSync): void {
+  const rows = db.prepare("SELECT * FROM rubric_versions ORDER BY version DESC").all() as unknown as RubricRow[];
+  if (rows.some((r) => r.dimensions.includes(LEGITIMACY_RULE_MARKER))) return;
+  const latest = rows[0]!;
+  const dimensions = (JSON.parse(latest.dimensions) as RubricDimension[]).map((d) => (d.key === "legitimacy" ? { ...d, description: LEGITIMACY_RULE } : d));
+  db.prepare("INSERT OR IGNORE INTO rubric_versions (version, dimensions, gate_min_score, created_at) VALUES (?, ?, ?, ?)").run(
+    latest.version + 1,
+    JSON.stringify(dimensions),
+    latest.gate_min_score,
+    new Date().toISOString(),
+  );
 }
 
 /**

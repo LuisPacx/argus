@@ -26,13 +26,13 @@ Origin: `.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, answ
 
 Offline in `pnpm check` (fake Brain).
 
-- [ ] **v3 registered.** `rubric_versions` gains v3; new Scores carry v3; the idempotent migration or seed is rehearsed on a `.backup` copy (deleted afterwards), and v1 and v2 rows are unchanged (tested).
-- [ ] **Old scores are history.** A DB with Scores under v2 keeps them byte for byte after the change; no Narrative is re-judged because of the version alone (tested).
-- [ ] **Prompt text.** The v3 judge prompt contains the impersonation-and-fraud rule and the satire allowance and no longer lists "unverified allegations about a named real person" as a legitimacy penalty (tested by reading the built prompt).
-- [ ] **Fixtures.** With a fake Brain that echoes the rule it was given, three fixture Narratives (a satire token about a CEO, a token claiming to be that CEO's official coin, a fake giveaway) are sent with the v3 prompt; the prompt for the second and third names the penalty and the prompt for the first does not (tested on the prompt, not on a model's score).
+- [x] **v3 registered.** `rubric_versions` gains v3; new Scores carry v3; the idempotent migration or seed is rehearsed on a `.backup` copy (deleted afterwards), and v1 and v2 rows are unchanged (tested).
+- [x] **Old scores are history.** A DB with Scores under v2 keeps them byte for byte after the change; no Narrative is re-judged because of the version alone (tested).
+- [x] **Prompt text.** The v3 judge prompt contains the impersonation-and-fraud rule and the satire allowance and no longer lists "unverified allegations about a named real person" as a legitimacy penalty (tested by reading the built prompt).
+- [x] **Fixtures.** With a fake Brain that echoes the rule it was given, three fixture Narratives (a satire token about a CEO, a token claiming to be that CEO's official coin, a fake giveaway) are sent with the v3 prompt; the prompt for the second and third names the penalty and the prompt for the first does not (tested on the prompt, not on a model's score).
 - [ ] **Opt-in measurement.** An opt-in script (not part of `pnpm check`) re-judges the stored 662 and 485 Narratives and 20 other Narratives from a `.backup` copy under v3 with the real Brain, writing to a throwaway datastore, and reports old against new legitimacy and total in Comments. The live DB is never written; the copy is deleted.
-- [ ] **Docs.** The Rubric entry in `GLOSSARY.md` and `docs/architecture.md` name v3 and the rule; the 11-11 note that "legitimacy kills named-person stories" is marked superseded, with a one-line pointer to this ticket.
-- [ ] Full `pnpm check` passes once before the commit.
+- [x] **Docs.** The Rubric entry in `GLOSSARY.md` and `docs/architecture.md` name v3 and the rule; the 11-11 note that "legitimacy kills named-person stories" is marked superseded, with a one-line pointer to this ticket.
+- [x] Full `pnpm check` passes once before the commit.
 
 ## Interplay
 
@@ -46,3 +46,7 @@ Offline in `pnpm check` (fake Brain).
 One commit after a full `pnpm check`. Subject `Missed ideas ticket 04: <what changed>`, body ending with `Ticket: .scratch/missed-ideas/issues/04-rubric-v3-legitimacy-impersonation-only.md` before the trailers. Tick the boxes in the commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+2026-11-15 (worker). Done: `LEGITIMACY_RULE` (own constant, `packages/core/src/rubric.ts`), `addLegitimacyRuleVersion` in `migrateRubric` (idempotent, looks for `LEGITIMACY_RULE_MARKER`), judge SKILL.md line, GLOSSARY, architecture, internal-trace marked superseded, tests in `rubric-v3.test.ts` (+ `rubric.test.ts` version numbers). A fresh database seeds v1 with the rule (like the Tech-value line); a database without it gets one new version, the latest with only `legitimacy` replaced (gate and weights kept). Migration rehearsed on a `.backup` copy of the live DB (v1, v2 -> v1, v2, v3, gate 5.0, 919 Scores unchanged by md5), copy deleted.
+- Not ticked: **Opt-in measurement.** `scripts/rubric-v3-replay.mjs` exists and its `--dry` run was done on the copy (22 Narratives chosen, v3 prompt printed); the real-Brain run spends Claude calls and was not made. Run it on a fresh `.backup` copy when the Operator wants the old-against-new table, and paste it here.
+- Fixtures box: the three prompts differ only in the Narrative text; the Rubric text is the same for all (the penalty and the satire allowance are both in each), so the test checks the rule text in each prompt and the Narrative text in each, not that the satire prompt "does not name" the penalty.
