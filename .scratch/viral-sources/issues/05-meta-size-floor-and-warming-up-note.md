@@ -61,7 +61,7 @@ Origin: the Operator's report of 2026-11-14 that the home "Current Meta" looked 
 - [x] Pipeline graph: new config keys are keyed rules or in `LEFT_OUT` with a reason, the sync test in `packages/core/src/pipeline-graph.ts` passes, and the `How it works` page and generated diagrams are regenerated if the graph changed.
 - [x] Docs: `GLOSSARY.md` "Meta ranking" mentions the floor, ADR 0012 gets a short addendum (floor at compute, coverage measure and why), the `ARGUS_*` names are listed where the other Meta env settings are.
 - [ ] **Browser check** with `pnpm page:check` (`warroom-redesign/11`, once it exists): `/` and `/meta` at 1240 px and 390 px against a War Room on the `.backup` copy, once with the thin 11-14 data (note visible, no tiny groups) and once with a normal-day run (no note); screenshots read, console clean.
-- [ ] Type-check and the full test suite pass once before the commit; the live argus and the live DB are not touched.
+- [x] Type-check and the full test suite pass once before the commit (`pnpm check`: 131 files, 1995 tests, stamped tree a636707372); the live argus and the live DB are not touched.
 
 ## Commits
 
