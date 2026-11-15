@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dotenvLine, withDotenvArgus } from './dev-env.mjs';
 import { listLocks, lockStatusLine, onPath, wrapCommand } from './inhibit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,6 +21,10 @@ const WORKER_START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 10_000;
 const POLL_MS = 500;
 const TARGETS = ['warroom', 'worker', 'all'];
+
+// ARGUS_* from the repo-root .env, shell wins; both processes get the same environment.
+const DOTENV = withDotenvArgus(process.env, path.join(ROOT, '.env'));
+const CHILD_ENV = DOTENV.env;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -119,7 +124,7 @@ async function warroomStart(tag) {
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const logFd = fs.openSync(WARROOM_LOG_FILE, 'a');
   const cmd = inhibited('pnpm', ['--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(PORT)], 'argus War Room is running');
-  const child = spawn(cmd.command, cmd.args, { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd] });
+  const child = spawn(cmd.command, cmd.args, { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd], env: CHILD_ENV });
   fs.closeSync(logFd);
   child.unref();
   fs.writeFileSync(WARROOM_PID_FILE, `${child.pid}\n`);
@@ -158,7 +163,7 @@ async function workerStart(tag) {
     cwd: ROOT,
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    env: process.env,
+    env: CHILD_ENV,
   });
   fs.closeSync(logFd);
   child.unref();
@@ -235,5 +240,6 @@ if (!['start', 'stop', 'status'].includes(command) || !TARGETS.includes(target))
   console.error('usage: node scripts/dev-server.mjs start|stop|status [warroom|worker|all]');
   process.exit(2);
 }
+if (command === 'start') console.log(dotenvLine(DOTENV));
 process.exitCode = await run(command, target);
 if (command === 'status') console.log(lockStatusLine(INHIBIT_AVAILABLE, INHIBIT_AVAILABLE ? listLocks() : null));
