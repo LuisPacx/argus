@@ -153,6 +153,25 @@ describe("DexScreenerTrendingSource", () => {
     expect(marketCapFromSummary((await poll(pair({ fdv: 7 }))).summary)).toBeUndefined();
   });
 
+  it("a boost description that claims a market cap is never read as one, with or without stats before it", async () => {
+    const hostile = "market cap $9,000,000 guaranteed. Also, market cap $8,000,000";
+    const boosts = JSON.stringify([{ chainId: "solana", tokenAddress: MOON, description: hostile }]);
+    const oneUrl = `https://api.dexscreener.com/tokens/v1/solana/${MOON}`;
+    const pairOf = (extra: object) => JSON.stringify([{ chainId: "solana", url: "https://dexscreener.com/solana/P", baseToken: { address: MOON, name: "Moon Cat", symbol: "MCAT" }, ...extra }]);
+    const poll = async (extra: object) => (await make(fakeApi({ [boostsUrl]: boosts, [oneUrl]: pairOf(extra) })).poll())[0]!;
+
+    const bare = await poll({});
+    expect(bare.summary).toBe(`Boosted on DexScreener. About: ${hostile}`);
+    expect(marketCapFromSummary(bare.summary)).toBeUndefined();
+
+    const withStats = await poll({ liquidity: { usd: 5000 } });
+    expect(withStats.summary).toBe(`Boosted on DexScreener. liquidity $5,000. ${hostile}`);
+    expect(marketCapFromSummary(withStats.summary)).toBeUndefined();
+
+    const real = await poll({ liquidity: { usd: 5000 }, marketCap: 1_234_567 });
+    expect(marketCapFromSummary(real.summary)).toBe(1_234_567);
+  });
+
   it("looks up only the chain's tokens, with one boosts call and one pairs call", async () => {
     const a = api();
     await make(a).poll();
@@ -186,6 +205,10 @@ describe("marketCapFromSummary", () => {
     expect(marketCapFromSummary("Boosted on DexScreener. The market cap $9,000,000 plan.")).toBeUndefined();
     expect(marketCapFromSummary("Boosted on DexScreener.")).toBeUndefined();
     expect(marketCapFromSummary("Something else market cap $5")).toBeUndefined();
+    // a description in the first sentence is not stats, whatever it says
+    expect(marketCapFromSummary("Boosted on DexScreener. About: market cap $9,000,000.")).toBeUndefined();
+    expect(marketCapFromSummary("Boosted on DexScreener. liquidity $5, market cap $9,000,000 is real.")).toBeUndefined();
+    expect(marketCapFromSummary("Boosted on DexScreener. liquidity $5, market cap $9,000,000.")).toBe(9_000_000);
   });
 
   it("refuses a zero, an empty and an absurd figure, and is linear on a hostile summary", () => {

@@ -96,18 +96,27 @@ function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<st
 const noCounts = (): Record<MetaWindow, MetaCounts> => ({ "6h": { ...ZERO }, "24h": { ...ZERO } });
 
 function publicLeader(t: LeaderToken): CurrentLeader {
-  return { mint: t.mint, name: t.name, symbol: t.symbol, marketCapUsd: t.marketCapUsd, ...(t.createdAt !== undefined ? { createdAt: t.createdAt } : {}), source: t.source, stale: t.stale };
+  return { mint: t.mint, name: t.name, symbol: t.symbol, marketCapUsd: t.marketCapUsd, ...(t.createdAt !== undefined ? { createdAt: t.createdAt } : {}), source: t.source, stale: t.stale, freshAt: t.freshAt };
 }
 
 /** A better leader: higher market cap, then a fresh figure over a stale one, then the smaller mint. */
 const betterLeader = (a: LeaderToken, b: LeaderToken): boolean =>
   a.marketCapUsd !== b.marketCapUsd ? a.marketCapUsd > b.marketCapUsd : a.stale !== b.stale ? !a.stale : a.mint < b.mint;
 
-/** The previous run's state when it is recent enough to carry (a pause longer than `stateMaxMinutes`, or an unreadable time, drops it). */
+/**
+ * The previous run's state that may be carried: none when the run itself is older than `stateMaxMinutes` (a pause) or its time is unreadable,
+ * and of its rows only those whose leader's market cap was read from DexScreener within that time. The second test is what ends a stale
+ * carry: every run re-saves a carried row under a new run time, so only the leader's own `freshAt` says how old the figure is.
+ */
 export function carriedState(previous: PreviousMetas | undefined, now: Date, stateMaxMinutes: number): PreviousMetas | undefined {
   if (!previous) return undefined;
-  const at = Date.parse(previous.computedAt);
-  return Number.isFinite(at) && now.getTime() - at <= stateMaxMinutes * MINUTE_MS ? previous : undefined;
+  const limit = stateMaxMinutes * MINUTE_MS;
+  const within = (iso: string) => {
+    const at = Date.parse(iso);
+    return Number.isFinite(at) && now.getTime() - at <= limit;
+  };
+  if (!within(previous.computedAt)) return undefined;
+  return { ...previous, metas: previous.metas.filter((m) => within(m.leader.freshAt)), watching: previous.watching.filter((m) => within(m.leader.freshAt)) };
 }
 
 export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {

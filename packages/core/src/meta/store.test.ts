@@ -131,7 +131,7 @@ describe("meta persistence", () => {
     const metaRow = (key: string, cap: number, over: Partial<CurrentMeta> = {}): CurrentMeta => ({
       key,
       label: key.toUpperCase(),
-      leader: { mint: `Mint${key}`, name: `${key} the token`, symbol: key.toUpperCase(), marketCapUsd: cap, createdAt: "2026-11-14T10:00:00.000Z", source: "trending", stale: false },
+      leader: { mint: `Mint${key}`, name: `${key} the token`, symbol: key.toUpperCase(), marketCapUsd: cap, createdAt: "2026-11-14T10:00:00.000Z", source: "trending", stale: false, freshAt: "2026-11-15T09:30:00.000Z" },
       holding: false,
       enteredAt: "2026-11-15T09:00:00.000Z",
       counts: row("A").counts,
@@ -142,7 +142,7 @@ describe("meta persistence", () => {
     const first = store.meta.saveRun(plain);
     expect(store.currentMetas()).toEqual({ runId: first, computedAt: plain.computedAt, metas: [], watching: [] });
 
-    const current = { metas: [metaRow("jensen", 2_100_000), metaRow("gta6", 800_000, { holding: true })], watching: [metaRow("ni", 96_000, { leader: { mint: "MintNi", name: "n", symbol: "N", marketCapUsd: 96_000, source: "theme", stale: true } })] };
+    const current = { metas: [metaRow("jensen", 2_100_000), metaRow("gta6", 800_000, { holding: true })], watching: [metaRow("ni", 96_000, { leader: { mint: "MintNi", name: "n", symbol: "N", marketCapUsd: 96_000, source: "theme", stale: true, freshAt: "2026-11-15T08:00:00.000Z" } })] };
     const second = store.meta.saveRun(run(T0 + 15 * 60_000, [row("A"), row("B")], { current }));
     const read = store.currentMetas()!;
     expect(read).toMatchObject({ runId: second, computedAt: new Date(T0 + 15 * 60_000).toISOString() });
@@ -155,10 +155,24 @@ describe("meta persistence", () => {
     expect(store.latestMetas("24h", 10)!.rows.map((r) => r.label)).toEqual(["A", "B"]);
   });
 
+  it("a meta_current table made before freshAt existed gets the column, and its rows read the run's own time", () => {
+    const path = join(tempDir("meta-current-fresh-"), "argus.db");
+    const first = Datastore.open(path);
+    first.meta.saveRun(run(T0, [row("A")], { current: { metas: [{ key: "k", label: "K", leader: { mint: "M", name: "n", symbol: "S", marketCapUsd: 1_500_000, source: "theme", stale: false, freshAt: "2026-11-01T00:00:00.000Z" }, holding: false, enteredAt: "2026-11-01T00:00:00.000Z", counts: row("K").counts, topTokens: [] }], watching: [] } }));
+    first.close();
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE meta_current SET leader_fresh_at = NULL");
+    raw.exec("ALTER TABLE meta_current DROP COLUMN leader_fresh_at");
+    raw.close();
+    const again = Datastore.open(path);
+    expect(again.currentMetas()!.metas[0]!.leader.freshAt).toBe(new Date(T0).toISOString());
+    again.close();
+  });
+
   it("meta_current rows are pruned with their run", () => {
     const path = join(tempDir("meta-current-prune-"), "argus.db");
     const store = Datastore.open(path);
-    const cur: NewMetaCurrent = { metas: [{ key: "k", label: "K", leader: { mint: "M", name: "n", symbol: "S", marketCapUsd: 1_500_000, source: "theme", stale: false }, holding: false, enteredAt: "2026-11-01T00:00:00.000Z", counts: row("K").counts, topTokens: [] }], watching: [] };
+    const cur: NewMetaCurrent = { metas: [{ key: "k", label: "K", leader: { mint: "M", name: "n", symbol: "S", marketCapUsd: 1_500_000, source: "theme", stale: false, freshAt: "2026-11-01T00:00:00.000Z" }, holding: false, enteredAt: "2026-11-01T00:00:00.000Z", counts: row("K").counts, topTokens: [] }], watching: [] };
     store.meta.saveRun(run(T0 - 20 * DAY, [row("A")], { current: cur }));
     store.meta.saveRun(run(T0, [row("A")], { current: cur }));
     store.close();

@@ -553,6 +553,23 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     expect(fourth).toMatchObject({ metas: 0, watching: 0 });
   });
 
+  it("a stale Meta ends stateMaxMinutes after its figure was last read, though every run re-saves it (persistent failure, and leaderCalls 0)", async () => {
+    for (const mode of ["failing", "off"] as const) {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
+      expect(await recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 0)).toMatchObject({ metas: 1 });
+      const seen: number[] = [];
+      for (let at = 15; at <= 150; at += 15) {
+        const dex = mode === "failing" ? fakeDex(new Map(), { failOn: () => true }).client : fakeDex(new Map()).client;
+        seen.push((await recompute(store, dex, at, mode === "off" ? { leaderCalls: 0 } : {})).metas);
+        if (at === 120) expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ stale: true, freshAt: T(0).toISOString() });
+      }
+      expect(seen, mode).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 0, 0]); // carried through 120 minutes, gone at 135
+    }
+  });
+
   it("with no client no Meta is created and none is lost", async () => {
     const store = Datastore.open(":memory:");
     jensenWave(store);

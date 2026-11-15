@@ -194,8 +194,13 @@ function summarize(pair: DexPair, description: string): string {
   // Meta redesign ticket 01: the figure the Meta tick reads back as a lookup hint (`marketCapFromSummary`). Never 0 or negative.
   if (pair.marketCapUsd !== undefined && pair.marketCapUsd > 0) stats.push(`market cap ${usd(pair.marketCapUsd)}`);
   if (pair.fdvUsd !== undefined && pair.fdvUsd > 0 && Math.round(pair.fdvUsd) !== Math.round(pair.marketCapUsd ?? 0)) stats.push(`FDV ${usd(pair.fdvUsd)}`);
-  return `Boosted on DexScreener.${stats.length ? ` ${stats.join(", ")}.` : ""}${description ? ` ${description}` : ""}`.slice(0, MAX_SUMMARY_CHARS);
+  // With no stats the description would be the first sentence, where a reader cannot tell it from ours: it is labelled instead.
+  const about = description ? ` ${stats.length ? "" : ABOUT_MARK}${description}` : "";
+  return `Boosted on DexScreener.${stats.length ? ` ${stats.join(", ")}.` : ""}${about}`.slice(0, MAX_SUMMARY_CHARS);
 }
+
+const ABOUT_MARK = "About: ";
+const STAT_PREFIXES = ["24h volume $", "24h change ", "liquidity $", "market cap $", "FDV $"] as const;
 
 const MARKET_CAP_MARK = "market cap $";
 const MAX_CAP_DIGITS = 15;
@@ -212,13 +217,18 @@ export function marketCapFromSummary(summary: string): number | undefined {
   const rest = summary.slice(prefix.length);
   let end = rest.indexOf(". ");
   if (end < 0) end = rest.endsWith(".") ? rest.length - 1 : rest.length;
-  const stats = rest.slice(0, end);
-  const at = stats.indexOf(MARKET_CAP_MARK);
-  if (at < 0 || (at > 0 && !stats.startsWith(", ", at - 2))) return undefined; // only a stat item, at the start or after a comma
+  // The first sentence is ours only when every item in it is a stat `summarize` writes; a description (labelled "About: " when it comes
+  // first) or anything else fails that test, so a hostile "market cap $N" in the boost description is never read.
+  const items = rest.slice(0, end).split(", ");
+  if (!items.every((item) => STAT_PREFIXES.some((p) => item.startsWith(p)))) return undefined;
+  const item = items.find((i) => i.startsWith(MARKET_CAP_MARK));
+  if (item === undefined) return undefined;
   let digits = "";
-  for (const ch of stats.slice(at + MARKET_CAP_MARK.length, at + MARKET_CAP_MARK.length + 40)) {
+  const figure = item.slice(MARKET_CAP_MARK.length);
+  if (figure.length > 40) return undefined;
+  for (const ch of figure) {
     if (ch >= "0" && ch <= "9") digits += ch;
-    else if (ch !== ",") break;
+    else if (ch !== ",") return undefined; // the figure is digits and commas only
     if (digits.length > MAX_CAP_DIGITS) return undefined;
   }
   const n = digits === "" ? Number.NaN : Number(digits);

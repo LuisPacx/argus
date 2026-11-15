@@ -244,10 +244,10 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   for (const s of stats)
     for (const [mint, cap] of s.caps) {
       const rec = recs.get(mint);
-      if (rec) fresh.push({ mint, name: cleanLabel(rec.token.name), symbol: cleanLabel(rec.token.symbol), marketCapUsd: cap, createdAt: rec.token.createdAt, source: "theme", stale: false, groupKey: s.group.key });
+      if (rec) fresh.push({ mint, name: cleanLabel(rec.token.name), symbol: cleanLabel(rec.token.symbol), marketCapUsd: cap, createdAt: rec.token.createdAt, source: "theme", stale: false, freshAt: now.toISOString(), groupKey: s.group.key });
     }
   const trending = trendingCandidates(store.meta.trendingSignals(new Date(windowFrom("24h")).toISOString(), now.toISOString()));
-  const lookedUp = await lookUpLeaders({ dex: opts.dex, config, log: opts.log, have: new Set(fresh.map((t) => t.mint)), previous: carried, trending });
+  const lookedUp = await lookUpLeaders({ dex: opts.dex, config, now: now.toISOString(), log: opts.log, have: new Set(fresh.map((t) => t.mint)), previous: carried, trending });
   fresh.push(...lookedUp.tokens);
   dexCalls += lookedUp.calls;
   dexFailures += lookedUp.failures;
@@ -287,6 +287,8 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
 interface LeaderLookupInput {
   dex: MetaDexClient | undefined;
   config: MetaConfig;
+  /** The run's time (ISO): the `freshAt` of every figure this lookup reads. */
+  now: string;
   log: ((message: string) => void) | undefined;
   /** Mints whose market cap this run already has (the theme lookups): not asked again. */
   have: ReadonlySet<string>;
@@ -341,7 +343,7 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
       for (const [mint, b] of best) {
         const k = known.get(mint) as Known;
         const created = k.createdAt ?? (b.createdMs !== undefined && Number.isFinite(new Date(b.createdMs).getTime()) ? new Date(b.createdMs).toISOString() : undefined);
-        out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: b.cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false });
+        out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: b.cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false, freshAt: input.now });
       }
       streak = 0;
     } catch (e) {

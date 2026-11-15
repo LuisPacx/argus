@@ -28,6 +28,7 @@ const token = (n: string, name: string, symbol: string, marketCapUsd: number, ov
   marketCapUsd,
   source: "trending",
   stale: false,
+  freshAt: NOW.toISOString(),
   ...over,
 });
 
@@ -38,7 +39,7 @@ const keys = (rows: CurrentMeta[]) => rows.map((r) => r.key);
 const prevRow = (key: string, lead: LeaderToken, over: Partial<CurrentMeta> = {}): CurrentMeta => ({
   key,
   label: key,
-  leader: { mint: lead.mint, name: lead.name, symbol: lead.symbol, marketCapUsd: lead.marketCapUsd, source: lead.source, stale: false },
+  leader: { mint: lead.mint, name: lead.name, symbol: lead.symbol, marketCapUsd: lead.marketCapUsd, source: lead.source, stale: false, freshAt: "2026-11-15T15:20:00.000Z" },
   holding: false,
   enteredAt: "2026-11-15T09:00:00.000Z",
   counts: counts(12),
@@ -213,6 +214,23 @@ describe("currentMetas: stale figures and carried state", () => {
   it("a previous Meta whose leader was not looked up this run stays at its last figure, marked stale", () => {
     const r = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [prevRow("jensen", lead)]) });
     expect(r.metas[0]).toMatchObject({ key: "jensen", leader: { mint: lead.mint, marketCapUsd: 1_300_000, stale: true }, holding: false });
+  });
+
+  it("a stale carry ends stateMaxMinutes after the figure was last read, however recent the run that re-saved it", () => {
+    const aged = (minutes: number) => prevRow("jensen", lead, { leader: { ...prevRow("jensen", lead).leader, stale: true, freshAt: new Date(NOW.getTime() - minutes * 60_000).toISOString() } });
+    // the previous run was 15 minutes ago (it carried the row again), the figure is older
+    const edge = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [aged(config.stateMaxMinutes)]) });
+    expect(edge.metas[0]).toMatchObject({ key: "jensen", leader: { stale: true, freshAt: new Date(NOW.getTime() - config.stateMaxMinutes * 60_000).toISOString() } });
+    const past = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
+    expect(past).toEqual({ metas: [], watching: [] });
+    // a Watching row expires the same way, and carriedState says which rows survive
+    const kept = carriedState(previousAt(15, [aged(config.stateMaxMinutes + 1)], [aged(5)]), NOW, config.stateMaxMinutes)!;
+    expect([kept.metas.length, kept.watching.length]).toEqual([0, 1]);
+    // a fresh reading is not a carry: the expired row is gone (new entry time), and the enter rule alone decides
+    const again = run({ subjects: [jensen], tokens: [{ ...lead, marketCapUsd: 1_100_000 }], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
+    expect(again.metas[0]).toMatchObject({ key: "jensen", enteredAt: NOW.toISOString(), leader: { stale: false, freshAt: NOW.toISOString() } });
+    const below = run({ subjects: [jensen], tokens: [{ ...lead, marketCapUsd: 700_000 }], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
+    expect(below.metas).toEqual([]); // holding needs a live previous row
   });
 
   it("a stale figure never creates a Meta: a previous Watching leader carried at $1.2M stays out", () => {

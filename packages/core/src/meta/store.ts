@@ -59,6 +59,8 @@ export interface CurrentLeader {
   source: "trending" | "theme";
   /** True when this run's lookup did not answer: `marketCapUsd` is the last known figure. */
   stale: boolean;
+  /** When `marketCapUsd` was last read from DexScreener (ISO). A carried figure expires `stateMaxMinutes` after this, however many runs re-save it. */
+  freshAt: string;
 }
 
 /** A subject led by a token's market cap (ADR 0014): a Meta, or a Watching subject. `key` is the launch-theme group key. */
@@ -221,6 +223,7 @@ export function migrateMeta(db: DatabaseSync): void {
     leader_symbol TEXT NOT NULL,
     leader_market_cap_usd REAL NOT NULL,
     leader_created_at TEXT,
+    leader_fresh_at TEXT,
     leader_source TEXT NOT NULL,
     stale INTEGER NOT NULL,
     holding INTEGER NOT NULL,
@@ -323,7 +326,7 @@ function parseCounts(text: string): Record<MetaWindow, MetaCounts> {
   return isRecord(data) ? { "6h": one(data["6h"]), "24h": one(data["24h"]) } : { "6h": zero, "24h": zero };
 }
 
-function toCurrent(r: Row): CurrentMeta {
+function toCurrent(r: Row, runAt: string): CurrentMeta {
   return {
     key: r.key as string,
     label: r.label as string,
@@ -335,6 +338,7 @@ function toCurrent(r: Row): CurrentMeta {
       ...(r.leader_created_at !== null ? { createdAt: r.leader_created_at as string } : {}),
       source: r.leader_source === "theme" ? "theme" : "trending",
       stale: r.stale === 1,
+      freshAt: (r.leader_fresh_at as string | null) ?? runAt,
     },
     holding: r.holding === 1,
     enteredAt: r.entered_at as string,
@@ -366,9 +370,9 @@ export class MetaStore {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertCurrent = this.db.prepare(
-      `INSERT INTO meta_current (run_id, kind, rank, key, label, leader_mint, leader_name, leader_symbol, leader_market_cap_usd, leader_created_at, leader_source,
+      `INSERT INTO meta_current (run_id, kind, rank, key, label, leader_mint, leader_name, leader_symbol, leader_market_cap_usd, leader_created_at, leader_fresh_at, leader_source,
          stale, holding, entered_at, counts, top_tokens)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.db.exec("BEGIN IMMEDIATE");
     let id: number;
@@ -386,7 +390,7 @@ export class MetaStore {
         const list = kind === "meta" ? run.current?.metas : run.current?.watching;
         (list ?? []).forEach((m, i) => {
           const l = m.leader;
-          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens));
+          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens));
         });
       }
       this.db.exec("COMMIT");
@@ -461,7 +465,7 @@ export class MetaStore {
     if (!run) return undefined;
     const rows = this.db.prepare("SELECT * FROM meta_current WHERE run_id = ? ORDER BY kind, rank").all(run.id as number) as Row[];
     const out: MetaCurrent = { runId: run.id as number, computedAt: run.computed_at as string, metas: [], watching: [] };
-    for (const r of rows) (r.kind === "meta" ? out.metas : out.watching).push(toCurrent(r));
+    for (const r of rows) (r.kind === "meta" ? out.metas : out.watching).push(toCurrent(r, out.computedAt));
     return out;
   }
 
