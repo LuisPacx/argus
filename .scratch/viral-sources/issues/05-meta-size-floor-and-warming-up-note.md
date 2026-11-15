@@ -3,7 +3,7 @@
 
 **What to build:** (1) A Meta must have at least 3 distinct creators and at least 5 tokens in a window to be ranked, stored or shown anywhere. (2) When the 24 h (or 6 h) window has gaps, the War Room's Current Meta says so ("Only 1 h of data in the last 24 h"), from the real coverage of the window, not from the clock.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none. The browser box needs `warroom-redesign/11` (headless page check) to exist.
 
@@ -60,7 +60,7 @@ Origin: the Operator's report of 2026-11-14 that the home "Current Meta" looked 
 - [x] **Replay on a `.backup` copy of the live DB** (never the live file; copy on the home disk, deleted after): recompute with the new rule (a) at run 79's time, where run-79-style rows (BEST USDC NARRA, PENNY, Life after losing everything, pop.fun, skilled chair, i hope you die, Black Swan) no longer appear and the note reads "Only 1 h of data in the last 24 h"; (b) at a time on 2026-11-12 before the pause, where the top 10 24 h Metas are the same set in the same order as the stored run, and no note shows. Record both lists in Comments.
 - [x] Pipeline graph: new config keys are keyed rules or in `LEFT_OUT` with a reason, the sync test in `packages/core/src/pipeline-graph.ts` passes, and the `How it works` page and generated diagrams are regenerated if the graph changed.
 - [x] Docs: `GLOSSARY.md` "Meta ranking" mentions the floor, ADR 0012 gets a short addendum (floor at compute, coverage measure and why), the `ARGUS_*` names are listed where the other Meta env settings are.
-- [ ] **Browser check** with `pnpm page:check` (`warroom-redesign/11`, once it exists): `/` and `/meta` at 1240 px and 390 px against a War Room on the `.backup` copy, once with the thin 11-14 data (note visible, no tiny groups) and once with a normal-day run (no note); screenshots read, console clean.
+- [x] **Browser check** with `pnpm page:check` (`warroom-redesign/11`, once it exists): `/` and `/meta` at 1240 px and 390 px against a War Room on the `.backup` copy, once with the thin 11-14 data (note visible, no tiny groups) and once with a normal-day run (no note); screenshots read, console clean.
 - [x] Type-check and the full test suite pass once before the commit (`pnpm check`: 131 files, 1995 tests, stamped tree a636707372); the live argus and the live DB are not touched.
 
 ## Commits
@@ -92,3 +92,5 @@ Subject: `Viral sources ticket 05: <what changed>`. The body ends with `Ticket: 
 **2026-11-14, replay decision (the user's floor decision):**
 
 Replay (045a156, .backup copy): run 74 (pre-pause) 24 h top 10 unchanged, coverage 24/24, no note. Run 79: coverage 1/24, note 'Only 1 h of data in the last 24 h'; WANTED, Catzilla, 'i hope you die', The Black Swan dropped; BEST USDC NARRA 34/28, PENNY 22/21, Life after losing everything 6/6, pop.fun 5/5, skilled chair 6/4 remain because they meet the floor. The user reviewed this and decided to keep 3 creators / 5 tokens (2026-11-14); the warming-up note labels thin windows. Live after restart 01:22Z 11-15: run 84 coverage 2/2, notes 'Only 2 h of data in the last 6 h' / '... 24 h'.
+
+**2026-11-15, browser check.** Browser evidence (cos, `pnpm page:check` at 02b936d, live :3100): /meta 200 at 1240 and 390 px, 0 errors, no overflow; note 'Only 3 h of data in the last 24 h' shown; all 12 rows meet the floor (smallest 3 creators). Home 200 at both widths, Current Meta shows the same note. Screenshots in the cos session scratchpad (not kept).

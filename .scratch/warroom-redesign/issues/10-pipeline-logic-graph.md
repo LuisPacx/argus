@@ -72,12 +72,12 @@ Slice b:
 - [ ] The page shows the counts on the edges and spend on the nodes, refreshes on the poll, and degrades to the static graph when the route fails (tested at the route; browser-checked on the page).
 
 Slice c:
-- [ ] A node opens a panel with `what`, status, rules with the real values, ADRs, tickets, files and spend; closing returns focus; Escape works; the panel text is escaped.
+- [x] A node opens a panel with `what`, status, rules with the real values, ADRs, tickets, files and spend; closing returns focus; Escape works; the panel text is escaped.
 - [x] The buildability gate in the panel is the stored Rubric's value with its version, and equals the number on the Rubric page.
 
 All slices:
-- [ ] Full `pnpm check` passes once on the committed clean tree, per slice.
-- [ ] Browser check by cos at 1240 px and a phone width: the graph reads left to right, nothing overlaps, `off` and `context-only` are told apart, the live numbers match `/activity` and `/api/research` for the same minute, the panel opens and closes by mouse and keyboard.
+- [x] Full `pnpm check` passes once on the committed clean tree, per slice.
+- [x] Browser check by cos at 1240 px and a phone width: the graph reads left to right, nothing overlaps, `off` and `context-only` are told apart, the live numbers match `/activity` and `/api/research` for the same minute, the panel opens and closes by mouse and keyboard.
 
 ## Interplay
 
@@ -134,3 +134,5 @@ One commit per slice, after the full `pnpm check`. Subjects `War Room ticket 10a
 - Not done on purpose: the browser box (cos) and the shared "full `pnpm check` per slice" box.
 
 Slice a check: `pnpm check` passed on the committed tree (128 files, 1951 tests), stamped tree `eb937331a4`; `verify:boot` answered 2xx on `/pipeline` (own temp DB, port 3162).
+
+**2026-11-15, browser check.** Browser evidence (cos, `pnpm page:check` at 02b936d against live :3100, headless, no user/Argus profile): /pipeline 200 at 1240 and 390 px, 0 console/page errors, 0 failed requests; 390 px overflow warning scrollWidth 501 (documented sideways scroll). Keys at both widths: focus #pipe-node-sources (panel hidden) -> Enter -> focus panel-close (panel visible) -> Escape -> focus #pipe-node-sources (panel hidden). Full check per slice: a stamped eb937331a4 (3040f7a), b stamped f0bbd3f187 (68042b2, merged as fd0f0ab after a docs-only rebase), c stamped 86f240dd07 (302932d). Follow-up seen: header nav pill is clipped at 390 px (all pages; not caused by this ticket).
