@@ -79,14 +79,16 @@ it("GET /api/metas returns the stored latest run: rank, label, first seen, both 
   expect(d.counts["24h"]).toMatchObject({ tokens: 5, migrations: 5 });
 });
 
-it("GET /api/metas carries a stored LLM line as the summary, with summarySource llm", async () => {
+it("GET /api/metas (All launch themes) carries the numbers line only: a stored LLM line for the same key is not shown", async () => {
   for (let i = 0; i < 4; i++) launch("Rocketfuel", `c${i}`);
   await recomputeMetas(store, { now: new Date(NOW) });
   const key = store.latestMetas("24h", 5)!.rows[0]!.key;
   store.meta.saveSummary(key, "A cat theme with a few launches", "h", "2026-11-11T20:01:00.000Z", { tokens: 4, creators: 4 });
-  expect(get().metas[0]).toMatchObject({ summary: "A cat theme with a few launches", summarySource: "llm" });
-  store.meta.saveSummary(key, "A cat theme with a few launches", "h", "2026-11-11T20:01:00.000Z", { tokens: 40, creators: 40 }); // written for ten times the row: not shown
-  expect(get().metas[0]).toMatchObject({ summarySource: "template" });
+  const row = get().metas[0]!;
+  expect(row).toMatchObject({ summarySource: "template" });
+  expect(row.summary).toMatch(/^4 tokens from 4 creators in 24 h/);
+  expect(row).not.toHaveProperty("ideas");
+  expect(row).not.toHaveProperty("newMeta");
 });
 
 it("GET /api/metas takes window (6h or 24h) and limit, and answers 400 for anything else", async () => {

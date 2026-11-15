@@ -29,7 +29,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
           <span class="pill pill-accent shrink-0">Meta</span>
           <span class="min-w-0 break-words font-semibold" data-test="current-label">{{ m.label }}</span>
           <span v-if="m.cooling" class="pill pill-amber shrink-0" :title="m.coolingWhy ?? undefined" data-test="current-cooling">cooling</span>
-          <span v-if="m.hot" class="pill pill-outline min-w-0 max-w-full whitespace-normal break-words" data-test="current-hot">{{ m.hot }}</span>
+          <span v-if="m.newMeta" class="pill pill-outline min-w-0 max-w-full whitespace-normal break-words" data-test="current-new-meta">{{ m.newMeta }}</span>
         </div>
         <p class="min-w-0 break-words text-xs" data-test="current-leader">
           <UrlLink v-if="m.leaderHref" :href="m.leaderHref" :label="m.leader" />

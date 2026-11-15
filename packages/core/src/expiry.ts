@@ -9,8 +9,11 @@ export const EXPIRY_MS: Partial<Record<ProposalStatus, number>> = {
   shortlisted: 7 * 24 * HOUR_MS,
 };
 
-/** A `meme` Proposal (ADR 0013) lives 6 h in `new`: a joke about a live Meta is stale by then. A shortlisted one keeps `EXPIRY_MS.shortlisted`. */
-export const MEME_EXPIRY_MS: Partial<Record<ProposalStatus, number>> = { new: 6 * HOUR_MS };
+/**
+ * A `meme` Proposal (ADR 0013, amended 2026-11-15) lives 12 h in `new`: a joke about a live Meta is stale by then, and it matches the 12 h
+ * refresh (`MEME_REFRESH_MS`), so a Meta that stays one always has live ideas. A shortlisted one keeps `EXPIRY_MS.shortlisted`.
+ */
+export const MEME_EXPIRY_MS: Partial<Record<ProposalStatus, number>> = { new: 12 * HOUR_MS };
 
 /** When a Proposal that entered `status` at `since` (ISO, the `status_history.at` of that transition) goes stale, as an ISO time; null for a state that never expires. */
 export function expiresAtFor(status: ProposalStatus, since: string, kind: ProposalKind = "narrative"): string | null {

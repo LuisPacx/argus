@@ -7,7 +7,7 @@ import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
-import { MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
+import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -31,8 +31,6 @@ const LEFT_OUT: Record<string, string> = {
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_PROPOSE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
-  "DEFAULT_META_SUMMARY_CONFIG.topRows": "which rows get a summary line, a detail of the one-line task",
-  "DEFAULT_META_SUMMARY_CONFIG.staleRows": "how far down the ranking a stale line is rewritten, a detail of the one-line task",
   "DEFAULT_META_SUMMARY_CONFIG.maxPerPass": "per-pass pacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.minAgeMinutes": "retry spacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
@@ -47,7 +45,6 @@ const LEFT_OUT: Record<string, string> = {
   "META_RULE.coverageMinCreates": "how many creates make an hour count as covered; it only feeds the window's warming-up note and the skip above",
   "META_RULE.topTokens": "display detail of a Meta row",
   "META_RULE.theme": "clone-cluster merging detail (an object), below this picture",
-  "META_RULE.hotBaselineMaxMinutes": "how old the comparison run may be for the creators rule, a detail of Hot now below this picture",
   "META_RULE.newsWindowHours": "how far back matching news is read, a detail of the context headlines below this picture",
   "META_RULE.newsMaxItems": "how many matching headlines are kept per Meta, a display detail",
   "META_RULE.newsMinKeyChars": "the shortest Meta key a headline can name, a matching detail",
@@ -102,6 +99,7 @@ function realRegistry(): PipelineRegistry {
       MAX_MEME_RUNS_PER_DAY,
       MEME_TRIO_SIZE,
       MEME_WINDOW_MS,
+      MEME_REFRESH_MS,
       ...routingBudgets(),
       DEFAULT_META_INTERVAL_MINUTES,
       ...flatten("META_RULE", META_RULE),
@@ -143,7 +141,7 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(byId.get("meme")!.brainTask).toBe("meme-ideas");
     expect(byId.get("meme")!.worker).toBe("memeIdeasTick");
     expect(byId.get("meme")!.tickets).toContain(".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md");
-    // The new edges: a Hot now Meta goes in, three meme Proposals come out (counted by their own metric).
+    // The new edges: a new Meta (then every 12 h) goes in, three meme Proposals come out (counted by their own metric).
     expect(PIPELINE.edges.find((e) => e.id === "meta-meme")).toMatchObject({ from: "meta", to: "meme" });
     expect(PIPELINE.edges.find((e) => e.id === "meme-proposals")).toMatchObject({ from: "meme", to: "proposals", metric: "memes_created" });
     const chips = Object.fromEntries(byId.get("sources")!.sources!.map((c) => [c.id, c.status]));

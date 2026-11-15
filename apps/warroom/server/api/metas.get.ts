@@ -1,4 +1,4 @@
-import { isMetaWindow, liveHot, memeIdeasByKey, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
+import { isMetaWindow, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 10;
@@ -8,7 +8,7 @@ const one = (value: unknown): string | undefined => (typeof value === "string" &
 /**
  * The live Metas, ranked, from the worker's latest stored run (read-only; the page computes nothing). Query: `window` (6h or 24h;
  * default 24h) and `limit` (1 to 50; default 10). Before the first run it answers an empty list with a null `computedAt`.
- * Every row carries a one-line `summary`: the model's line, else a templated numbers line (`summarySource` says which).
+ * Every row carries a one-line `summary`: the templated numbers line (launch themes get no model line; `summarySource` is `template`).
  */
 export default defineEventHandler((event) => {
   const q = getQuery(event);
@@ -23,9 +23,6 @@ export default defineEventHandler((event) => {
     limit = Number(rawLimit);
     if (limit < 1 || limit > MAX_LIMIT) throw bad("limit");
   }
-  const config = metaConfigFromEnv();
-  const store = useStore();
-  // A Meta whose Hot now event is live (raised within the cool-down) carries `hot`: why and when.
-  // A Meta with live meme ideas (missed ideas ticket 06) carries them in `ideas`, newest first.
-  return metasResponse(store.latestMetas(window, limit), window, config.coverageNoteBelow, liveHot(store, new Date(), config), memeIdeasByKey(store.liveMemeProposals()));
+  // The launch themes ("All launch themes"): counts and the numbers line only. Summaries, New Meta marks and meme ideas belong to the Metas.
+  return metasResponse(useStore().latestMetas(window, limit), window, metaConfigFromEnv().coverageNoteBelow);
 });

@@ -113,28 +113,18 @@ describe("the routes", () => {
     expect(store.pendingCommands().map((c) => c.type)).toEqual(["shortlist", "dismiss"]);
   });
 
-  it("GET /api/metas lists a Meta's live ideas under it (new and shortlisted only), newest first, and the count in the research bar includes the task", async () => {
+  it("GET /api/metas (All launch themes) lists no ideas even for a theme with live ones, and the count in the research bar includes the task", async () => {
     for (let i = 0; i < 4; i++) store.study.recordTokenEvent({ kind: "create", mint: mintOf(), receivedAt: ago(30), signature: "", name: "Jensen", symbol: "JENSEN", creator: `C${i}`.padEnd(44, "x"), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
     await recomputeMetas(store, new Date(NOW));
     const row = store.latestMetas("24h", 5)!.rows[0]!;
-    const made = store.createMemeProposals(trio(row.key), { now: new Date(NOW) });
-    store.transition(made[0]!.id, "dismissed", "operator", "no");
-    store.transition(made[1]!.id, "shortlisted", "operator");
-    const body = metas({ query: {} });
-    expect(body.metas[0]!.ideas!.map((i) => i.id)).toEqual([made[2]!.id, made[1]!.id].sort((a, b) => a - b)); // dismissed one is gone; a trio shares its creation time, so by slot
-    expect(body.metas[0]!.ideas![0]).toMatchObject({ name: "Idea Bravo", status: "shortlisted", riskLabels: ["real person"] });
+    store.createMemeProposals(trio(row.key), { now: new Date(NOW) });
+    expect(metas({ query: {} }).metas[0]).not.toHaveProperty("ideas"); // the ideas are listed under the Current Meta (GET /api/current-meta)
     // The runs of the task are in the research figures and the bar says so.
     const id = store.startBrainRun({ proposalId: 0, task: "meme-ideas", backend: "claude-code", model: "sonnet" });
     store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.1, exitStatus: "success" });
     const r = research() as never as Parameters<typeof researchBar>[0];
-    expect(r).toMatchObject({ runs: 1, memeIdeas: { enabled: false, runs: 1, cap: 40 } });
-    expect(researchBar(r).details.join(" ")).toContain("Meme ideas: 1 of 40 runs in the last 24 h (counted in the budget above); off until ARGUS_MEME_IDEAS=1.");
-  });
-
-  it("a Meta with no live idea has no ideas key at all", async () => {
-    for (let i = 0; i < 3; i++) store.study.recordTokenEvent({ kind: "create", mint: mintOf(), receivedAt: ago(30), signature: "", name: "Bare", symbol: "BARE", creator: `C${i}`.padEnd(44, "x"), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
-    await recomputeMetas(store, new Date(NOW));
-    expect(metas({ query: {} }).metas[0]).not.toHaveProperty("ideas");
+    expect(r).toMatchObject({ runs: 1, memeIdeas: { enabled: false, runs: 1, cap: 8 } });
+    expect(researchBar(r).details.join(" ")).toContain("Meme ideas: 1 of 8 runs in the last 24 h (counted in the budget above); off until ARGUS_MEME_IDEAS=1.");
   });
 });
 
@@ -185,6 +175,28 @@ describe("the Proposal page's meme card", () => {
     expect(html.match(/data-test="meme-risk-label"/g)).toHaveLength(2);
     expect(html).not.toMatch(/undefined|NaN|null/);
     for (const section of ["meme-idea", "meme-meta", "meme-why", "meme-hook", "meme-image", "meme-news", "meme-evidence"]) expect(html, section).toContain(`data-test="${section}"`);
+  });
+
+  it("a version 1 idea made by Hot now still reads as it did (rank, Hot now wording), and a version 2 idea made by a new Meta or a refresh says New Meta or Meta refresh and names the leader", async () => {
+    const v1 = await draw(renderCard, { view: memeView(proposalPayload(), NOW) });
+    expect(v1).toContain("rank 2 in the 24 h ranking");
+    expect(v1).toContain("Hot now: creators 70 to 148 in 1 h, raised 30 minutes ago");
+    const v2snap = (kind: "new-meta" | "refresh") => ({
+      version: 2,
+      capturedAt: ago(0),
+      meta: { label: "Jensen", counts: { "6h": { tokens: 12, creators: 6, migrations: 1, migrationsAfter60s: 0 }, "24h": { tokens: 40, creators: 14, migrations: 8, migrationsAfter60s: 3 } }, topTokens: [] },
+      leader: { mint: "KMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", name: "Jensen Huang", symbol: "JENSEN", marketCapUsd: 2_400_000 },
+      trigger: { kind, reason: "$JENSEN at $2.4M, 14 creators in 24 h", at: ago(30) },
+      run: { computedAt: ago(12) },
+      roomLeft: { passed: true, text: "still has room" },
+      news: [],
+    });
+    const fresh = await draw(renderCard, { view: memeView(proposalPayload({ reason: "New Meta: $JENSEN at $2.4M, 14 creators in 24 h", metaSnapshot: v2snap("new-meta") }), NOW) });
+    for (const text of ["led by Jensen Huang ($JENSEN) $2.4M", "14 creators", "40 tokens", "New Meta: $JENSEN at $2.4M, 14 creators in 24 h, raised 30 minutes ago", "ranking from 12 minutes ago", "New Meta: $JENSEN at $2.4M, 14 creators in 24 h"]) expect(fresh, text).toContain(text);
+    expect(fresh).not.toMatch(/Hot now|rank \d in the 24 h ranking|undefined|NaN|null/);
+    const again = await draw(renderCard, { view: memeView(proposalPayload({ reason: "Meta refresh: $JENSEN at $2.4M, 14 creators in 24 h", metaSnapshot: v2snap("refresh") }), NOW) });
+    expect(again).toContain("Meta refresh: $JENSEN at $2.4M, 14 creators in 24 h, refreshed 30 minutes ago");
+    expect(again).not.toContain("Hot now");
   });
 
   it("says so, in words, where a field is missing (an old row, a snapshot that could not be read)", async () => {

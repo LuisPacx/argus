@@ -59,7 +59,7 @@ it("lists every edge in words below the picture, gates included", async () => {
   const html = await draw(real());
   expect(html).toContain("Narratives to Judge: judge new or changed Narratives");
   expect(html).toContain("Buildability gate, minimum: 6 (Rubric v3)");
-  expect(html).toContain("Meta to Meme ideas: Hot now Meta: once per 6 h, room-left as a reason");
+  expect(html).toContain("Meta to Meme ideas: new Meta, then every 12 h, cap 8 a day, room-left as a reason");
   expect(html).toContain("Meme ideas to Proposals: 3 meme Proposals per run");
   expect(html.match(/<li data-test="legend-[a-z-]+"/g)).toHaveLength(real().edges.length);
 });

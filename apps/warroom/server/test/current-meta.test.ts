@@ -94,15 +94,29 @@ it("a leader marked stale stays stale; a leader mint that is not an address gets
   expect(l).not.toHaveProperty("url");
 });
 
-it("the stored LLM line shows while its input holds and is replaced by the numbers line once the counts move away from it", () => {
+it("the stored LLM line shows while it is under a day old, however the counts moved, and is replaced by the numbers line led by the leader once it is older", () => {
   save([subject("a", 3_000_000), subject("b", 3_000_000)], [subject("w", 80_000)]);
-  store.meta.saveSummary("a", "Jensen Huang quits Nvidia and the token market follows", "h", ago(60), { tokens: 40, creators: 30 });
-  store.meta.saveSummary("b", "An old line", "h", ago(60), { tokens: 400, creators: 300 }); // written for 10x the present counts
+  store.meta.saveSummary("a", "Jensen Huang quits Nvidia and the token market follows", "h", ago(60), { tokens: 400, creators: 300 }); // counts moved since: the line stands
+  store.meta.saveSummary("b", "An old line", "h", ago(25 * 60), { tokens: 40, creators: 30 });
   store.meta.saveSummary("w", "Watching line", "h", ago(60), { tokens: 40, creators: 30 });
   const r = currentMeta();
   expect(r.metas[0]).toMatchObject({ summary: "Jensen Huang quits Nvidia and the token market follows", summarySource: "llm" });
   expect(r.metas[1]).toMatchObject({ summarySource: "template" });
+  expect(r.metas[1]!.summary).toMatch(/^led by b the token at \$3M; 40 tokens from 30 creators in 24 h/);
   expect(r.watching[0]).toMatchObject({ summary: "Watching line", summarySource: "llm" });
+});
+
+it("a Meta carries a New Meta mark while its event is live (not Watching), from the same lookup as /api/new-metas", () => {
+  save([subject("a", 3_000_000), subject("b", 3_000_000)], [subject("w", 80_000)]);
+  const runId = store.currentMetas()!.runId;
+  const leader = store.currentMetas()!.metas[0]!.leader;
+  store.meta.saveNewMeta({ key: "a", label: "A", raisedAt: ago(20), reason: "became a Meta: $A at $3M, 30 creators in 24 h", rank: 1, leader, copies: 30, runId });
+  store.meta.saveNewMeta({ key: "w", label: "W", raisedAt: ago(20), reason: "became a Meta: $W", rank: 1, leader, copies: 30, runId });
+  store.meta.saveNewMeta({ key: "b", label: "B", raisedAt: ago(60 * 7), reason: "became a Meta: $B", rank: 1, leader, copies: 30, runId }); // past its live window
+  const r = currentMeta();
+  expect(r.metas[0]).toMatchObject({ newMeta: { reason: "became a Meta: $A at $3M, 30 creators in 24 h", raisedAt: ago(20) } });
+  expect(r.metas[1]).not.toHaveProperty("newMeta");
+  expect(r.watching[0]).not.toHaveProperty("newMeta");
 });
 
 it("a Meta carries its live meme ideas; a Watching subject with the same key does not", () => {

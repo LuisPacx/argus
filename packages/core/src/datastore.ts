@@ -9,7 +9,7 @@ import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
-import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaHotEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
+import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -37,7 +37,7 @@ import {
   type ProposalStatus,
 } from "./lifecycle.ts";
 
-/** What a Proposal is (ADR 0013): a Narrative with a Tech to build, or a token idea for a Meta that is Hot now (no Spec, no Build, no Score). Old rows read `narrative`. */
+/** What a Proposal is (ADR 0013): a Narrative with a Tech to build, or a token idea for a live Meta (no Spec, no Build, no Score). Old rows read `narrative`. */
 export type ProposalKind = "narrative" | "meme";
 
 export interface Proposal {
@@ -556,7 +556,8 @@ function parseSnapshot(text: string | null): MetaSnapshot | null {
   if (text === null) return null;
   try {
     const v = JSON.parse(text) as unknown;
-    return typeof v === "object" && v !== null && (v as { version?: unknown }).version === 1 ? (v as MetaSnapshot) : null;
+    const version = typeof v === "object" && v !== null ? (v as { version?: unknown }).version : undefined;
+    return version === 1 || version === 2 ? (v as MetaSnapshot) : null;
   } catch {
     return null;
   }
@@ -659,7 +660,7 @@ export type WarRoomStore = Pick<
   | "latestMetas"
   | "currentMetas"
   | "metaSummaries"
-  | "hotMetaEvents"
+  | "newMetaEvents"
   | "contextHeadlines"
   | "buildRefusalFor"
 >;
@@ -883,9 +884,9 @@ export class Datastore {
     return this.meta.summaries(keys);
   }
 
-  /** Hot now events raised at or after `since` (ISO), newest first (missed ideas ticket 03). READ ONLY. */
-  hotMetaEvents(since: string): MetaHotEvent[] {
-    return this.meta.hotSince(since);
+  /** New Meta events (a subject became a Meta) raised at or after `since` (ISO), newest first (meta redesign ticket 03). READ ONLY. */
+  newMetaEvents(since: string): MetaNewEvent[] {
+    return this.meta.newMetaSince(since);
   }
 
   /** Context-class headlines published in [`since`, `until`], newest first (ADR 0011: context, never a trigger). READ ONLY. */
@@ -981,7 +982,7 @@ export class Datastore {
 
   /**
    * WORKER ONLY, and the one way the meme pass makes Proposals (ADR 0013): the three ideas of one run, as `meme` Proposals in `new`
-   * (system actor, `updated_at` = now, which the 6 h expiry counts from), in one transaction. A meme has no Narrative, no Score and no
+   * (system actor, `updated_at` = now; the 12 h expiry, `MEME_EXPIRY_MS`, counts from creation), in one transaction. A meme has no Narrative, no Score and no
    * Spec; `narrative_id` stays NULL, so it is not counted in the 30 a day research cap. The Meta snapshot is stored with each and cannot
    * change afterwards. Refused with `MemeTrioExistsError` when the Meta already got a trio in the last 6 h (any status), and the partial
    * unique index refuses a second live trio in the same 6 h window whatever a caller does. The run that made them is attached to the first.

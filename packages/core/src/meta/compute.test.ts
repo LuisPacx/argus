@@ -395,7 +395,7 @@ describe("recomputeMetas: the size floor (ticket 05)", () => {
     for (const mint of tiny) expect(calls[0]).not.toContain(mint);
   });
 
-  it("never lets a below-floor group reach latestMetas, the API response or the prompt lines", async () => {
+  it("never lets a below-floor group reach latestMetas or the API response, and no group without a leader token worth $1M reaches the prompt lines", async () => {
     const store = Datastore.open(":memory:");
     seedFloor(store);
     await run(store);
@@ -403,9 +403,8 @@ describe("recomputeMetas: the size floor (ticket 05)", () => {
     expect(labels).toEqual(["Kept"]);
     const response = metasResponse(store.latestMetas("24h", 50), "24h");
     expect(response.metas.map((m) => m.label)).toEqual(["Kept"]);
-    const lines = metaLines(selectMetas(store, new Date(NOW), undefined, 0));
-    expect(lines).toHaveLength(1);
-    expect(lines.join("\n")).not.toMatch(/FewTokens|FewCreators|OneCreator/);
+    // The prompt block lists Metas and Watching subjects (market-led, ADR 0014), not the launch-theme rows: none of these has a leader.
+    expect(metaLines(selectMetas(store, new Date(NOW), undefined, 0))).toEqual([]);
   });
 
   it("stores both floors in the run's rule", async () => {

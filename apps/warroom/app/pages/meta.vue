@@ -1,20 +1,20 @@
 <script setup lang="ts">
-// /meta: the Current Meta first (Metas, then Watching; GET /api/current-meta), then the collapsed "All launch themes": every launch theme
-// of the latest run, counts only (GET /api/metas). This page only displays what the worker stored (see utils/meta.ts). The 6 h / 24 h
+// /meta: the New Meta alert, then the Current Meta (Metas, then Watching; GET /api/current-meta), then the collapsed "All launch themes": every
+// launch theme of the latest run, counts only (GET /api/metas). This page only displays what the worker stored (see utils/meta.ts). The 6 h / 24 h
 // toggle is a link, so the choice lives in the URL; `/meta#all-launch-themes` opens the closed list.
-import { HOT_POLL_MS, hotView } from "../utils/hot.ts";
 import { currentMetaView, META_POLL_MS, metaView } from "../utils/meta.ts";
+import { NEW_META_POLL_MS, newMetaView } from "../utils/new-meta.ts";
 
 const route = useRoute();
 const window = computed<"6h" | "24h">(() => (route.query.window === "6h" ? "6h" : "24h"));
 const { data: metas, refresh: refreshMetas } = await useFetch("/api/metas", { query: { window, limit: 50 }, default: () => null });
 const { data: current, refresh: refreshCurrent } = await useFetch("/api/current-meta", { default: () => null });
 
-const { data: hotMetas, refresh: refreshHot } = await useFetch("/api/hot-metas", { default: () => null });
+const { data: newMetas, refresh: refreshNewMeta } = await useFetch("/api/new-metas", { default: () => null });
 
 const nowMs = ref(Date.now());
 let metaTimer: ReturnType<typeof setInterval> | undefined;
-let hotTimer: ReturnType<typeof setInterval> | undefined;
+let newMetaTimer: ReturnType<typeof setInterval> | undefined;
 let clock: ReturnType<typeof setInterval> | undefined;
 const themes = ref<HTMLDetailsElement | null>(null);
 // The fragment names the closed list (or a theme row inside it): open it so the target is visible.
@@ -32,20 +32,20 @@ const openForHash = () => {
 };
 onMounted(() => {
   metaTimer = setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS);
-  hotTimer = setInterval(() => void refreshHot(), HOT_POLL_MS);
+  newMetaTimer = setInterval(() => void refreshNewMeta(), NEW_META_POLL_MS);
   clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
   openForHash();
 });
 watch(() => route.hash, () => nextTick(openForHash));
 onBeforeUnmount(() => {
   clearInterval(metaTimer);
-  clearInterval(hotTimer);
+  clearInterval(newMetaTimer);
   clearInterval(clock);
 });
 
 const view = computed(() => metaView(metas.value, nowMs.value, { rows: 50, window: window.value }));
 const currentSection = computed(() => currentMetaView(current.value, nowMs.value));
-const hotSection = computed(() => hotView(hotMetas.value, nowMs.value));
+const newMetaSection = computed(() => newMetaView(newMetas.value, nowMs.value));
 const windows = computed(() => [
   { label: "Last 24 h", to: { path: "/meta", query: {}, hash: "#all-launch-themes" }, active: window.value === "24h" },
   { label: "Last 6 h", to: { path: "/meta", query: { window: "6h" }, hash: "#all-launch-themes" }, active: window.value === "6h" },
@@ -59,7 +59,7 @@ const windows = computed(() => [
       A Meta is a current trend with a token really high: its leading token has a market cap in the millions. Watching is not a Meta: a token is up, but has not
       reached that market cap yet. The list at the bottom is launch counts, not Metas.
     </p>
-    <HotNow :view="hotSection" />
+    <NewMeta :view="newMetaSection" />
     <CurrentMeta :view="currentSection" />
     <details id="all-launch-themes" ref="themes" class="grid gap-4" data-test="all-launch-themes">
       <summary class="surface flex min-h-11 cursor-pointer items-center font-semibold" data-test="all-launch-themes-summary">All launch themes ({{ view.rows.length }})</summary>

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { checkDistinctName, type ExistingToken } from "../beta/distinct-name.ts";
 import { cleanLabel } from "../meta/group.ts";
 import { normaliseKey } from "../meta/key.ts";
-import { MEME_TRIO_SIZE, type SnapshotNews, type SnapshotToken } from "./types.ts";
+import { MEME_TRIO_SIZE, type MemeTriggerKind, type SnapshotNews, type SnapshotToken } from "./types.ts";
 
 /**
  * The `meme-ideas` Brain task (ADR 0013, missed ideas ticket 06): the prompt and the answer's validation. Everything the model reads about
@@ -195,11 +195,13 @@ export interface MemePromptToken extends SnapshotToken {
 
 export interface MemePromptInput {
   label: string;
-  rank: number;
   counts: { "6h": { tokens: number; creators: number; migrations: number }; "24h": { tokens: number; creators: number; migrations: number } };
-  firstSeenAt: string;
-  /** Why the Meta is hot now (written by code). */
-  hotReason: string;
+  /** When the subject became a Meta. */
+  enteredAt: string;
+  /** The token that leads the Meta (creator-written name and ticker) and its market cap. */
+  leader: { name: string; symbol: string; marketCapUsd: number };
+  /** What triggered this run (written by code): the Meta is new, or it stayed one and the ideas are refreshed. */
+  trigger: { kind: MemeTriggerKind; reason: string };
   tokens: readonly MemePromptToken[];
   /** Every distinct name and ticker of the group's tokens, as display labels; the first `MEME_AVOID_NAMES_MAX` are listed. */
   avoid: readonly string[];
@@ -245,7 +247,7 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
   const newsLines = input.news.slice(0, MEME_PROMPT_NEWS).flatMap((n) => newsLine(n) ?? []);
   const keys = IDEA_KEYS.map((k) => `"${k}"`).join(", ");
   return [
-    `Write ${MEME_TRIO_SIZE} meme token ideas that ride the Meta below, for the Operator of a launchpad dashboard. A Meta is a theme the token market is launching around right now, and this one is Hot now. The Operator decides; argus launches nothing and makes no image.`,
+    `Write ${MEME_TRIO_SIZE} meme token ideas that ride the Meta below, for the Operator of a launchpad dashboard. A Meta is a current trend led by a token with a large market cap, with other tokens copying it, and this one is ${input.trigger.kind === "new-meta" ? "new: it has just become a Meta" : "still a Meta, and its ideas are being refreshed after 12 hours"}. The Operator decides; argus launches nothing and makes no image.`,
     "",
     `Reply with exactly one JSON object and nothing else (no preamble, no code fence): {"subject": {"name": <who or what the Meta is about, at most ${MEME_LIMITS.subject} characters>, "isRealPerson": <true when it is about a named real person, else false>}, "ideas": [${MEME_TRIO_SIZE} objects, each with the keys ${keys}]}. In each idea: "name" is the token name (at most ${MEME_LIMITS.name} characters); "ticker" is 2 to 10 upper-case letters or digits, starting with a letter; "angle" is the joke and why it works now (at most ${MEME_LIMITS.angle}); "difference" is how it differs from the Meta's leading tokens (at most ${MEME_LIMITS.difference}); "description" is a short pitch (at most ${MEME_LIMITS.description}); "hook" is the first post on X (at most ${MEME_LIMITS.hook}); "imageIdea" says in words what the image would show (at most ${MEME_LIMITS.imageIdea}); "riskLabels" is an array of at most ${MEME_LIMITS.riskLabels} short labels (at most ${MEME_LIMITS.riskLabel} characters each) naming what the Operator should weigh, for example "${REAL_PERSON_LABEL}", or [] when none applies. Every text is plain text on one line: no markup, no URL, no newline. Every key above must appear, with no other keys. An answer outside these limits is refused, never cut.`,
     "",
@@ -267,10 +269,10 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
     "",
     `${b} START meta (untrusted)`,
     `Label: ${line(input.label, LABEL_CHARS)}`,
-    `Rank in the 24 h ranking: ${input.rank}`,
-    `Hot now: ${line(input.hotReason, 120)}`,
+    `Leader: ${line(input.leader.name, TOKEN_NAME_CHARS)} (${line(input.leader.symbol, TOKEN_SYMBOL_CHARS)}), market cap ${money(input.leader.marketCapUsd)}`,
+    `Trigger: ${input.trigger.kind === "new-meta" ? "became a Meta" : "refresh after 12 h while it stays a Meta"}: ${line(input.trigger.reason, 120)}`,
     ...counts,
-    `First seen ${line(input.firstSeenAt, 40)}`,
+    `Became a Meta ${line(input.enteredAt, 40)}`,
     "Top tokens:",
     ...tokens,
     ...(avoid.length > 0 ? ["Names and tickers to avoid:", ...avoid] : []),

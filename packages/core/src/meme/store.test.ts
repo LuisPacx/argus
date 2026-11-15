@@ -38,6 +38,28 @@ const memeIdea = (n: number): NewMemeIdea => ({
 const trio = (key = "jensen"): NewMemeTrio => ({ metaKey: key, metaLabel: "Jensen", snapshot: snapshot(key), reason: "Hot now: creators 70 to 148 in 1 h", summary: "Meta Jensen: 141 creators", evidenceLinks: ["https://example.com/a"], ideas: [memeIdea(0), memeIdea(1), memeIdea(2)] });
 const narrative = { narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat Coin", ticker: "CAT", description: "d", evidenceLinks: [] as string[] };
 
+describe("snapshot versions", () => {
+  it("a version 2 snapshot (a Meta, its leader and its trigger) round-trips next to a version 1 snapshot of the Hot now era, and both stay readable", () => {
+    const store = Datastore.open(":memory:");
+    const v2: MetaSnapshot = {
+      version: 2,
+      capturedAt: at(0).toISOString(),
+      meta: { key: "jensen", label: "Jensen", enteredAt: at(-HOUR).toISOString(), holding: false, counts: { "6h": { tokens: 1, creators: 1, migrations: 0, migrationsAfter60s: 0 }, "24h": { tokens: 20, creators: 14, migrations: 2, migrationsAfter60s: 1 } }, topTokens: [] },
+      leader: { mint: "MintJ", name: "Jensen Huang", symbol: "JENSEN", marketCapUsd: 2_400_000 },
+      trigger: { kind: "new-meta", reason: "$JENSEN at $2.4M, 14 creators in 24 h", at: at(0).toISOString() },
+      run: { id: 9, computedAt: at(0).toISOString() },
+      roomLeft: { passed: true, text: "still has room" },
+      tokens: [],
+      news: [],
+    };
+    const [made2] = store.createMemeProposals({ ...trio("jensen"), snapshot: v2, reason: "New Meta: $JENSEN at $2.4M, 14 creators in 24 h" }, { now: at(0) });
+    const [made1] = store.createMemeProposals(trio("old"), { now: at(0) });
+    expect(store.getProposal(made2!.id)!.metaSnapshot).toEqual(v2);
+    expect(store.getProposal(made1!.id)!.metaSnapshot).toEqual(snapshot("old"));
+    expect(store.getProposal(made1!.id)!.reason).toBe("Hot now: creators 70 to 148 in 1 h");
+  });
+});
+
 describe("the kind column and the trio", () => {
   it("stores three meme Proposals in new, with no Narrative, Score or Tech, and the idea fields", () => {
     const store = Datastore.open(":memory:");
@@ -210,33 +232,34 @@ describe("the lifecycle of a meme Proposal", () => {
     expect(store.getProposal(p.id)!.status).toBe("shortlisted");
   });
 
-  it("a meme in new expires after 6 h counted from creation while a narrative Proposal keeps 48 h", () => {
+  it("a meme in new expires after 12 h counted from creation (one made 11 h ago is live, one made 13 h ago is not) while a narrative Proposal keeps 48 h", () => {
     const store = Datastore.open(":memory:");
     const m = meme(store);
     const n = store.createProposal(narrative);
-    expect(MEME_EXPIRY_MS.new).toBe(6 * HOUR);
+    expect(MEME_EXPIRY_MS.new).toBe(12 * HOUR);
     expect(EXPIRY_MS.new).toBe(48 * HOUR);
     const created = Date.parse(m.createdAt);
-    expect(m.expiresAt).toBe(new Date(created + 6 * HOUR).toISOString());
+    expect(m.expiresAt).toBe(new Date(created + 12 * HOUR).toISOString());
     expect(store.getProposal(n.id)!.expiresAt).toBe(new Date(Date.parse(n.createdAt) + 48 * HOUR).toISOString());
-    expect(expireStaleProposals(store, new Date(created + 6 * HOUR - 60_000))).toBe(0);
-    expect(expireStaleProposals(store, new Date(created + 6 * HOUR))).toBe(3); // the three ideas of the trio
+    expect(expireStaleProposals(store, new Date(created + 11 * HOUR))).toBe(0); // 11 h in: still live
+    expect(expireStaleProposals(store, new Date(created + 12 * HOUR - 60_000))).toBe(0);
+    expect(expireStaleProposals(store, new Date(created + 13 * HOUR))).toBe(3); // 13 h in: the three ideas of the trio are closed
     expect(store.getProposal(m.id)!.status).toBe("closed");
     expect(store.historyFor(m.id).at(-1)).toMatchObject({ from: "new", to: "closed", actor: "system", reason: "stale" });
-    expect(store.getProposal(n.id)!.status).toBe("new"); // 6 h in, the narrative Proposal is untouched
+    expect(store.getProposal(n.id)!.status).toBe("new"); // 13 h in, the narrative Proposal is untouched
     expect(expireStaleProposals(store, new Date(Date.parse(n.createdAt) + 48 * HOUR))).toBe(1);
   });
 
-  it("a shortlisted meme keeps the 7 days; an undone shortlist does not restart the 6 h", () => {
+  it("a shortlisted meme keeps the 7 days; an undone shortlist does not restart the 12 h", () => {
     const store = Datastore.open(":memory:");
     const p = meme(store);
     store.transition(p.id, "shortlisted", "operator");
     const since = Date.parse(store.getProposal(p.id)!.updatedAt);
     expect(store.getProposal(p.id)!.expiresAt).toBe(new Date(since + 7 * 24 * HOUR).toISOString());
-    expireStaleProposals(store, new Date(since + 7 * 24 * HOUR - 60_000)); // closes the trio's two ideas still in new (6 h), not this one (7 d)
+    expireStaleProposals(store, new Date(since + 7 * 24 * HOUR - 60_000)); // closes the trio's two ideas still in new (12 h), not this one (7 d)
     expect(store.getProposal(p.id)!.status).toBe("shortlisted");
     store.transition(p.id, "new", "operator");
-    expect(store.getProposal(p.id)!.expiresAt).toBe(new Date(Date.parse(p.createdAt) + 6 * HOUR).toISOString());
+    expect(store.getProposal(p.id)!.expiresAt).toBe(new Date(Date.parse(p.createdAt) + 12 * HOUR).toISOString());
   });
 });
 

@@ -52,8 +52,8 @@ defineProps<{ view: MemeView }>();
         <p v-if="view.meta.numbers.length > 0" class="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="meme-meta-numbers">
           <span v-for="(n, i) in view.meta.numbers" :key="i">{{ n }}</span>
         </p>
-        <p v-if="view.meta.hot || view.meta.ranking" class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs" data-test="meme-meta-hot">
-          <span v-if="view.meta.hot">{{ view.meta.hot }}</span>
+        <p v-if="view.meta.trigger || view.meta.ranking" class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs" data-test="meme-meta-trigger">
+          <span v-if="view.meta.trigger">{{ view.meta.trigger }}</span>
           <span v-if="view.meta.ranking">{{ view.meta.ranking }}</span>
         </p>
         <p v-if="view.meta.roomLeft" class="muted text-xs leading-relaxed" data-test="meme-meta-room">Room left: {{ view.meta.roomLeft }}</p>

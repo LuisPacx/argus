@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { ageText, clampText, fmtUsd, META_POLL_MS, META_STALE_MS, META_TREND, metaAnchor, metaView, trendWord } from "../../app/utils/meta.ts";
+import { ageText, clampText, currentMetaView, fmtUsd, META_POLL_MS, META_STALE_MS, META_TREND, metaAnchor, metaView, trendWord } from "../../app/utils/meta.ts";
 
 const NOW = Date.parse("2026-11-11T20:00:00.000Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -98,17 +98,18 @@ it("metaView: a row's numbers, trend, first seen and tokens", () => {
     firstSeen: "first seen 14 hours ago",
     tokens: [{ text: "woohao ($woohao) $13M", href: null }, { text: "咪好", href: null }],
     summary: "A line",
-    hot: null,
   });
 });
 
-it("metaView: a row carries its Hot now text while the event is live, clamped, and none without one", () => {
-  const live = metaView({ computedAt: ago(1), metas: [row({ hot: { reason: "entered top 5", raisedAt: ago(90) } }), row({})] }, NOW);
-  expect(live.rows[0]!.hot).toBe("Hot now: entered top 5, 1 hour ago");
-  expect(live.rows[1]!.hot).toBeNull();
-  const odd = metaView({ computedAt: ago(1), metas: [row({ hot: { reason: `<b>${"x".repeat(500)}</b>`, raisedAt: "nonsense" } })] }, NOW);
-  expect(odd.rows[0]!.hot).toMatch(/^Hot now: <b>x+…$/);
-  expect(odd.rows[0]!.hot!.length).toBeLessThan(100);
+it("currentMetaView: a Meta carries its New Meta text while the event is live, clamped, and none without one or for Watching", () => {
+  const cur = (over: Record<string, unknown> = {}) => ({ key: "k", label: "Jensen", leader: { name: "Jensen Huang", symbol: "JENSEN", marketCapUsd: 2_400_000 }, enteredAt: ago(120), counts: { "6h": { tokens: 1, creators: 1, migrations: 0 }, "24h": { tokens: 9, creators: 5, migrations: 0 } }, topTokens: [], summary: "", ...over });
+  const live = currentMetaView({ computedAt: ago(1), metas: [cur({ newMeta: { reason: "became a Meta: $JENSEN at $2.4M, 5 creators in 24 h", raisedAt: ago(90) } }), cur()], watching: [cur({ newMeta: { reason: "x", raisedAt: ago(1) } })] } as never, NOW);
+  expect(live.metas[0]!.newMeta).toBe("New Meta: became a Meta: $JENSEN at $2.4M, 5 creators in 24 h, 1 hour ago");
+  expect(live.metas[1]!.newMeta).toBeNull();
+  expect(live.watching[0]!.newMeta).toBeNull();
+  const odd = currentMetaView({ computedAt: ago(1), metas: [cur({ newMeta: { reason: `<b>${"x".repeat(500)}</b>`, raisedAt: "nonsense" } })], watching: [] } as never, NOW);
+  expect(odd.metas[0]!.newMeta).toMatch(/^New Meta: <b>x+…$/);
+  expect(odd.metas[0]!.newMeta!.length).toBeLessThan(140);
 });
 
 it("metaView: absent or broken fields are left out, never shown as undefined or NaN", () => {
@@ -122,7 +123,7 @@ it("metaView: absent or broken fields are left out, never shown as undefined or 
     summary: "   ",
   };
   const v = metaView({ computedAt: ago(1), metas: [broken as never] }, NOW);
-  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", anchor: "meta-odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], stripLine: null, topCap: null, trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null, hot: null });
+  expect(v.rows[0]).toEqual({ rank: 2, label: "Odd", anchor: "meta-odd", numbers: ["7 tokens", "0 migrations (unfiltered)"], stripLine: null, topCap: null, trend: null, firstSeen: null, tokens: [{ text: "Solo ($SOLO)", href: null }], summary: null });
   expect(JSON.stringify(v)).not.toMatch(/undefined|NaN/);
   const empty = metaView({ computedAt: ago(1), metas: [{ rank: 1, label: "Bare" } as never] }, NOW);
   expect(empty.rows[0]).toMatchObject({ label: "Bare", numbers: [], trend: null, tokens: [], summary: null });

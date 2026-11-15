@@ -21,7 +21,7 @@ const TOKEN_NAME_CHARS = 30;
 const TICKER_CHARS = 12;
 const SUMMARY_CHARS = 200;
 const COVERAGE_NOTE_CHARS = 80;
-const HOT_REASON_CHARS = 80;
+const NEW_META_REASON_CHARS = 120;
 
 export interface MetaPayloadCounts {
   tokens: number;
@@ -52,10 +52,6 @@ export interface MetaPayload {
     topTokens: MetaPayloadToken[];
     summary: string;
     summarySource?: string;
-    /** Present while the Meta's Hot now event is live. */
-    hot?: { reason: string; raisedAt: string };
-    /** The Meta's live meme ideas (missed ideas ticket 06), newest first. */
-    ideas?: MetaIdeaPayload[];
   }>;
 }
 
@@ -122,10 +118,6 @@ export interface MetaRowView {
   firstSeen: string | null;
   tokens: MetaTokenView[];
   summary: string | null;
-  /** "Hot now: entered top 5, 2 hours ago" while the Meta's Hot now event is live; null otherwise. */
-  hot: string | null;
-  /** The Meta's live meme ideas; absent (not an empty list) when it has none. */
-  ideas?: MetaIdeaView[];
 }
 
 export interface MetaView {
@@ -152,7 +144,7 @@ export function metaAnchor(label: string): string {
   return cut === "" ? "meta" : `meta-${cut}`;
 }
 
-/** A Meta's top tokens as text; a link exists only where `safeHttpUrl` accepted the URL. Shared with the Hot now panel. */
+/** A Meta's top tokens as text; a link exists only where `safeHttpUrl` accepted the URL. Shared with the New Meta alert. */
 export function tokenViews(topTokens: MetaPayloadToken[] | undefined): MetaTokenView[] {
   return (Array.isArray(topTokens) ? topTokens : []).flatMap((t): MetaTokenView[] => {
     const name = clampText(t?.name, TOKEN_NAME_CHARS);
@@ -182,12 +174,7 @@ function rowView(m: MetaPayload["metas"][number], nowMs: number, window: "6h" | 
   const age = typeof m.firstSeenAt === "string" ? ageText(m.firstSeenAt, nowMs) : null;
   const tokens = tokenViews(m.topTokens);
   const summary = clampText(m.summary, SUMMARY_CHARS);
-  const hotAge = typeof m.hot?.raisedAt === "string" ? ageText(m.hot.raisedAt, nowMs) : null;
-  const hotReason = clampText(m.hot?.reason, HOT_REASON_CHARS);
-  const ideas = ideaViews(m.ideas, nowMs);
   return {
-    ...(ideas.length > 0 ? { ideas } : {}),
-    hot: m.hot ? `Hot now${hotReason !== "" ? `: ${hotReason}` : ""}${hotAge !== null ? `, ${hotAge}` : ""}` : null,
     rank: m.rank,
     label: clampText(m.label, LABEL_CHARS),
     anchor,
@@ -253,7 +240,7 @@ export interface CurrentMetaPayloadRow {
   topTokens: MetaPayloadToken[];
   summary: string;
   summarySource?: string;
-  hot?: { reason: string; raisedAt: string };
+  newMeta?: { reason: string; raisedAt: string };
   ideas?: MetaIdeaPayload[];
 }
 
@@ -276,7 +263,8 @@ export interface CurrentMetaRowView {
   cooling: boolean;
   /** Why it is called cooling (title text); null when it is not. */
   coolingWhy: string | null;
-  hot: string | null;
+  /** "New Meta: became a Meta: $JENSEN at $2.4M, 14 creators in 24 h, 2 hours ago" while the Meta's New Meta event is live; null otherwise and for Watching. */
+  newMeta: string | null;
   /** A Meta's live meme ideas; absent for Watching and for a Meta without any. */
   ideas?: MetaIdeaView[];
 }
@@ -304,8 +292,8 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
   const creators = m?.counts?.["24h"]?.creators;
   const age = typeof m?.enteredAt === "string" ? ageText(m.enteredAt, nowMs) : null;
   const summary = clampText(m?.summary, SUMMARY_CHARS);
-  const hotAge = typeof m?.hot?.raisedAt === "string" ? ageText(m.hot.raisedAt, nowMs) : null;
-  const hotReason = clampText(m?.hot?.reason, HOT_REASON_CHARS);
+  const newAge = typeof m?.newMeta?.raisedAt === "string" ? ageText(m.newMeta.raisedAt, nowMs) : null;
+  const newReason = clampText(m?.newMeta?.reason, NEW_META_REASON_CHARS);
   const ideas = isMeta ? ideaViews(m?.ideas, nowMs) : [];
   const cooling = isMeta && m?.holding === true;
   return {
@@ -322,7 +310,7 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
     tokens: tokenViews(Array.isArray(m?.topTokens) ? m.topTokens.filter((t) => t?.mint === undefined || t.mint !== m?.leader?.mint) : undefined),
     cooling,
     coolingWhy: cooling ? COOLING_WHY : null,
-    hot: isMeta && m?.hot ? `Hot now${hotReason !== "" ? `: ${hotReason}` : ""}${hotAge !== null ? `, ${hotAge}` : ""}` : null,
+    newMeta: isMeta && m?.newMeta ? `New Meta${newReason !== "" ? `: ${newReason}` : ""}${newAge !== null ? `, ${newAge}` : ""}` : null,
   };
 }
 

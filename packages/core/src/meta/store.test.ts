@@ -78,24 +78,14 @@ describe("meta persistence", () => {
     expect(store.latestMetas("6h", 10)!.rows.map((r) => r.label)).toEqual(["A"]);
   });
 
-  it("attaches a stored summary only while the row is close to the counts it was written from (ticket 06), and a pre-ticket row with no counts is stale", () => {
-    const path = join(tempDir("meta-stale-"), "argus.db");
-    const store = Datastore.open(path);
-    store.meta.saveRun(run(T0, [row("A"), row("B"), row("C"), row("D")])); // each row: 10 tokens, 6 creators in 24 h
+  it("the launch-theme rows carry no summary, even where a stored line exists for their key (summaries belong to the Metas and the Watching subjects); the record is kept and readable by key", () => {
+    const store = Datastore.open(":memory:");
+    store.meta.saveRun(run(T0, [row("A"), row("B")]));
     const at = new Date(T0 + 60_000).toISOString();
-    store.meta.saveSummary("a", "written for ten times the row", "h", at, { tokens: 105, creators: 64 });
-    store.meta.saveSummary("b", "written for about the row", "h", at, { tokens: 8, creators: 5 });
-    store.meta.saveSummary("c", "written two days ago", "h", new Date(T0 - 2 * DAY).toISOString(), { tokens: 10, creators: 6 });
-    store.meta.saveSummary("d", "written before ticket 06", "h", at, { tokens: 10, creators: 6 });
-    store.close();
-    const db = new DatabaseSync(path);
-    db.exec("UPDATE meta_summaries SET base_tokens = NULL, base_creators = NULL WHERE key = 'd'");
-    db.close();
-    const again = Datastore.open(path);
-    const rows = again.meta.latest("24h", 10, at)!.rows;
-    expect(rows.map((r) => r.summary)).toEqual([undefined, "written for about the row", undefined, undefined]);
-    expect(again.meta.summaries(["d"]).get("d")).toMatchObject({ baseTokens: null, baseCreators: null }); // the record is kept, only hidden
-    again.close();
+    store.meta.saveSummary("a", "a fresh line for the same key", "h", at, { tokens: 10, creators: 6 });
+    const rows = store.meta.latest("24h", 10, at)!.rows;
+    expect(rows.map((r) => "summary" in r)).toEqual([false, false]);
+    expect(store.meta.summaries(["a"]).get("a")).toMatchObject({ summary: "a fresh line for the same key", baseTokens: 10, baseCreators: 6 });
   });
 
   it("derives migrationRate and createsPerMigration for the ranked window from the stored counts", () => {
@@ -197,6 +187,66 @@ describe("meta persistence", () => {
     expect(again.currentMetas()).toMatchObject({ metas: [], watching: [] });
     again.close();
     expect(tables(path)).toContain("meta_current");
+  });
+
+  const newEvent = (runId: number, key = "jensen", raisedAt = new Date(T0).toISOString()) => ({
+    key,
+    label: "Jensen",
+    raisedAt,
+    reason: "became a Meta: $JENSEN at $2.4M, 14 creators in 24 h",
+    rank: 1,
+    leader: { mint: "MintJ", name: "Jensen Huang", symbol: "JENSEN", marketCapUsd: 2_400_000 },
+    copies: 14,
+    runId,
+  });
+
+  it("the meta_new_events migration is additive and idempotent, an older database gets the table, and an old meta_hot_events table is left alone and unread", () => {
+    const path = join(tempDir("meta-new-migrate-"), "argus.db");
+    Datastore.open(path).close();
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE meta_new_events");
+    // The live database of before this change: a meta_hot_events table with a row that was still live.
+    raw.exec("CREATE TABLE meta_hot_events (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, label TEXT NOT NULL, raised_at TEXT NOT NULL, reason TEXT NOT NULL, rank INTEGER NOT NULL, creators INTEGER NOT NULL, run_id INTEGER NOT NULL)");
+    raw.prepare("INSERT INTO meta_hot_events (key, label, raised_at, reason, rank, creators, run_id) VALUES ('jensen', 'Jensen', ?, 'entered top 5', 1, 9, 1)").run(new Date(T0).toISOString());
+    raw.close();
+    const reopened = Datastore.open(path);
+    const id = reopened.meta.saveRun(run(T0));
+    expect(reopened.newMetaEvents(new Date(T0 - DAY).toISOString())).toEqual([]); // the old row triggers nothing
+    expect(reopened.meta.saveNewMeta(newEvent(id))).toBe(true);
+    reopened.close();
+    const again = Datastore.open(path);
+    expect(again.newMetaEvents(new Date(T0 - DAY).toISOString())).toHaveLength(1);
+    again.meta.saveRun(run(T0 + 15 * 60_000)); // a save prunes: the old table is neither read nor written
+    again.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    expect((db.prepare("SELECT COUNT(*) AS n FROM meta_hot_events").get() as { n: number }).n).toBe(1);
+    db.close();
+    expect(tables(path)).toEqual(expect.arrayContaining(["meta_new_events", "meta_new_events_key", "meta_new_events_run"]));
+  });
+
+  it("stores a New Meta event once per subject and run, reads them newest first from a time on, and prunes them with the runs", () => {
+    const path = join(tempDir("meta-new-events-"), "argus.db");
+    const store = Datastore.open(path);
+    const old = store.meta.saveRun(run(T0 - 20 * DAY));
+    store.meta.saveNewMeta(newEvent(old, "ancient", new Date(T0 - 20 * DAY).toISOString()));
+    const a = store.meta.saveRun(run(T0));
+    expect(store.meta.saveNewMeta(newEvent(a, "jensen", new Date(T0).toISOString()))).toBe(true);
+    expect(store.meta.saveNewMeta(newEvent(a, "jensen", new Date(T0).toISOString()))).toBe(false); // the same run and subject: once
+    expect(store.meta.saveNewMeta(newEvent(a, "gta6", new Date(T0 + 1_000).toISOString()))).toBe(true);
+    expect(store.newMetaEvents(new Date(T0 - 1_000).toISOString()).map((e) => e.key)).toEqual(["gta6", "jensen"]);
+    expect(store.newMetaEvents(new Date(T0 + 500).toISOString()).map((e) => e.key)).toEqual(["gta6"]);
+    expect(store.newMetaEvents(new Date(T0 - 1_000).toISOString())[1]).toEqual({ id: expect.any(Number), ...newEvent(a) });
+    expect(store.newMetaEvents(new Date(T0 - 30 * DAY).toISOString()).map((e) => e.key)).not.toContain("ancient"); // pruned by the save of a newer run
+  });
+
+  it("currentBefore: the Metas of the run before a given run, none for the first", () => {
+    const store = Datastore.open(":memory:");
+    const meta = (key: string): CurrentMeta => ({ key, label: key, leader: { mint: "M", name: "n", symbol: "S", marketCapUsd: 1_500_000, source: "theme", stale: false, freshAt: new Date(T0).toISOString() }, holding: false, enteredAt: new Date(T0).toISOString(), counts: row(key).counts, topTokens: [] });
+    const first = store.meta.saveRun(run(T0, [row("A")], { current: { metas: [meta("jensen")], watching: [] } }));
+    const second = store.meta.saveRun(run(T0 + 15 * 60_000, [row("A")], { current: { metas: [meta("gta6")], watching: [] } }));
+    expect(store.meta.currentBefore(first)).toBeUndefined();
+    expect(store.meta.currentBefore(second)?.metas.map((m) => m.key)).toEqual(["jensen"]);
+    expect(store.meta.currentBefore(999)).toBeUndefined();
   });
 
   it("reads the dexscreener:trending Signals first seen in a window, newest first, and no other Source's", () => {

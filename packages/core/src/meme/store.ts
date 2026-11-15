@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * The meme ideas' attempts (ADR 0013, missed ideas ticket 06): one row per try for a Meta, so "once per Meta per 6 h" holds across
- * restarts whatever became of the try, and a refusal by a cap keeps its reason. Tables only; nothing existing is altered. The Proposals
+ * The meme ideas' attempts (ADR 0013, missed ideas ticket 06): one row per try for a Meta, so the 6 h trio guard and the 12 h refresh hold
+ * across restarts whatever became of the try, and a refusal by a cap keeps its reason. Tables only; nothing existing is altered. The Proposals
  * themselves live in `proposals` (`Datastore.createMemeProposals`).
  */
 
@@ -20,7 +20,7 @@ export interface MemeAttempt {
   id: number;
   /** The Meta group key. */
   key: string;
-  /** When the Hot now event that triggered it was raised. */
+  /** The slot it fills: when the New Meta event was raised, or the start of the 12 h refresh slot (rows from the Hot now era hold that event's time). */
   eventAt: string;
   at: string;
   outcome: MemeOutcome;
@@ -44,7 +44,7 @@ export function migrateMeme(db: DatabaseSync): void {
     runs INTEGER NOT NULL DEFAULT 0
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS meme_attempts_key ON meme_attempts (key, at)");
-  // A cap refusal is recorded once per event (the pass looks again every few minutes and would otherwise add a row each time).
+  // A cap refusal is recorded once per slot (the pass looks again every few minutes and would otherwise add a row each time).
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS meme_attempts_cap ON meme_attempts (key, event_at, outcome) WHERE outcome IN ('daily-cap', 'research-cap')");
 }
 

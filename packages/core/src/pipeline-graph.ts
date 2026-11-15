@@ -13,7 +13,7 @@ import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
-import { MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
+import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -332,7 +332,7 @@ export const PIPELINE: PipelineGraph = {
       column: 1,
       row: 1,
       status: "on",
-      what: "A Meta is a current trend with a token really high (ADR 0014): plain code finds each leader token (of any age) by its current market cap, matches it to the launch theme that copies it, and stores at most 3 Metas and up to 3 Watching subjects, with hysteresis. The old launch-theme ranking (clone clusters of the last day's creates, /meta) keeps running as context. Plain code also raises Hot now when a theme enters the top or its creators double; Claude writes only a one-line summary, which also sees the matching news as context.",
+      what: "A Meta is a current trend with a token really high (ADR 0014): plain code finds each leader token (of any age) by its current market cap, matches it to the launch theme that copies it, and stores at most 3 Metas and up to 3 Watching subjects, with hysteresis. The old launch-theme ranking (clone clusters of the last day's creates, \"All launch themes\" on /meta) keeps running as context, with counts only. Plain code also raises New Meta, one event each time a subject becomes a Meta; Claude writes only a one-line summary, for the Metas and the Watching subjects (at most 6), which also sees the matching news as context.",
       rules: [
         { label: "A token's market cap makes its subject a Meta at", key: "META_RULE.enterMcapUsd", ref: () => META_RULE.enterMcapUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).enterMcapUsd },
         { label: "A Meta stays one while its leader is at least", key: "META_RULE.stayMcapUsd", ref: () => META_RULE.stayMcapUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).stayMcapUsd },
@@ -348,23 +348,17 @@ export const PIPELINE: PipelineGraph = {
         { label: "Distinct creators a Meta needs", key: "META_RULE.minCreators", ref: () => META_RULE.minCreators, unit: "count", live: (env) => metaConfigFromEnv(env).minCreators },
         { label: "Judge and propose skip the Metas when covered hours of 24 are below", key: "META_RULE.coverageNoteBelow", ref: () => META_RULE.coverageNoteBelow, unit: "share", live: (env) => metaConfigFromEnv(env).coverageNoteBelow },
         { label: "Counted as organic after", key: "META_RULE.organicAfterSec", ref: () => META_RULE.organicAfterSec, unit: "sec" },
-        { label: "Hot now: a Meta entering the top", key: "META_RULE.hotTopRank", ref: () => META_RULE.hotTopRank, unit: "count" },
-        { label: "Hot now: or distinct creators growing by (times)", key: "META_RULE.hotCreatorFactor", ref: () => META_RULE.hotCreatorFactor, unit: "count" },
-        { label: "Hot now: creators rule only for a Meta in the top", key: "META_RULE.hotCreatorMaxRank", ref: () => META_RULE.hotCreatorMaxRank, unit: "count" },
-        { label: "Hot now: compared with the ranking from about", key: "META_RULE.hotBaselineMinutes", ref: () => META_RULE.hotBaselineMinutes, unit: "min" },
-        { label: "Hot now: one Meta not raised again within", key: "META_RULE.hotCooldownHours", ref: () => META_RULE.hotCooldownHours, unit: "hours" },
+        { label: "A New Meta event stays live (War Room alert, meme trigger) for", key: "META_RULE.newMetaLiveHours", ref: () => META_RULE.newMetaLiveHours, unit: "hours" },
         { label: "Summaries per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxRunsPerDay, unit: "count", live: (env) => metaSummaryConfigFromEnv(env).maxRunsPerDay },
         { label: "Summary spend per day", key: "DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd", ref: () => DEFAULT_META_SUMMARY_CONFIG.maxDailyUsd, unit: "usd", live: (env) => metaSummaryConfigFromEnv(env).maxDailyUsd },
-        { label: "A summary shows while tokens and creators stay at least (times) its counts", key: "META_SUMMARY_FRESH.minRatio", ref: () => META_SUMMARY_FRESH.minRatio, unit: "count" },
-        { label: "A summary shows while tokens and creators stay at most (times) its counts", key: "META_SUMMARY_FRESH.maxRatio", ref: () => META_SUMMARY_FRESH.maxRatio, unit: "count" },
         { label: "A summary shows for at most", key: "META_SUMMARY_FRESH.maxAgeHours", ref: () => META_SUMMARY_FRESH.maxAgeHours, unit: "hours" },
         { label: "Summary spend per run", key: "DEFAULT_ROUTING.meta-summary.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meta-summary"].maxBudgetUsd, unit: "usd" },
         { label: "Summary wall clock per run", key: "DEFAULT_ROUTING.meta-summary.timeoutMs", ref: () => DEFAULT_ROUTING["meta-summary"].timeoutMs, unit: "ms" },
         { label: "Summary model", ref: () => DEFAULT_ROUTING["meta-summary"].model, unit: "text" },
       ],
       adrs: ["0012-metas-are-ranked-from-launchpad-data-by-plain-code.md", "0014-a-meta-is-led-by-a-tokens-market-cap.md"],
-      tickets: [META_TICKET, ".scratch/meta-redesign/issues/01-market-led-meta-rule.md"],
-      files: ["packages/core/src/meta/compute.ts", "packages/core/src/meta/leaders.ts", "packages/core/src/meta/candidates.ts", "packages/core/src/meta/config.ts", "packages/core/src/meta/summary-pass.ts", "packages/core/src/meta/hot.ts", "packages/core/src/meta/news.ts"],
+      tickets: [META_TICKET, ".scratch/meta-redesign/issues/01-market-led-meta-rule.md", ".scratch/meta-redesign/issues/03-new-meta-event-meme-trigger-summaries-prompt.md"],
+      files: ["packages/core/src/meta/compute.ts", "packages/core/src/meta/leaders.ts", "packages/core/src/meta/candidates.ts", "packages/core/src/meta/config.ts", "packages/core/src/meta/summary-pass.ts", "packages/core/src/meta/new-meta.ts", "packages/core/src/meta/news.ts"],
       worker: ["metaTick", "metaSummaryTick"],
       brainTask: "meta-summary",
     },
@@ -375,11 +369,12 @@ export const PIPELINE: PipelineGraph = {
       row: 1,
       status: "off",
       statusNote: "Off until the Operator sets ARGUS_MEME_IDEAS=1 in the worker's environment (the switch defaults to off). The 2026-11-18 backtest re-run is an input to turning it on.",
-      diagramNote: "Hot now Meta, one sonnet run, 3 ideas",
-      what: "When a Meta is Hot now, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). They become meme Proposals: no Spec, no Build, no Score, and they close after 6 hours unless shortlisted. The room-left ranking is an input to the prompt, and a name that copies a token of the Meta is refused.",
+      diagramNote: "New Meta, then every 12 h, one sonnet run, 3 ideas",
+      what: "When a subject becomes a Meta, and again every 12 hours while it stays one, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). They become meme Proposals: no Spec, no Build, no Score, and they close after 12 hours unless shortlisted. The room-left ranking is an input to the prompt, and a name that copies a token of the Meta is refused. Watching subjects get no ideas.",
       rules: [
         { label: "Ideas per run", key: "MEME_TRIO_SIZE", ref: () => MEME_TRIO_SIZE, unit: "count" },
-        { label: "One Meta gets ideas at most once per", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms", diagram: true },
+        { label: "A Meta gets ideas again every", key: "MEME_REFRESH_MS", ref: () => MEME_REFRESH_MS, unit: "ms", diagram: true },
+        { label: "A new trio is refused within (of the last one)", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms" },
         { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
         { label: "Spend per run", key: "DEFAULT_ROUTING.meme-ideas.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd, unit: "usd" },
@@ -430,10 +425,10 @@ export const PIPELINE: PipelineGraph = {
     { id: "sources-meta", from: "sources", to: "meta", label: "launchpad creates" },
     { id: "sources-meta-trending", from: "sources", to: "meta", label: "trending tokens and their market caps (DexScreener)" },
     { id: "signals-meta", from: "signals", to: "meta", label: "matching news: context only, never a trigger" },
-    { id: "meta-warroom", from: "meta", to: "warroom", label: "Hot now alert" },
+    { id: "meta-warroom", from: "meta", to: "warroom", label: "New Meta" },
     { id: "meta-judge", from: "meta", to: "judge", label: "Meta block in the prompt" },
     { id: "meta-proposals", from: "meta", to: "proposals", label: "Meta block in the prompt" },
-    { id: "meta-meme", from: "meta", to: "meme", label: "Hot now Meta: once per 6 h, room-left as a reason" },
+    { id: "meta-meme", from: "meta", to: "meme", label: "new Meta, then every 12 h, cap 8 a day, room-left as a reason" },
     { id: "meme-proposals", from: "meme", to: "proposals", label: "3 meme Proposals per run", metric: "memes_created" },
     // Off the page: what the old hand-drawn overview also showed.
     { id: "proposals-warroom", from: "proposals", to: "warroom", label: "list" },

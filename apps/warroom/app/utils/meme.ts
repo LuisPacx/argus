@@ -29,17 +29,24 @@ export interface MemeProposalPayload {
   /** The idea's angle. */
   whyNow: string;
   description: string;
-  /** Code-written: what triggered it ("Hot now: ..."). */
+  /** Code-written: what triggered it ("New Meta: ...", "Meta refresh: ...", or "Hot now: ..." on an idea from before the redesign). */
   reason: string;
   /** The code-written two-line Meta summary. */
   narrativeSummary: string;
   evidenceLinks: string[];
   metaLabel?: string | null;
+  /** Both stored versions: 1 (a launch-theme row and a Hot now event, kept as it was made) and 2 (a Meta, its leader and its trigger). */
   metaSnapshot?: {
+    version?: number;
     capturedAt?: string;
     meta?: { label?: string; rank?: number; firstSeenAt?: string; counts?: { "6h"?: Counts; "24h"?: Counts }; topTokens?: Array<{ mint?: string; name?: string; symbol?: string; marketCapUsd?: number }>; summary?: string };
     run?: { computedAt?: string };
+    /** Version 1 only. */
     hot?: { reason?: string; raisedAt?: string; rank?: number; creators?: number };
+    /** Version 2 only: the token that leads the Meta. */
+    leader?: { mint?: string; name?: string; symbol?: string; marketCapUsd?: number };
+    /** Version 2 only: what started the run. `reason` is "$JENSEN at $2.4M, 14 creators in 24 h". */
+    trigger?: { kind?: string; reason?: string; at?: string };
     roomLeft?: { passed?: boolean; text?: string };
     news?: Array<{ title?: string; sourceLabel?: string; url?: string; publishedAt?: string }>;
   } | null;
@@ -69,14 +76,14 @@ export interface MemeView {
   hook: string | null;
   imageIdea: string | null;
   riskLabels: string[];
-  /** Why it was made: "Hot now: creators 70 to 148 in 1 h". */
+  /** Why it was made: "New Meta: $JENSEN at $2.4M, 14 creators in 24 h" (an older idea: "Hot now: creators 70 to 148 in 1 h"). */
   reason: string | null;
   meta: {
     label: string;
-    /** "rank 2 in the 24 h ranking", "148 creators", "256 tokens", "31 migrations (unfiltered)", "12 after 60 s". */
+    /** "led by Jensen Huang ($JENSEN) $2.4M" or, on an older idea, "rank 2 in the 24 h ranking"; then "148 creators", "256 tokens", "31 migrations (unfiltered)", "12 after 60 s". */
     numbers: string[];
-    /** "Hot now: creators 70 to 148 in 1 h, raised 3 hours ago". */
-    hot: string | null;
+    /** "New Meta: $JENSEN at $2.4M, 14 creators in 24 h, raised 3 hours ago", "Meta refresh: ..." or, on an older idea, "Hot now: creators 70 to 148 in 1 h, raised 3 hours ago". */
+    trigger: string | null;
     /** "ranking from 12 minutes ago". */
     ranking: string | null;
     roomLeft: string | null;
@@ -104,13 +111,19 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   const meta = snap?.meta;
   const c24 = meta?.counts?.["24h"];
   const numbers: string[] = [];
-  if (finite(meta?.rank)) numbers.push(`rank ${meta.rank} in the 24 h ranking`);
+  const leader = snap?.version === 2 && snap.leader ? tokenViews([{ name: snap.leader.name ?? "", symbol: snap.leader.symbol ?? "", ...(finite(snap.leader.marketCapUsd) ? { marketCapUsd: snap.leader.marketCapUsd } : {}) }])[0] : undefined;
+  if (leader) numbers.push(`led by ${leader.text}`);
+  else if (finite(meta?.rank)) numbers.push(`rank ${meta.rank} in the 24 h ranking`);
   if (finite(c24?.creators)) numbers.push(plural(c24.creators, "creator"));
   if (finite(c24?.tokens)) numbers.push(plural(c24.tokens, "token"));
   if (finite(c24?.migrations)) numbers.push(`${plural(c24.migrations, "migration")} (unfiltered)`);
   if (finite(c24?.migrationsAfter60s)) numbers.push(`${c24.migrationsAfter60s} after 60 s`);
-  const hotAge = typeof snap?.hot?.raisedAt === "string" ? ageText(snap.hot.raisedAt, nowMs) : null;
-  const hotReason = clampText(snap?.hot?.reason, REASON_CHARS);
+  // What triggered it: a version 2 snapshot says "New Meta" or "Meta refresh", a version 1 snapshot (a Hot now idea) keeps its old wording.
+  const trig = snap?.version === 2 ? snap.trigger : undefined;
+  const triggerAt = trig?.at ?? snap?.hot?.raisedAt;
+  const triggerAge = typeof triggerAt === "string" ? ageText(triggerAt, nowMs) : null;
+  const triggerReason = clampText(trig?.reason ?? snap?.hot?.reason, REASON_CHARS);
+  const triggerName = trig ? (trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
   const rankingAge = typeof snap?.run?.computedAt === "string" ? ageText(snap.run.computedAt, nowMs) : null;
   const tokens = tokenViews(
     (Array.isArray(meta?.topTokens) ? meta.topTokens : []).map((t) => ({
@@ -141,7 +154,7 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
     meta: {
       label: clampText(p.metaLabel ?? meta?.label, META_LABEL_CHARS),
       numbers,
-      hot: hotReason !== "" ? `Hot now: ${hotReason}${hotAge !== null ? `, raised ${hotAge}` : ""}` : null,
+      trigger: triggerReason !== "" ? `${triggerName}: ${triggerReason}${triggerAge !== null ? `, ${trig?.kind === "refresh" ? "refreshed" : "raised"} ${triggerAge}` : ""}` : null,
       ranking: rankingAge !== null ? `ranking from ${rankingAge}` : null,
       roomLeft: present(snap?.roomLeft?.text, ROOM_LEFT_CHARS),
       summary: present(meta?.summary, 200),

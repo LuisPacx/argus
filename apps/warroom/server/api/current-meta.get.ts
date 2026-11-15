@@ -1,4 +1,4 @@
-import { currentMetaResponse, liveHot, memeIdeasByKey, metaConfigFromEnv } from "@argus/core";
+import { currentMetaResponse, liveNewMetas, memeIdeasByKey, metaConfigFromEnv } from "@argus/core";
 
 /**
  * The Current Meta (ADR 0014, meta redesign ticket 02), read-only: at most 3 Metas (each led by a token at millions of market cap) and
@@ -15,7 +15,7 @@ export default defineEventHandler(() => {
     current,
     store.latestMetas("24h", 1)?.coverage ?? null,
     store.metaSummaries(keys),
-    liveHot(store, new Date(), config),
+    liveNewMetas(store, new Date(), config),
     memeIdeasByKey(store.liveMemeProposals()),
     config.coverageNoteBelow,
   );

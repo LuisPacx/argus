@@ -2,7 +2,6 @@ import type { DatabaseSync } from "node:sqlite";
 import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } from "./config.ts";
 import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
-import { summaryFresh } from "./summary.ts";
 import { TRENDING_SOURCE_ID, type TrendingSignalRow } from "./candidates.ts";
 
 /**
@@ -115,10 +114,6 @@ export interface MetaRow extends NewMetaRow {
   migrationRate: number;
   /** tokens / migrations in the ranked window; null when none migrated. */
   createsPerMigration: number | null;
-  /** The stored one-line LLM summary for this group (meta_summaries); absent until one was made. Model text from creator-written input: untrusted. */
-  summary?: string;
-  /** When that summary was made. */
-  summaryAt?: string;
 }
 
 /** One group's summary state: the line, the input it was made for, and the last attempt (kept even when the answer was refused, so a poison input is not retried at once). */
@@ -199,18 +194,24 @@ export function migrateMeta(db: DatabaseSync): void {
     input_hash TEXT NOT NULL,
     tried_at TEXT NOT NULL
   )`);
-  // Missed ideas ticket 03: one row per Meta per Hot now trigger, so a later reader (meme idea generation) asks "which Metas were hot, and when" without recomputing.
-  db.exec(`CREATE TABLE IF NOT EXISTS meta_hot_events (
+  // Meta redesign ticket 03: one row per subject per time it became a Meta (New Meta replaces Hot now). The old `meta_hot_events` table, where a
+  // database has one, is left alone: nothing reads or writes it, so a row from before this change can never trigger anything.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_new_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT NOT NULL,
     label TEXT NOT NULL,
     raised_at TEXT NOT NULL,
     reason TEXT NOT NULL,
     rank INTEGER NOT NULL,
-    creators INTEGER NOT NULL,
+    leader_mint TEXT NOT NULL,
+    leader_name TEXT NOT NULL,
+    leader_symbol TEXT NOT NULL,
+    leader_market_cap_usd REAL NOT NULL,
+    copies INTEGER NOT NULL,
     run_id INTEGER NOT NULL
   )`);
-  db.exec("CREATE INDEX IF NOT EXISTS meta_hot_events_key ON meta_hot_events (key, raised_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS meta_new_events_key ON meta_new_events (key, raised_at)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS meta_new_events_run ON meta_new_events (run_id, key)");
   // Meta redesign ticket 01 (ADR 0014): the Metas and Watching subjects of each run, led by a token's market cap. Additive; the launch-theme tables above are untouched.
   db.exec(`CREATE TABLE IF NOT EXISTS meta_current (
     run_id INTEGER NOT NULL,
@@ -234,20 +235,25 @@ export function migrateMeta(db: DatabaseSync): void {
   )`);
 }
 
-/** A Meta that triggered Hot now: when, why, and where it stood in the 24 h ranking then. Label and reason are creator-derived or code-written text. */
-export interface MetaHotEvent {
+/**
+ * A subject that became a Meta (New Meta): when, why, and who led it then. The label and the leader's name are creator-written (untrusted);
+ * the reason is written by code ("became a Meta: $JENSEN at $2.4M, 14 creators in 24 h").
+ */
+export interface MetaNewEvent {
   id: number;
   key: string;
   label: string;
   raisedAt: string;
-  /** "entered top 5" or "creators 70 to 148 in 1 h": written by code. */
   reason: string;
+  /** Its place among the Metas of the run (1 = highest leader market cap). */
   rank: number;
-  creators: number;
+  leader: { mint: string; name: string; symbol: string; marketCapUsd: number };
+  /** Distinct creators of the subject in the last 24 h at the time. */
+  copies: number;
   runId: number;
 }
 
-export type NewMetaHotEvent = Omit<MetaHotEvent, "id">;
+export type NewMetaNewEvent = Omit<MetaNewEvent, "id">;
 
 /** A context-class headline as the matcher reads it: the title is third-party text, the url is only safe to link after `safeHttpUrl`. */
 export interface ContextHeadline {
@@ -409,24 +415,31 @@ export class MetaStore {
     this.db.prepare("DELETE FROM meta_current WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
-    this.db.prepare("DELETE FROM meta_hot_events WHERE raised_at < ?").run(cutoff);
+    this.db.prepare("DELETE FROM meta_new_events WHERE raised_at < ?").run(cutoff);
   }
 
-  /** WORKER ONLY. Stores one Hot now event. */
-  saveHot(e: NewMetaHotEvent): void {
-    this.db.prepare("INSERT INTO meta_hot_events (key, label, raised_at, reason, rank, creators, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(e.key, e.label, e.raisedAt, e.reason, e.rank, e.creators, e.runId);
-  }
-
-  /** When this group was last raised, or undefined. READ ONLY. */
-  lastHotAt(key: string): string | undefined {
-    const r = this.db.prepare("SELECT MAX(raised_at) AS at FROM meta_hot_events WHERE key = ?").get(key) as { at: string | null };
-    return r.at ?? undefined;
+  /** WORKER ONLY. Stores one New Meta event; a second event for the same subject and run is ignored (so storing a run's events twice stores them once). Returns whether it was stored. */
+  saveNewMeta(e: NewMetaNewEvent): boolean {
+    const r = this.db
+      .prepare("INSERT OR IGNORE INTO meta_new_events (key, label, raised_at, reason, rank, leader_mint, leader_name, leader_symbol, leader_market_cap_usd, copies, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(e.key, e.label, e.raisedAt, e.reason, e.rank, e.leader.mint, e.leader.name, e.leader.symbol, e.leader.marketCapUsd, e.copies, e.runId);
+    return Number(r.changes) > 0;
   }
 
   /** Events raised at or after `since` (ISO), newest first. READ ONLY. */
-  hotSince(since: string): MetaHotEvent[] {
-    const rows = this.db.prepare("SELECT * FROM meta_hot_events WHERE raised_at >= ? ORDER BY raised_at DESC, id DESC LIMIT 200").all(since) as Row[];
-    return rows.map((r) => ({ id: r.id as number, key: r.key as string, label: r.label as string, raisedAt: r.raised_at as string, reason: r.reason as string, rank: r.rank as number, creators: r.creators as number, runId: r.run_id as number }));
+  newMetaSince(since: string): MetaNewEvent[] {
+    const rows = this.db.prepare("SELECT * FROM meta_new_events WHERE raised_at >= ? ORDER BY raised_at DESC, id DESC LIMIT 200").all(since) as Row[];
+    return rows.map((r) => ({
+      id: r.id as number,
+      key: r.key as string,
+      label: r.label as string,
+      raisedAt: r.raised_at as string,
+      reason: r.reason as string,
+      rank: r.rank as number,
+      leader: { mint: r.leader_mint as string, name: r.leader_name as string, symbol: r.leader_symbol as string, marketCapUsd: r.leader_market_cap_usd as number },
+      copies: r.copies as number,
+      runId: r.run_id as number,
+    }));
   }
 
   /**
@@ -462,6 +475,18 @@ export class MetaStore {
     const run = (asOf === undefined
       ? this.db.prepare("SELECT id, computed_at FROM meta_runs ORDER BY computed_at DESC, id DESC LIMIT 1").get()
       : this.db.prepare("SELECT id, computed_at FROM meta_runs WHERE computed_at <= ? ORDER BY computed_at DESC, id DESC LIMIT 1").get(asOf)) as Row | undefined;
+    return this.currentOf(run);
+  }
+
+  /** The Metas and Watching subjects of the run before the one with this id (the newest run computed earlier), or undefined when there is none. READ ONLY. */
+  currentBefore(runId: number): MetaCurrent | undefined {
+    const at = this.db.prepare("SELECT computed_at FROM meta_runs WHERE id = ?").get(runId) as Row | undefined;
+    if (!at) return undefined;
+    const run = this.db.prepare("SELECT id, computed_at FROM meta_runs WHERE computed_at < ? OR (computed_at = ? AND id < ?) ORDER BY computed_at DESC, id DESC LIMIT 1").get(at.computed_at as string, at.computed_at as string, runId) as Row | undefined;
+    return this.currentOf(run);
+  }
+
+  private currentOf(run: Row | undefined): MetaCurrent | undefined {
     if (!run) return undefined;
     const rows = this.db.prepare("SELECT * FROM meta_current WHERE run_id = ? ORDER BY kind, rank").all(run.id as number) as Row[];
     const out: MetaCurrent = { runId: run.id as number, computedAt: run.computed_at as string, metas: [], watching: [] };
@@ -501,7 +526,10 @@ export class MetaStore {
       .run(key, inputHash, at);
   }
 
-  /** The newest run's top `limit` rows for one window, ranked; undefined before the first run. With `asOf` (ISO), the newest run computed at or before it. READ ONLY. */
+  /**
+   * The newest run's top `limit` rows for one window, ranked; undefined before the first run. With `asOf` (ISO), the newest run computed at
+   * or before it. The rows are launch themes, counts only: summaries belong to the Metas and the Watching subjects (`summaries`). READ ONLY.
+   */
   latest(window: MetaWindow, limit: number, asOf?: string): MetaRun | undefined {
     const n = Math.max(0, Math.min(MAX_META_READ, Math.floor(limit)));
     const r = (asOf === undefined
@@ -511,16 +539,6 @@ export class MetaStore {
     const rows = (this.db.prepare("SELECT * FROM meta_rows WHERE run_id = ? AND win = ? AND rank <= ? ORDER BY rank").all(r.id as number, window, n) as Row[]).map((x) => toRow(x, window));
     const windowTokens = r[`base_tokens_${window}`] as number;
     const windowMigrations = r[`base_migrations_${window}`] as number;
-    const summaries = this.summaries(rows.map((x) => x.key));
-    const nowMs = Date.parse(r.computed_at as string); // the run's own time: a summary's age is judged as of the ranking it sits on
-    for (const row of rows) {
-      const s = summaries.get(row.key);
-      // Ticket 06: a stored line is shown only while the row is still close to the counts it was written from.
-      if (s?.summary != null && s.summaryAt != null && summaryFresh(row, s, nowMs)) {
-        row.summary = s.summary;
-        row.summaryAt = s.summaryAt;
-      }
-    }
     return {
       id: r.id as number,
       computedAt: r.computed_at as string,

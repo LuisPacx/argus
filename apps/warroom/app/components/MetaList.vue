@@ -3,7 +3,7 @@
 // trend word and its top tokens. Counts only: no summary line and no meme ideas (those belong to the Current Meta). These rows are themes,
 // not Metas. Everything in `view` is untrusted text (token names are written by token creators): interpolated as text only (no raw-HTML
 // directive), clamped by `metaView`, and a link exists only where `metaView` produced an http(s) href, drawn by UrlLink. Each row's id is
-// its `anchor`, the fragment Hot now links to. Template-only on purpose: server/test/meta-render.test.ts renders it.
+// its `anchor`, the fragment a link to the row uses. Template-only on purpose: server/test/meta-render.test.ts renders it.
 import type { MetaView } from "../utils/meta.ts";
 defineProps<{ view: MetaView }>();
 </script>
@@ -25,7 +25,6 @@ defineProps<{ view: MetaView }>();
           <span class="pill pill-accent shrink-0 tabular-nums">{{ r.rank }}</span>
           <span class="min-w-0 break-words font-semibold" data-test="meta-label">{{ r.label }}</span>
           <span v-if="r.trend" class="pill pill-outline shrink-0" data-test="meta-trend-word">{{ r.trend.word }}</span>
-          <span v-if="r.hot" class="pill pill-accent min-w-0 max-w-full whitespace-normal break-words" data-test="meta-hot">{{ r.hot }}</span>
         </div>
         <p v-if="r.numbers.length > 0" class="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="meta-numbers">
           <span v-for="(n, i) in r.numbers" :key="i">{{ n }}</span>

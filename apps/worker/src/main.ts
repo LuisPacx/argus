@@ -14,7 +14,7 @@ import {
   metaConfigFromEnv,
   metaIntervalMinutes,
   metaSummaryConfigFromEnv,
-  raiseHotMetasSafely,
+  raiseNewMetasSafely,
   recomputeMetas,
   summariseMetas,
   FallbackBrain,
@@ -340,9 +340,9 @@ const metaTick = reentrant(
     console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s) (${r.leaderCalls} for leaders), ${r.dexFailures} failed, ${r.metas} Meta(s), ${r.watching} Watching`);
     // Market-led Metas (ADR 0014): who leads each one, so the log says why a Meta is (or is not) there.
     for (const m of r.current.metas) console.log(`[worker] Meta "${m.label}": leader ${m.leader.symbol || m.leader.name} $${Math.round(m.leader.marketCapUsd).toLocaleString("en-US")}${m.holding ? " (holding)" : ""}${m.leader.stale ? " (stale)" : ""}`);
-    // Hot now (missed ideas ticket 03): plain code over the stored runs, one event per Meta per trigger. Never a Narrative, Proposal or Score.
-    // A failure is logged inside and never skips the summary tick that follows this tick.
-    for (const e of raiseHotMetasSafely(store, metaConfig)) console.log(`[worker] hot now: "${e.label}" (rank ${e.rank}): ${e.reason}`);
+    // New Meta (meta redesign ticket 03): plain code over the two newest stored runs, one event each time a subject becomes a Meta. Never a
+    // Narrative, Proposal or Score. A failure is logged inside and never skips the summary tick that follows this tick.
+    for (const e of raiseNewMetasSafely(store, metaConfig)) console.log(`[worker] new meta: "${e.label}" (leader ${e.leader.symbol || e.leader.name} at $${Math.round(e.leader.marketCapUsd).toLocaleString("en-US")}): ${e.reason}`);
   },
   () => {}, // a slow lookup is still running: the next tick starts fresh
 );
@@ -357,9 +357,10 @@ const metaSummaryTick = reentrant(
   },
   () => {}, // the previous pass is still waiting on claude: the next refresh picks up what is left
 );
-// Meme ideas (missed ideas ticket 06, ADR 0013): for each Meta whose Hot now event is live, one sonnet run that returns three ideas, stored as
-// `meme` Proposals. OFF unless ARGUS_MEME_IDEAS=1 (the Operator turns it on after the backtest re-run); off, the pass reads and calls nothing.
-// At most once per Meta per 6 h and ARGUS_MEME_MAX_PER_DAY runs a day (40 at most), taken from the research budget. A dry run never calls the
+// Meme ideas (missed ideas ticket 06, ADR 0013, amended by meta redesign ticket 03): for each current Meta when it becomes one and again every
+// 12 h while it stays one, one sonnet run that returns three ideas, stored as `meme` Proposals. OFF unless ARGUS_MEME_IDEAS=1 (the Operator
+// turns it on after the backtest re-run); off, the pass reads and calls nothing. ARGUS_MEME_MAX_PER_DAY runs a day (8 by default, 40 at most),
+// taken from the research budget. A dry run never calls the
 // Brain: the pass is skipped. DexScreener (the name check) and the collision checks use the same declared client and the test override.
 const memeSettings = memeConfigFromEnv(process.env);
 const memeDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });

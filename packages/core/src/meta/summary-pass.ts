@@ -5,12 +5,13 @@ import type { LaunchedToken } from "../study/store.ts";
 import type { MetaConfig } from "./config.ts";
 import { groupTokens } from "./group.ts";
 import { newsForKeys } from "./news.ts";
-import type { MetaRow } from "./store.ts";
-import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, metaSummaryShownText, parseMetaSummary, summaryFresh, type MetaSummaryToken } from "./summary.ts";
+import type { CurrentMeta } from "./store.ts";
+import { currentSummaryFresh, META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, metaSummaryShownText, parseMetaSummary, type MetaSummarySubject, type MetaSummaryToken } from "./summary.ts";
 
 /**
- * The Meta summary pass (ticket 03, slice 5): after each ranking refresh, writes the one-line summary of the top Metas of the 24 h
- * ranking with the Brain task `meta-summary`, within a hard cost bound, and stores it by group key. It follows the judge pass:
+ * The Meta summary pass (ticket 03, slice 5; meta redesign ticket 03): after each ranking refresh, writes the one-line summary of the
+ * Metas and the Watching subjects (at most 6 in all, Metas first, ADR 0014) with the Brain task `meta-summary`, within a hard cost bound,
+ * and stores it by group key. The launch themes below them get the numbers line only and no call. It follows the judge pass:
  * - an `in-flight` brain_runs row exists before the child is spawned, and the run's cost is recorded the moment it returns;
  * - an answer that does not fit (`parseMetaSummary`) is refused and logged, nothing is stored, and the templated line stands in;
  * - a rate limit, a budget stop or a shutdown ends the pass at once without error; three transient failures in a row end it too.
@@ -19,11 +20,7 @@ import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, metaSumma
  */
 
 export interface MetaSummaryConfig {
-  /** Only this many of the top rows of the 24 h ranking are summarised. */
-  topRows: number;
-  /** Rows below the top rows (down to this many in all) are rewritten only when they hold a stored summary that has gone stale, so the page never shows one. */
-  staleRows: number;
-  /** Most Brain calls in one pass (one ranking refresh). */
+  /** Most subjects considered, and most Brain calls, in one pass (one ranking refresh): the Metas then the Watching subjects. */
   maxPerPass: number;
   /** Most `meta-summary` runs started in any rolling 24 hours, refused and failed ones included. */
   maxRunsPerDay: number;
@@ -35,7 +32,7 @@ export interface MetaSummaryConfig {
   maxConsecutiveFailures: number;
 }
 
-export const DEFAULT_META_SUMMARY_CONFIG: MetaSummaryConfig = { topRows: 5, staleRows: 15, maxPerPass: 5, maxRunsPerDay: 40, maxDailyUsd: 0.25, minAgeMinutes: 60, maxConsecutiveFailures: 3 };
+export const DEFAULT_META_SUMMARY_CONFIG: MetaSummaryConfig = { maxPerPass: 6, maxRunsPerDay: 40, maxDailyUsd: 0.25, minAgeMinutes: 60, maxConsecutiveFailures: 3 };
 
 /** The config with ARGUS_META_SUMMARY_MAX_PER_DAY and ARGUS_META_SUMMARY_MAX_DAILY_USD applied. A value that is not a positive number is an error, as for ARGUS_JUDGE_*. */
 export function metaSummaryConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaSummaryConfig {
@@ -74,30 +71,28 @@ function groupsAsOf(store: Datastore, computedAt: string): Map<string, LaunchedT
   return new Map(groupTokens(tokens).map((g) => [g.key, g.tokens]));
 }
 
-/** Up to 8 tokens for the prompt: the row's top tokens first, then migrated ones, then the earliest creates. */
-function tokensFor(store: Datastore, row: MetaRow, group: LaunchedToken[] | undefined): MetaSummaryToken[] {
-  const caps = new Map(row.topTokens.flatMap((t) => (t.marketCapUsd !== undefined ? [[t.mint, t.marketCapUsd] as const] : [])));
-  const first = new Map(row.topTokens.map((t, i) => [t.mint, i]));
-  const ordered = [...(group ?? [])].sort(
-    (a, b) =>
-      (first.get(a.mint) ?? 99) - (first.get(b.mint) ?? 99) ||
-      (a.migratedAt === null ? 1 : 0) - (b.migratedAt === null ? 1 : 0) ||
-      (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0) ||
-      (a.mint < b.mint ? -1 : 1),
-  );
-  const shown = ordered.slice(0, META_SUMMARY_MAX_TOKENS);
-  if (shown.length === 0) return row.topTokens.map((t) => ({ name: t.name, symbol: t.symbol, migrated: false, ...(t.marketCapUsd !== undefined ? { marketCapUsd: t.marketCapUsd } : {}) }));
-  return shown.map((t) => {
-    const description = store.study.getSnapshot(t.mint)?.description;
-    const cap = caps.get(t.mint);
-    return {
-      name: t.name,
-      symbol: t.symbol,
-      migrated: t.migratedAt !== null,
-      ...(cap !== undefined ? { marketCapUsd: cap } : {}),
-      ...(description !== undefined && description !== "" ? { description } : {}),
-    };
-  });
+/** Up to 8 tokens for the prompt: the leader first (it may be of any age), then the Meta's top tokens, then migrated ones, then the earliest creates of the group. */
+function tokensFor(store: Datastore, meta: CurrentMeta, group: LaunchedToken[] | undefined): MetaSummaryToken[] {
+  const leader = meta.leader;
+  const caps = new Map(meta.topTokens.flatMap((t) => (t.marketCapUsd !== undefined ? [[t.mint, t.marketCapUsd] as const] : [])));
+  caps.set(leader.mint, leader.marketCapUsd);
+  const first = new Map(meta.topTokens.map((t, i) => [t.mint, i + 1]));
+  const ordered = [...(group ?? [])]
+    .filter((t) => t.mint !== leader.mint)
+    .sort(
+      (a, b) =>
+        (first.get(a.mint) ?? 99) - (first.get(b.mint) ?? 99) ||
+        (a.migratedAt === null ? 1 : 0) - (b.migratedAt === null ? 1 : 0) ||
+        (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0) ||
+        (a.mint < b.mint ? -1 : 1),
+    );
+  const describe = (mint: string): { description?: string } => {
+    const description = store.study.getSnapshot(mint)?.description;
+    return description !== undefined && description !== "" ? { description } : {};
+  };
+  const lead: MetaSummaryToken = { name: leader.name, symbol: leader.symbol, migrated: (group ?? []).some((t) => t.mint === leader.mint && t.migratedAt !== null), marketCapUsd: leader.marketCapUsd, ...describe(leader.mint) };
+  if (ordered.length === 0) return [lead, ...meta.topTokens.filter((t) => t.mint !== leader.mint).map((t) => ({ name: t.name, symbol: t.symbol, migrated: false, ...(t.marketCapUsd !== undefined ? { marketCapUsd: t.marketCapUsd } : {}) }))].slice(0, META_SUMMARY_MAX_TOKENS);
+  return [lead, ...ordered.map((t) => ({ name: t.name, symbol: t.symbol, migrated: t.migratedAt !== null, ...(caps.has(t.mint) ? { marketCapUsd: caps.get(t.mint) as number } : {}), ...describe(t.mint) }))].slice(0, META_SUMMARY_MAX_TOKENS);
 }
 
 export async function summariseMetas(
@@ -115,19 +110,21 @@ export async function summariseMetas(
   // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
   if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };
 
-  const ranking = store.latestMetas("24h", Math.max(config.topRows, config.staleRows));
-  if (!ranking) return out;
-  const saved = store.meta.summaries(ranking.rows.map((r) => r.key));
+  // The Metas, then the Watching subjects: at most `maxPerPass` in all. A launch theme below them is never summarised, stale line or not.
+  const current = store.currentMetas();
+  if (!current) return out;
+  const subjects = [...current.metas.map((m) => ({ meta: m, kind: "meta" as const })), ...current.watching.map((m) => ({ meta: m, kind: "watching" as const }))].slice(0, config.maxPerPass);
+  const saved = store.meta.summaries(subjects.map((s) => s.meta.key));
   let groups: Map<string, LaunchedToken[]> | undefined;
   let transientInARow = 0;
 
-  for (const [index, row] of ranking.rows.entries()) {
+  for (const { meta, kind } of subjects) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
+    const row: MetaSummarySubject & { key: string } = { key: meta.key, label: meta.label, firstSeenAt: meta.enteredAt, counts: meta.counts, topTokens: meta.topTokens, leader: meta.leader, kind };
     const hash = metaInputHash(row);
     const rec = saved.get(row.key);
-    // Ticket 06: a stored line that no longer matches the row (counts out of ratio, too old, counts unknown) counts as missing.
-    const stale = rec !== undefined && rec.summary !== null && !summaryFresh(row, rec, clock().getTime());
-    if (index >= config.topRows && !stale) continue; // below the top rows only a stale line is rewritten, so it is never shown wrong
+    // A stored line older than a day counts as missing (it is no longer shown), so it is rewritten.
+    const stale = rec !== undefined && rec.summary !== null && !currentSummaryFresh(rec, clock().getTime());
     if (rec && rec.summary !== null && rec.inputHash === hash && !stale) continue; // nothing material moved: the line stands
     if (rec && clock().getTime() - Date.parse(rec.triedAt) < config.minAgeMinutes * 60_000) continue; // tried lately
     if (out.called >= config.maxPerPass) break;
@@ -143,10 +140,10 @@ export async function summariseMetas(
       return { ...out, stoppedBy: "research-cap" };
     }
 
-    groups ??= groupsAsOf(store, ranking.computedAt);
+    groups ??= groupsAsOf(store, current.computedAt);
     // Ticket 03 of missed ideas: matching news is context for the line (ADR 0011). It is not part of the input hash: a new headline alone does not buy a call.
     const news = newsForKeys(store, [row.key], clock(), opts.metaConfig).get(row.key) ?? [];
-    const shownTokens = tokensFor(store, row, groups.get(row.key));
+    const shownTokens = tokensFor(store, meta, groups.get(row.key));
     const prompt = metaSummaryPromptFor(row, shownTokens, news);
     const runId = store.startBrainRun({ proposalId: 0, task: "meta-summary", ...brain.routeFor("meta-summary") }, clock());
     out.called++;

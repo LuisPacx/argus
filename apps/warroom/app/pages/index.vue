@@ -23,7 +23,7 @@ const CREATED = [
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },
 ];
-// The kind of a Proposal (ADR 0013): a Narrative's, or a meme idea for a Meta that is Hot now.
+// The kind of a Proposal (ADR 0013): a Narrative's, or a meme idea for a live Meta.
 const KINDS = [
   { value: "", label: "All kinds" },
   { value: "narrative", label: "Narrative" },
@@ -102,17 +102,17 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(metaTimer));
 
-// Hot now (missed ideas ticket 03): the same slow poll; the panel is absent while no event is live.
-const { data: hotMetas, refresh: refreshHot } = await useFetch("/api/hot-metas", { default: () => null });
-let hotTimer: ReturnType<typeof setInterval> | undefined;
+// New Meta (meta redesign ticket 03): the same slow poll; the alert is absent while no event is live.
+const { data: newMetas, refresh: refreshNewMeta } = await useFetch("/api/new-metas", { default: () => null });
+let newMetaTimer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  hotTimer = setInterval(() => void refreshHot(), HOT_POLL_MS);
+  newMetaTimer = setInterval(() => void refreshNewMeta(), NEW_META_POLL_MS);
 });
-onBeforeUnmount(() => clearInterval(hotTimer));
+onBeforeUnmount(() => clearInterval(newMetaTimer));
 
 const nowMs = ref(Date.now());
 const metaSection = computed(() => currentMetaView(currentMeta.value, nowMs.value));
-const hotSection = computed(() => hotView(hotMetas.value, nowMs.value));
+const newMetaSection = computed(() => newMetaView(newMetas.value, nowMs.value));
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
@@ -241,7 +241,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
       </section>
     </Transition>
 
-    <HotNow :view="hotSection" />
+    <NewMeta :view="newMetaSection" />
 
     <CurrentMeta :view="metaSection" home />
 
@@ -262,7 +262,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
                 </h3>
                 <span class="faint text-xs font-medium uppercase tracking-wide">{{ p.ticker }}</span>
                 <StatusPill :status="p.status" />
-                <span v-if="p.kind === 'meme'" class="pill pill-outline" data-test="kind-pill" title="A token idea for a Meta that is Hot now: no Spec, no Build, no Score">meme</span>
+                <span v-if="p.kind === 'meme'" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta: no Spec, no Build, no Score">meme</span>
               </div>
               <template v-if="p.kind === 'meme'">
                 <p class="muted mt-2 line-clamp-2 min-w-0 break-words text-sm leading-relaxed" data-test="meme-angle">{{ memeRowView(p).angle }}</p>

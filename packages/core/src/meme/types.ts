@@ -12,6 +12,8 @@ import type { MetaCounts, MetaTopToken } from "../meta/store.ts";
 export const MEME_TRIO_SIZE = 3;
 /** A Meta gets at most one trio in this long, whatever became of the last one (and the unique index holds one live trio per fixed window of this length). */
 export const MEME_WINDOW_MS = 6 * 3_600_000;
+/** A Meta that stays a Meta gets a fresh trio this long after its last try (ADR 0013, amended 2026-11-15); a new Meta does not wait for it. */
+export const MEME_REFRESH_MS = 12 * 3_600_000;
 
 /** The idea fields of a `meme` Proposal beyond the name, ticker and description (those use the Proposal's own columns; the angle is `whyNow`). */
 export interface MemeFields {
@@ -38,11 +40,46 @@ export interface SnapshotToken extends MetaTopToken {
 }
 
 /**
- * The Meta as it was when the ideas were made: the ranking row, the run it came from, the Hot now event and the matching news, as stored.
- * Written once with the Proposal and never changed (a trigger refuses an update), so the card stays readable after the Meta moves and the
- * outcome tracking (missed-ideas/07) has the numbers at creation. All text in it is untrusted.
+ * The Meta as it was when the ideas were made, as stored. Written once with the Proposal and never changed (a trigger refuses an update), so
+ * the card stays readable after the Meta moves and the outcome tracking (missed-ideas/07) has the numbers at creation. All text in it is
+ * untrusted. Two versions exist and both stay readable: version 1 (a launch-theme row and the Hot now event, up to Meta redesign ticket 03)
+ * and version 2 (a Meta, its leader token and what triggered the run). Readers branch on `version`.
  */
-export interface MetaSnapshot {
+export type MetaSnapshot = MetaSnapshotV1 | MetaSnapshotV2;
+
+/** What started a version 2 run: a subject became a Meta, or it stayed one for `MEME_REFRESH_MS` since the last try. */
+export type MemeTriggerKind = "new-meta" | "refresh";
+
+/** A Meta as the ideas saw it (meta redesign ticket 03): the Meta, its leader token and cap, what triggered the run, the matching news. */
+export interface MetaSnapshotV2 {
+  version: 2;
+  capturedAt: string;
+  meta: {
+    key: string;
+    label: string;
+    /** When the subject became a Meta (carried from run to run). */
+    enteredAt: string;
+    /** True while its leader is between the stay and the enter market cap. */
+    holding: boolean;
+    counts: Record<MetaWindow, MetaCounts>;
+    topTokens: MetaTopToken[];
+    /** The stored one-line summary when there was a fresh one. */
+    summary?: string;
+  };
+  /** The token that leads the Meta, with its market cap when the ideas were made. */
+  leader: { mint: string; name: string; symbol: string; marketCapUsd: number };
+  /** Code-written: `reason` is "$JENSEN at $2.4M, 14 creators in 24 h" and `at` is the event time (new Meta) or the start of the refresh slot. */
+  trigger: { kind: MemeTriggerKind; reason: string; at: string };
+  run: { id: number; computedAt: string };
+  /** The room-left ranking's verdict for the Meta at that run, as numbers-only text. An input to the prompt, never a gate. */
+  roomLeft: { passed: boolean; text: string };
+  /** The tokens the prompt showed (up to 8), the leader first. */
+  tokens: SnapshotToken[];
+  news: SnapshotNews[];
+}
+
+/** The Meta as it was when the ideas were made, Hot now era: the ranking row, the run it came from, the Hot now event and the matching news. */
+export interface MetaSnapshotV1 {
   version: 1;
   capturedAt: string;
   meta: {
