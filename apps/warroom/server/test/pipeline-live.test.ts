@@ -28,7 +28,7 @@ it("returns a count for every edge that has a metric, zeros on a fresh store, an
   const out = asPayload(live());
   expect(Object.keys(out.edges).sort()).toEqual(PIPELINE.edges.filter((e) => e.metric !== undefined).map((e) => e.id).sort());
   for (const e of Object.values(out.edges)) expect(e.count).toBe(0);
-  expect(Object.keys(out.nodes).sort()).toEqual(["build", "judge", "meta", "proposals", "spec"]);
+  expect(Object.keys(out.nodes).sort()).toEqual(["build", "judge", "meme", "meta", "proposals", "spec"]);
   expect(JSON.parse(JSON.stringify(out))).toEqual(out);
 });
 

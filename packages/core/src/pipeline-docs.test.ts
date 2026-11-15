@@ -53,7 +53,11 @@ describe("docs/architecture.md generated diagrams", () => {
     expect(overview).toContain("STUDY -->|\"lesson candidates\"| PLAYBOOK");
     expect(overview).toContain("PLAYBOOK -->|\"approved lessons, versioned\"| JUDGE");
     expect(overview).toContain("MARKED -->|\"mint read-only at 1h, 24h, 7d\"| STUDY");
-    expect(overview).toContain("Beta finder<br/>(off)");
+    expect(overview).toContain("Meme ideas<br/>");
+    expect(overview).toContain("<br/>(off)\"]"); // the Meme ideas node is off until the Operator sets ARGUS_MEME_IDEAS=1
+    expect(overview).toContain("META -->|\"Hot now Meta: once per 6 h, room-left as a reason\"| MEME");
+    expect(overview).toContain("MEME -->|\"3 meme Proposals per run\"| PROPOSALS");
+    expect(overview).not.toContain("Beta finder");
     expect(overview).toContain("Needs a market Signal from: pumpportal:events, dexscreener:trending");
     expect(overview).toContain("Runs every: 30 min");
   });

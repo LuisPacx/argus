@@ -10,8 +10,10 @@
 import { DEFAULT_ROUTING } from "./brain.ts";
 import { BUILD_TICK_MS } from "./build-refusal.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
-import { EXPIRY_MS } from "./expiry.ts";
+import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
+import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
+import { MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -114,6 +116,7 @@ export interface PipelineGraph {
 const CONTEXT_TICKET = ".scratch/phase-3-feedback/issues/24-context-sources-never-propose.md";
 const META_TICKET = ".scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md";
 const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
+const MEME_TICKET = ".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md";
 const LAUNCHPAD_CLUSTER_TICKET = ".scratch/viral-sources/issues/01-launchpad-signals-cluster-by-theme.md";
 
 export const PIPELINE: PipelineGraph = {
@@ -360,17 +363,29 @@ export const PIPELINE: PipelineGraph = {
       brainTask: "meta-summary",
     },
     {
-      id: "beta",
-      label: "Beta finder",
+      id: "meme",
+      label: "Meme ideas",
       column: 2,
       row: 1,
       status: "off",
-      statusNote: "A library and a backtest script only. Nothing runs it in the worker, and slices 3 and 4 are paused until the backtest is re-run.",
-      what: "Would propose a Beta (a token that rides a Meta that still has room) for the best live Metas. Not running.",
-      rules: [],
-      adrs: [],
-      tickets: [BETA_TICKET],
-      files: ["packages/core/src/beta/backtest.ts", "packages/core/src/beta/stats.ts", "scripts/backtest-beta.mjs"],
+      statusNote: "Off until the Operator sets ARGUS_MEME_IDEAS=1 in the worker's environment (the switch defaults to off). The 2026-11-18 backtest re-run is an input to turning it on.",
+      diagramNote: "Hot now Meta, one sonnet run, 3 ideas",
+      what: "When a Meta is Hot now, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). They become meme Proposals: no Spec, no Build, no Score, and they close after 6 hours unless shortlisted. The room-left ranking is an input to the prompt, and a name that copies a token of the Meta is refused.",
+      rules: [
+        { label: "Ideas per run", key: "MEME_TRIO_SIZE", ref: () => MEME_TRIO_SIZE, unit: "count" },
+        { label: "One Meta gets ideas at most once per", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms", diagram: true },
+        { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
+        { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
+        { label: "Spend per run", key: "DEFAULT_ROUTING.meme-ideas.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd, unit: "usd" },
+        { label: "Wall clock per run", key: "DEFAULT_ROUTING.meme-ideas.timeoutMs", ref: () => DEFAULT_ROUTING["meme-ideas"].timeoutMs, unit: "ms" },
+        { label: "Model", ref: () => DEFAULT_ROUTING["meme-ideas"].model, unit: "text" },
+        { label: "Closed as stale after (new)", key: "MEME_EXPIRY_MS.new", ref: () => MEME_EXPIRY_MS.new ?? "never", unit: "ms" },
+      ],
+      adrs: ["0013-a-proposal-has-a-kind-narrative-or-meme.md", "0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
+      tickets: [MEME_TICKET, BETA_TICKET],
+      files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
+      worker: "memeIdeasTick",
+      brainTask: "meme-ideas",
     },
     // Nodes the generated diagrams need but the page does not draw.
     { id: "operator", label: "Operator", onPage: false, shape: "actor", status: "on", what: "The person who decides at every gate.", rules: [], adrs: [], tickets: [], files: [] },
@@ -411,8 +426,8 @@ export const PIPELINE: PipelineGraph = {
     { id: "meta-warroom", from: "meta", to: "warroom", label: "Hot now alert" },
     { id: "meta-judge", from: "meta", to: "judge", label: "Meta block in the prompt" },
     { id: "meta-proposals", from: "meta", to: "proposals", label: "Meta block in the prompt" },
-    { id: "meta-beta", from: "meta", to: "beta", label: "live Metas", dashed: true },
-    { id: "beta-proposals", from: "beta", to: "proposals", label: "Beta Proposals (not wired)", dashed: true },
+    { id: "meta-meme", from: "meta", to: "meme", label: "Hot now Meta: once per 6 h, room-left as a reason" },
+    { id: "meme-proposals", from: "meme", to: "proposals", label: "3 meme Proposals per run", metric: "memes_created" },
     // Off the page: what the old hand-drawn overview also showed.
     { id: "proposals-warroom", from: "proposals", to: "warroom", label: "list" },
     { id: "proposals-telegram", from: "proposals", to: "telegram", label: "notify" },

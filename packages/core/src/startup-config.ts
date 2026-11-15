@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
 import { apiFallbackConfigFromEnv } from "./api-fallback.ts";
 import { judgeConfigFromEnv } from "./judge.ts";
+import { memeConfigFromEnv } from "./meme/pass.ts";
 import { metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { proposeConfigFromEnv } from "./propose.ts";
@@ -43,6 +44,7 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
   const fallback = apiFallbackConfigFromEnv(env);
   const meta = metaConfigFromEnv(env);
   const metaSummary = metaSummaryConfigFromEnv(env);
+  const meme = memeConfigFromEnv(env);
   const rule = STUDY_CAPTURE_RULE;
   const onOff = (b: boolean) => (b ? "on" : "off");
   return [
@@ -65,6 +67,8 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
     `meta_dex=${meta.dexGroups}/${meta.dexMaxCalls}`,
     `meta_summary_runs_24h=${metaSummary.maxRunsPerDay}`,
     `meta_summary_usd_24h=${metaSummary.maxDailyUsd}`,
+    `meme_ideas=${onOff(meme.enabled)}`,
+    `meme_runs_24h=${meme.config.maxRunsPerDay}`,
     `build_dry_run=${onOff(facts.buildDryRun)}`,
     `build_image=${facts.buildImage}`,
     `build_cloudflare=${facts.buildCloudflare ? "yes" : "no"}`,

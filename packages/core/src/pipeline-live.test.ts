@@ -92,6 +92,7 @@ describe("Datastore.pipelineLive and resolvePipelineLive", () => {
       narratives_created: 2,
       narratives_judged: 2,
       proposals_created: 1,
+      memes_created: 0,
       shortlisted: 2,
       spec_drafted: 2,
       approved: 2,

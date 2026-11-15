@@ -96,6 +96,24 @@ export class MissingReasonError extends DomainError {
   }
 }
 
+/** The refusal text for anything that treats a `meme` Proposal (ADR 0013) as something to Spec, approve or build. */
+export const MEME_NO_BUILD_MESSAGE = "A meme Proposal has no Spec, Approve or Build (ADR 0013): shortlist it, dismiss it with a reason, or let it expire";
+
+export class MemeLifecycleError extends DomainError {
+  constructor(message = MEME_NO_BUILD_MESSAGE) {
+    super(message);
+    this.name = "MemeLifecycleError";
+  }
+}
+
+/** The statuses a `meme` Proposal can be in: it is shortlisted, taken back to new, dismissed, or closed when it expires. Never spec-drafted, approved or built. */
+export const MEME_STATUSES: readonly ProposalStatus[] = ["new", "shortlisted", "dismissed", "closed"];
+
+/** Refuses a transition a `meme` Proposal may not make. A `narrative` one passes whatever it is. */
+export function assertMemeTransition(kind: "narrative" | "meme", to: ProposalStatus): void {
+  if (kind === "meme" && !MEME_STATUSES.includes(to)) throw new MemeLifecycleError();
+}
+
 /** Returns the table entry for a legal transition, or undefined. */
 export function findTransition(from: ProposalStatus, to: ProposalStatus, actor: Actor): Transition | undefined {
   return TRANSITIONS.find((t) => t.from === from && t.to === to && t.actor === actor);
@@ -138,6 +156,9 @@ export interface HistoryEntry {
   reason: string;
   at: string;
 }
+
+/** The commands a `meme` Proposal refuses: the Spec (revise, retry), Approve, Build (re-queue, clean up) and Launch (mark launched) path. */
+export const MEME_REFUSED_COMMANDS: readonly CommandType[] = ["approve", "revise", "retry-spec", "requeue", "mark-launched", "cleanup-build"];
 
 const TARGET: Partial<Record<CommandType, ProposalStatus>> = {
   shortlist: "shortlisted",
@@ -189,6 +210,8 @@ export function requeueLeftovers(p: Proposal, checks: RequeueChecks): string[] {
  */
 export function applyCommand(store: Datastore, command: Command, opts: ApplyOptions = {}, leftovers?: readonly string[]): void {
   const proposal = store.getProposal(command.proposalId);
+  // A meme Proposal can be shortlisted, taken back and dismissed; every command that belongs to the Spec, Approve and Build path is refused for it.
+  if (proposal?.kind === "meme" && MEME_REFUSED_COMMANDS.includes(command.type)) throw new MemeLifecycleError();
   if (command.type === "revise" || command.type === "retry-spec") {
     if (!proposal) throw new ProposalNotFoundError(command.proposalId);
     if (command.type === "revise") reviseCommand(store, proposal, command.reason);

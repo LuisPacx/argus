@@ -1,4 +1,4 @@
-import type { Datastore } from "./datastore.ts";
+import type { Datastore, ProposalKind } from "./datastore.ts";
 import type { ProposalStatus } from "./lifecycle.ts";
 
 const HOUR_MS = 3_600_000;
@@ -9,9 +9,12 @@ export const EXPIRY_MS: Partial<Record<ProposalStatus, number>> = {
   shortlisted: 7 * 24 * HOUR_MS,
 };
 
+/** A `meme` Proposal (ADR 0013) lives 6 h in `new`: a joke about a live Meta is stale by then. A shortlisted one keeps `EXPIRY_MS.shortlisted`. */
+export const MEME_EXPIRY_MS: Partial<Record<ProposalStatus, number>> = { new: 6 * HOUR_MS };
+
 /** When a Proposal that entered `status` at `since` (ISO, the `status_history.at` of that transition) goes stale, as an ISO time; null for a state that never expires. */
-export function expiresAtFor(status: ProposalStatus, since: string): string | null {
-  const ttl = EXPIRY_MS[status];
+export function expiresAtFor(status: ProposalStatus, since: string, kind: ProposalKind = "narrative"): string | null {
+  const ttl = (kind === "meme" ? MEME_EXPIRY_MS[status] : undefined) ?? EXPIRY_MS[status];
   return ttl === undefined ? null : new Date(new Date(since).getTime() + ttl).toISOString();
 }
 

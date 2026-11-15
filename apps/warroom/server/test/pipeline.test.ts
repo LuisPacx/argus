@@ -12,7 +12,7 @@ beforeEach(() => {
   store = Datastore.open(":memory:");
 });
 
-const SHOWN = ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "beta"];
+const SHOWN = ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "meme"];
 
 // The client reads the payload through its own type: the server's response must stay assignable to it (a renamed field fails the type check).
 const asPayload = (r: ReturnType<typeof resolvePipeline>): PipelinePayload => r;
@@ -25,7 +25,7 @@ it("GET /api/pipeline returns the on-page graph as plain data, with the stored R
   const gate = out.edges.find((e) => e.id === "judge-proposals")!.gates[0]!;
   expect(gate).toMatchObject({ label: "Buildability gate, minimum", value: SEED_GATE_MIN_SCORE, rubricVersion: 1 });
   expect(JSON.parse(JSON.stringify(out))).toEqual(out); // survives JSON: no function, no undefined hole
-  expect(out.nodes.find((n) => n.id === "beta")).toMatchObject({ status: "off" });
+  expect(out.nodes.find((n) => n.id === "meme")).toMatchObject({ status: "off", brainTask: "meme-ideas" });
   expect(out.nodes.find((n) => n.id === "study")).toMatchObject({ status: "on" });
   expect(out.nodes.find((n) => n.id === "study")).not.toHaveProperty("brainTask"); // plain code: no Claude cost
 });
@@ -67,7 +67,7 @@ it("layout: columns go left to right, rows top to bottom, and no two nodes overl
   expect(new Set(stages.map((id) => l.boxes[id]!.y)).size).toBe(1);
   // The side row sits beneath the tallest stage node (the Sources node, with its chips).
   const tallest = Math.max(...stages.map((id) => l.boxes[id]!.y + l.boxes[id]!.h));
-  for (const id of ["study", "meta", "beta"]) expect(l.boxes[id]!.y).toBeGreaterThan(tallest);
+  for (const id of ["study", "meta", "meme"]) expect(l.boxes[id]!.y).toBeGreaterThan(tallest);
   expect(l.boxes.sources!.h).toBe(HEAD_H + 5 * CHIP_H);
   // It fits the 1240 px content width, so only a narrower screen scrolls.
   expect(l.width).toBeLessThanOrEqual(1240);

@@ -124,6 +124,7 @@ export class RunCancels {
 export function draftable(store: Datastore, now = new Date()): Proposal[] {
   return store.listProposals().filter((p) => {
     if (p.status !== "shortlisted") return false;
+    if (p.kind === "meme") return false; // a meme idea has no Spec (ADR 0013): shortlisting it starts no run
     if (p.brainRunInFlightSince !== null) return false;
     if (!p.specError) return true;
     return p.specRetryAfter !== null && new Date(p.specRetryAfter) <= now;
@@ -153,7 +154,7 @@ export async function draftSpec(
 ): Promise<boolean> {
   if (signal?.aborted) return false; // shutting down: never spawn
   const current = store.getProposal(proposal.id);
-  if (!current || current.status !== "shortlisted") return false;
+  if (!current || current.status !== "shortlisted" || current.kind === "meme") return false;
   if (store.openBrainRun(proposal.id, "spec")) return false;
 
   const runId = store.startBrainRun({ proposalId: proposal.id, task: "spec", ...brain.routeFor("spec") });

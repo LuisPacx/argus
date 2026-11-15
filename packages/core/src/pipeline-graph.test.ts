@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ROUTING } from "./brain.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
-import { EXPIRY_MS } from "./expiry.ts";
+import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
+import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
+import { MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -34,6 +36,9 @@ const LEFT_OUT: Record<string, string> = {
   "DEFAULT_META_SUMMARY_CONFIG.maxPerPass": "per-pass pacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.minAgeMinutes": "retry spacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
+  "DEFAULT_MEME_CONFIG.maxPerPass": "per-pass pacing of the meme ideas task, below this picture",
+  "DEFAULT_MEME_CONFIG.failedRetryMinutes": "retry spacing of the meme ideas task, below this picture",
+  "DEFAULT_MEME_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "META_RULE.maxRowsPerWindow": "storage detail of the Meta ranking",
   "META_RULE.retentionDays": "storage detail of the Meta ranking",
   "META_RULE.dexGroups": "DexScreener call budget of the Meta ranking, below this picture",
@@ -92,6 +97,11 @@ function realRegistry(): PipelineRegistry {
       ...flatten("DEFAULT_PROPOSE_CONFIG", DEFAULT_PROPOSE_CONFIG),
       ...flatten("DEFAULT_RESEARCH_BUDGET_CONFIG", DEFAULT_RESEARCH_BUDGET_CONFIG),
       ...flatten("DEFAULT_META_SUMMARY_CONFIG", DEFAULT_META_SUMMARY_CONFIG),
+      ...flatten("DEFAULT_MEME_CONFIG", DEFAULT_MEME_CONFIG),
+      ...flatten("MEME_EXPIRY_MS", MEME_EXPIRY_MS),
+      MAX_MEME_RUNS_PER_DAY,
+      MEME_TRIO_SIZE,
+      MEME_WINDOW_MS,
       ...routingBudgets(),
       DEFAULT_META_INTERVAL_MINUTES,
       ...flatten("META_RULE", META_RULE),
@@ -116,20 +126,26 @@ describe("the pipeline graph is in sync with the code", () => {
 
   it("the registry really finds what it claims to (so an empty gap list means something)", () => {
     const r = realRegistry();
-    expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "metaSummaryTick", "metaTick", "proposeTick", "studyTick", "tick"]);
+    expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "proposeTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
-    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "build"]);
+    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meme-ideas", "build"]);
     expect(Object.keys(r.config).length).toBeGreaterThan(30);
   });
 
   it("draws the ten stages and the three side nodes, with the statuses the Operator decided", () => {
     const byId = new Map(PIPELINE.nodes.map((n) => [n.id, n]));
-    for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "meta", "beta", "study"]) expect(byId.get(id), id).toBeDefined();
+    for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "meta", "meme", "study"]) expect(byId.get(id), id).toBeDefined();
     expect(PIPELINE.nodes.filter((n) => n.onPage !== false)).toHaveLength(13);
-    expect(byId.get("beta")!.status).toBe("off");
-    expect(byId.get("beta")!.statusNote).toMatch(/slices 3 and 4 are paused/);
-    expect(byId.get("beta")!.tickets).toContain(".scratch/viral-sources/issues/04-beta-finder.md");
+    expect(byId.has("beta")).toBe(false); // the old "Beta finder" node is the Meme ideas node now (missed ideas ticket 06)
+    expect(byId.get("meme")!.status).toBe("off");
+    expect(byId.get("meme")!.statusNote).toMatch(/ARGUS_MEME_IDEAS=1/);
+    expect(byId.get("meme")!.brainTask).toBe("meme-ideas");
+    expect(byId.get("meme")!.worker).toBe("memeIdeasTick");
+    expect(byId.get("meme")!.tickets).toContain(".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md");
+    // The new edges: a Hot now Meta goes in, three meme Proposals come out (counted by their own metric).
+    expect(PIPELINE.edges.find((e) => e.id === "meta-meme")).toMatchObject({ from: "meta", to: "meme" });
+    expect(PIPELINE.edges.find((e) => e.id === "meme-proposals")).toMatchObject({ from: "meme", to: "proposals", metric: "memes_created" });
     const chips = Object.fromEntries(byId.get("sources")!.sources!.map((c) => [c.id, c.status]));
     expect(chips).toEqual({ "rss:": "context-only", "trends:google": "context-only", "github:trending": "context-only", "pumpportal:events": "on", "dexscreener:trending": "on" });
     for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "meta", "study"]) expect(byId.get(id)!.status, id).toBe("on");
@@ -159,7 +175,7 @@ describe("the pipeline graph is in sync with the code", () => {
 
   it("the page view leaves out the nodes the page does not draw and the edges that touch them", () => {
     const view = resolvePipeline(PIPELINE);
-    expect(view.nodes.map((n) => n.id)).toEqual(["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "beta"]);
+    expect(view.nodes.map((n) => n.id)).toEqual(["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "meme"]);
     const ids = new Set(view.nodes.map((n) => n.id));
     for (const e of view.edges) expect([ids.has(e.from), ids.has(e.to)]).toEqual([true, true]);
     expect(view.edges.length).toBeGreaterThan(10);

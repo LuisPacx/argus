@@ -11,7 +11,7 @@ describe("startupConfigLine", () => {
   it("states the effective defaults on one greppable line", () => {
     const line = startupConfigLine({}, facts());
     expect(line).toBe(
-      "[config] judge_min_signals=2 judge_min_signals_launchpad=15 judge_runs_24h=300 propose_new_24h=30 propose_runs_24h=45 daily_quota_usd=20 research_share=0.3 api_fallback=off api_key=unset study=on study_rule=v1 study_age_s=60/300 study_captures_day=20000 meta_every_min=15 meta_rank=creators,migrationsAfter60s,marketCapUsd,tokens meta_dex=10/20 meta_summary_runs_24h=40 meta_summary_usd_24h=0.25 build_dry_run=off build_image=localhost/argus-build:cc-1 build_cloudflare=yes build_token=present telegram=off",
+      "[config] judge_min_signals=2 judge_min_signals_launchpad=15 judge_runs_24h=300 propose_new_24h=30 propose_runs_24h=45 daily_quota_usd=20 research_share=0.3 api_fallback=off api_key=unset study=on study_rule=v1 study_age_s=60/300 study_captures_day=20000 meta_every_min=15 meta_rank=creators,migrationsAfter60s,marketCapUsd,tokens meta_dex=10/20 meta_summary_runs_24h=40 meta_summary_usd_24h=0.25 meme_ideas=off meme_runs_24h=40 build_dry_run=off build_image=localhost/argus-build:cc-1 build_cloudflare=yes build_token=present telegram=off",
     );
     expect(line).not.toContain("\n");
   });
@@ -27,6 +27,12 @@ describe("startupConfigLine", () => {
     for (const part of ["judge_min_signals=3", "judge_runs_24h=100", "propose_new_24h=5", "propose_runs_24h=9", "daily_quota_usd=10", "research_share=0.5", "api_fallback=on", "api_key=set", "study=off", "study_captures_day=500", "telegram=on"]) {
       expect(line).toContain(part);
     }
+  });
+
+  it("states the meme ideas switch and its cap (off by default, on only for 1)", () => {
+    expect(startupConfigLine({ ARGUS_MEME_IDEAS: "1", ARGUS_MEME_MAX_PER_DAY: "10" }, facts())).toContain("meme_ideas=on meme_runs_24h=10");
+    expect(startupConfigLine({ ARGUS_MEME_IDEAS: "0" }, facts())).toContain("meme_ideas=off meme_runs_24h=40");
+    expect(() => startupConfigLine({ ARGUS_MEME_IDEAS: "yes" }, facts())).toThrow(/ARGUS_MEME_IDEAS/);
   });
 
   it("never contains a secret value", () => {

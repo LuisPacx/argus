@@ -29,6 +29,11 @@ export * from "./meta/summary-pass.ts";
 export * from "./meta/news.ts";
 export * from "./meta/hot.ts";
 export * from "./meta/hot-api.ts";
+export * from "./meme/types.ts";
+export * from "./meme/store.ts";
+export * from "./meme/ideas.ts";
+export * from "./meme/pass.ts";
+export * from "./beta/distinct-name.ts";
 
 export * from "./disclosure.ts";
 export * from "./ticks.ts";

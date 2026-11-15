@@ -10,6 +10,8 @@ import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaHotEvent, type MetaRun } from "./meta/store.ts";
+import { MemeStore, migrateMeme } from "./meme/store.ts";
+import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { isMaterialJoin } from "./narratives.ts";
@@ -26,6 +28,7 @@ import {
 import {
   DomainError,
   ProposalNotFoundError,
+  assertMemeTransition,
   assertTransition,
   type Actor,
   type Command,
@@ -34,9 +37,22 @@ import {
   type ProposalStatus,
 } from "./lifecycle.ts";
 
+/** What a Proposal is (ADR 0013): a Narrative with a Tech to build, or a token idea for a Meta that is Hot now (no Spec, no Build, no Score). Old rows read `narrative`. */
+export type ProposalKind = "narrative" | "meme";
+
 export interface Proposal {
   id: number;
   slug: string;
+  /** `narrative` (the Narrative to Spec to Build path) or `meme` (a Meta's idea; shortlist, dismiss or expire only). */
+  kind: ProposalKind;
+  /** The Meta group key a `meme` Proposal was made for; null for a `narrative` one. */
+  metaKey: string | null;
+  /** The Meta's label when the idea was made; creator-written text, untrusted. Null for a `narrative` Proposal. */
+  metaLabel: string | null;
+  /** The Meta as it was when the idea was made (immutable once written); null for a `narrative` Proposal. */
+  metaSnapshot: MetaSnapshot | null;
+  /** The idea's own fields (the angle is `whyNow`, the short description `description`); null for a `narrative` Proposal. */
+  meme: MemeFields | null;
   status: ProposalStatus;
   narrativeSummary: string;
   techOneLiner: string;
@@ -102,6 +118,8 @@ export type ProposalSort = "score" | "newest" | "changed" | "usage";
 export interface ProposalQuery {
   sort?: ProposalSort;
   status?: ProposalStatus;
+  /** Only Proposals of this kind (ADR 0013). */
+  kind?: ProposalKind;
   /** A Proposal collides when either check collides, is clear only when both are, and is unknown otherwise (also when never checked). */
   collision?: CollisionStatus;
   /** ISO time: only Proposals created at or after it. */
@@ -259,6 +277,14 @@ export class NarrativeAlreadyProposedError extends DomainError {
   constructor(narrativeId: number) {
     super(`Narrative ${narrativeId} already has a Proposal`);
     this.name = "NarrativeAlreadyProposedError";
+  }
+}
+
+/** The Meta already has a trio inside the 6 h window (or a live one in this fixed window): a second one is refused. */
+export class MemeTrioExistsError extends DomainError {
+  constructor(metaKey: string) {
+    super(`The Meta "${metaKey.slice(0, 60)}" already has a meme trio in the last 6 hours`);
+    this.name = "MemeTrioExistsError";
   }
 }
 
@@ -446,6 +472,26 @@ export function migrate(db: DatabaseSync): void {
   // The 24 h token and creator counts a summary was written from (viral sources ticket 06); NULL on older rows means unknown, so the line is stale.
   ensureColumn(db, "meta_summaries", "base_tokens", "INTEGER");
   ensureColumn(db, "meta_summaries", "base_creators", "INTEGER");
+  // Proposal kinds (ADR 0013, missed ideas ticket 06): additive and idempotent. Every row from before reads `narrative` (the default), with
+  // no Meta and no idea fields. A `meme` row has `narrative_id` NULL and no `score_id`; `meme_window` is its creation time in whole 6 h windows
+  // and `meme_slot` its place (1 to 3) in the trio, so the partial unique index holds one live (`new` or `shortlisted`) trio per Meta per window.
+  ensureColumn(db, "proposals", "kind", "TEXT NOT NULL DEFAULT 'narrative'");
+  ensureColumn(db, "proposals", "meta_key", "TEXT");
+  ensureColumn(db, "proposals", "meta_label", "TEXT");
+  ensureColumn(db, "proposals", "meta_snapshot", "TEXT");
+  ensureColumn(db, "proposals", "meme_window", "INTEGER");
+  ensureColumn(db, "proposals", "meme_slot", "INTEGER");
+  ensureColumn(db, "proposals", "meme_difference", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "meme_hook", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "meme_image_idea", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "proposals", "meme_risk_labels", "TEXT NOT NULL DEFAULT '[]'");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_meme_live ON proposals (meta_key, meme_window, meme_slot) WHERE kind = 'meme' AND status IN ('new', 'shortlisted')");
+  db.exec("CREATE INDEX IF NOT EXISTS proposals_meme_meta ON proposals (meta_key, created_at) WHERE kind = 'meme'");
+  // The snapshot is written once with the Proposal: a later update of it is refused by the database itself.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS proposals_meta_snapshot_immutable BEFORE UPDATE OF meta_snapshot ON proposals
+    WHEN OLD.meta_snapshot IS NOT NULL AND NEW.meta_snapshot IS NOT OLD.meta_snapshot
+    BEGIN SELECT RAISE(ABORT, 'meta_snapshot is immutable'); END`);
+  migrateMeme(db);
 }
 
 export function slugify(text: string): string {
@@ -458,6 +504,14 @@ export function slugify(text: string): string {
 interface Row {
   id: number;
   slug: string;
+  kind: ProposalKind;
+  meta_key: string | null;
+  meta_label: string | null;
+  meta_snapshot: string | null;
+  meme_difference: string;
+  meme_hook: string;
+  meme_image_idea: string;
+  meme_risk_labels: string;
   status: ProposalStatus;
   narrative_summary: string;
   tech_one_liner: string;
@@ -496,10 +550,35 @@ interface Row {
 
 const PROPOSAL_SELECT = `SELECT p.*, (SELECT MAX(at) FROM status_history h WHERE h.proposal_id = p.id AND h.to_status = p.status) AS status_since,(SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
+/** The stored snapshot, or null when there is none (a `narrative` row) or it cannot be read (never throws: a bad row must not break the list). */
+function parseSnapshot(text: string | null): MetaSnapshot | null {
+  if (text === null) return null;
+  try {
+    const v = JSON.parse(text) as unknown;
+    return typeof v === "object" && v !== null && (v as { version?: unknown }).version === 1 ? (v as MetaSnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRiskLabels(text: string): string[] {
+  try {
+    const v = JSON.parse(text) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function toProposal(r: Row): Proposal {
   return {
     id: r.id,
     slug: r.slug,
+    kind: r.kind ?? "narrative",
+    metaKey: r.meta_key ?? null,
+    metaLabel: r.meta_label ?? null,
+    metaSnapshot: parseSnapshot(r.meta_snapshot ?? null),
+    meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels) } : null,
     status: r.status,
     narrativeSummary: r.narrative_summary,
     techOneLiner: r.tech_one_liner,
@@ -528,7 +607,7 @@ function toProposal(r: Row): Proposal {
     buildCleaned: r.build_cleaned === 1,
     // `new` counts from creation: Undo shortlist returns a Proposal to `new` and must not restart its 48 h. `shortlisted` counts from
     // the latest shortlist (a re-shortlist after an undo is a new decision and gets its own 7 days).
-    expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at)),
+    expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at), r.kind ?? "narrative"),
     narrativeId: r.narrative_id,
     scoreId: r.score_id,
     narrativeCreatedAt: r.narrative_created_at,
@@ -548,6 +627,8 @@ export type WarRoomStore = Pick<
   | "proposalIdWithMint"
   | "listProposals"
   | "queryProposals"
+  | "liveMemeProposals"
+  | "memeIdeasSpendSince"
   | "getCommand"
   | "listCommands"
   | "pendingCommands"
@@ -771,11 +852,14 @@ export class Datastore {
   readonly study: StudyStore;
   /** The Meta ranking's tables (viral sources ticket 03). The worker writes through this; readers use `latestMetas`. */
   readonly meta: MetaStore;
+  /** The meme ideas' attempts (missed ideas ticket 06). The worker writes through this; the War Room reads Proposals only. */
+  readonly meme: MemeStore;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
     this.study = new StudyStore(db);
     this.meta = new MetaStore(db);
+    this.meme = new MemeStore(db);
   }
 
   /** The newest Meta ranking run's top `limit` rows for a window; undefined before the first run. */
@@ -879,6 +963,73 @@ export class Datastore {
     return this.getProposal(id)!;
   }
 
+  /**
+   * WORKER ONLY, and the one way the meme pass makes Proposals (ADR 0013): the three ideas of one run, as `meme` Proposals in `new`
+   * (system actor, `updated_at` = now, which the 6 h expiry counts from), in one transaction. A meme has no Narrative, no Score and no
+   * Spec; `narrative_id` stays NULL, so it is not counted in the 30 a day research cap. The Meta snapshot is stored with each and cannot
+   * change afterwards. Refused with `MemeTrioExistsError` when the Meta already got a trio in the last 6 h (any status), and the partial
+   * unique index refuses a second live trio in the same 6 h window whatever a caller does. The run that made them is attached to the first.
+   */
+  createMemeProposals(input: NewMemeTrio, opts: { now?: Date; attachRunId?: number | number[] } = {}): Proposal[] {
+    if (input.ideas.length !== MEME_TRIO_SIZE) throw new DomainError(`A meme trio has ${MEME_TRIO_SIZE} ideas, got ${input.ideas.length}`);
+    const nowDate = opts.now ?? new Date();
+    const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
+    const snapshot = JSON.stringify(input.snapshot);
+    const window = Math.floor(nowDate.getTime() / MEME_WINDOW_MS);
+    return this.inTransaction(() => {
+      const since = new Date(nowDate.getTime() - MEME_WINDOW_MS).toISOString();
+      if (this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(input.metaKey, since)) throw new MemeTrioExistsError(input.metaKey);
+      const ids = input.ideas.map((idea, i) => {
+        const base = slugify(idea.name) || "meme";
+        let slug = base;
+        for (let n = 2; this.db.prepare("SELECT 1 FROM proposals WHERE slug = ?").get(slug); n++) slug = `${base}-${n}`;
+        const now = nowDate.toISOString();
+        let res;
+        try {
+          res = this.db
+            .prepare(
+              `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
+                 narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
+                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at)
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              slug,
+              input.summary,
+              idea.angle,
+              idea.name,
+              idea.ticker,
+              idea.description,
+              JSON.stringify(evidenceLinks),
+              idea.collisions ? JSON.stringify(idea.collisions) : null,
+              input.reason,
+              input.metaKey,
+              input.metaLabel,
+              snapshot,
+              window,
+              i + 1,
+              idea.difference,
+              idea.hook,
+              idea.imageIdea,
+              JSON.stringify(idea.riskLabels),
+              now,
+              now,
+            );
+        } catch (e) {
+          if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) throw new MemeTrioExistsError(input.metaKey);
+          throw e;
+        }
+        const id = Number(res.lastInsertRowid);
+        const why = `Idea ${i + 1} of ${MEME_TRIO_SIZE} for the Meta "${input.metaLabel.replace(/\s+/g, " ").slice(0, 60)}" (${input.reason.replace(/\s+/g, " ").slice(0, 100)})`;
+        this.db.prepare("INSERT INTO status_history (proposal_id, from_status, to_status, actor, reason, at) VALUES (?, NULL, 'new', 'system', ?, ?)").run(id, why, now);
+        return id;
+      });
+      // The run that made the trio was recorded against no Proposal; from here its cost is the first idea's.
+      for (const runId of [opts.attachRunId ?? []].flat()) this.db.prepare("UPDATE brain_runs SET proposal_id = ? WHERE id = ? AND proposal_id = 0").run(ids[0] as number, runId);
+      return ids.map((id) => this.getProposal(id)!);
+    });
+  }
+
   /** How many research Proposals (made from a Narrative) were created at or after `since` (ISO), whatever became of them. */
   researchProposalsSince(since: string): number {
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM proposals WHERE narrative_id IS NOT NULL AND created_at >= ?").get(since) as unknown as { n: number };
@@ -890,10 +1041,22 @@ export class Datastore {
     return row && toProposal(row);
   }
 
+  /** Whether a `meme` Proposal for this Meta was created after `since` (ISO), whatever became of it: the "once per Meta per 6 h" check. READ ONLY. */
+  hasMemeSince(metaKey: string, since: string): boolean {
+    return this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(metaKey, since) !== undefined;
+  }
+
+  /** The `meme` Proposals still live (`new` or `shortlisted`), newest first then by slot: what the Meta page shows under each Meta. READ ONLY. */
+  liveMemeProposals(): Proposal[] {
+    const rows = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.kind = 'meme' AND p.status IN ('new', 'shortlisted') ORDER BY p.created_at DESC, p.meme_slot, p.id`).all() as unknown as Row[];
+    return rows.map(toProposal);
+  }
+
   /** Proposals still `new` whose Telegram card has not been queued, oldest first. */
   unannouncedNewProposals(): Proposal[] {
     const rows = this.db
-      .prepare(`${PROPOSAL_SELECT} WHERE p.status = 'new' AND p.id NOT IN (SELECT proposal_id FROM telegram_announced) ORDER BY p.id`)
+      // A `meme` Proposal is not announced (ADR 0013: the Telegram notice is not part of that decision, and its card has no Tech to show).
+      .prepare(`${PROPOSAL_SELECT} WHERE p.status = 'new' AND p.kind = 'narrative' AND p.id NOT IN (SELECT proposal_id FROM telegram_announced) ORDER BY p.id`)
       .all() as unknown as Row[];
     return rows.map(toProposal);
   }
@@ -909,7 +1072,7 @@ export class Datastore {
 
   /**
    * The Proposals list the War Room shows, filtered and sorted in SQL so a `limit` (none by default) cuts the right rows. Sorts:
-   * `score` (default: the Narrative's latest Score total, highest first, Proposals with none last, then newest), `newest` (by
+   * `score` (default: the Narrative's latest Score total, highest first, Proposals with none last, `meme` ones among them, then newest), `newest` (by
    * creation), `changed` (last update), `usage` (Est. usage, highest first). Filters: `status`, `collision`, `createdSince`.
    */
   queryProposals(q: ProposalQuery = {}): Proposal[] {
@@ -922,6 +1085,10 @@ export class Datastore {
     if (q.status !== undefined) {
       where.push("p.status = ?");
       params.push(q.status);
+    }
+    if (q.kind !== undefined) {
+      where.push("p.kind = ?");
+      params.push(q.kind);
     }
     if (q.collision !== undefined) where.push({ collides, clear, unknown: `NOT ${collides} AND NOT ${clear}` }[q.collision]);
     if (q.createdSince !== undefined) {
@@ -1022,6 +1189,7 @@ export class Datastore {
    * - `narratives_judged`: DISTINCT narratives with a Score by `created_at` (`scores_created_at`), a re-judged Narrative counting once;
    *   `narrativesPassedGate` is how many of those have a buildability of at least `gateMinScore` in a Score of the window (the gate as the caller holds it now).
    * - `proposals_created`: research Proposals (made from a Narrative) by `created_at` (`proposals_created_at`), as `researchProposalsSince`.
+   * - `memes_created`: `meme` Proposals (ADR 0013) by `created_at` (`proposals_created_at`).
    * - `shortlisted`, `spec_drafted`, `approved`: DISTINCT Proposals that entered that status in the window, by `status_history.at` (`status_history_at`).
    * - `built`, `build_finished`: transitions into `built`, or into `built` or `build-failed` (each is one Build's end), same index.
    * - `brainRuns`: `brain_runs` by `created_at` (`brain_runs_created_at`) per task; `estUsd` sums the cost runs reported on the subscription (backend not
@@ -1065,6 +1233,7 @@ export class Datastore {
         narratives_created: one("SELECT COUNT(*) AS n FROM narratives WHERE created_at >= ?", since),
         narratives_judged: judged.judged,
         proposals_created: this.researchProposalsSince(since),
+        memes_created: one("SELECT COUNT(*) AS n FROM proposals WHERE kind = 'meme' AND created_at >= ?", since),
         shortlisted: proposals("shortlisted"),
         spec_drafted: proposals("spec-drafted"),
         approved: proposals("approved"),
@@ -1092,10 +1261,10 @@ export class Datastore {
     return rows.map(toNarrative);
   }
 
-  /** The newest judge and propose runs (Spec and Build runs left out), by id descending. */
+  /** The newest judge, propose and meme-ideas runs (Spec and Build runs left out), by id descending. */
   recentBrainRuns(limit = 20): BrainRunSummary[] {
     const rows = this.db
-      .prepare("SELECT * FROM brain_runs WHERE task IN ('judge', 'propose') ORDER BY id DESC LIMIT ?")
+      .prepare("SELECT * FROM brain_runs WHERE task IN ('judge', 'propose', 'meme-ideas') ORDER BY id DESC LIMIT ?")
       .all(limit) as unknown as BrainRunRow[];
     return rows.map((r) => ({
       id: r.id,
@@ -1520,6 +1689,8 @@ export class Datastore {
       const current = this.getProposal(proposalId);
       if (!current) throw new ProposalNotFoundError(proposalId);
       const t = assertTransition(current.status, to, actor);
+      // A `meme` Proposal has no Spec, Approve or Build (ADR 0013): the table above allows those transitions for a `narrative` one only.
+      assertMemeTransition(current.kind, to);
       const now = new Date().toISOString();
       this.db.prepare("UPDATE proposals SET status = ?, updated_at = ? WHERE id = ?").run(to, now, proposalId);
       if (to === "approved") this.db.prepare("UPDATE proposals SET approved_at = ? WHERE id = ?").run(now, proposalId);
@@ -1582,9 +1753,14 @@ export class Datastore {
     return this.spendSince(["meta-summary"], since, caps);
   }
 
-  /** What research (judge, propose and the Meta summary line) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
+  /** What the meme ideas task has spent since `since` (ISO), as for `judgeSpendSince`. */
+  memeIdeasSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["meme-ideas"], since, caps);
+  }
+
+  /** What research (judge, propose, the Meta summary line and the meme ideas) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meme-ideas"], since, caps);
   }
 
   /**

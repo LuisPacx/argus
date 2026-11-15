@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { removeTree } from "./build-home.ts";
 import { BRAIN_RUN_IN_FLIGHT, type Datastore, type Proposal } from "./datastore.ts";
-import { DomainError, type Command, type ProposalStatus } from "./lifecycle.ts";
+import { DomainError, MEME_NO_BUILD_MESSAGE, type Command, type ProposalStatus } from "./lifecycle.ts";
 
 /**
  * "Clean up build": removes what a dead Build left outside argus (its Cloudflare Worker, its private GitHub repo and its checkout
@@ -117,6 +117,7 @@ export function cleanupPlan(p: Proposal, buildRoot: string): CleanupPlan {
  * history and its mint.
  */
 export function cleanupRefusal(store: Pick<Datastore, "historyFor" | "brainRunsFor">, p: Proposal, buildRoot: string): string | null {
+  if (p.kind === "meme") return MEME_NO_BUILD_MESSAGE; // a meme idea is never built, so it has nothing to clean up
   if (p.status === "launched") return "Clean up build is never done for a launched Proposal: its site stays up";
   if (!CLEANUP_STATUSES.includes(p.status)) return `Clean up build needs a dismissed, closed or build-failed Proposal (it is ${p.status}; dismiss it first)`;
   if (p.mint !== null || store.historyFor(p.id).some((h) => h.to === "launched")) return "Clean up build is never done for a Proposal that was launched: its site stays up";

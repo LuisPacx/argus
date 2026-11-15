@@ -27,7 +27,7 @@ flowchart TD
   PREVIEW["Preview"]
   STUDY["Study<br/>plain code, no Claude: PumpPortal create and migrate, Snapshots, chain labels"]
   META["Meta<br/>Ranked every: 15 min"]
-  BETA["Beta finder<br/>(off)"]
+  MEME["Meme ideas<br/>Hot now Meta, one sonnet run, 3 ideas<br/>One Meta gets ideas at most once per: 6 h<br/>Runs per day: 40<br/>(off)"]
   OPERATOR{{"Operator"}}
   WARROOM["War Room (localhost)"]
   TELEGRAM["Telegram, notify only"]
@@ -51,8 +51,8 @@ flowchart TD
   META -->|"Hot now alert"| WARROOM
   META -->|"Meta block in the prompt"| JUDGE
   META -->|"Meta block in the prompt"| PROPOSALS
-  META -.->|"live Metas"| BETA
-  BETA -.->|"Beta Proposals (not wired)"| PROPOSALS
+  META -->|"Hot now Meta: once per 6 h, room-left as a reason"| MEME
+  MEME -->|"3 meme Proposals per run"| PROPOSALS
   PROPOSALS -->|"list"| WARROOM
   PROPOSALS -->|"notify"| TELEGRAM
   WARROOM -->|"reads"| OPERATOR
@@ -87,7 +87,7 @@ Notes:
   4. Blind study runs (planned, not built: `BrainTask` has no `study` today, so the Study spends no Claude, see section 5): a `study` Brain task would read one Snapshot as untrusted data, never the label; aggregation into lesson candidates is plain code.
   5. The Playbook (lessons and suggested Rubric changes) is reviewed weekly by the Operator in the War Room. Approved lessons are rendered into the judge and propose prompts at call time, with the Playbook version (section 7).
 - The Operator's own Launches are read from chain after "mark launched" and tracked as outcomes only, kept out of Cohort statistics.
-- **Proposal kinds (ADR 0013).** A Proposal has a kind, `proposals.kind`: `narrative` (the path above; old rows read `narrative`) or `meme`. A `meme` Proposal is a token idea for a Meta that is Hot now, generated from the Meta (missed-ideas/06), not from a Narrative, and it replaces the `beta` kind that was never wired (the "Beta finder" node above is the room-left ranking that feeds it). It stores the Meta label and an immutable Meta snapshot, and carries a name, ticker, angle, how it differs from the leader, a short description, an X first-post hook, an image idea as text, risk labels and evidence links. Generation is once per Meta per 6 h, 3 ideas in one sonnet run, at most 40 runs a day from the research budget. Lifecycle: Shortlist, Dismiss with a reason, and Why; no Spec, no Build and no Rubric score of its own (no buildability gate); it expires after 6 h in `new` unless shortlisted (a shortlisted one keeps the 7 days). It shows as a list filter on Proposals and under each Meta on `/meta`. Its legitimacy rule is Rubric v3 (missed-ideas/04; not yet in section 7). The "Beta finder" nodes in the generated overview above are the old name for the room-left input. argus still launches nothing (ADR 0002).
+- **Proposal kinds (ADR 0013).** A Proposal has a kind, `proposals.kind`: `narrative` (the path above; old rows read `narrative`) or `meme`. A `meme` Proposal is a token idea for a Meta that is Hot now, generated from the Meta (missed-ideas/06), not from a Narrative, and it replaces the `beta` kind that was never wired (the room-left ranking of `packages/core/src/beta/` is an input to its prompt, not a gate). It stores the Meta label and an immutable Meta snapshot, and carries a name, ticker, angle, how it differs from the leader, a short description, an X first-post hook, an image idea as text, risk labels and evidence links. Generation is once per Meta per 6 h, 3 ideas in one sonnet run, at most 40 runs a day from the research budget. Lifecycle: Shortlist, Dismiss with a reason, and Why; no Spec, no Build and no Rubric score of its own (no buildability gate); it expires after 6 h in `new` unless shortlisted (a shortlisted one keeps the 7 days). It shows as a list filter on Proposals and under each Meta on `/meta`. Its legitimacy rule is Rubric v3 (missed-ideas/04; not yet in section 7), read from the stored Rubric into the prompt. The "Meme ideas" node in the generated overview above is the task (section 5, `meme-ideas`), off until `ARGUS_MEME_IDEAS=1`; it replaces the old "Beta finder" node. argus still launches nothing (ADR 0002).
 
 ## 3. Proposal lifecycle
 
@@ -225,7 +225,7 @@ Real Builds need these, once (ADR 0005). `pnpm check` and `--dry-run` need none 
 The `Brain` interface is the single seam for all LLM work. Callers ask for a task and get structured output plus cost.
 
 ```ts
-type BrainTask = 'judge' | 'propose' | 'spec' | 'build' | 'meta-summary';
+type BrainTask = 'judge' | 'propose' | 'spec' | 'build' | 'meta-summary' | 'meme-ideas';
 
 interface BrainRun<T> {
   output: T;
@@ -258,12 +258,15 @@ Routing is data (config file, overridable per task), not code branching:
 | spec | claude-code | sonnet |
 | build | claude-code | sonnet |
 | meta-summary | claude-code | haiku |
+| meme-ideas | claude-code | sonnet |
+
+The `meme-ideas` task (ADR 0013, missed ideas ticket 06) writes three meme ideas for a Meta that is Hot now, as one JSON object that argus validates field by field (`parseMemeOutput`); it has no tools and no API fallback. The Meta's token names and descriptions and the matching headlines are untrusted: they go in as one-line data inside blocks that end only at fresh random boundary lines. It runs only when `ARGUS_MEME_IDEAS=1` (default off), at most once per Meta per 6 h and 40 runs a day (`ARGUS_MEME_MAX_PER_DAY` can only lower it), counted in `brain_runs` and the research share. A name or ticker that copies a token of the Meta's group or one DexScreener lists is refused by the distinct-name rule; the answer goes back once with the copied names listed, then nothing is stored. The three ideas are stored as `meme` Proposals in one transaction with an immutable Meta snapshot.
 
 The `meta-summary` task writes the one-line summary of a Meta (no tools, a judge-sized haiku run, no API fallback); it counts in the research share. The Meta ranking itself is plain code. So is **Hot now** (missed ideas ticket 03): after each ranking the worker compares the newest 24 h ranking with the run about an hour older and stores one event (`meta_hot_events`) for each Meta that entered the top 5 or, while in the top 10 (`hotCreatorMaxRank`), whose distinct creators at least doubled, at most once per Meta per 6 h cool-down, and never from a thinly covered window (the same `coverageNoteBelow` that drops the judge's Meta block). The War Room shows the live events (home page and `/meta`) with the Meta's summary, top tokens, migrations and the matching news. News is context only (ADR 0011): context-class Signals of the last 24 h whose title names the Meta's subject key are shown beside the event and sent to the `meta-summary` prompt in its own untrusted boundary, and never raise an event or make a Narrative.
 
 There is no `study` task. The Study (phase 3a) is plain code today: PumpPortal events, Snapshot capture under the versioned capture rule (`STUDY_CAPTURE_RULE`, version 1), chain labels, with its own capture cap (`MAX_CAPTURE_RUNS_PER_DAY`); it spends no Claude, and `BrainTask` has no `study` (`DEFAULT_ROUTING` has no row for it). A blind study run is planned (phase 3 ticket 07, not built). It would read one frozen Snapshot as delimited untrusted data, with no tools, web or `--chrome`, never see the label, and return fixed JSON notes per axis (Narrative, Identity, Tech), validated like a Score; it would need its own `BrainTask`, a routing row and its own caps (a rolling-24h run cap of about 100 runs a day, lowerable, and a per-run `--max-budget-usd`), never borrow from the judge's or propose's budgets or from Builds, and have no API fallback. The "How it works" page draws the Study with no Claude cost, and the sync test (`packages/core/src/pipeline-graph.test.ts`) will ask for the node's `brainTask` the day a `study` task appears in `DEFAULT_ROUTING`.
 
-Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec`, `build` and `meta-summary` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
+Fallback rule: when the subscription window is exhausted (rate-limit exit from `claude -p`), `judge` and `propose` switch to `api` / `haiku` for the rest of the window. Only `judge` and `propose` fall back; `spec`, `build`, `meta-summary` and `meme-ideas` stay on claude-code and wait until the window resets (builds never fall back: `runPendingBuilds` is handed the `ClaudeCodeBrain` itself). Total research spend is bounded by a daily quota share of about 30% of the subscription so research cannot starve builds.
 
 The fallback is **off by default**: `ARGUS_API_FALLBACK=1` turns it on (and needs a key, else the worker says so and stays off). It is a `FallbackBrain` (`api-fallback.ts`) around the two backends. Claude is always asked first. A `rate-limited` claude run of any task (the window is one window) starts a hold: until the reset time claude reported (a rejected `rate_limit_event`'s `resetsAt`, or the epoch after `usage limit reached|`), never more than 6 hours ahead, else for 15 minutes. The run that hit the limit and every judge or propose run during the hold are served by the API; `routeFor` reports the API route meanwhile, so the in-flight row is opened as `api`; and the run that hits the limit (whose row was opened as `claude-code`), like any run whose hold began after its row was opened, is announced through `BrainRunOptions.onBackend` and booked as an `api` run (`Datastore.setBrainRunBackend`) BEFORE the request is sent, with no await between that and the cap check. From then on the row counts in the real-dollar ledger at its task's per-run cap, so overlapping passes see each other's runs and a crash leaves the charge standing (an orphaned row is swept to `interrupted` and is still charged at that cap). If the switch cannot be recorded, nothing is sent. When the hold is over claude is asked again, and a hold never shortens a running one. A plain failure, a budget stop or a timeout of claude never falls back. If the API refuses (its cap) the run fails as the rate limit it was, which ends the pass and leaves the Narrative queued, so reaching the cap stops research for the day without marking anything as failed. Judge and propose passes are otherwise unchanged. The War Room shows each run's backend (Proposal details, Narrative details), the Proposal's API spend, and on the home page today's API spend against its cap, apart from Est. usage.
 

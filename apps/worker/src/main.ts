@@ -9,6 +9,8 @@ import {
   missingCloudflareVariables,
   captureDueSnapshots,
   captureRunCap,
+  generateMemeIdeas,
+  memeConfigFromEnv,
   metaConfigFromEnv,
   metaIntervalMinutes,
   metaSummaryConfigFromEnv,
@@ -353,6 +355,20 @@ const metaSummaryTick = reentrant(
   },
   () => {}, // the previous pass is still waiting on claude: the next refresh picks up what is left
 );
+// Meme ideas (missed ideas ticket 06, ADR 0013): for each Meta whose Hot now event is live, one sonnet run that returns three ideas, stored as
+// `meme` Proposals. OFF unless ARGUS_MEME_IDEAS=1 (the Operator turns it on after the backtest re-run); off, the pass reads and calls nothing.
+// At most once per Meta per 6 h and ARGUS_MEME_MAX_PER_DAY runs a day (40 at most), taken from the research budget. A dry run never calls the
+// Brain: the pass is skipped. DexScreener (the name check) and the collision checks use the same declared client and the test override.
+const memeSettings = memeConfigFromEnv(process.env);
+const memeDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });
+const memeIdeasTick = reentrant(
+  async () => {
+    if (!memeSettings.enabled || dryRun) return;
+    const r = await generateMemeIdeas(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker });
+    if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme ideas: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed, ${r.skipped} skipped${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+  },
+  () => {}, // the previous pass is still waiting on claude: the next ranking picks up what is left
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -382,10 +398,12 @@ const runJudgeTick = () => track(judgeTick, "judge tick");
 const runProposeTick = () => track(proposeTick, "propose tick");
 const runStudyTick = () => track(studyTick, "study tick");
 const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
+const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMetaTick = () =>
   track(async () => {
     await metaTick();
     void runMetaSummaryTick();
+    void runMemeIdeasTick();
   }, "meta tick");
 // Research is one sequence: score what changed, then propose from the Scores.
 const runResearchTick = async () => {

@@ -22,18 +22,19 @@ const real = (): PipelinePayload => resolvePipeline(PIPELINE, { rubric: { versio
 
 it("draws the thirteen nodes in their columns, each with its status in words", async () => {
   const html = await draw(real());
-  for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "beta"]) expect(html, id).toContain(`data-test="node-${id}"`);
-  for (const label of ["Sources", "Signals", "Narratives", "Judge", "Proposals", "Shortlist", "Spec", "Approve", "Build", "Preview", "Study", "Meta", "Beta finder"]) expect(html, label).toContain(`>${label}</h3>`);
+  for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "study", "meta", "meme"]) expect(html, id).toContain(`data-test="node-${id}"`);
+  for (const label of ["Sources", "Signals", "Narratives", "Judge", "Proposals", "Shortlist", "Spec", "Approve", "Build", "Preview", "Study", "Meta", "Meme ideas"]) expect(html, label).toContain(`>${label}</h3>`);
+  expect(html).not.toContain("Beta finder"); // relabelled by missed ideas ticket 06
   expect(html.match(/data-test="node-status"/g)).toHaveLength(13);
 });
 
 it("tells off and context-only apart in words and in class, and the Sources node lists its five Sources", async () => {
   const html = await draw(real());
-  const betaAt = html.indexOf('data-test="node-beta"');
-  const beta = html.slice(html.lastIndexOf("<article", betaAt), betaAt + 600);
-  expect(beta).toContain("is-off");
-  expect(beta).toMatch(/>off<\/span>/);
-  expect(html).toContain('title="A library and a backtest script only.');
+  const memeAt = html.indexOf('data-test="node-meme"');
+  const meme = html.slice(html.lastIndexOf("<article", memeAt), memeAt + 600);
+  expect(meme).toContain("is-off");
+  expect(meme).toMatch(/>off<\/span>/);
+  expect(html).toContain('title="Off until the Operator sets ARGUS_MEME_IDEAS=1');
   for (const [id, word] of [["rss:", "context only"], ["trends:google", "context only"], ["github:trending", "context only"], ["pumpportal:events", "market"], ["dexscreener:trending", "market"]] as const) {
     const chip = html.slice(html.indexOf(`data-test="chip-${id}"`), html.indexOf(`data-test="chip-${id}"`) + 400);
     expect(chip, id).toContain(`>${word}</span>`);
@@ -48,7 +49,9 @@ it("draws every edge as a path with an arrow, and a gate marker only on the two 
   expect(html.match(/data-test="gate-/g)).toHaveLength(2);
   expect(html).toContain("<title>Needs a market Signal from: pumpportal:events, dexscreener:trending</title>");
   expect(html).toContain("<title>Buildability gate, minimum: 6 (Rubric v3)</title>");
-  expect(html).toContain("is-dashed");
+  expect(html).not.toContain("is-dashed"); // no path of the page is "not wired yet" any more: the Meme ideas node is wired and off by its switch
+  const dashed = await draw({ ...payload, edges: payload.edges.map((e) => (e.id === "meta-meme" ? { ...e, dashed: true } : e)) });
+  expect(dashed).toContain("is-dashed");
   expect(html).toContain('marker-end="url(#pipe-arrow)"');
 });
 
@@ -56,14 +59,15 @@ it("lists every edge in words below the picture, gates included", async () => {
   const html = await draw(real());
   expect(html).toContain("Narratives to Judge: judge new or changed Narratives");
   expect(html).toContain("Buildability gate, minimum: 6 (Rubric v3)");
-  expect(html).toContain("Beta finder to Proposals: Beta Proposals (not wired)");
+  expect(html).toContain("Meta to Meme ideas: Hot now Meta: once per 6 h, room-left as a reason");
+  expect(html).toContain("Meme ideas to Proposals: 3 meme Proposals per run");
   expect(html.match(/<li data-test="legend-[a-z-]+"/g)).toHaveLength(real().edges.length);
 });
 
 it("says why a node is off, in a visible line", async () => {
   const html = await draw(real());
-  expect(html).toContain("<strong>Beta finder (off):</strong>");
-  expect(html).toContain("slices 3 and 4 are paused");
+  expect(html).toContain("<strong>Meme ideas (off):</strong>");
+  expect(html).toContain("ARGUS_MEME_IDEAS=1");
 });
 
 it("no raw HTML: hostile labels, notes and gate text come out escaped, and nothing in the template can inject markup", async () => {
@@ -220,12 +224,13 @@ it("an effective value that differs from the code's default shows both; one that
   expect(plain).not.toContain("rule-default");
 });
 
-it("a node with no Claude task says it is plain code; a missing live answer says no numbers; Beta finder says why it is off", async () => {
+it("a node with no Claude task says it is plain code; a missing live answer says no numbers; Meme ideas says why it is off", async () => {
   expect(await panelOf(real(), "study")).toContain("Plain code: it spends no Claude.");
   expect(await panelOf(real(), "build")).toContain("Task build: no live numbers right now.");
-  const beta = await panelOf(real(), "beta");
-  expect(beta).toContain('data-test="panel-status">off</span>');
-  expect(beta).toContain("slices 3 and 4 are paused");
+  const meme = await panelOf(real(), "meme");
+  expect(meme).toContain('data-test="panel-status">off</span>');
+  expect(meme).toContain("ARGUS_MEME_IDEAS=1");
+  expect(meme).toContain("meme-ideas"); // its Claude task
 });
 
 it("the Sources panel lists its Sources with their class", async () => {
