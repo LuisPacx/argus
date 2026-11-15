@@ -8,6 +8,7 @@ Rules for agents that change this repo. Briefs point here.
 - If a safety check blocks a command, stop and report it. Never retry a variant.
 - No writes to /tmp. Test temp files go through `packages/core/src/testing/temp.ts`; other scratch goes on the home disk.
 - Never build a RegExp from a non-literal (`new RegExp(x)`, `RegExp(x)`): input that becomes a pattern is a ReDoS hole. `pnpm lint` rejects it (`argus/no-dynamic-regexp`, `config/oxlint/argus-plugin.js`; tests exempt). Use a regex literal or a linear matcher; reviewers reject any `oxlint-disable` of this rule that lacks a one-line reason.
+- Browser boxes on a War Room page: run `pnpm page:check <path>` (headless, throwaway profile, 1240 and 390 px) and cite the screenshots and exit code. Never open or resize the user's Chrome or use the Argus Chrome profile for it. For keyboard boxes add `--keys "focus=<selector>,Enter,Escape" --watch <selector>` (read-only keys only).
 - Kill processes by PID only, never by name pattern.
 - While iterating, run `pnpm test:fast` (or `pnpm check:fast`) or just the test files you touch. The fast tier skips the slow tier (~1-2 min instead of ~9); it never stamps.
 - Run the full `pnpm check` once before committing, not after every edit. At most two full suites run on this machine at once, enforced by the next rule.

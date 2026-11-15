@@ -4,6 +4,7 @@
 export const INCLUDE = ["apps/*/src/**/*.test.ts", "packages/*/src/**/*.test.ts", "apps/warroom/server/**/*.test.ts", "scripts/*.test.ts"];
 
 export const SLOW_TESTS = [
+  "scripts/page-check-browser.test.ts", // real headless browser against a local server
   "apps/worker/src/api-fallback.test.ts", // spawned worker
   "apps/worker/src/boot.test.ts", // spawned worker
   "apps/worker/src/ingest.test.ts", // spawned worker

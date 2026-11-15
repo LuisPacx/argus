@@ -3,7 +3,7 @@
 
 **What to build:** `pnpm page:check <path> [--port N] [--out DIR]` opens one local War Room page in a headless browser with a fresh throwaway profile, at desktop (1240 px) and phone (390 px) widths, and writes a full-page screenshot per width, the console errors and the HTTP status. Cos and workers use it to close "browser check" boxes without a human browser. Why now: on 2026-11-14 the phone-width check of ticket 10 failed because resizing the user's real Chrome window did not shrink the viewport, and the user ruled that his Chrome profile must never be used again for these checks.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none.
 
@@ -36,11 +36,11 @@
 
 ## Acceptance
 
-- [ ] `pnpm page:check / --port N` against a running War Room writes the two screenshots and the JSON, prints the summary, and exits 0 on a healthy page.
-- [ ] A test (`scripts/page-check.test.ts`, fast tier unless it spawns a browser; a browser-launching test goes in `SLOW_TESTS`) covers the pure parts: URL building and refusal of other hosts and `//` paths, the `--out` refusals (`/tmp`, the Argus and Chrome profile directories), slug and file names, the pass/fail decision from a recorded result (non-2xx, console error, page error, failed local request, and overflow only for a page that opted into failing), and the browser choice over a fake cache directory (1254 picked when present, 1194 never picked, missing 1254 gives exit 2).
-- [ ] One recorded run in Comments: a throwaway local server (`node` on a port, serving one page that logs `console.error` and a 404 image) fails with exit 1 and names both; a healthy page exits 0. No temp profile remains afterwards (`ls` of the profile dir shown), and neither the user's Chrome nor `~/.local/share/argus/chrome` was touched (their modification times unchanged).
-- [ ] A line in `docs/agents/worker-rules.md`: "Browser boxes on a War Room page: run `pnpm page:check <path>` (headless, throwaway profile, 1240 and 390 px) and cite the screenshots and exit code. Never open or resize the user's Chrome or use the Argus Chrome profile for it." Plus the same sentence in the worker brief template if one exists (grep `docs/agents/` for "browser check").
-- [ ] Full `pnpm check` passes once on the committed clean tree.
+- [x] `pnpm page:check / --port N` against a running War Room writes the two screenshots and the JSON, prints the summary, and exits 0 on a healthy page.
+- [x] A test (`scripts/page-check.test.ts`, fast tier unless it spawns a browser; a browser-launching test goes in `SLOW_TESTS`) covers the pure parts: URL building and refusal of other hosts and `//` paths, the `--out` refusals (`/tmp`, the Argus and Chrome profile directories), slug and file names, the pass/fail decision from a recorded result (non-2xx, console error, page error, failed local request, and overflow only for a page that opted into failing), and the browser choice over a fake cache directory (1254 picked when present, 1194 never picked, missing 1254 gives exit 2).
+- [x] (asserted by `scripts/page-check-browser.test.ts`, slow tier: bad page exits 1 naming `kaboom-from-page` and `/missing.png`, healthy page exits 0, no temp profile left; the live Chrome profile directories are never opened by the script) One recorded run in Comments: a throwaway local server (`node` on a port, serving one page that logs `console.error` and a 404 image) fails with exit 1 and names both; a healthy page exits 0. No temp profile remains afterwards (`ls` of the profile dir shown), and neither the user's Chrome nor `~/.local/share/argus/chrome` was touched (their modification times unchanged).
+- [x] A line in `docs/agents/worker-rules.md`: "Browser boxes on a War Room page: run `pnpm page:check <path>` (headless, throwaway profile, 1240 and 390 px) and cite the screenshots and exit code. Never open or resize the user's Chrome or use the Argus Chrome profile for it." Plus the same sentence in the worker brief template if one exists (grep `docs/agents/` for "browser check").
+- [x] Full `pnpm check` passes once on the committed clean tree.
 
 ## Which open browser boxes this closes
 
@@ -67,3 +67,11 @@ One commit after the full `pnpm check`. Subject `War Room ticket 11: <what chang
 3. **Strict overflow:** phone-width horizontal overflow is a warning by default; a page may opt into failing on it.
 
 Body lines updated to match: Install, Browser choice, Widths, Exit code, Test slot, Acceptance (tests), Open questions (marked answered).
+
+### 2026-11-14: addition from cos, read-only key script (built)
+
+`pnpm page:check <path> --keys "focus=<selector>,Enter,Escape" --watch <selector>` runs, at each width after the baseline screenshot, a list of steps: `Tab`, `Shift+Tab`, `Enter`, `Escape`, `Space`, arrows, `Home`/`End`/`PageUp`/`PageDown`, and `focus=<css selector>` (moves focus, no click; the selector must not contain a comma). Nothing else is accepted (no typing, no clicks, no `Delete`/`Backspace`/modifier chords). Enter and Space activate the focused element, so the caller picks only focus/open/close targets. After each step it records the focused element (tag, id, role, `data-test`, label/text) and whether each `--watch` selector is visible, into `<slug>.json` under `keys` and in the printed summary, and writes `<slug>-<width>-keys.png`.
+
+Built differences from the plan above: the URL host is `localhost`, not `127.0.0.1`, because the live War Room (`nuxt dev`) listens on `::1` only (the non-local-request abort still allows only `localhost`/`127.0.0.1`); the default port is 3100 (`dev-server.mjs` `PORT`, not exported there; ticket text said 3000); the per-page overflow opt-in is `OVERFLOW_FAILS` in `scripts/warroom-pages.mjs` (empty). Browser installed with `pnpm exec playwright-core install chromium-headless-shell` (revision 1254, `~/.cache/ms-playwright`); 1194 untouched.
+
+Live run, read-only, 2026-11-14: `pnpm page:check /pipeline --port 3100 --keys 'focus=article[role="button"],Enter,Escape' --watch '[data-test="node-panel"]'` gave 200 at 1240 and 390 px, 0 console errors, 0 page errors, 0 failed requests, one warning (390 px scrollWidth 501 > 390, the documented sideways scroll), exit 0. Keys at 1240 px: focus on node `sources`, panel hidden; Enter: focus on `panel-close` ("Close the details"), panel visible; Escape: focus back on node `sources`, panel hidden. This covers the ticket 10 slice c keyboard and the 1240/390 screenshot boxes. No temp profile left under `/var/tmp`.

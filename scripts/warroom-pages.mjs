@@ -23,6 +23,10 @@ export function pageRoutes(pagesDir, ids) {
     .sort();
 }
 
+// Pages (route paths) where `pnpm page:check` fails, not just warns, on horizontal overflow at 390 px. Empty today:
+// /pipeline scrolls sideways on purpose under 1206 px.
+export const OVERFLOW_FAILS = [];
+
 // The /activity page's four sections must be in the server-rendered HTML. Returns a problem string, or null.
 export const ACTIVITY_HEADINGS = ['Sources', 'Narratives', 'Brain runs', 'Usage today'];
 export function activityProblem(body) {
