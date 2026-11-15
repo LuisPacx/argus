@@ -27,12 +27,12 @@ Origin: `.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, answ
 
 ## Acceptance
 
-- [ ] ADR written with the number it was given, status accepted with the date, and it states what it replaces, contradicts and leaves alone (reads as above).
-- [ ] GLOSSARY: Proposal amended, Meme Proposal and Hot now added, Beta pointer added; no entry contradicts another (read through once).
-- [ ] viral-sources/04: Status line and last Comment say slices 3 and 4 are superseded by 05 and 06 and the 2026-11-18 re-run still runs (checked, edited only if missing).
-- [ ] `docs/architecture.md` describes the kind and the `meme` lifecycle; ADR and architecture agree on the 6 h life and "no Spec, no Build, no Rubric".
-- [ ] A reviewer (`reviewer` agent) read ADR, GLOSSARY and architecture side by side and found no contradiction with ADR 0002, 0011 or 0012; recorded in Comments.
-- [ ] `pnpm check` passes if any non-doc file changed; for a docs-only commit say so in Comments and run `pnpm check:fast`.
+- [x] ADR written with the number it was given, status accepted with the date, and it states what it replaces, contradicts and leaves alone (reads as above).
+- [x] GLOSSARY: Proposal amended, Meme Proposal and Hot now added, Beta pointer added; no entry contradicts another (read through once).
+- [x] viral-sources/04: Status line and last Comment say slices 3 and 4 are superseded by 05 and 06 and the 2026-11-18 re-run still runs (checked, edited only if missing).
+- [x] `docs/architecture.md` describes the kind and the `meme` lifecycle; ADR and architecture agree on the 6 h life and "no Spec, no Build, no Rubric".
+- [x] A reviewer (`reviewer` agent) read ADR, GLOSSARY and architecture side by side and found no contradiction with ADR 0002, 0011 or 0012; recorded in Comments.
+- [x] `pnpm check` passes if any non-doc file changed; for a docs-only commit say so in Comments and run `pnpm check:fast`.
 
 ## Interplay
 
@@ -46,3 +46,10 @@ Origin: `.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, answ
 One commit. Subject `Missed ideas ticket 05: <what changed>`, body ending with `Ticket: .scratch/missed-ideas/issues/05-meme-proposal-kind-adr-and-glossary.md` before the trailers. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+
+### 2026-11-15, worker (docs only)
+
+- ADR 0013 "A Proposal has a kind: `narrative` or `meme`" (0010 is reserved, so 0013). GLOSSARY: Proposal amended, Meme Proposal added, Beta pointer, Proposal status exceptions (6 h, never spec-drafted). Hot now was already added by ticket 03 and reads consistently with the new entries.
+- viral-sources/04: Status and last Comment already said slices 3 and 4 are superseded and the 2026-11-18 re-run still runs. Only a dead link filename was corrected.
+- Reviewer (`reviewer` agent) read ADR, GLOSSARY and architecture side by side: no contradiction with ADR 0002, 0011, 0012. It raised six small points, all fixed except one: the "Beta finder" nodes sit in the generated overview block (from `packages/core/src/pipeline-graph.ts`, code); architecture.md says so in words and ticket 06 should relabel them.
+- Docs only, so no `pnpm check`; ran `packages/core/src/pipeline-docs.test.ts` (7 passed) instead.

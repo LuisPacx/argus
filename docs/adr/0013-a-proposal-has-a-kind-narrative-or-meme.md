@@ -29,5 +29,5 @@ What it leaves alone:
 
 - **ADR 0002:** argus never launches, signs or spends. A `meme` idea is text for the Operator to act on outside the system; the image idea is text and no image is made.
 - **ADR 0011:** eligibility of a Narrative is unchanged. A `meme` Proposal is not eligibility-gated by a market Signal of a Narrative; its market evidence is the Meta's own launchpad data, which is market class. News stays context and never raises the trigger.
-- **ADR 0012:** a Meta is ranked by plain code and stays context. The Hot now event (its addendum) is the trigger; the summary path and the prompt blocks are unchanged.
+- **ADR 0012:** a Meta is ranked by plain code and stays context. The Hot now event (its addendum) is the trigger, and the event itself still makes no Narrative, Proposal or Score: the meme task, run after it, makes the Proposal (ADR 0012's "no Proposal" describes the ranking and the event, not what is built on them); the summary path and the prompt blocks are unchanged.
 - ADR 0003 (one build archetype) is untouched: a `meme` Proposal never reaches the Build.
