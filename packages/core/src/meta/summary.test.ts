@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MetaRow } from "./store.ts";
-import { META_SUMMARY_MAX_CHARS, metaInputHash, metaLine, metaSummaryPromptFor, parseMetaSummary, summaryFresh, templateLine } from "./summary.ts";
+import { META_SUMMARY_MAX_CHARS, metaInputHash, metaLine, metaSummaryPromptFor, metaSummaryShownText, parseMetaSummary, summaryFresh, templateLine } from "./summary.ts";
 
 const counts = (tokens: number, creators: number, migrations: number, migrationsAfter60s = 0) => ({ tokens, creators, migrations, migrationsAfter60s });
 
@@ -136,6 +136,20 @@ describe("summaryFresh: a stored line is current only while the row is close to 
     expect(summaryFresh(row(10, 10), rec(10, null), NOW)).toBe(false);
     expect(summaryFresh(row(10, 10), rec(10, 10, null), NOW)).toBe(false);
     expect(summaryFresh(row(10, 10), rec(10, 10, "nonsense"), NOW)).toBe(false);
+  });
+});
+
+describe("metaSummaryShownText: only what the prompt showed", () => {
+  it("cuts headlines, descriptions, names and tickers as the prompt does, and keeps only the first five headlines and eight tokens", () => {
+    const news = Array.from({ length: 6 }, (_, i) => ({ title: i === 5 ? "sixth 777" : `headline ${i}`, sourceLabel: "Wired", publishedAt: "2026-11-11T10:00:00.000Z" }));
+    const long = { title: `${"w ".repeat(90)}ends 888`, sourceLabel: "Wired", publishedAt: "2026-11-11T10:00:00.000Z" };
+    const tokens = Array.from({ length: 9 }, (_, i) => ({ name: i === 0 ? `${"n".repeat(60)}111` : `T${i}`, symbol: i === 0 ? `${"s".repeat(20)}222` : `S${i}`, migrated: false, description: i === 0 ? `${"d".repeat(200)}333` : i === 8 ? "ninth 444" : undefined }));
+    const text = metaSummaryShownText(NI_HAO, tokens, [...news.slice(0, 5), long, ...news.slice(5)]);
+    expect(text).toContain("headline 4");
+    expect(text).not.toMatch(/777|888|111|222|333|444/);
+    const prompt = metaSummaryPromptFor(NI_HAO, tokens, [...news.slice(0, 5), long, ...news.slice(5)]);
+    expect(prompt.split("\n").filter((l) => l.startsWith("- ")).join("\n")).not.toMatch(/777|888|111|222|333|444/); // data lines only: the boundary is random hex
+    expect(metaSummaryShownText(NI_HAO, [], [long])).not.toContain("888");
   });
 });
 

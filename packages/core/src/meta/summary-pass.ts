@@ -6,7 +6,7 @@ import type { MetaConfig } from "./config.ts";
 import { groupTokens } from "./group.ts";
 import { newsForKeys } from "./news.ts";
 import type { MetaRow } from "./store.ts";
-import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, parseMetaSummary, summaryFresh, type MetaSummaryToken } from "./summary.ts";
+import { META_SUMMARY_MAX_TOKENS, metaInputHash, metaSummaryPromptFor, metaSummaryShownText, parseMetaSummary, summaryFresh, type MetaSummaryToken } from "./summary.ts";
 
 /**
  * The Meta summary pass (ticket 03, slice 5): after each ranking refresh, writes the one-line summary of the top Metas of the 24 h
@@ -182,8 +182,7 @@ export async function summariseMetas(
       return { ...out, stoppedBy: "dry-run" };
     }
     // Figures the model was given as text (names, tickers, descriptions, matching headlines) may appear in its line; any other figure is refused.
-    const given = [row.label, ...shownTokens.flatMap((t) => [t.name, t.symbol, t.description ?? ""]), ...news.map((n) => n.title)].join(" ");
-    const parsed = parseMetaSummary(result.output, given);
+    const parsed = parseMetaSummary(result.output, metaSummaryShownText(row, shownTokens, news));
     store.finishBrainRun(runId, { sessionId: result.sessionId ?? null, totalCostUsd: result.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: result.backend, model: result.model });
     // The spend is recorded. Nothing below calls the brain again.
     if (!parsed.ok) {

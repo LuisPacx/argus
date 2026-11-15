@@ -333,6 +333,21 @@ describe("summariseMetas: matching news as context (missed ideas ticket 03)", ()
     expect(await run(store2, invented.brain)).toMatchObject({ called: 1, accepted: 0, refused: 1 });
   });
 
+  it("a figure the prompt never showed is refused: a headline past the fifth, or text past the 160-character cut", async () => {
+    const titled = (rest: string) => `Meta0 ${rest}`;
+    const cases: Array<[string, Array<ReturnType<typeof signal>>, string]> = [
+      ["a sixth headline", [1, 2, 3, 4, 5, 6].map((i) => signal(`rss:${i}`, "rss:wired", titled(i === 6 ? "reaches 777 fans" : `story number ${"x".repeat(i)}`))), "Meta0 theme with 777 fans"],
+      ["past char 160", [signal("rss:1", "rss:wired", titled(`${"w ".repeat(90)}ends at 888`))], "Meta0 theme that ends at 888"],
+    ];
+    for (const [, signals, answer] of cases) {
+      const store = await seed(1);
+      store.recordSignals(signals);
+      const { brain, prompts } = fakeBrain(() => answer);
+      expect(await run(store, brain)).toMatchObject({ called: 1, accepted: 0, refused: 1 });
+      expect(prompts[0]).not.toMatch(/777|888/);
+    }
+  });
+
   it("a new headline alone does not buy a call: the stored line stands while the input hash holds", async () => {
     const store = await seed(1);
     const { brain, prompts } = fakeBrain(() => GOOD);

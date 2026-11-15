@@ -164,9 +164,29 @@ export const META_SUMMARY_MAX_NEWS = 5;
 const NEWS_TITLE_CHARS = 160;
 const NEWS_SOURCE_CHARS = 40;
 
+const NAME_PROMPT_CHARS = 60;
+const SYMBOL_PROMPT_CHARS = 20;
+
+/** The pieces of text the prompt shows, cut exactly as shown. The prompt and `metaSummaryShownText` both read them, so they cannot drift. */
+const shownLabel = (row: MetaRow): string => oneLine(row.label, NAME_PROMPT_CHARS);
+const shownTokenName = (t: MetaSummaryToken): string => oneLine(t.name, NAME_PROMPT_CHARS);
+const shownTokenSymbol = (t: MetaSummaryToken): string => oneLine(t.symbol, SYMBOL_PROMPT_CHARS);
+const shownTokenDescription = (t: MetaSummaryToken): string => (t.description !== undefined && t.description.trim() !== "" ? oneLine(t.description, DESCRIPTION_CHARS) : "");
+const shownNewsTitle = (n: MetaSummaryNews): string => oneLine(n.title, NEWS_TITLE_CHARS);
+const tokensShown = (tokens: readonly MetaSummaryToken[]): readonly MetaSummaryToken[] => tokens.slice(0, META_SUMMARY_MAX_TOKENS);
+const newsShown = (news: readonly MetaSummaryNews[]): readonly MetaSummaryNews[] => news.slice(0, META_SUMMARY_MAX_NEWS);
+
+/**
+ * The creator- and third-party-written text of the prompt (label, token names, tickers, descriptions, headline titles), as the model saw it:
+ * the same slices and cuts as `metaSummaryPromptFor`. `parseMetaSummary` allows a figure only when it is in this text.
+ */
+export function metaSummaryShownText(row: MetaRow, tokens: readonly MetaSummaryToken[], news: readonly MetaSummaryNews[] = []): string {
+  return [shownLabel(row), ...tokensShown(tokens).flatMap((t) => [shownTokenName(t), shownTokenSymbol(t), shownTokenDescription(t)]), ...newsShown(news).map(shownNewsTitle)].join(" ");
+}
+
 /** `- <headline> (<Source>, <time>)`: one line, so a headline cannot start a line of its own. Null when the headline is empty after cleaning. */
 function newsLine(n: MetaSummaryNews): string | null {
-  const title = oneLine(n.title, NEWS_TITLE_CHARS);
+  const title = shownNewsTitle(n);
   if (title === "") return null;
   const ms = Date.parse(n.publishedAt);
   const when = Number.isFinite(ms) ? `${new Date(ms).toISOString().slice(0, 16)}Z` : "";
@@ -185,17 +205,18 @@ function newsLine(n: MetaSummaryNews): string | null {
  */
 export function metaSummaryPromptFor(row: MetaRow, tokens: readonly MetaSummaryToken[], news: readonly MetaSummaryNews[] = []): string {
   const b = `BOUNDARY-${randomBytes(12).toString("hex")}`;
-  const newsLines = news.slice(0, META_SUMMARY_MAX_NEWS).flatMap((n) => newsLine(n) ?? []);
+  const newsLines = newsShown(news).flatMap((n) => newsLine(n) ?? []);
   const nb = `BOUNDARY-${randomBytes(12).toString("hex")}`;
   const hours = (w: "6h" | "24h") => (w === "6h" ? 6 : 24);
   const counts = (["6h", "24h"] as const).map((w) => {
     const c = row.counts[w];
     return `last ${hours(w)} h: ${c.tokens} tokens, ${c.creators} creators, ${c.migrations} migrations (unfiltered)`;
   });
-  const shown = tokens.slice(0, META_SUMMARY_MAX_TOKENS).map((t) => {
+  const shown = tokensShown(tokens).map((t) => {
     const cap = t.marketCapUsd !== undefined ? `, market cap ${money(t.marketCapUsd)}` : "";
-    const desc = t.description !== undefined && t.description.trim() !== "" ? ` | description: ${oneLine(t.description, DESCRIPTION_CHARS)}` : "";
-    return `- ${oneLine(t.name, 60)} (${oneLine(t.symbol, 20)})${cap}, ${t.migrated ? "migrated" : "not migrated"}${desc}`;
+    const description = shownTokenDescription(t);
+    const desc = description !== "" ? ` | description: ${description}` : "";
+    return `- ${shownTokenName(t)} (${shownTokenSymbol(t)})${cap}, ${t.migrated ? "migrated" : "not migrated"}${desc}`;
   });
   return [
     `Write the one-line summary of the Meta below, for a dashboard. A Meta is a theme the token market is launching around right now.`,
@@ -211,7 +232,7 @@ export function metaSummaryPromptFor(row: MetaRow, tokens: readonly MetaSummaryT
       : []),
     "",
     `${b} START meta (untrusted)`,
-    `Label: ${oneLine(row.label, 60)}`,
+    `Label: ${shownLabel(row)}`,
     ...counts,
     `First seen ${row.firstSeenAt}`,
     "Tokens:",
