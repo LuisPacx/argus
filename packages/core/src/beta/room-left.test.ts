@@ -53,6 +53,7 @@ function run(shapes: Shape[], base = { tokens: 10_000, migrations: 280 }): MetaR
     windowTokens: base.tokens,
     windowMigrations: base.migrations,
     baseMigrationRate: base.tokens > 0 ? base.migrations / base.tokens : null,
+    coverage: null,
     rows: shapes.map((s, i) => row(s, i + 1)),
   };
 }

@@ -1,5 +1,8 @@
-import { Datastore, recomputeMetas, type MetasResponse } from "@argus/core";
+import { Datastore, META_RULE, recomputeMetas as recomputeWithRule, type MetasResponse, type RecomputeOptions } from "@argus/core";
 import { beforeEach, expect, it, vi } from "vitest";
+
+/** These fixtures use groups of 3 to 5 tokens: the pre-ticket-05 floor (2 tokens, no creator minimum) keeps them. */
+const recomputeMetas = (s: Datastore, o: RecomputeOptions = {}) => recomputeWithRule(s, { config: { ...META_RULE, minTokens: 2, minCreators: 1 }, ...o });
 
 /** Endpoint-level test: the real route handler, with only Nitro's auto-imported globals stubbed. */
 type Ev = { query: Record<string, string> };
@@ -33,7 +36,18 @@ beforeEach(() => {
 });
 
 it("GET /api/metas is an empty list, not an error, before the first run", () => {
-  expect(get()).toEqual({ window: "24h", computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, metas: [] });
+  expect(get()).toEqual({ window: "24h", computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, coverage: null, coverageNote: null, metas: [] });
+});
+
+it("GET /api/metas carries the window's coverage and a warming-up note for a thinly covered window, and none for an old run", async () => {
+  for (let i = 0; i < 4; i++) launch("Rocketfuel", `c${i}`);
+  await recomputeMetas(store, { now: new Date(NOW) }); // 4 creates in one hour: 1 of 24 covered would need 10 creates
+  expect(get().coverage).toEqual({ "6h": { covered: 0, of: 6 }, "24h": { covered: 0, of: 24 } });
+  expect(get().coverageNote).toBe("Only 0 h of data in the last 24 h");
+  expect(get({ window: "6h" }).coverageNote).toBe("Only 0 h of data in the last 6 h");
+  for (let i = 0; i < 10; i++) launch("Filler", `f${i}`);
+  await recomputeMetas(store, { now: new Date(NOW + 60_000) });
+  expect(get().coverageNote).toBe("Only 1 h of data in the last 24 h");
 });
 
 it("GET /api/metas rejects a repeated ?window= (an array) instead of falling back to the default", () => {

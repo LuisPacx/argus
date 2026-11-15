@@ -1,4 +1,4 @@
-import { isMetaWindow, metasResponse, type MetaWindow } from "@argus/core";
+import { isMetaWindow, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 10;
@@ -23,5 +23,5 @@ export default defineEventHandler((event) => {
     limit = Number(rawLimit);
     if (limit < 1 || limit > MAX_LIMIT) throw bad("limit");
   }
-  return metasResponse(useStore().latestMetas(window, limit), window);
+  return metasResponse(useStore().latestMetas(window, limit), window, metaConfigFromEnv().coverageNoteBelow);
 });

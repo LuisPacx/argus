@@ -14,6 +14,7 @@ defineProps<{ view: MetaView }>();
     </div>
     <p v-if="view.state === 'waiting' || view.state === 'none'" class="surface note muted" data-test="meta-note">{{ view.note }}</p>
     <p v-else-if="view.state === 'stale'" class="note note-amber" data-test="meta-stale">{{ view.note }}</p>
+    <p v-if="view.coverageNote" class="faint text-xs" data-test="meta-coverage-note">{{ view.coverageNote }}</p>
     <ol v-if="view.rows.length > 0" class="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
       <li v-for="r in view.rows" :key="r.anchor" class="min-w-[13.5rem] flex-1 snap-start" :data-test="`meta-strip-${r.rank}`">
         <NuxtLink :to="`/meta#${r.anchor}`" class="surface grid h-full content-start gap-1.5 p-4 text-sm transition-shadow hover:shadow-[var(--wr-shadow-lift)]">

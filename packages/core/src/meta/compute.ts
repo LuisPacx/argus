@@ -2,6 +2,7 @@ import type { Datastore } from "../datastore.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
 import type { LaunchedToken } from "../study/store.ts";
 import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow, type RankKey } from "./config.ts";
+import { metaCoverage } from "./coverage.ts";
 import { cleanLabel, groupTokens, type TokenGroup } from "./group.ts";
 import type { MetaCounts, MetaTopToken, NewMetaRow, NewMetaRun } from "./store.ts";
 import { mergeThemes } from "./theme.ts";
@@ -189,7 +190,9 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     };
   });
 
-  const eligible = (w: MetaWindow) => stats.filter((s) => s.counts[w].tokens >= config.minTokens);
+  // The size floor (ticket 05): a Meta needs enough tokens and enough distinct creators in that window. Applied here, once, before the
+  // DexScreener budget and the ranking, so the stored rows, the API, the pages and the prompt block never see a smaller group.
+  const eligible = (w: MetaWindow) => stats.filter((s) => s.counts[w].tokens >= config.minTokens && s.counts[w].creators >= config.minCreators);
 
   // 4. Market cap for the top groups, by the ranking without it, within the call budget. A group in both windows costs one call.
   let dexCalls = 0;
@@ -244,6 +247,7 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
 
   // 6. One short write transaction: the inserts, then the prune.
   const computedAt = now.toISOString();
-  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows });
+  const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
+  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows, coverage });
   return { runId, computedAt, tokensRead: tokens.length, groups: stats.length, dexCalls, dexFailures };
 }

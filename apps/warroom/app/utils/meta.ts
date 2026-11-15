@@ -19,6 +19,7 @@ const LABEL_CHARS = 60;
 const TOKEN_NAME_CHARS = 30;
 const TICKER_CHARS = 12;
 const SUMMARY_CHARS = 200;
+const COVERAGE_NOTE_CHARS = 80;
 
 export interface MetaPayloadCounts {
   tokens: number;
@@ -38,6 +39,8 @@ export interface MetaPayloadToken {
 /** The part of GET /api/metas the section reads (the server's `MetasResponse`; a field renamed there is a type error in the server test). */
 export interface MetaPayload {
   computedAt: string | null;
+  /** "Only 1 h of data in the last 24 h" when the shown window has gaps; the server decides (core's `coverageNote`). */
+  coverageNote?: string | null;
   metas: Array<{
     rank: number;
     label: string;
@@ -123,6 +126,8 @@ export interface MetaView {
   footer: string | null;
   /** The message for `waiting`, `none` and `stale`; null when the ranking is current. */
   note: string | null;
+  /** The "warming up" line shown above the list when the window has gaps; null otherwise (and before the first run). */
+  coverageNote: string | null;
 }
 
 const ANCHOR_CHARS = 40;
@@ -181,7 +186,7 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
   const limit = opts.rows ?? META_ROWS;
   const window = opts.window ?? "24h";
   const computedAt = payload?.computedAt;
-  if (!payload || typeof computedAt !== "string") return { state: "waiting", rows: [], footer: null, note: "No Meta ranking yet. The worker computes it every 15 minutes." };
+  if (!payload || typeof computedAt !== "string") return { state: "waiting", rows: [], footer: null, note: "No Meta ranking yet. The worker computes it every 15 minutes.", coverageNote: null };
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "ranking computed just now" : `ranking from ${age}`;
   const seen = new Map<string, number>();
@@ -200,11 +205,12 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
     used.add(anchor);
     return rowView(m, nowMs, window, anchor);
   });
+  const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const computedMs = Date.parse(computedAt);
   if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
-    return { state: "stale", rows, footer, note: `The Meta ranking is stale (computed ${plural(hours, "hour")} ago).` };
+    return { state: "stale", rows, footer, note: `The Meta ranking is stale (computed ${plural(hours, "hour")} ago).`, coverageNote };
   }
-  if (rows.length === 0) return { state: "none", rows, footer, note: "No Meta stands out in the last 24 hours yet." };
-  return { state: "ok", rows, footer, note: null };
+  if (rows.length === 0) return { state: "none", rows, footer, note: "No Meta stands out in the last 24 hours yet.", coverageNote };
+  return { state: "ok", rows, footer, note: null, coverageNote };
 }

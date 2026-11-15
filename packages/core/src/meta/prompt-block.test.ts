@@ -5,6 +5,7 @@ import { judgePendingNarratives, judgePromptFor } from "../judge.ts";
 import { proposePromptFor } from "../propose.ts";
 import { DEFAULT_META_BLOCK_CONFIG, metaLines, metaMatchLine, metaSection, selectMetas, type MetaBlockRow } from "./prompt-block.ts";
 import { recomputeMetas } from "./compute.ts";
+import { META_RULE } from "./config.ts";
 
 /**
  * The Meta block in the judge and propose prompts (ticket 03, slice 4): the latest top Metas as untrusted context inside a fresh
@@ -17,6 +18,18 @@ const row = (over: Partial<MetaBlockRow> & { label: string; key: string }): Meta
   topTokens: [],
   ...over,
 });
+/** The pre-ticket-05 floor: these fixtures use groups of 3 or 4 tokens. */
+const LOW_FLOOR = { ...META_RULE, minTokens: 2, minCreators: 1 };
+
+/** 10 singleton creates in each of the 24 trailing hours before `now`, so the run's 24 h window counts as fully covered. */
+function fillWindow(store: Datastore, now: Date): void {
+  for (let h = 0; h < 24; h++)
+    for (let i = 0; i < 10; i++)
+      store.study.recordTokenEvent({
+        kind: "create", mint: `F${String(h * 10 + i).padStart(8, "0")}`.padEnd(40, "f") + "pump", receivedAt: new Date(now.getTime() - (h * 60 + 5 + i) * 60_000).toISOString(), signature: "", name: `Filler ${h} ${i}`, symbol: `F${h}X${i}`,
+        creator: `F${h}-${i}`.padEnd(44, "q"), uri: "https://ipfs.io/ipfs/x", pool: "pump",
+      });
+}
 const NIHAO = row({ label: "ni hao cat", key: "nihao", marketCapUsd: 13_000_000, topTokens: [{ mint: "m1", name: "woohao", symbol: "WOOHAO", marketCapUsd: 13_000_000 }] });
 const GTA = row({ label: "GTA VI", key: "gta6", rank: 2, counts: { "24h": { tokens: 78, creators: 56, migrations: 29, migrationsAfter60s: 0 } } });
 
@@ -111,7 +124,8 @@ describe("selectMetas", () => {
           kind: "create", mint: `M${String(i++).padStart(8, "0")}`.padEnd(40, "x") + "pump", receivedAt: new Date(NOW.getTime() - 30 * 60_000).toISOString(), signature: "", name: `Theme${c}`, symbol: `TH${c}`,
           creator: `C${i}`.padEnd(44, "q"), uri: "https://ipfs.io/ipfs/x", pool: "pump",
         });
-    await recomputeMetas(store, { now: NOW });
+    fillWindow(store, NOW);
+    await recomputeMetas(store, { now: NOW, config: LOW_FLOOR });
     return store;
   }
 
@@ -126,6 +140,31 @@ describe("selectMetas", () => {
     expect(selectMetas(Datastore.open(":memory:"), NOW)).toEqual([]);
     const store = await storeWithMetas();
     expect(selectMetas(store, new Date(NOW.getTime() + 3 * 3_600_000))).toEqual([]);
+  });
+
+  it("skips the block when 24 h coverage is below the threshold, and keeps it for a run with no coverage stored (an old run)", async () => {
+    const thin = Datastore.open(":memory:");
+    for (let n = 0; n < 4; n++)
+      thin.study.recordTokenEvent({
+        kind: "create", mint: `T${String(n).padStart(8, "0")}`.padEnd(40, "x") + "pump", receivedAt: new Date(NOW.getTime() - 30 * 60_000).toISOString(), signature: "", name: "Thin Meta", symbol: "THIN",
+        creator: `C${n}`.padEnd(44, "q"), uri: "https://ipfs.io/ipfs/x", pool: "pump",
+      });
+    await recomputeMetas(thin, { now: NOW, config: LOW_FLOOR }); // 4 creates in 1 of 24 hours
+    expect(thin.latestMetas("24h", 5)?.rows).toHaveLength(1);
+    expect(selectMetas(thin, NOW)).toEqual([]);
+    expect(selectMetas(thin, NOW, undefined, 0)).toHaveLength(1); // a threshold of 0 switches the skip off
+    const old = Datastore.open(":memory:");
+    const counts = { tokens: 6, creators: 4, migrations: 0, migrationsAfter60s: 0 };
+    old.meta.saveRun({
+      computedAt: NOW.toISOString(), note: "n", rule: LOW_FLOOR, dexCalls: 0, dexFailures: 0,
+      base: { "6h": { tokens: 6, migrations: 0 }, "24h": { tokens: 6, migrations: 0 } },
+      rows: { "6h": [], "24h": [{ key: "oldmeta", label: "Old Meta", firstSeenAt: NOW.toISOString(), counts: { "6h": counts, "24h": counts }, topTokens: [] }] },
+    }); // no coverage: stored as null, like a run from before ticket 05
+    expect(old.latestMetas("24h", 5)?.coverage).toBeNull();
+    expect(selectMetas(old, NOW)).toHaveLength(1);
+    const covered = await storeWithMetas();
+    expect(covered.latestMetas("24h", 5)?.coverage?.["24h"]).toEqual({ covered: 24, of: 24 });
+    expect(selectMetas(covered, NOW).length).toBeGreaterThan(0);
   });
 });
 
@@ -204,7 +243,8 @@ describe("the judge pass reads the Metas", () => {
         kind: "create", mint: `M${String(n).padStart(8, "0")}`.padEnd(40, "x") + "pump", receivedAt: new Date(NOW.getTime() - 30 * 60_000).toISOString(), signature: "", name: "Ni Hao Cat", symbol: "NIHAO",
         creator: `C${n}`.padEnd(44, "q"), uri: "https://ipfs.io/ipfs/x", pool: "pump",
       });
-    await recomputeMetas(store, { now: NOW });
+    fillWindow(store, NOW);
+    await recomputeMetas(store, { now: NOW, config: LOW_FLOOR });
     store.recordSignals([{ id: "s:1", sourceId: "pumpportal:events", sourceLabel: "PumpPortal", title: "New token on the launchpad: Ni Hao Noon ($NIHAONOON)", summary: "", url: "https://pump.fun/coin/x", publishedAt: NOW.toISOString() }], NOW);
     const first = store.unclusteredSignals(10)[0]!;
     store.createNarrative(first, [1, 0], NOW.toISOString(), CUR);

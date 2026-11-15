@@ -35,6 +35,7 @@ const LEFT_OUT: Record<string, string> = {
   "META_RULE.dexGroups": "DexScreener call budget of the Meta ranking, below this picture",
   "META_RULE.dexMaxCalls": "DexScreener call budget of the Meta ranking, below this picture",
   "META_RULE.dexCandidates": "DexScreener call budget of the Meta ranking, below this picture",
+  "META_RULE.coverageMinCreates": "how many creates make an hour count as covered; it only feeds the window's warming-up note and the skip above",
   "META_RULE.topTokens": "display detail of a Meta row",
   "META_RULE.theme": "clone-cluster merging detail (an object), below this picture",
   "STUDY_CAPTURE_RULE.captureGraceSec": "capture timing detail, below this picture",

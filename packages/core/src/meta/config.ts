@@ -28,8 +28,14 @@ export type RankKey = "creators" | "migrations" | "migrationsAfter60s" | "market
 export interface MetaConfig {
   /** The ranking order, most significant first. Every key sorts descending; an absent market cap sorts after any present one. */
   rankOrder: readonly RankKey[];
-  /** A group with fewer distinct tokens in the window is not a Meta. */
+  /** A group with fewer distinct tokens in the window is not a Meta (viral sources ticket 05: 5). */
   minTokens: number;
+  /** A group with fewer distinct creators in the window is not a Meta: one creator's 34 tokens are one person's interest (ticket 05: 3). */
+  minCreators: number;
+  /** An hour counts as covered by data when at least this many tokens were created in it (a normal hour holds hundreds). */
+  coverageMinCreates: number;
+  /** A window whose covered hours are below this share of its length gets a "warming up" note, and a 24 h window below it drops the judge/propose Meta block. */
+  coverageNoteBelow: number;
   /** Rows stored per window per run. */
   maxRowsPerWindow: number;
   /** A migration more than this many seconds after the create counts in `migrationsAfter60s`, the crude organic proxy. */
@@ -50,7 +56,10 @@ export interface MetaConfig {
 
 export const META_RULE: MetaConfig = {
   rankOrder: ["creators", "migrationsAfter60s", "marketCapUsd", "tokens"],
-  minTokens: 2,
+  minTokens: 5,
+  minCreators: 3,
+  coverageMinCreates: 10,
+  coverageNoteBelow: 0.8,
   maxRowsPerWindow: 50,
   organicAfterSec: 60,
   retentionDays: 14,
@@ -68,6 +77,13 @@ const intIn = (raw: string | undefined, min: number, max: number, fallback: numb
   if (!raw || !/^\d{1,9}$/.test(raw)) return fallback;
   const n = Number(raw);
   return n >= min && n <= max ? n : fallback;
+};
+
+/** A decimal share 0 to 1 ("0.8", "1", ".5"); junk keeps the fallback. */
+const shareIn = (raw: string | undefined, fallback: number): number => {
+  if (!raw || !/^(?:\d(?:\.\d{1,3})?|\.\d{1,3})$/.test(raw)) return fallback;
+  const n = Number(raw);
+  return n >= 0 && n <= 1 ? n : fallback;
 };
 
 /** `ARGUS_META_INTERVAL_MINUTES` (1 to 1440), junk ignored. */
@@ -92,7 +108,9 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
 /**
  * The rule with overrides from the environment: `ARGUS_META_RANK_ORDER` (a comma list of creators, migrations, migrationsAfter60s, marketCapUsd, tokens),
  * the DexScreener budget `ARGUS_META_DEX_GROUPS` (0 to 50) and `ARGUS_META_DEX_CALLS` (0 to 60, below the rate limit), and
- * `ARGUS_META_THEMES=0` (theme merging off: clone clusters only).
+ * `ARGUS_META_THEMES=0` (theme merging off: clone clusters only), the size floor `ARGUS_META_MIN_TOKENS` and `ARGUS_META_MIN_CREATORS`
+ * (1 to 1000), and the window coverage measure `ARGUS_META_COVERAGE_MIN_CREATES` (1 to 100000 creates for an hour to count) and
+ * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8).
  */
 export function metaConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaConfig {
   return {
@@ -101,5 +119,9 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     dexGroups: intIn(env.ARGUS_META_DEX_GROUPS, 0, 50, META_RULE.dexGroups),
     dexMaxCalls: intIn(env.ARGUS_META_DEX_CALLS, 0, 60, META_RULE.dexMaxCalls),
     theme: env.ARGUS_META_THEMES === "0" ? null : META_RULE.theme,
+    minTokens: intIn(env.ARGUS_META_MIN_TOKENS, 1, 1_000, META_RULE.minTokens),
+    minCreators: intIn(env.ARGUS_META_MIN_CREATORS, 1, 1_000, META_RULE.minCreators),
+    coverageMinCreates: intIn(env.ARGUS_META_COVERAGE_MIN_CREATES, 1, 100_000, META_RULE.coverageMinCreates),
+    coverageNoteBelow: shareIn(env.ARGUS_META_COVERAGE_NOTE_BELOW, META_RULE.coverageNoteBelow),
   };
 }

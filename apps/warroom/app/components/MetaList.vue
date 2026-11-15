@@ -11,6 +11,7 @@ defineProps<{ view: MetaView }>();
   <div class="grid gap-4" data-test="meta-list">
     <p v-if="view.state === 'waiting' || view.state === 'none'" class="note muted" data-test="meta-note">{{ view.note }}</p>
     <p v-else-if="view.state === 'stale'" class="note note-amber" data-test="meta-stale">{{ view.note }}</p>
+    <p v-if="view.coverageNote" class="muted text-sm" data-test="meta-coverage-note">{{ view.coverageNote }}</p>
     <ol v-if="view.rows.length > 0" class="grid gap-3">
       <li
         v-for="r in view.rows"

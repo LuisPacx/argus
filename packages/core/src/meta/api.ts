@@ -1,5 +1,6 @@
 import type { MetaCounts, MetaRow, MetaRun, MetaTopToken } from "./store.ts";
-import type { MetaWindow } from "./config.ts";
+import { META_RULE, type MetaWindow } from "./config.ts";
+import { coverageNote, type MetaCoverage } from "./coverage.ts";
 import { metaLine, type MetaSummarySource } from "./summary.ts";
 
 /**
@@ -40,6 +41,10 @@ export interface MetasResponse {
   windowTokens: number;
   windowMigrations: number;
   baseMigrationRate: number | null;
+  /** Covered hours of each window at the run; null for an old run or before the first run. */
+  coverage: MetaCoverage | null;
+  /** "Only 1 h of data in the last 24 h" for the response's window when it is thinly covered; null otherwise. */
+  coverageNote: string | null;
   metas: MetaApiRow[];
 }
 
@@ -67,8 +72,8 @@ function apiRow(row: MetaRow): MetaApiRow {
 }
 
 /** The response for a window: the stored run, or an empty list (not an error) before the first run. */
-export function metasResponse(run: MetaRun | undefined, window: MetaWindow): MetasResponse {
-  if (!run) return { window, computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, metas: [] };
+export function metasResponse(run: MetaRun | undefined, window: MetaWindow, noteBelow: number = META_RULE.coverageNoteBelow): MetasResponse {
+  if (!run) return { window, computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, coverage: null, coverageNote: null, metas: [] };
   return {
     window,
     computedAt: run.computedAt,
@@ -76,6 +81,8 @@ export function metasResponse(run: MetaRun | undefined, window: MetaWindow): Met
     windowTokens: run.windowTokens,
     windowMigrations: run.windowMigrations,
     baseMigrationRate: run.baseMigrationRate,
+    coverage: run.coverage,
+    coverageNote: coverageNote(run.coverage, window, noteBelow),
     metas: run.rows.map(apiRow),
   };
 }

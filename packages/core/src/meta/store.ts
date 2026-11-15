@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { META_WINDOWS, type MetaConfig, type MetaWindow } from "./config.ts";
+import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } from "./config.ts";
+import type { MetaCoverage } from "./coverage.ts";
 
 /**
  * Meta runs and rows (ticket 03, slice 3): each recompute is stored additively so a day's ranking can be replayed and the Study can
@@ -54,6 +55,8 @@ export interface NewMetaRun {
   base: Record<MetaWindow, { tokens: number; migrations: number }>;
   /** Ranked, best first, per window. */
   rows: Record<MetaWindow, NewMetaRow[]>;
+  /** Covered hours of each window (coverage.ts); absent stores null (unknown). */
+  coverage?: MetaCoverage;
 }
 
 export interface MetaRow extends NewMetaRow {
@@ -93,6 +96,8 @@ export interface MetaRun {
   windowMigrations: number;
   /** windowMigrations / windowTokens; null when no token was created in the window. */
   baseMigrationRate: number | null;
+  /** Covered hours of each window when the run was made; null for a run from before ticket 05 (unknown, no note). */
+  coverage: MetaCoverage | null;
   rows: MetaRow[];
 }
 
@@ -207,8 +212,8 @@ export class MetaStore {
    */
   saveRun(run: NewMetaRun, retentionDays = run.rule.retentionDays): number {
     const insertRun = this.db.prepare(
-      `INSERT INTO meta_runs (computed_at, note, rule, dex_calls, dex_failures, base_tokens_6h, base_migrations_6h, base_tokens_24h, base_migrations_24h)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO meta_runs (computed_at, note, rule, dex_calls, dex_failures, base_tokens_6h, base_migrations_6h, base_tokens_24h, base_migrations_24h, coverage_hours_6h, coverage_hours_24h)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertRow = this.db.prepare(
       `INSERT INTO meta_rows (run_id, win, rank, key, label, first_seen_at, tokens_6h, creators_6h, migrations_6h, after60_6h,
@@ -218,7 +223,7 @@ export class MetaStore {
     this.db.exec("BEGIN IMMEDIATE");
     let id: number;
     try {
-      const r = insertRun.run(run.computedAt, run.note, JSON.stringify(run.rule), run.dexCalls, run.dexFailures, run.base["6h"].tokens, run.base["6h"].migrations, run.base["24h"].tokens, run.base["24h"].migrations);
+      const r = insertRun.run(run.computedAt, run.note, JSON.stringify(run.rule), run.dexCalls, run.dexFailures, run.base["6h"].tokens, run.base["6h"].migrations, run.base["24h"].tokens, run.base["24h"].migrations, run.coverage?.["6h"].covered ?? null, run.coverage?.["24h"].covered ?? null);
       id = Number(r.lastInsertRowid);
       for (const win of META_WINDOWS) {
         run.rows[win].forEach((row, i) => {
@@ -301,6 +306,13 @@ export class MetaStore {
       windowTokens,
       windowMigrations,
       baseMigrationRate: windowTokens > 0 ? windowMigrations / windowTokens : null,
+      coverage:
+        typeof r.coverage_hours_6h === "number" && typeof r.coverage_hours_24h === "number"
+          ? {
+              "6h": { covered: r.coverage_hours_6h, of: META_WINDOW_HOURS["6h"] },
+              "24h": { covered: r.coverage_hours_24h, of: META_WINDOW_HOURS["24h"] },
+            }
+          : null,
       rows,
     };
   }

@@ -1,6 +1,8 @@
 import { flat } from "../context-block.ts";
 import type { Datastore } from "../datastore.ts";
 import { sourceClass } from "../sources/source-class.ts";
+import { metaConfigFromEnv } from "./config.ts";
+import { isThin } from "./coverage.ts";
 import type { MetaCounts, MetaRow } from "./store.ts";
 import { tokenSubjectForms, tokenWholeForms } from "./theme.ts";
 
@@ -66,12 +68,14 @@ function shownMetas(rows: readonly MetaBlockRow[], config: MetaBlockConfig): { r
 }
 
 /** The newest ranking's top Metas of the last 24 h, ready for `metaLines`; none before the first run, when the run is stale or the block is off. */
-export function selectMetas(store: Datastore, now: Date, config: MetaBlockConfig = DEFAULT_META_BLOCK_CONFIG): MetaRow[] {
+export function selectMetas(store: Datastore, now: Date, config: MetaBlockConfig = DEFAULT_META_BLOCK_CONFIG, coverageBelow: number = metaConfigFromEnv().coverageNoteBelow): MetaRow[] {
   if (config.maxMetas <= 0) return [];
   const run = store.latestMetas("24h", config.maxMetas);
   if (!run) return [];
   const age = now.getTime() - Date.parse(run.computedAt);
   if (!Number.isFinite(age) || age > config.maxAgeMinutes * 60_000) return [];
+  // Ticket 05: a 24 h window with gaps has counts a model cannot tell from a normal day's, so the block is skipped, not caveated. An old run (no coverage) keeps it.
+  if (isThin(run.coverage?.["24h"], coverageBelow)) return [];
   return run.rows;
 }
 

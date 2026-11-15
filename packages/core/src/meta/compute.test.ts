@@ -1,10 +1,17 @@
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
 import { tempDir } from "../testing/temp.ts";
-import { recomputeMetas, type MetaDexClient } from "./compute.ts";
-import { META_RULE } from "./config.ts";
+import { recomputeMetas as recomputeWithRule, type MetaDexClient, type RecomputeOptions } from "./compute.ts";
+import { metasResponse } from "./api.ts";
+import { META_RULE, metaConfigFromEnv } from "./config.ts";
+import { metaLines, selectMetas } from "./prompt-block.ts";
+
+/** The pre-ticket-05 floor (2 tokens, no creator minimum): the tests that are not about the floor use tiny groups. */
+const LOW_FLOOR = { ...META_RULE, minTokens: 2, minCreators: 1 };
+const recomputeMetas = (store: Datastore, opts: RecomputeOptions = {}) => recomputeWithRule(store, { config: LOW_FLOOR, ...opts });
 
 const NOW = Date.parse("2026-11-11T20:00:00.000Z");
 
@@ -93,7 +100,7 @@ describe("recomputeMetas: ranking", () => {
     expect(META_RULE.rankOrder).toEqual(["creators", "migrationsAfter60s", "marketCapUsd", "tokens"]);
   });
 
-  it("a group needs at least two tokens to be a Meta", async () => {
+  it("a group needs at least two tokens to be a Meta under the old floor", async () => {
     const store = Datastore.open(":memory:");
     launch(store, { name: "Lonely" });
     launchMany(store, 2, () => ({ name: "Pair" }));
@@ -253,12 +260,12 @@ describe("recomputeMetas: market cap", () => {
     const store = Datastore.open(":memory:");
     for (let g = 0; g < 15; g++) launchMany(store, 3, (i) => ({ name: `Group${g}`, creator: `g${g}-${i}` }));
     const budget = fakeDex(new Map());
-    const r = await recomputeMetas(store, { now: new Date(NOW), dex: budget.client, config: { ...META_RULE, dexGroups: 12, dexMaxCalls: 4 } });
+    const r = await recomputeMetas(store, { now: new Date(NOW), dex: budget.client, config: { ...LOW_FLOOR, dexGroups: 12, dexMaxCalls: 4 } });
     expect(budget.calls.length).toBe(4);
     expect(r.dexCalls).toBe(4);
     for (const addresses of budget.calls) expect(addresses.length).toBeLessThanOrEqual(30);
     const wide = fakeDex(new Map());
-    const w = await recomputeMetas(store, { now: new Date(NOW), dex: wide.client, config: { ...META_RULE, dexGroups: 3, dexMaxCalls: 50 } });
+    const w = await recomputeMetas(store, { now: new Date(NOW), dex: wide.client, config: { ...LOW_FLOOR, dexGroups: 3, dexMaxCalls: 50 } });
     expect(wide.calls.length).toBeLessThanOrEqual(6); // at most dexGroups per window, shared between the windows
     expect(w.dexCalls).toBe(wide.calls.length);
   });
@@ -333,8 +340,122 @@ describe("recomputeMetas: theme Metas", () => {
   it("keeps clone clusters apart when theme merging is off in the rule", async () => {
     const store = Datastore.open(":memory:");
     seed(store);
-    await recomputeMetas(store, { now: new Date(NOW), config: { ...META_RULE, theme: null } });
+    await recomputeMetas(store, { now: new Date(NOW), config: { ...LOW_FLOOR, theme: null } });
     expect(rows(store)[0]).toMatchObject({ label: "ni hao cat", counts: { "24h": { tokens: 31, creators: 31 } } });
     store.close();
+  });
+});
+
+describe("recomputeMetas: the size floor (ticket 05)", () => {
+  // The default rule: 5 tokens and 3 distinct creators in the window.
+  const run = (store: Datastore, opts: RecomputeOptions = {}) => recomputeWithRule(store, { now: new Date(NOW), ...opts });
+  const seedFloor = (store: Datastore) => {
+    launchMany(store, 5, (i) => ({ name: "Kept", creator: `k${i % 3}` })); // 5 tokens, 3 creators
+    launchMany(store, 4, (i) => ({ name: "FewTokens", creator: `f${i % 3}` })); // 4 tokens, 3 creators
+    launchMany(store, 5, (i) => ({ name: "FewCreators", creator: `c${i % 2}` })); // 5 tokens, 2 creators
+    launchMany(store, 34, () => ({ name: "OneCreator", creator: "spammer" })); // 34 tokens, 1 creator
+  };
+
+  it("keeps 5 tokens from 3 creators and drops 4 tokens, 2 creators and 1 creator", async () => {
+    const store = Datastore.open(":memory:");
+    seedFloor(store);
+    await run(store);
+    expect(order(store, "24h")).toEqual(["Kept"]);
+    expect(order(store, "6h")).toEqual(["Kept"]);
+    expect(rows(store)[0]).toMatchObject({ counts: { "24h": { tokens: 5, creators: 3 } } });
+  });
+
+  it("is per window: a group that passes in 24 h but not in 6 h appears in 24 h only", async () => {
+    const store = Datastore.open(":memory:");
+    launchMany(store, 3, (i) => ({ name: "Fading", creator: `a${i}`, createdMin: 600 + i }));
+    launchMany(store, 2, (i) => ({ name: "Fading", creator: `a${i}`, createdMin: 30 + i }));
+    await run(store);
+    expect(order(store, "24h")).toEqual(["Fading"]);
+    expect(order(store, "6h")).toEqual([]);
+  });
+
+  it("tests a theme-merged cluster after merging: spellings too small alone count toward the big Meta", async () => {
+    const store = Datastore.open(":memory:");
+    const who = (prefix: string, i: number) => `${prefix}${"abcdefghijklmnopqrstuvwxyz"[i % 26]}${"abcdefghijklmnopqrstuvwxyz"[Math.floor(i / 26)]}`;
+    launchMany(store, 31, (i) => ({ name: "ni hao cat", symbol: "nihao", creator: who("n", i) }));
+    launchMany(store, 5, (i) => ({ name: `Ni Hao ${["Noon", "Gang", "Pump", "Moon", "Rich"][i]}`, symbol: `NH${i}`, creator: who("t", i) }));
+    await run(store);
+    expect(rows(store)).toHaveLength(1);
+    expect(rows(store)[0]).toMatchObject({ label: "ni hao cat", counts: { "24h": { tokens: 36, creators: 36 } } });
+  });
+
+  it("spends no DexScreener call on a dropped group", async () => {
+    const store = Datastore.open(":memory:");
+    const tiny = launchMany(store, 4, (i) => ({ name: "Tiny", creator: `t${i % 3}` }));
+    launchMany(store, 5, (i) => ({ name: "Real", creator: `r${i % 3}` }));
+    const { client, calls } = fakeDex(new Map());
+    const result = await run(store, { dex: client });
+    expect(calls).toHaveLength(1);
+    expect(result.dexCalls).toBe(1);
+    for (const mint of tiny) expect(calls[0]).not.toContain(mint);
+  });
+
+  it("never lets a below-floor group reach latestMetas, the API response or the prompt lines", async () => {
+    const store = Datastore.open(":memory:");
+    seedFloor(store);
+    await run(store);
+    const labels = (store.latestMetas("24h", 50)?.rows ?? []).map((r) => r.label);
+    expect(labels).toEqual(["Kept"]);
+    const response = metasResponse(store.latestMetas("24h", 50), "24h");
+    expect(response.metas.map((m) => m.label)).toEqual(["Kept"]);
+    const lines = metaLines(selectMetas(store, new Date(NOW), undefined, 0));
+    expect(lines).toHaveLength(1);
+    expect(lines.join("\n")).not.toMatch(/FewTokens|FewCreators|OneCreator/);
+  });
+
+  it("stores both floors in the run's rule", async () => {
+    const path = join(tempDir("meta-rule-"), "argus.db");
+    const store = Datastore.open(path);
+    launchMany(store, 5, (i) => ({ name: "Kept", creator: `k${i % 3}` }));
+    await run(store);
+    store.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    const rule = JSON.parse((db.prepare("SELECT rule FROM meta_runs").get() as { rule: string }).rule) as Record<string, unknown>;
+    db.close();
+    expect(rule).toMatchObject({ minTokens: 5, minCreators: 3 });
+  });
+
+  it("the env overrides the floor (1 to 1000) and junk keeps the default", () => {
+    expect(metaConfigFromEnv({})).toMatchObject({ minTokens: 5, minCreators: 3, coverageMinCreates: 10, coverageNoteBelow: 0.8 });
+    expect(metaConfigFromEnv({ ARGUS_META_MIN_TOKENS: "8", ARGUS_META_MIN_CREATORS: "4" })).toMatchObject({ minTokens: 8, minCreators: 4 });
+    expect(metaConfigFromEnv({ ARGUS_META_MIN_TOKENS: "0", ARGUS_META_MIN_CREATORS: "1001" })).toMatchObject({ minTokens: 5, minCreators: 3 });
+    expect(metaConfigFromEnv({ ARGUS_META_MIN_TOKENS: "five", ARGUS_META_MIN_CREATORS: "-2" })).toMatchObject({ minTokens: 5, minCreators: 3 });
+    expect(metaConfigFromEnv({ ARGUS_META_COVERAGE_MIN_CREATES: "50", ARGUS_META_COVERAGE_NOTE_BELOW: "0.5" })).toMatchObject({ coverageMinCreates: 50, coverageNoteBelow: 0.5 });
+    expect(metaConfigFromEnv({ ARGUS_META_COVERAGE_NOTE_BELOW: "2" }).coverageNoteBelow).toBe(0.8);
+    expect(metaConfigFromEnv({ ARGUS_META_COVERAGE_NOTE_BELOW: "x" }).coverageNoteBelow).toBe(0.8);
+  });
+});
+
+describe("recomputeMetas: window coverage (ticket 05)", () => {
+  it("stores the covered hours of both windows with the run and shows them through latestMetas and the API response", async () => {
+    const store = Datastore.open(":memory:");
+    // 10 creates in each of three trailing hours (0.5 h, 1.5 h and 7.5 h ago); one stray create 3.5 h ago does not make an hour.
+    for (const min of [30, 90, 450]) launchMany(store, 10, (i) => ({ name: `Spread ${min} ${i}`, symbol: `S${min}${i}`, createdMin: min }));
+    launch(store, { name: "Stray", createdMin: 210 });
+    await recomputeWithRule(store, { now: new Date(NOW) });
+    const run = store.latestMetas("24h", 10)!;
+    expect(run.coverage).toEqual({ "6h": { covered: 2, of: 6 }, "24h": { covered: 3, of: 24 } });
+    expect(metasResponse(run, "24h").coverageNote).toBe("Only 3 h of data in the last 24 h");
+    expect(metasResponse(run, "6h").coverageNote).toBe("Only 2 h of data in the last 6 h");
+  });
+
+  it("an old run (null columns) has no coverage and no note, and the migration is idempotent on an existing file", async () => {
+    const path = join(tempDir("meta-old-"), "argus.db");
+    const store = Datastore.open(path);
+    await recomputeWithRule(store, { now: new Date(NOW) });
+    store.close();
+    const db = new DatabaseSync(path);
+    db.exec("UPDATE meta_runs SET coverage_hours_6h = NULL, coverage_hours_24h = NULL");
+    db.close();
+    const again = Datastore.open(path);
+    const run = again.latestMetas("24h", 10)!;
+    expect(run.coverage).toBeNull();
+    expect(metasResponse(run, "24h").coverageNote).toBeNull();
+    again.close();
   });
 });

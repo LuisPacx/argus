@@ -427,6 +427,9 @@ export function migrate(db: DatabaseSync): void {
   migrateStudy(db);
   // Meta runs and ranked rows (viral sources ticket 03): additive tables, nothing existing is altered.
   migrateMeta(db);
+  // Covered hours of the 6 h and 24 h windows at each run (viral sources ticket 05); NULL on older runs means unknown, no note.
+  ensureColumn(db, "meta_runs", "coverage_hours_6h", "INTEGER");
+  ensureColumn(db, "meta_runs", "coverage_hours_24h", "INTEGER");
 }
 
 export function slugify(text: string): string {

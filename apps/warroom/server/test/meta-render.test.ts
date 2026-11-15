@@ -22,7 +22,7 @@ const apiRow = (over: Partial<ApiRow> & Pick<ApiRow, "rank" | "label">): ApiRow 
   summarySource: "llm",
   ...over,
 });
-const response = (metas: ApiRow[], computedAt: string | null = ago(12)): MetasResponse => ({ window: "24h", computedAt, note: "n", windowTokens: 1000, windowMigrations: 30, baseMigrationRate: 0.03, metas });
+const response = (metas: ApiRow[], computedAt: string | null = ago(12), coverageNote: string | null = null): MetasResponse => ({ window: "24h", computedAt, note: "n", windowTokens: 1000, windowMigrations: 30, baseMigrationRate: 0.03, coverage: null, coverageNote, metas });
 
 const NI_HAO = apiRow({
   rank: 1,
@@ -83,6 +83,20 @@ it("the /meta list shows the ni hao, GTA VI and DeepSeek rows with every number,
   // DeepSeek: fading, no market cap shown
   for (const text of ["DeepSeek ($DEEPSEEK)", "11 tokens", "10 migrations (unfiltered)", "1.1 creates per migration", "1 of 11 in the last 6 h", "fading"]) expect(html, text).toContain(text);
   expect(html).not.toMatch(/undefined|NaN|null/);
+});
+
+it("both the /meta list and the home strip show the coverage note above the list when the API sends one, and nothing when it is null", async () => {
+  const note = "Only 1 h of data in the last 24 h";
+  for (const render of [section, strip]) {
+    const html = await render(response([NI_HAO], ago(12), note));
+    expect(html).toContain('data-test="meta-coverage-note"');
+    expect(html).toContain(note);
+    expect(html.indexOf(note)).toBeLessThan(html.indexOf("woohao"));
+    const quiet = await render(response([NI_HAO]));
+    expect(quiet).not.toContain("meta-coverage-note");
+    expect(quiet).toContain("woohao"); // the list still shows
+  }
+  expect(await section(response([NI_HAO], ago(12), note), { window: "6h" })).toContain(note); // the note travels with the window the API answered for
 });
 
 it("a token links only where the API supplied a DexScreener URL, drawn by UrlLink", async () => {
