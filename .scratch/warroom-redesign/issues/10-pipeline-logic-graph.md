@@ -3,7 +3,7 @@
 
 **What to build:** the Operator wants "a graphic way of seeing how the logic works ... so I can see what I can improve, change, remove ... updated anytime the logic changes. High level, not fully detailed." Today the only picture is three hand-drawn mermaid blocks in `docs/architecture.md` (system overview `:13`, Proposal lifecycle `:70`, Build Runner `:135`); the Operator reads the War Room, not that file, and nothing makes them follow the code. This ticket adds a War Room page `/pipeline`, nav label "How it works", that draws the pipeline from ONE typed graph definition in code, shows live last-24 h numbers on it, and opens a panel per node. The same definition generates the `docs/architecture.md` diagrams, and a test fails when the code gains a Source, stage, cap or gate the graph lacks.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none. Slices are mergeable on their own, in order a, b, c (b and c need a's graph). See Interplay.
 
@@ -69,7 +69,7 @@ Slice a:
 Slice b:
 - [x] `GET /api/pipeline-live` returns the per-edge counts and per-node spend above for a rolling 24 h; a test with an in-memory store seeds each table and checks every figure, including a row at 23 h 59 m (counted) and 24 h 01 m (not). (`packages/core/src/pipeline-live.test.ts`, first test: seven tables seeded at 23 h 59 m and 24 h 01 m; route in `apps/warroom/server/test/pipeline-live.test.ts`.)
 - [x] Est. usage and real API dollars are separate fields; a `study` or unknown task row never crashes the route and is reported under "other". (`spendUsd` / `apiUsd`; `other` in both test files.)
-- [ ] The page shows the counts on the edges and spend on the nodes, refreshes on the poll, and degrades to the static graph when the route fails (tested at the route; browser-checked on the page).
+- [x] The page shows the counts on the edges and spend on the nodes, refreshes on the poll, and degrades to the static graph when the route fails (tested at the route; browser-checked on the page).
 
 Slice c:
 - [x] A node opens a panel with `what`, status, rules with the real values, ADRs, tickets, files and spend; closing returns focus; Escape works; the panel text is escaped.
@@ -135,4 +135,4 @@ One commit per slice, after the full `pnpm check`. Subjects `War Room ticket 10a
 
 Slice a check: `pnpm check` passed on the committed tree (128 files, 1951 tests), stamped tree `eb937331a4`; `verify:boot` answered 2xx on `/pipeline` (own temp DB, port 3162).
 
-**2026-11-15, browser check.** Browser evidence (cos, `pnpm page:check` at 02b936d against live :3100, headless, no user/Argus profile): /pipeline 200 at 1240 and 390 px, 0 console/page errors, 0 failed requests; 390 px overflow warning scrollWidth 501 (documented sideways scroll). Keys at both widths: focus #pipe-node-sources (panel hidden) -> Enter -> focus panel-close (panel visible) -> Escape -> focus #pipe-node-sources (panel hidden). Full check per slice: a stamped eb937331a4 (3040f7a), b stamped f0bbd3f187 (68042b2, merged as fd0f0ab after a docs-only rebase), c stamped 86f240dd07 (302932d). Follow-up seen: header nav pill is clipped at 390 px (all pages; not caused by this ticket).
+**2026-11-15, browser check.** Browser evidence (cos, `pnpm page:check` at 02b936d against live :3100, headless, no user/Argus profile): /pipeline 200 at 1240 and 390 px, 0 console/page errors, 0 failed requests; 390 px overflow warning scrollWidth 501 (documented sideways scroll). Keys at both widths: focus #pipe-node-sources (panel hidden) -> Enter -> focus panel-close (panel visible) -> Escape -> focus #pipe-node-sources (panel hidden). Full check per slice: a stamped eb937331a4 (3040f7a), b stamped f0bbd3f187 (68042b2, merged as fd0f0ab after a docs-only rebase), c stamped 86f240dd07 (302932d). Follow-up seen: header nav pill is clipped at 390 px (all pages; not caused by this ticket). Slice b counts on edges: seen by cos in the page:check 390 px screenshot of live /pipeline (main 3c2fd45, slice b live): 1k Sources->Signals, 293 Signals->Narratives, 3 judged / 0 passed the gate, 690 Sources->Study, spend lines $0.006 est. Judge, $0.014 est. Meta.
