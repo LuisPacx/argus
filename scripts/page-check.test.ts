@@ -19,13 +19,15 @@ describe("page-check URL and paths", () => {
   it("builds only localhost URLs and refuses other hosts and // paths", () => {
     expect(buildUrl(3100, "/pipeline")).toBe("http://localhost:3100/pipeline");
     expect(buildUrl(3100)).toBe("http://localhost:3100/");
-    for (const bad of ["//evil.example/x", "http://evil.example/", "https://127.0.0.1/", "pipeline", "/a\\b", "javascript:1"]) {
+    for (const bad of ["/\t/evil.example/x", "/\r/evil.example/x", "/\n/evil.example/x", "/\u0000x", "//evil.example/x","http://evil.example/", "https://127.0.0.1/", "pipeline", "/a\\b", "javascript:1"]) {
       expect(() => buildUrl(3100, bad), bad).toThrow();
     }
     expect(() => buildUrl(0, "/")).toThrow();
     expect(isLocalUrl("http://localhost:3100/x")).toBe(true);
     expect(isLocalUrl("http://127.0.0.1/x")).toBe(true);
     expect(isLocalUrl("https://fonts.googleapis.com/css")).toBe(false);
+    expect(isLocalUrl("http://localhost:3100/x", 3100)).toBe(true);
+    expect(isLocalUrl("http://localhost:9999/x", 3100)).toBe(false);
     expect(isLocalUrl("http://127.0.0.1.evil.example/")).toBe(false);
   });
 

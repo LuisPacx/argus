@@ -21,10 +21,18 @@ a.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault
 p.addEventListener("keydown", (e) => { if (e.key === "Escape") { p.hidden = true; a.focus(); } });
 </script>`;
 
+const FORM = `<!doctype html><title>form</title><form method="post" action="/submit"><button id="go" type="submit">Go</button></form>`;
+const posts: string[] = [];
+const profiles = () => fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("playwright"));
+
 let server: http.Server;
 let port = 0;
 beforeAll(async () => {
   server = http.createServer((req, res) => {
+    if (req.method === "POST") posts.push(req.url ?? "");
+    if (req.url === "/form") res.writeHead(200, { "content-type": "text/html" }).end(FORM);
+    else if (req.method === "POST") res.writeHead(200).end("posted");
+    else
     if (req.url === "/bad") res.writeHead(200, { "content-type": "text/html" }).end(BAD);
     else if (req.url === "/good") res.writeHead(200, { "content-type": "text/html" }).end(GOOD);
     else res.writeHead(404).end("no");
@@ -36,7 +44,7 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 function run(args: string[]): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
-    execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), ...args], { timeout: 90000 }, (err, stdout, stderr) => {
+    execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), ...args], { timeout: 50000 }, (err, stdout, stderr) => {
       resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout + stderr });
     });
   });
@@ -63,6 +71,16 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
     expect(log.map((s: { focus: { id: string } }) => s.focus.id)).toEqual(["a", "close", "a"]);
     expect(log.map((s: { visible: Record<string, boolean> }) => s.visible["#panel"])).toEqual([false, true, false]);
     expect(fs.existsSync(path.join(out, "good-390-keys.png"))).toBe(true);
+  });
+
+  it("blocks a state-changing request that Enter would send, fails, and leaves no temp profile", async () => {
+    const before = profiles();
+    const out = tempDir("page-check-out-");
+    const r = await run(["/form", "--port", String(port), "--out", out, "--keys", "focus=#go,Enter"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("blocked POST");
+    expect(posts).toEqual([]);
+    expect(profiles()).toEqual(before);
   });
 
   it("exits 2 for a non-local path", async () => {

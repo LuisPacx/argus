@@ -1,7 +1,10 @@
 // pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...
 // Opens one page of a RUNNING local War Room in a headless Chromium with a throwaway profile, at 1240 and 390 px
 // (a real context viewport, not a resized window), and writes a full-page screenshot per width, a JSON summary
-// and prints it. Read-only: navigate, screenshot, read sizes; the optional --keys script only sends focus/open/close keys.
+// and prints it. Read-only: navigate, screenshot, read sizes; the optional --keys script only sends keys from a fixed list.
+// Enforced: every request that is not GET or HEAD, or is not to localhost on the chosen port, is aborted and counted as a
+// failed request (exit 1). Enter and Space still activate the focused element, so the caller picks focus/open/close targets;
+// a state-changing POST/PUT/DELETE it would trigger is blocked, not sent. Service workers are blocked; WebSockets are not intercepted.
 // Ticket: .scratch/warroom-redesign/issues/11-headless-page-check.md
 // Never uses the user's Chrome, the Argus Chrome profile, a `channel` or the 1194 browser build.
 import fs from 'node:fs';
@@ -21,18 +24,21 @@ const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost']);
 // Local URL only: no host argument, no absolute URL, no `//` path.
 export function buildUrl(port, pagePath = '/') {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`bad port ${port}`);
-  if (typeof pagePath !== 'string' || !pagePath.startsWith('/') || pagePath.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(pagePath) || pagePath.includes('\\')) {
+  if (typeof pagePath !== 'string' || !pagePath.startsWith('/') || pagePath.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(pagePath) || pagePath.includes('\\') || /[\u0000-\u001f\u007f]/.test(pagePath)) {
     throw new Error(`path must be a local path like /pipeline, got "${pagePath}"`);
   }
   // `localhost`, not 127.0.0.1: the live War Room (nuxt dev) listens on ::1 only.
   const url = new URL(pagePath, 'http://localhost');
   url.port = String(port);
+  if (url.hostname !== 'localhost' || url.port !== String(port) || url.protocol !== 'http:') throw new Error(`path "${pagePath}" does not stay on localhost:${port}`);
   return url.href;
 }
 
-export function isLocalUrl(url) {
+// A local URL; with `port`, only that port (the War Room being checked).
+export function isLocalUrl(url, port) {
   try {
-    return LOCAL_HOSTS.has(new URL(url).hostname);
+    const u = new URL(url);
+    return LOCAL_HOSTS.has(u.hostname) && (port === undefined || u.port === String(port));
   } catch {
     return false;
   }
@@ -231,14 +237,24 @@ export async function main(argv) {
     result.browser = `chromium headless shell ${browser.version()} (revision ${revision}) at ${browserPath}`;
     console.log(`browser: ${result.browser}`);
     for (const vp of WIDTHS) {
-      const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, isMobile: vp.isMobile, hasTouch: vp.isMobile });
+      // serviceWorkers 'block': a service worker's requests would bypass the route handler. WebSockets are not intercepted by route().
+      const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, isMobile: vp.isMobile, hasTouch: vp.isMobile, serviceWorkers: 'block' });
       try {
         await context.route('**/*', (route) => {
-          const reqUrl = route.request().url();
-          if (isLocalUrl(reqUrl) || reqUrl.startsWith('data:') || reqUrl.startsWith('blob:')) return route.continue();
-          blocked.add(reqUrl);
-          result.failedRequests.push(`blocked non-local request ${reqUrl}`);
-          return route.abort();
+          const req = route.request();
+          const reqUrl = req.url();
+          if (reqUrl.startsWith('data:') || reqUrl.startsWith('blob:')) return route.continue();
+          if (!isLocalUrl(reqUrl, opts.port)) {
+            blocked.add(reqUrl);
+            result.failedRequests.push(`blocked request outside localhost:${opts.port}: ${reqUrl}`);
+            return route.abort();
+          }
+          if (req.method() !== 'GET' && req.method() !== 'HEAD') {
+            blocked.add(reqUrl);
+            result.failedRequests.push(`blocked ${req.method()} (read-only check): ${reqUrl}`);
+            return route.abort();
+          }
+          return route.continue();
         });
         const page = await context.newPage();
         page.on('console', (m) => {
