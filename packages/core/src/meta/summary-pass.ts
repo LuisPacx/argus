@@ -146,7 +146,8 @@ export async function summariseMetas(
     groups ??= groupsAsOf(store, ranking.computedAt);
     // Ticket 03 of missed ideas: matching news is context for the line (ADR 0011). It is not part of the input hash: a new headline alone does not buy a call.
     const news = newsForKeys(store, [row.key], clock(), opts.metaConfig).get(row.key) ?? [];
-    const prompt = metaSummaryPromptFor(row, tokensFor(store, row, groups.get(row.key)), news);
+    const shownTokens = tokensFor(store, row, groups.get(row.key));
+    const prompt = metaSummaryPromptFor(row, shownTokens, news);
     const runId = store.startBrainRun({ proposalId: 0, task: "meta-summary", ...brain.routeFor("meta-summary") }, clock());
     out.called++;
     let result;
@@ -180,8 +181,9 @@ export async function summariseMetas(
       log("[worker] meta summary: dry-run, nothing spawned; stopping the pass");
       return { ...out, stoppedBy: "dry-run" };
     }
-    const shownTokens = tokensFor(store, row, groups.get(row.key));
-    const parsed = parseMetaSummary(result.output, [row.label, ...shownTokens.flatMap((t) => [t.name, t.symbol])].join(" "));
+    // Figures the model was given as text (names, tickers, descriptions, matching headlines) may appear in its line; any other figure is refused.
+    const given = [row.label, ...shownTokens.flatMap((t) => [t.name, t.symbol, t.description ?? ""]), ...news.map((n) => n.title)].join(" ");
+    const parsed = parseMetaSummary(result.output, given);
     store.finishBrainRun(runId, { sessionId: result.sessionId ?? null, totalCostUsd: result.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: result.backend, model: result.model });
     // The spend is recorded. Nothing below calls the brain again.
     if (!parsed.ok) {

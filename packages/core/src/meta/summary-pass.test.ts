@@ -322,6 +322,17 @@ describe("summariseMetas: matching news as context (missed ideas ticket 03)", ()
     expect(second).not.toMatch(/news/i);
   });
 
+  it("a figure from a matching headline may appear in the line; an invented figure is still refused", async () => {
+    const store = await seed(1);
+    store.recordSignals([signal("rss:1", "rss:wired", "Meta0 fans await GPT-5 and a $1M prize")]);
+    const quoted = fakeBrain(() => "Meta0 theme riding the GPT-5 news with few migrations");
+    expect(await run(store, quoted.brain)).toMatchObject({ called: 1, accepted: 1, refused: 0 });
+    const store2 = await seed(1);
+    store2.recordSignals([signal("rss:1", "rss:wired", "Meta0 fans await GPT-5 and a $1M prize")]);
+    const invented = fakeBrain(() => "Meta0 theme riding the GPT-7 news");
+    expect(await run(store2, invented.brain)).toMatchObject({ called: 1, accepted: 0, refused: 1 });
+  });
+
   it("a new headline alone does not buy a call: the stored line stands while the input hash holds", async () => {
     const store = await seed(1);
     const { brain, prompts } = fakeBrain(() => GOOD);
