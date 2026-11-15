@@ -104,6 +104,16 @@ describe("context-only Narratives are neither judged nor proposed (ticket 24)", 
     expect(store.latestScore(news)).toBeDefined();
   });
 
+  it("contextNarratives is unchanged by kind: it lists a context-only Narrative of either kind, and no Narrative that holds a market Signal", () => {
+    const { store } = fixture();
+    const id = `s:${++n}`;
+    store.recordSignals([{ id, sourceId: "rss:a", sourceLabel: "rss:a", title: "Quiet launchpad", summary: "", url: `https://a.example/${id}`, publishedAt: NOW.toISOString() }]);
+    const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
+    store.createNarrative(sig, [], NOW.toISOString(), CUR, { title: "Quiet launchpad", keys: [] });
+    const titles = store.contextNarratives(CUR, SINCE, 50).map((x) => x.title).sort();
+    expect(titles).toEqual(["Quiet launchpad", "Repo", "News story", "Trend"].sort());
+  });
+
   it("a context-only Narrative that gains a market Signal is selected on the next pass", () => {
     const { store, news } = fixture();
     expect(judgeIds(store)).not.toContain(news);

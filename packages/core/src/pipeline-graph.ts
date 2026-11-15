@@ -185,7 +185,6 @@ export const PIPELINE: PipelineGraph = {
       rules: [
         { label: "Runs every", ref: () => JUDGE_TICK_MS, unit: "ms", diagram: true },
         { label: "Signals a news Narrative needs", key: "DEFAULT_JUDGE_CONFIG.minSignals", ref: () => DEFAULT_JUDGE_CONFIG.minSignals, unit: "count", live: (env) => judgeConfigFromEnv(env).minSignals },
-        { label: "Signals a launchpad Narrative needs", key: "DEFAULT_JUDGE_CONFIG.minSignalsLaunchpad", ref: () => DEFAULT_JUDGE_CONFIG.minSignalsLaunchpad, unit: "count", live: (env) => judgeConfigFromEnv(env).minSignalsLaunchpad },
         { label: "Looks back", key: "DEFAULT_JUDGE_CONFIG.windowHours", ref: () => DEFAULT_JUDGE_CONFIG.windowHours, unit: "hours" },
         { label: "Narratives per pass", key: "DEFAULT_JUDGE_CONFIG.maxPerPass", ref: () => DEFAULT_JUDGE_CONFIG.maxPerPass, unit: "count", live: (env) => judgeConfigFromEnv(env).maxPerPass },
         { label: "Runs per day", key: "DEFAULT_JUDGE_CONFIG.maxRunsPerDay", ref: () => DEFAULT_JUDGE_CONFIG.maxRunsPerDay, unit: "count", live: (env) => judgeConfigFromEnv(env).maxRunsPerDay },

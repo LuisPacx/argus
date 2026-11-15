@@ -8,6 +8,10 @@ const SORTS = [
   { value: "signals", label: "Most Signals" },
   { value: "active", label: "Last Signal" },
 ];
+const KINDS = [
+  { value: "news", label: "News" },
+  { value: "launchpad", label: "Launchpad" },
+];
 const SCORED = [
   { value: "", label: "All" },
   { value: "yes", label: "Scored" },
@@ -30,9 +34,10 @@ const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
   const v = typeof raw === "string" ? raw : "";
   return allowed.some((o) => o.value === v) ? v : "";
 };
-type Current = { sort: string; scored: string; proposal: string; active: string; source: string };
+type Current = { sort: string; kind: string; scored: string; proposal: string; active: string; source: string };
 const current = computed<Current>(() => ({
   sort: pick(route.query.sort, SORTS) || "score",
+  kind: pick(route.query.kind, KINDS) || "news",
   scored: pick(route.query.scored, SCORED),
   proposal: pick(route.query.proposal, PROPOSAL),
   active: pick(route.query.active, ACTIVE),
@@ -42,6 +47,7 @@ const current = computed<Current>(() => ({
 const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
   if (c.sort !== "score") q.sort = c.sort;
+  if (c.kind !== "news") q.kind = c.kind;
   for (const k of ["scored", "proposal", "active", "source"] as const) if (c[k]) q[k] = c[k];
   return q;
 };
@@ -77,6 +83,7 @@ const age = (createdAt: string) => {
 const choose = (key: string, value: string) => void navigateTo(to({ [key]: value }), { replace: true });
 const groups = computed(() => [
   { kind: "seg" as const, key: "sort", title: "Sort", label: "Sort", options: opts(SORTS, "sort") },
+  { kind: "seg" as const, key: "kind", title: "Kind", label: "Kind filter", options: opts(KINDS, "kind") },
   { kind: "seg" as const, key: "scored", title: "Score", label: "Scored filter", options: opts(SCORED, "scored") },
   { kind: "seg" as const, key: "proposal", title: "Proposal", label: "Proposal filter", options: opts(PROPOSAL, "proposal") },
   { kind: "select" as const, key: "active", title: "Active", id: "narrative-active", value: current.value.active, options: ACTIVE },
@@ -93,14 +100,14 @@ const groups = computed(() => [
 </script>
 
 <template>
-  <div class="grid gap-8">
+  <div class="grid grid-cols-[minmax(0,1fr)] gap-8">
     <h2 class="page-title">Narratives</h2>
 
     <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="narrative-controls" @select="choose" />
 
     <p v-if="!narratives.length && filtered" class="surface muted text-sm">No Narratives match these filters.</p>
     <p v-else-if="!narratives.length" class="surface muted text-sm">No Narratives yet. The worker clusters new Signals after each ingest tick.</p>
-    <TransitionGroup v-else tag="div" name="row" :appear="animate" class="relative grid gap-3">
+    <TransitionGroup v-else tag="div" name="row" :appear="animate" class="relative grid grid-cols-[minmax(0,1fr)] gap-3">
       <article v-for="(n, i) in narratives" :key="n.id" class="row flex items-center gap-4 py-5" :style="{ '--i': i }">
         <div class="min-w-0 grow">
           <h3 class="truncate font-semibold tracking-tight">

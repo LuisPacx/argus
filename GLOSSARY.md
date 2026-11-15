@@ -15,7 +15,7 @@ Whether a Source is `market` or `context`. A market Source (PumpPortal, DexScree
 _Avoid_: category
 
 **Narrative**:
-A cluster of recent Signals that share a subject and show momentum. The unit the research step produces.
+A cluster of recent Signals that share a subject and show momentum. The unit the research step produces. It has a kind: `news` (built from news and market Signals; judged and proposed from) or `launchpad` (one token's creates from the launchpad stream; context and routing only, never judged or proposed, ADR 0013).
 _Avoid_: Trend, topic
 
 ## Ideas
@@ -24,7 +24,7 @@ _Avoid_: Trend, topic
 The new technology (product) that could be built to ride a Narrative. For example, the "tokenized stocks" Narrative yields the Tech "a launchpad that pairs each token with a stock". A Tech is a concept until a Build exists.
 
 **Proposal**:
-A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for a `meme` Proposal, a Meta paired with a token idea. It has a kind, `narrative` or `meme` (ADR 0013); older Proposals are `narrative`. It is the unit shown in the War Room and decided on by the Operator, and a `narrative` Proposal carries a Spec once one is drafted.
+A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for a `meme` Proposal, a Meta paired with a token idea. It has a kind, `narrative` or `meme` (ADR 0013); older Proposals are `narrative`, and a `narrative` Proposal comes only from a `news` Narrative. It is the unit shown in the War Room and decided on by the Operator, and a `narrative` Proposal carries a Spec once one is drafted.
 _Avoid_: Idea (as a bare noun for a Proposal), candidate
 
 **Meme Proposal**:

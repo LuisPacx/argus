@@ -687,6 +687,8 @@ export interface NarrativeQuery {
   sort?: NarrativeSort;
   scored?: boolean;
   hasProposal?: boolean;
+  /** Only Narratives of this kind. Unset: both (the War Room API defaults to news). */
+  kind?: "news" | "launchpad";
   sourceId?: string;
   /** ISO time: only Narratives that gained a Signal at or after it. */
   activeSince?: string;
@@ -1247,15 +1249,15 @@ export class Datastore {
   }
 
   /**
-   * The newest Narratives by creation, then id, descending. A launchpad Narrative appears only once it has a Score: they are made at
-   * thousands a day, mostly one create each, and unfiltered they would fill the Activity feed's twenty rows with unjudged singletons.
+   * The newest news Narratives by creation, then id, descending. Launchpad Narratives never appear (proposal-routing ticket 01): they
+   * are made at thousands a day, are never scored, and would fill the twenty rows with singletons; an old scored one drops out too.
    */
   newestNarratives(limit = 20): Narrative[] {
     const rows = this.db
       .prepare(
         `SELECT id, title, summary, signal_count, created_at, last_signal_at, changed_materially_at
          FROM narratives n
-         WHERE n.kind <> 'launchpad' OR EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id)
+         WHERE n.kind = 'news'
          ORDER BY created_at DESC, id DESC LIMIT ?`,
       )
       .all(limit) as unknown as NarrativeRow[];
@@ -1439,6 +1441,10 @@ export class Datastore {
     const where: string[] = [];
     const params: Array<string | number> = [];
     if (q.scored !== undefined) where.push(q.scored ? "s.id IS NOT NULL" : "s.id IS NULL");
+    if (q.kind !== undefined) {
+      where.push("n.kind = ?");
+      params.push(q.kind);
+    }
     if (q.hasProposal !== undefined) where.push(`${q.hasProposal ? "" : "NOT "}EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)`);
     if (q.sourceId !== undefined) {
       where.push("EXISTS (SELECT 1 FROM signals g WHERE g.narrative_id = n.id AND g.source_id = ?)");
@@ -1471,6 +1477,12 @@ export class Datastore {
     return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, hasProposal: r.has_proposal === 1, sourceClass: r.has_market === 1 ? "market" : "context" }));
   }
 
+  /** A Narrative's kind (`news` or `launchpad`), or undefined when it does not exist. */
+  narrativeKind(id: number): string | undefined {
+    const row = this.db.prepare("SELECT kind FROM narratives WHERE id = ?").get(id) as unknown as { kind: string } | undefined;
+    return row?.kind;
+  }
+
   getNarrative(id: number): NarrativeDetail | undefined {
     const row = this.db
       .prepare(
@@ -1497,12 +1509,11 @@ export class Datastore {
    * refused (`budget-exceeded`, `invalid-output`): those say something about the Narrative, so it is tried again when it changes, not
    * before. Every other ending (`failed`, `timed-out`, `rate-limited`, `interrupted`) says something about claude, the network or the
    * worker, so the Narrative stays eligible; the 24 h run and spend caps and the consecutive-failure backoff bound the retries.
-   * Also left out: a Narrative backed by fewer than `minSignals` Signals (`minSignalsLaunchpad` for a launchpad Narrative, viral sources
-   * ticket 01: they are far more numerous, so they get their own, higher minimum; it defaults to `minSignals`). It is skipped, not
-   * scored, and starts no run, so it never counts against the run cap; it becomes eligible the moment it gains Signals to reach its
-   * minimum. Default 1 (no filter); the judge passes `JudgeConfig.minSignals` and `minSignalsLaunchpad`.
-   * Order: news Narratives first, then launchpad ones, each busiest first. A flood of launchpad Narratives can then never push a news one
-   * out of the 24 h run cap (news demand is small and was the whole judge load before ticket 01).
+   * Only a `news` Narrative is judged (proposal-routing ticket 01): a launchpad Narrative (one token's creates) is context and routing
+   * only, never scored, whatever its Signal count. One that already has a Score keeps it as history.
+   * Also left out: a Narrative backed by fewer than `minSignals` Signals. It is skipped, not scored, and starts no run, so it never
+   * counts against the run cap; it becomes eligible the moment it gains Signals to reach the minimum. Default 1 (no filter); the
+   * judge passes `JudgeConfig.minSignals`. Order: busiest first.
    * Also left out: a Narrative with no market Signal (ticket 24, `sources/source-class.ts`): context Signals are background only. Same
    * for a skipped Narrative: no run, no cap use; it is eligible the moment it gains a market Signal.
    */
@@ -1512,7 +1523,6 @@ export class Datastore {
     limit: number,
     maxConsecutiveTimeouts = Infinity,
     minSignals = 1,
-    minSignalsLaunchpad = minSignals,
   ): Narrative[] {
     // Also left out: a Narrative whose last `maxConsecutiveTimeouts` judge runs since its last material change all timed out (a poison
     // Narrative would otherwise be retried, and starve the pass, until the daily cap). Counted from brain_runs, so a restart keeps it.
@@ -1522,7 +1532,7 @@ export class Datastore {
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at
          FROM narratives n
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
-           AND n.signal_count >= CASE n.kind WHEN 'launchpad' THEN ? ELSE ? END
+           AND n.kind = 'news' AND n.signal_count >= ?
            AND ${HAS_MARKET_SIGNAL}
            AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
@@ -1534,10 +1544,10 @@ export class Datastore {
              SELECT b.exit_status FROM brain_runs b
              WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.created_at >= n.changed_materially_at
              ORDER BY b.id DESC LIMIT ?) WHERE exit_status = 'timed-out') < ?)
-         ORDER BY (n.kind = 'launchpad'), n.signal_count DESC, n.id
+         ORDER BY n.signal_count DESC, n.id
          LIMIT ?`,
       )
-      .all(embedder.id, embedder.dimension, since, Math.max(1, Math.floor(minSignalsLaunchpad)), Math.max(1, Math.floor(minSignals)), n, n, n, limit) as unknown as NarrativeRow[];
+      .all(embedder.id, embedder.dimension, since, Math.max(1, Math.floor(minSignals)), n, n, n, limit) as unknown as NarrativeRow[];
     return rows.map(toNarrative);
   }
 
@@ -1575,7 +1585,8 @@ export class Datastore {
   /**
    * WORKER ONLY. The propose delta: Narratives built by `embedder` that gained a Signal at or after `since` (ISO), whose latest Score
    * has a buildability of at least `gateMin` (the Rubric's hard gate; the caller passes the gate as it is now), that have no Proposal
-   * yet (ever, dismissed ones included), at least one market Signal (ticket 24) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
+   * yet (ever, dismissed ones included), at least one market Signal (ticket 24), kind `news` (a launchpad Narrative is never proposed
+   * from, proposal-routing ticket 01) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
    * or over budget since its latest Score is left out until it is scored again; any other ending (claude missing, a timeout, a rate
    * limit) leaves it eligible, bounded by the daily run and spend caps.
    */
@@ -1588,6 +1599,7 @@ export class Datastore {
          FROM narratives n
          JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND n.kind = 'news'
            AND ${HAS_MARKET_SIGNAL}
            AND json_extract(s.scores, '$.buildability') >= ?
            AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)

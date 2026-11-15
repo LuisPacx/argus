@@ -44,7 +44,7 @@ async function runOnce(env: Record<string, string>, replies: FakeReply[] = []) {
   const db = join(dir, "argus.db");
   const seed = Datastore.open(db);
   for (const [i, title] of ["Tokenized stocks arrive", "Cat elected mayor", "Rockets launch daily"].entries()) {
-    seed.recordSignals([{ id: `s:${i}`, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${i}`, publishedAt: new Date().toISOString() }]);
+    seed.recordSignals([{ id: `s:${i}`, sourceId: "dexscreener:trending", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${i}`, publishedAt: new Date().toISOString() }]);
   }
   await clusterNewSignals(seed, new HashingEmbedder(), { config: { joinThreshold: 0.99 } });
   seed.close();
@@ -52,7 +52,7 @@ async function runOnce(env: Record<string, string>, replies: FakeReply[] = []) {
   const ARGUS_CLAUDE_BIN = fakeClaudeBin(dir, { FAKE_CLAUDE_MODE: "ratelimit", FAKE_CLAUDE_LOG: claudeLog });
   const child = spawn(process.execPath, ["src/main.ts", "--once"], {
     cwd: workerDir,
-    env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ARGUS_JUDGE_MIN_SIGNALS: "1", ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD: "1", ARGUS_ANTHROPIC_URL: fake.url, ...env },
+    env: { ...process.env, ARGUS_DB: db, ARGUS_PODMAN_BIN, ARGUS_CLAUDE_BIN, ARGUS_RSS_FEEDS: feedsPath, ARGUS_INGEST_STANDING: "0", ARGUS_EMBEDDER: "hashing", ARGUS_JUDGE_MIN_SIGNALS: "1", ARGUS_ANTHROPIC_URL: fake.url, ...env },
   });
   let out = "";
   child.stdout.on("data", (d) => (out += d));

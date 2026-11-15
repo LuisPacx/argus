@@ -109,8 +109,6 @@ export interface JudgeConfig {
   maxRunsPerDay: number;
   /** A news Narrative is judged only when backed by at least this many Signals. Fewer: skipped (no run, no cap use) until it gains more. */
   minSignals: number;
-  /** The same for a launchpad Narrative (viral sources ticket 01: one token's creates, many of them junk), which is far more numerous than a news one. */
-  minSignalsLaunchpad: number;
   /** Most the judge may spend in any rolling 24 hours (Est. usage: on the subscription this is a measure, not a bill). A run in progress may overshoot by up to its own budget. */
   maxDailyUsd: number;
   /** This many transient failures in a row (claude missing, auth or network trouble, a timeout) end the pass, as a rate limit does. The next tick tries again. */
@@ -121,12 +119,6 @@ export interface JudgeConfig {
 
 /** Judge only Narratives backed by at least this many Signals (Operator, 2026-11-08: single-Signal Narratives are noise and used up the cap). */
 export const DEFAULT_JUDGE_MIN_SIGNALS = 2;
-/**
- * Launchpad Narratives (one token name's creates and bonds, thousands a day) need more. 15 is the lowest of the replayed values (5, 8, 10,
- * 15) at which the judge's demand stays under the 300 runs a day cap on every day (102 to 269 a day, replay of 11-07..11-12; 10 asks for
- * 203 to 422); see the Comments of .scratch/viral-sources/issues/01 (2026-11-15). `scripts/simulate-judge-load.mjs` re-measures it.
- */
-export const DEFAULT_JUDGE_MIN_SIGNALS_LAUNCHPAD = 15;
 /** Judge runs allowed in any rolling 24 hours (Operator, 2026-11-08: raised from 150; a run costs about $0.0013). */
 export const DEFAULT_JUDGE_RUNS_PER_DAY = 300;
 
@@ -137,10 +129,10 @@ export const DEFAULT_JUDGE_RUNS_PER_DAY = 300;
  * may use is the shared budget in research-budget.ts, checked before every run; these caps only keep the judge itself bounded (and,
  * at $2 of the default $6, leave the propose pass the rest).
  */
-export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: DEFAULT_JUDGE_RUNS_PER_DAY, minSignals: DEFAULT_JUDGE_MIN_SIGNALS, minSignalsLaunchpad: DEFAULT_JUDGE_MIN_SIGNALS_LAUNCHPAD, maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
+export const DEFAULT_JUDGE_CONFIG: JudgeConfig = { windowHours: 72, maxPerPass: 10, maxRunsPerDay: DEFAULT_JUDGE_RUNS_PER_DAY, minSignals: DEFAULT_JUDGE_MIN_SIGNALS,maxDailyUsd: 2, maxConsecutiveFailures: 3, maxConsecutiveTimeouts: 3 };
 
 /**
- * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY, ARGUS_JUDGE_MIN_SIGNALS, ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
+ * The config with ARGUS_JUDGE_MAX_PER_PASS, ARGUS_JUDGE_MAX_RUNS_PER_DAY, ARGUS_JUDGE_MIN_SIGNALS and ARGUS_JUDGE_MAX_DAILY_USD applied. A value that is not a
  * positive number is an error, not a fallback. The two counts are floored first and the result must still be at least 1: 0.5 would
  * otherwise become 0 and the judge would silently never run.
  */
@@ -157,7 +149,6 @@ export function judgeConfigFromEnv(env: Record<string, string | undefined>): Jud
     maxPerPass: read("ARGUS_JUDGE_MAX_PER_PASS", DEFAULT_JUDGE_CONFIG.maxPerPass, true),
     maxRunsPerDay: read("ARGUS_JUDGE_MAX_RUNS_PER_DAY", DEFAULT_JUDGE_CONFIG.maxRunsPerDay, true),
     minSignals: read("ARGUS_JUDGE_MIN_SIGNALS", DEFAULT_JUDGE_CONFIG.minSignals, true),
-    minSignalsLaunchpad: read("ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD", DEFAULT_JUDGE_CONFIG.minSignalsLaunchpad, true),
     maxDailyUsd: read("ARGUS_JUDGE_MAX_DAILY_USD", DEFAULT_JUDGE_CONFIG.maxDailyUsd, false),
   };
 }
@@ -207,7 +198,7 @@ export async function judgePendingNarratives(
     return true;
   };
 
-  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass, config.maxConsecutiveTimeouts, config.minSignals, config.minSignalsLaunchpad)) {
+  for (const candidate of store.narrativesToJudge(embedder, since, config.maxPerPass, config.maxConsecutiveTimeouts, config.minSignals)) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const spent = store.judgeSpendSince(new Date(clock().getTime() - 24 * 3_600_000).toISOString(), caps);
     if (spent.runs >= config.maxRunsPerDay || spent.chargedUsd >= config.maxDailyUsd) {

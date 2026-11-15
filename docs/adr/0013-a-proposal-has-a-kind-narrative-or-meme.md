@@ -31,3 +31,13 @@ What it leaves alone:
 - **ADR 0011:** eligibility of a Narrative is unchanged. A `meme` Proposal is not eligibility-gated by a market Signal of a Narrative; its market evidence is the Meta's own launchpad data, which is market class. News stays context and never raises the trigger.
 - **ADR 0012:** a Meta is ranked by plain code and stays context. The Hot now event (its addendum) is the trigger, and the event itself still makes no Narrative, Proposal or Score: the meme task, run after it, makes the Proposal (ADR 0012's "no Proposal" describes the ranking and the event, not what is built on them); the summary path and the prompt blocks are unchanged.
 - ADR 0003 (one build archetype) is untouched: a `meme` Proposal never reaches the Build.
+
+## Amendment 2026-11-15: Tech Proposals come only from news Narratives (proposal-routing ticket 01)
+
+This narrows the first half of "what a Proposal is made from" and sharpens the second.
+
+- Memecoins never get a Tech. A Tech is a small web app, and one token's creates give it nothing to ride.
+- A `narrative` Proposal (a Tech Proposal) comes only from a Narrative of kind `news`, still with a market Signal (ADR 0011) and the buildability gate. The judge selects only `news` Narratives, the propose pass selects only `news` Narratives, and the creation re-check drops an answer, counted as withdrawn, when the Narrative is not `news` at that moment.
+- A `launchpad` Narrative (one token's creates from the pump.fun stream) is routing and context only: it is still clustered, listed (War Room Narratives page, Kind = Launchpad) and used by `contextNarratives`, and is never judged or proposed from. Its judge minimum (`ARGUS_JUDGE_MIN_SIGNALS_LAUNCHPAD`) is removed. A launchpad Narrative that already has a Score keeps it as history. The Activity feed lists news Narratives only.
+- Memecoin ideas come only from Metas (this ADR's `meme` kind), never from a Narrative.
+- Proposals 154 to 157 (made from launchpad Narratives before this rule) are left to expire as usual; no data is rewritten.

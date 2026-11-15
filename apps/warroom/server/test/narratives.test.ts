@@ -172,8 +172,22 @@ it("GET /api/narratives applies the cap after sorting, so the highest Score is h
   expect(store.queryNarratives({ scored: false, limit: 5 }).map((n) => n.id)).toEqual([3]);
 });
 
+it("GET /api/narratives returns news only by default; kind=launchpad returns launchpad only, kind=news news, and combines with other filters", async () => {
+  await threeNarratives();
+  store.recordSignals([{ ...signal("lp:1", "Token create", new Date().toISOString()), sourceId: "pumpportal:events" }]);
+  const sig = store.unclusteredSignals(500).find((s) => s.id === "lp:1")!;
+  const lp = store.createNarrative(sig, [], new Date().toISOString(), { id: "fake3", dimension: 3 }, { title: "Token", keys: [] });
+  expect(list().map((n) => n.id)).toEqual([1, 2, 3]);
+  expect(list({ query: { kind: "news" } }).map((n) => n.id)).toEqual([1, 2, 3]);
+  expect(list({ query: { kind: "launchpad" } }).map((n) => n.id)).toEqual([lp]);
+  expect(list({ query: { kind: "launchpad", scored: "yes" } })).toEqual([]);
+  expect(list({ query: { kind: "launchpad", scored: "no" } }).map((n) => n.id)).toEqual([lp]);
+  expect(list({ query: { kind: "news", scored: "no" } }).map((n) => n.id)).toEqual([3]);
+});
+
 it("GET /api/narratives answers 400 to an unknown sort, filter value or window", async () => {
   await threeNarratives();
+  expect(() => list({ query: { kind: "all" } })).toThrow("Invalid kind");
   expect(() => list({ query: { sort: "random" } })).toThrow("Invalid sort");
   expect(() => list({ query: { scored: "maybe" } })).toThrow("Invalid scored filter");
   expect(() => list({ query: { proposal: "1" } })).toThrow("Invalid proposal filter");

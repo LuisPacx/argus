@@ -104,7 +104,7 @@ it("GET /api/activity/narratives: newest 20 by createdAt, ties by id descending"
   expect(rows.map((r) => r.id)).toEqual([b, a, ...ids.slice().reverse().slice(0, 18)]);
 });
 
-it("GET /api/activity/narratives: launchpad singletons are left out until they have a Score; news Narratives always show", () => {
+it("GET /api/activity/narratives: no launchpad Narrative shows, scored or not; news Narratives always show", () => {
   const lp = (createdAt: Date) => {
     n += 1;
     store.recordSignals([sig(2000 + n, "pumpportal:events")]);
@@ -116,8 +116,9 @@ it("GET /api/activity/narratives: launchpad singletons are left out until they h
   const scored = lp(hoursAgo(2));
   score(scored, 8);
   const newer = narrative(hoursAgo(0.5));
-  expect(narratives().map((r) => r.id)).toEqual([newer, scored, newsOne]);
+  expect(narratives().map((r) => r.id)).toEqual([newer, newsOne]);
   expect(narratives().map((r) => r.id)).not.toContain(lone);
+  expect(narratives().map((r) => r.id)).not.toContain(scored);
 });
 
 it("GET /api/activity/brain-runs: finished, in-flight, interrupted, pre-migration, API and excluded runs", () => {

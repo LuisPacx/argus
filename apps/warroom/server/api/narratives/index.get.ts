@@ -13,7 +13,7 @@ const one = (value: unknown): string | undefined => (typeof value === "string" &
 
 /**
  * The Narratives list, filtered and sorted in the datastore (the cap cuts after sorting). Query: `sort` (score, newest, signals,
- * active; default score), `scored` and `proposal` (yes or no), `source` (a Source id), `active` (1h, 6h, 24h, 7d: gained a Signal
+ * active; default score), `kind` (news or launchpad; default news), `scored` and `proposal` (yes or no), `source` (a Source id), `active` (1h, 6h, 24h, 7d: gained a Signal
  * within that long).
  */
 export default defineEventHandler((event) => {
@@ -26,6 +26,9 @@ export default defineEventHandler((event) => {
   }
   const scored = yesNo(q.scored, "scored filter");
   if (scored !== undefined) query.scored = scored;
+  const kind = one(q.kind) ?? "news";
+  if (kind !== "news" && kind !== "launchpad") throw bad("kind");
+  query.kind = kind;
   const hasProposal = yesNo(q.proposal, "proposal filter");
   if (hasProposal !== undefined) query.hasProposal = hasProposal;
   const source = one(q.source);

@@ -50,7 +50,6 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
   return [
     "[config]",
     `judge_min_signals=${judge.minSignals}`,
-    `judge_min_signals_launchpad=${judge.minSignalsLaunchpad}`,
     `judge_runs_24h=${judge.maxRunsPerDay}`,
     `propose_new_24h=${propose.maxNewPerDay}`,
     `propose_runs_24h=${propose.maxRunsPerDay}`,

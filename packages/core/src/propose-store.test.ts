@@ -110,6 +110,20 @@ describe("narrativesToPropose", () => {
     expect(out[0]!.score.id).toBe(sb);
   });
 
+  it("never offers a launchpad Narrative, even with a market Signal and a Score at or above the gate; a news one still qualifies", () => {
+    const store = Datastore.open(":memory:");
+    const news = addNarrative(store);
+    score(store, news, { buildability: 9 });
+    const id = `s:${++n}`;
+    store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title: "Token", summary: "", url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+    const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
+    const lp = store.createNarrative(sig, [], NOW.toISOString(), CUR, { title: "Token", keys: [] });
+    score(store, lp, { buildability: 10, momentum: 10 });
+    expect(store.narrativeKind(lp)).toBe("launchpad");
+    expect(store.narrativeKind(news)).toBe("news");
+    expect(store.narrativesToPropose(CUR, since, 5, 10).map((c) => c.narrative.id)).toEqual([news]);
+  });
+
   it("applies the gate to buildability only: at the minimum passes, below it never", () => {
     const store = Datastore.open(":memory:");
     const atGate = addNarrative(store);

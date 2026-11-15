@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeBrain, resolveRouting } from "./brain.ts";
 import type { CollisionChecker, CollisionCheck, CollisionResult } from "./collision.ts";
@@ -260,6 +261,30 @@ describe("the buildability gate", () => {
     expect(await pass({}, { now: minutes(2) })).toMatchObject({ proposed: 0, withdrawn: 1 });
     expect(store.listProposals()).toEqual([]);
     expect(store.brainRunsFor(0)).toMatchObject([{ task: "propose", exitStatus: "success" }]); // the spend stays recorded
+  });
+});
+
+describe("only a news Narrative gets a Tech Proposal (proposal-routing ticket 01)", () => {
+  it("a Narrative selected as news and flipped to launchpad while the model ran: answer dropped, counted withdrawn, nothing created", async () => {
+    const { store, brain, pass, lines } = setup();
+    const nid = addScored(store, "A story");
+    const run = brain.run.bind(brain);
+    brain.run = (async (...args: Parameters<typeof run>) => {
+      const out = await run(...args);
+      (store as unknown as { db: DatabaseSync }).db.prepare("UPDATE narratives SET kind = 'launchpad' WHERE id = ?").run(nid);
+      return out;
+    }) as typeof brain.run;
+    expect(await pass()).toMatchObject({ proposed: 0, withdrawn: 1 });
+    expect(store.listProposals()).toEqual([]);
+    expect(lines.some((l) => l.includes(`narrative ${nid} is not a news Narrative; answer dropped`))).toBe(true);
+  });
+
+  it("a launchpad Narrative with a Score above the gate is never selected and spawns nothing", async () => {
+    const { store, pass, calls } = setup();
+    const nid = addScored(store, "A story");
+    (store as unknown as { db: DatabaseSync }).db.prepare("UPDATE narratives SET kind = 'launchpad' WHERE id = ?").run(nid);
+    expect(await pass()).toMatchObject({ proposed: 0 });
+    expect(calls()).toHaveLength(0);
   });
 });
 

@@ -516,6 +516,12 @@ export async function proposePendingNarratives(
         continue;
       }
     }
+    // Only a news Narrative gets a Tech Proposal (proposal-routing ticket 01); re-read its kind at creation time.
+    if (store.narrativeKind(narrative.id) !== "news") {
+      log(`[worker] propose: narrative ${narrative.id} is not a news Narrative; answer dropped`);
+      out.withdrawn++;
+      continue;
+    }
     // The Narrative may have been scored again while the model ran: the gate is judged on its latest Score at the moment of creation.
     const latest = store.latestScore(narrative.id);
     if (!latest || latest.scores.buildability < store.getRubric().gateMinScore) {
