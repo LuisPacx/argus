@@ -136,7 +136,7 @@ stateDiagram-v2
 | Transition | Triggered by | Notes |
 |---|---|---|
 | new | system | Brain pass creates the Proposal and notifies Telegram. |
-| new -> closed (stale) | system | 48 h without action (6 h for a `meme` Proposal, ADR 0013). Stored as `closed` with reason `stale`. |
+| new -> closed (stale) | system | 48 h without action (12 h for a `meme` Proposal, ADR 0013). Stored as `closed` with reason `stale`. |
 | shortlisted -> closed (stale) | system | 7 d without action. |
 | new -> shortlisted | Operator | Starts Spec drafting. The War Room asks for confirmation first (a modal: it starts one paid Sonnet run). |
 | shortlisted -> spec-drafted | system | After the Operator shortlists, the brain `spec` task writes `spec.md`; Operator edits freely. |
