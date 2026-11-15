@@ -28,7 +28,7 @@ A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for 
 _Avoid_: Idea (as a bare noun for a Proposal), candidate
 
 **Meme Proposal**:
-A Proposal of kind `meme`: a token idea that rides a live Meta that is Hot now, generated from the Meta and not from a Narrative. It has a name, ticker, angle, how it differs from the Meta's leader (name copies are rejected), a short description, an X first-post hook, an image idea as text, risk labels and evidence links. It has no Tech, no Spec, no Build and no Rubric score of its own; the Operator can shortlist it or dismiss it with a reason, and it expires after 6 hours in new unless shortlisted. Legitimacy follows the Rubric (impersonation and fraud only). See ADR 0013.
+A Proposal of kind `meme`: a token idea that rides a live Meta that is Hot now, generated from the Meta and not from a Narrative. It has a name, ticker, angle, how it differs from the Meta's leader (name copies are rejected), a short description, an X first-post hook, an image idea as text, risk labels and evidence links. It has no Tech, no Spec, no Build and no Rubric score of its own; the Operator can shortlist it or dismiss it with a reason, and it expires after 6 hours in new unless shortlisted. Legitimacy follows the Rubric (impersonation, fraud, and hate or harassment; satire is not penalised). See ADR 0013.
 _Avoid_: Beta Proposal (the kind that was planned under that name is `meme`)
 
 **Spec**:

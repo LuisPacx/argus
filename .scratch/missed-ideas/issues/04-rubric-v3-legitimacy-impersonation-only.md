@@ -1,7 +1,7 @@
-# 04: Rubric v3: legitimacy penalises impersonation and fraud only; satire is allowed
+# 04: Rubric v3: legitimacy penalises impersonation, fraud, and hate or harassment; satire is allowed
 **Model:** sonnet / medium. A prompt and Rubric version change plus the version plumbing; the judgment is already decided, the work is the wording and the proof that old scores stay as history.
 
-**What to build:** the Rubric's legitimacy dimension scored both Nvidia-related Narratives down because the idea rests on "unverified allegations about a named real person" (Scores 401, 466, 476, 528, 593, 895 in `internal-trace.md`), and Narrative 662 got legitimacy 1 for a "meme token impersonating a real person". The Operator's rule (Q4, Q7): memes and satire about public figures are normal comedy and are surfaced; only **impersonation** (a token or account that pretends to be the person, uses their name as an endorsement, or claims to be official) and **fraud** (a false claim meant to take money) lower legitimacy. Ship that as Rubric v3, used by the judge and by meme ideas (ticket 06).
+**What to build:** the Rubric's legitimacy dimension scored both Nvidia-related Narratives down because the idea rests on "unverified allegations about a named real person" (Scores 401, 466, 476, 528, 593, 895 in `internal-trace.md`), and Narrative 662 got legitimacy 1 for a "meme token impersonating a real person". The Operator's rule (Q4, Q7): memes and satire about public figures are normal comedy and are surfaced; what lowers legitimacy is **impersonation** (a token or account that pretends to be the person, uses their name as an endorsement, or claims to be official), **fraud** (a false claim meant to take money) and **hate or harassment** (Operator decision 2026-11-15: these stay penalties, as in v2). Ship that as Rubric v3, used by the judge and by meme ideas (ticket 06).
 
 **Status:** open
 

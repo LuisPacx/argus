@@ -53,12 +53,12 @@ export class RubricConflictError extends DomainError {
 export const TECH_VALUE_LINE = "Tech value: the Tech it implies does more than fetch data and display it (an interaction, or a reason to come back).";
 
 /**
- * Missed ideas ticket 04 (Rubric v3): the `legitimacy` dimension penalises impersonation and fraud only. Satire, parody and memes
- * about public figures are normal comedy and are not penalised. Its own constant so the later meme idea task reads the same text
+ * Missed ideas ticket 04 (Rubric v3): the `legitimacy` dimension penalises impersonation, fraud, and hate or harassment. Satire,
+ * parody and memes about public figures are normal comedy and are not penalised. Its own constant so the later meme idea task reads the same text
  * (`LEGITIMACY_RULE`), and so a later lesson edits one place. It starts with `LEGITIMACY_RULE_MARKER`, which `migrateRubric` looks
  * for. The v2 text lives on in the stored `rubric_versions` row, so a replay under v2 is reproducible.
  */
-export const LEGITIMACY_RULE_MARKER = "Legitimacy is impersonation and fraud only.";
+export const LEGITIMACY_RULE_MARKER = "Legitimacy is impersonation, fraud, and hate or harassment.";
 export const LEGITIMACY_RULE =
   `${LEGITIMACY_RULE_MARKER} Score 0 to 2 for impersonation (a token, account or Tech that pretends to be a real person, brand or project, claims to be official, or uses someone's name as a fake endorsement), ` +
   "for fraud (a false claim meant to take money: a scam, a fake giveaway, rug-pull framing), and for hate or harassment. " +

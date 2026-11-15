@@ -1,28 +1,31 @@
 #!/usr/bin/env node
 // Opt-in measurement for Rubric v3 (missed ideas ticket 04); NOT part of `pnpm check`. Spends real Claude calls (judge routing, its
-// per-run budget cap), so run it only when the Operator asks.
+// per-run budget cap), so it does so only with --run, and only when the Operator asks.
 // Re-judges Narrative 662, Narrative 485 and 20 other Narratives (the newest with a Score and at least 2 Signals) from a COPY of the
 // database under the latest Rubric (v3), and prints the stored legitimacy and total next to the new ones. Nothing is written: the copy
 // is opened with Datastore.open (so it is migrated to v3 additively, which is the migration rehearsal) and only read; the Brain run
 // is called directly and records no brain_runs row.
 //
 // Usage: sqlite3 .data/argus.db ".backup /home/unknown/.cache/argus-scratch/rubric-v3.db"   (make the copy first; never open the live file)
-//        node scripts/rubric-v3-replay.mjs <copy.db> [--dry]      (--dry prints the plan and one prompt, spawns nothing)
+//        node scripts/rubric-v3-replay.mjs <copy.db>              (dry by default: prints the plan and one prompt, spawns nothing)
+//        node scripts/rubric-v3-replay.mjs <copy.db> --run        (spends real Claude; only with an explicit --run)
 // Paste the table into the ticket's Comments, then delete the copy.
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ClaudeCodeBrain } from '../packages/core/src/brain.ts';
 import { Datastore } from '../packages/core/src/datastore.ts';
 import { judgePromptFor, parseJudgeOutput, weightedTotal } from '../packages/core/src/judge.ts';
+import { isLiveDb } from './live-db-guard.mjs';
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const dry = process.argv.includes('--dry');
+// Dry by default: real Claude is spent only with an explicit --run. (--dry is kept as a no-op alias.)
+const dry = !process.argv.includes('--run');
 if (args.length < 1) {
-  console.error('usage: node scripts/rubric-v3-replay.mjs <copy.db> [--dry]');
+  console.error('usage: node scripts/rubric-v3-replay.mjs <copy.db> [--run]   (without --run: dry, spawns nothing)');
   process.exit(2);
 }
 const dbPath = path.resolve(args[0]);
-if (/[\\/]\.data[\\/]argus\.db(-wal|-shm)?$/.test(dbPath)) {
+if (isLiveDb(dbPath, [path.resolve(import.meta.dirname, '../.data/argus.db'), process.env.ARGUS_DB])) {
   console.error('refusing to open the live database; make a .backup copy first');
   process.exit(2);
 }

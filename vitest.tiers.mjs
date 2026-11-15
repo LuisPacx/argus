@@ -9,6 +9,7 @@ export const SLOW_TESTS = [
   "apps/worker/src/boot.test.ts", // spawned worker
   "apps/worker/src/ingest.test.ts", // spawned worker
   "apps/worker/src/telegram.test.ts", // spawned worker
+  "scripts/rubric-v3-replay.test.ts", // spawns the script as a child process
   "packages/core/src/brain.test.ts", // >10 s
   "packages/core/src/build-image.test.ts", // real `podman run` against the built image (self-skips when absent, but belongs here)
   "packages/core/src/egress-proxy-entry.test.ts", // spawns the real proxy entry as a child process

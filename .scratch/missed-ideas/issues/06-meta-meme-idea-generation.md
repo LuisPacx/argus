@@ -16,7 +16,7 @@ Origin: `.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, answ
 - **No Spec, no Build, no Rubric score.** 6 h life in `new` unless shortlisted (ticket 05).
 - **An idea (Q14):** name, ticker, angle (the joke and why now), how it differs from the leader, a short description, an X first-post hook, an image idea as text, risk labels (for example "real person"), evidence links (the Meta's top tokens and the matching news). No image or logo generation.
 - **Measured, no name copies (Q5):** a name or ticker that copies a token already in the Meta group or in DexScreener results is rejected by the distinct-name rule (`packages/core/src/beta/distinct-name.ts`, with `distinctOrRetryOnce`: goes back once with the offending names listed, then fails closed). The room-left ranking (`packages/core/src/beta/room-left.ts`) is an input: it is shown to the prompt as a reason, not a gate on generation.
-- **Legitimacy** follows Rubric v3 (ticket 04): satire about a public figure is fine and is labelled; impersonation and fraud are not generated.
+- **Legitimacy** follows Rubric v3 (ticket 04): satire about a public figure is fine and is labelled; impersonation, fraud, and hate or harassment are not generated.
 - **War Room only.** argus never launches, signs or spends (ADR 0002).
 
 ## What to build

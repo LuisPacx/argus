@@ -57,7 +57,7 @@ Rank is by what it would have changed on 11-12 per unit of cost and risk. Cost i
 | 1 | Clustering | Launchpad Signals cluster by theme/subject, not into one bin (the NVIDIA wave gets its own Narrative). Already ticketed as viral-sources/01; add the 11-12 replay as acceptance. | sonnet/high, one ticket, opt-in replay | medium: live Narrative path; precision first (ADR 0007) |
 | 2 | Meta | "Hot now" alert in the War Room when a Meta enters the top 5 or doubles its creators within 1 h; Meta summary gets matching news. | sonnet/medium, small, no new Brain task | low: read-only, War Room only |
 | 3 | Meta to idea | Meme ideas per Meta: Proposals of kind `meme` (3 ideas per Hot Meta, measured outcome). The only fix that produces the idea itself. | sonnet/high, one Brain task plus kind plus UI; 40 runs/day | medium: new Proposal kind; name copies and real-person tokens |
-| 4 | Judge | Rubric v3: legitimacy penalises impersonation and fraud only; satire about public figures is allowed. New scores only. | sonnet/medium | low to medium: changes scoring; old scores stay as history |
+| 4 | Judge | Rubric v3: legitimacy penalises impersonation, fraud, and hate or harassment; satire about public figures is allowed. New scores only. | sonnet/medium | low to medium: changes scoring; old scores stay as history |
 | 5 | Measurement | Track every idea's outcome (+6 h, +24 h, later name matches) and review the hit rate weekly against the 1.3% base. | sonnet/medium | low |
 | 6 | Judge/Propose | Join a market-backed Meta to the matching context-only news Narrative (eligibility exception to ADR 0011). | sonnet/high, touches ADR 0011 | medium: widens eligibility |
 | 7 | Meta to idea | Unpause the Beta finder with the news match as input. | already built to slice 2; slices 3-4 paused | medium: backtest showed no lift |
@@ -71,7 +71,7 @@ The user chose on 2026-11-14 (grilling rounds 1 to 4, Q1 to Q15; see Comments). 
 
 - **Chosen, rank 1** (clustering): edit viral-sources/01 and add the NVIDIA 11-12 replay as an acceptance criterion. Done in this commit.
 - **Chosen, rank 2** (Meta): "Hot now" alert and news in the Meta summary: ticket 03.
-- **Chosen, rank 4** (Judge): Rubric v3, legitimacy for impersonation and fraud only: ticket 04.
+- **Chosen, rank 4** (Judge): Rubric v3, legitimacy for impersonation, fraud, and hate or harassment (satire allowed): ticket 04.
 - **Chosen, rank 3** (Meta to idea): the `meme` Proposal kind, replacing the planned `beta` kind: ticket 05 (ADR and GLOSSARY), ticket 06 (idea generation), ticket 07 (outcome tracking, rank 5 above).
 - **Chosen** (training): record the NVIDIA case for Phase 3 tickets 07 to 09: ticket 08.
 - **Not chosen:** rank 6 (RSS is context only, ideas come from the Meta), rank 7 (folded into the `meme` kind; viral-sources/04 slices 3 and 4 superseded; the 2026-11-18 re-run still runs), rank 8 (Q13, dropped), rank 9 (Q8: X stays Phase 3 ticket 06), rank 10 (Q2: RSS is not a trigger).
@@ -105,7 +105,7 @@ Subject `Missed ideas ticket 01: <what changed>`, body ending with `Ticket: .scr
 - **Q4:** surface real-person tokens: "not impersonating, memes about it is normal ... comedy".
 - **Q5:** Meta meme ideas now, measured, no name copies, no Spec and no Build. This replaces the 11-11 decision that a meme kind waits for a replicated lesson.
 - **Q6:** Hot now = a Meta enters the top 5, or distinct creators double within 1 h (as the user wrote it: "creators x2 within 1h"). It shows the summary, matching news (context), top tokens and migrations. The Meta summary gets matching news. War Room only.
-- **Q7:** Rubric v3: legitimacy penalises impersonation and fraud only; satire is OK. It applies to the judge and to meme ideas.
+- **Q7:** Rubric v3: legitimacy penalises impersonation, fraud, and hate or harassment (Operator decision 11-15: hate and harassment stay penalties); satire is OK. It applies to the judge and to meme ideas.
 - **Q8:** X stays Phase 3 ticket 06.
 - **Q9:** meme ideas are Proposals of kind `meme`: a list filter and under each Meta on `/meta`; Shortlist, Dismiss with a reason, Why; no Spec or Build; expire after 6 h unless shortlisted; ADR and GLOSSARY first.
 - **Q10:** generate only on the Hot now trigger, at most once per Meta per 6 h, one sonnet run producing 3 ideas, its own cap of 40 runs a day taken from the research budget.

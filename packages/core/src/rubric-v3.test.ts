@@ -6,7 +6,7 @@ import { judgePromptFor } from "./judge.ts";
 import { LEGITIMACY_RULE, LEGITIMACY_RULE_MARKER, TECH_VALUE_LINE } from "./rubric.ts";
 import { tempDir } from "./testing/temp.ts";
 
-/** Missed ideas ticket 04: Rubric v3, legitimacy penalises impersonation and fraud only. */
+/** Missed ideas ticket 04: Rubric v3, legitimacy penalises impersonation, fraud, and hate or harassment. */
 const KEYS = ["momentum", "novelty", "buildability", "hook", "legitimacy"] as const;
 const V2_LEGITIMACY = "Whether it is free of scams, hate and real-person impersonation, and backed by real sources.";
 const OLD_HOOK = "How easily the idea is explained and shared in one line.";
