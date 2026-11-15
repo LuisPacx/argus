@@ -17,6 +17,12 @@ const MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 /** A transaction signature is base58, 64 bytes: 86 to 88 characters. */
 const SIGNATURE_RE = /^[1-9A-HJ-NP-Za-km-z]{80,90}$/;
 const MAX_POOL_CHARS = 30;
+/**
+ * The fixed text before the token in a Signal's title. Exported because the clusterer reads the token back out of a stored title
+ * (`launchpad-subject.ts`, viral sources ticket 01): one definition, so the writer and the reader cannot drift apart.
+ */
+export const CREATE_TITLE_PREFIX = "New token on pump.fun: ";
+export const MIGRATE_TITLE_PREFIX = "Bonded on pump.fun: ";
 
 /**
  * One create or migrate event as the Study keeps it: the Source's own Signals carry only a title and summary, but the Study needs the
@@ -302,7 +308,7 @@ export class PumpPortalSource implements Source {
       id: `${this.id}:${kind}:${mint}`,
       sourceId: this.id,
       sourceLabel: this.label,
-      title: kind === "create" ? `New token on pump.fun: ${token}` : `Bonded on pump.fun: ${token}`,
+      title: `${kind === "create" ? CREATE_TITLE_PREFIX : MIGRATE_TITLE_PREFIX}${token}`,
       summary:
         kind === "create"
           ? `${token} was just launched on pump.fun. Mint ${mint}.`

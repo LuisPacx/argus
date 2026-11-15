@@ -14,6 +14,7 @@ import { EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
+import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
 import { DEFAULT_PROPOSE_CONFIG, proposeConfigFromEnv } from "./propose.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd, researchConfigFromEnv } from "./research-budget.ts";
 import { SEED_GATE_MIN_SCORE } from "./rubric.ts";
@@ -112,6 +113,7 @@ export interface PipelineGraph {
 const CONTEXT_TICKET = ".scratch/phase-3-feedback/issues/24-context-sources-never-propose.md";
 const META_TICKET = ".scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md";
 const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
+const LAUNCHPAD_CLUSTER_TICKET = ".scratch/viral-sources/issues/01-launchpad-signals-cluster-by-theme.md";
 
 export const PIPELINE: PipelineGraph = {
   nodes: [
@@ -156,11 +158,17 @@ export const PIPELINE: PipelineGraph = {
       row: 0,
       status: "on",
       diagramNote: "clustering, plain code, no Claude",
-      what: "Groups new Signals that mean the same thing into one Narrative, with a local embedding model. Plain code: no Claude runs here.",
-      rules: [],
+      what: "Groups new Signals that mean the same thing into one Narrative, with a local embedding model; token launches and bonds are grouped by the token's name and ticker instead. Plain code: no Claude runs here.",
+      rules: [
+        { label: "News joins a Narrative at similarity", key: "DEFAULT_CLUSTER_CONFIG.joinThreshold", ref: () => DEFAULT_CLUSTER_CONFIG.joinThreshold, unit: "count" },
+        { label: "Joins a Narrative that had a Signal within", key: "DEFAULT_CLUSTER_CONFIG.windowHours", ref: () => DEFAULT_CLUSTER_CONFIG.windowHours, unit: "hours" },
+        { label: "Signals in one Narrative, at most", key: "DEFAULT_CLUSTER_CONFIG.maxNarrativeSignals", ref: () => DEFAULT_CLUSTER_CONFIG.maxNarrativeSignals, unit: "count" },
+        { label: "Signals a token Narrative needs before a headline joins it", key: "DEFAULT_CLUSTER_CONFIG.crossMinSignals", ref: () => DEFAULT_CLUSTER_CONFIG.crossMinSignals, unit: "count" },
+        { label: "Recent headlines a linking phrase may appear in, at most", key: "DEFAULT_CLUSTER_CONFIG.crossMaxDocFreq", ref: () => DEFAULT_CLUSTER_CONFIG.crossMaxDocFreq, unit: "count" },
+      ],
       adrs: ["0007-narratives-use-an-in-process-semantic-embedder.md"],
-      tickets: [],
-      files: ["packages/core/src/narratives.ts", "apps/worker/src/semantic-embedder.ts"],
+      tickets: [LAUNCHPAD_CLUSTER_TICKET],
+      files: ["packages/core/src/narratives.ts", "packages/core/src/launchpad-cluster.ts", "packages/core/src/launchpad-subject.ts", "apps/worker/src/semantic-embedder.ts"],
       worker: "ingestTick",
     },
     {

@@ -133,6 +133,9 @@ export async function loadSemanticEmbedder({ dir, spec = SEMANTIC_MODEL, allowFe
       const out = await extractor(signal.title, { pooling: spec.pooling, normalize: true });
       return Array.from(out.data as Float32Array);
     },
+    // An ordinary word is one piece of the model's vocabulary; a coined or proper one (`misu`, `melania`, `mexc`) splits into several. Ticket 01's
+    // cross-Source rule links a headline to a token only through a word that is not ordinary (docs/adr/0007, amendment of 2026-11-14).
+    isCommonWord: (word) => extractor.tokenizer.encode(word, { add_special_tokens: false }).length === 1,
   };
 }
 

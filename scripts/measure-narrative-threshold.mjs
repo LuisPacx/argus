@@ -137,6 +137,10 @@ async function cluster(joinThreshold) {
     recentNarratives: () => candidates,
     createNarrative: (s) => (assign[byId.get(s.id)] = nextId++),
     joinNarrative: (id, s) => void (assign[byId.get(s.id)] = id),
+    // The sample holds no launchpad Signal and no launchpad Narrative (ticket 01), so no headline can link to one.
+    claimsForKey: () => [],
+    knownToken: () => undefined,
+    recentPhraseCount: () => 0,
   };
   await clusterNewSignals(store, { id: "measure", dimension: vectors[0].length, embed: async (s) => vectors[byId.get(s.id)] }, { config: { joinThreshold, batchSize: N } });
   return assign;

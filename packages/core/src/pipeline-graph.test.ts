@@ -8,6 +8,7 @@ import { EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
+import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
 import { formatRuleValue, PIPELINE, pipelineGaps, resolvePipeline, type PipelineGraph, type PipelineRegistry } from "./pipeline-graph.ts";
 import { DEFAULT_PROPOSE_CONFIG } from "./propose.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG } from "./research-budget.ts";
@@ -21,6 +22,7 @@ const matches = (text: string, re: RegExp): string[] => [...new Set([...text.mat
 
 /** Items the graph deliberately does not draw, each with the reason. A new key in any of these objects fails until someone decides. */
 const LEFT_OUT: Record<string, string> = {
+  "DEFAULT_CLUSTER_CONFIG.batchSize": "per-pass pacing of the clustering pass, below this picture",
   BackoffSource: "wraps another Source for retries; it is not a Source of its own",
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveTimeouts": "a circuit breaker, below the level of a high-level picture",
@@ -83,6 +85,7 @@ function realRegistry(): PipelineRegistry {
     ticks: matches(worker, /const (\w*[tT]ick) = reentrant\(/g),
     brainTasks: Object.keys(DEFAULT_ROUTING),
     config: {
+      ...flatten("DEFAULT_CLUSTER_CONFIG", DEFAULT_CLUSTER_CONFIG),
       ...flatten("DEFAULT_JUDGE_CONFIG", DEFAULT_JUDGE_CONFIG),
       ...flatten("DEFAULT_PROPOSE_CONFIG", DEFAULT_PROPOSE_CONFIG),
       ...flatten("DEFAULT_RESEARCH_BUDGET_CONFIG", DEFAULT_RESEARCH_BUDGET_CONFIG),

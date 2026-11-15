@@ -1,4 +1,7 @@
 import type { Datastore, StoredSignal } from "./datastore.ts";
+import { crossSourceTarget, placeLaunchpadSignal } from "./launchpad-cluster.ts";
+import { parseLaunchpadSignal } from "./launchpad-subject.ts";
+import { STOPWORDS } from "./stopwords.ts";
 
 /** A fixed-length numeric vector for a Signal's text. Related Signals point the same way (ported from helios). */
 export type Embedding = number[];
@@ -13,6 +16,12 @@ export interface Embedder {
   /** Length of the vectors it returns. */
   readonly dimension: number;
   embed(signal: Pick<StoredSignal, "title" | "summary">): Promise<Embedding>;
+  /**
+   * Whether a lower-case word is an ordinary word (the model's vocabulary holds it as one piece) rather than a coined or proper one. The
+   * launchpad cross-Source rule (ticket 01) links a headline to a token only through a word that is not ordinary: `moon` and `zero` name
+   * hundreds of tokens and no story, `misu` and `eisenkot` name one. Absent (the lexical embedder), no single word links a headline.
+   */
+  isCommonWord?(word: string): boolean;
 }
 
 /** Hacker News feed items carry only this template as their summary: "Article URL: .. Comments URL: .. Points: N # Comments: N". */
@@ -32,9 +41,6 @@ export function standsAlone(signal: Pick<StoredSignal, "title">): boolean {
 }
 
 const DIMS = 256;
-const STOPWORDS = new Set(
-  "the and for are but not you all can had her was one our out has have this that with from they will would there their what about which when your said than them been were into more other some could after over also how why who its new says say amid as at by in is it of on or to an a be he she we us".split(" "),
-);
 
 /** Lowercased words of 3+ letters, stopwords dropped, a plural or past-tense ending stripped. */
 function tokens(text: string): string[] {
@@ -101,6 +107,12 @@ export interface ClusterConfig {
   windowHours: number;
   /** Most Signals clustered per pass. */
   batchSize: number;
+  /** No Narrative holds more than this many Signals (ticket 01): a full one is not joinable, and the next Signal that would have joined it starts a successor. Default `MAX_NARRATIVE_SIGNALS`. */
+  maxNarrativeSignals: number;
+  /** A launchpad Narrative needs this many Signals before a headline or a DexScreener token may join it: one lone token is junk, not a subject. */
+  crossMinSignals: number;
+  /** A headline phrase that appears in more than this many recent non-launchpad Signals (itself included) is too common to link to a token. */
+  crossMaxDocFreq: number;
 }
 
 /**
@@ -116,17 +128,34 @@ export const JOIN_THRESHOLD = 0.9;
 /** The HashingEmbedder's own scale (docs/adr/0006): the lexical embedder is kept only as an explicit dev and test choice (ARGUS_EMBEDDER=hashing). */
 export const HASHING_JOIN_THRESHOLD = 0.6;
 
-export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = { joinThreshold: JOIN_THRESHOLD, windowHours: 72, batchSize: 500 };
+/**
+ * The most Signals one Narrative may hold (`ClusterConfig.maxNarrativeSignals`). The semantic embedder's news Narratives never come near it
+ * (the largest of the 320-headline sample holds 5); it exists for the launchpad stream, where one spam name made 1,582 Signals in eight days (the
+ * replay's largest Narrative, under the bound; the next holds 369) and the old embedding catch-all reached 65,189. See the replay in docs/adr/0007
+ * (amendment of 2026-11-14) for the measured sizes.
+ */
+export const MAX_NARRATIVE_SIGNALS = 2000;
 
-/** The Narrative a Signal is nearest to, when it is close enough to join it. */
-export function nearestNarrative<T extends { centroid: Embedding }>(
+export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = {
+  joinThreshold: JOIN_THRESHOLD,
+  windowHours: 72,
+  batchSize: 500,
+  maxNarrativeSignals: MAX_NARRATIVE_SIGNALS,
+  crossMinSignals: 3,
+  crossMaxDocFreq: 5,
+};
+
+/** The Narrative a Signal is nearest to, when it is close enough to join it. A candidate with `maxSignals` Signals or more is full and never chosen. */
+export function nearestNarrative<T extends { centroid: Embedding; signalCount?: number }>(
   embedding: Embedding,
   candidates: readonly T[],
   joinThreshold: number,
+  maxSignals = Infinity,
 ): T | undefined {
   let best: T | undefined;
   let bestSim = -Infinity;
   for (const c of candidates) {
+    if ((c.signalCount ?? 0) >= maxSignals) continue;
     const sim = cosineSimilarity(embedding, c.centroid);
     if (sim > bestSim) {
       bestSim = sim;
@@ -149,7 +178,7 @@ export function isMaterialJoin(opts: { newSource: boolean; signalCount: number; 
  * Plain code, no Brain call. The order (published time, then id) and the embedder make it deterministic.
  */
 export async function clusterNewSignals(
-  store: Pick<Datastore, "unclusteredSignals" | "recentNarratives" | "createNarrative" | "joinNarrative">,
+  store: Pick<Datastore, "unclusteredSignals" | "recentNarratives" | "createNarrative" | "joinNarrative" | "claimsForKey" | "knownToken" | "recentPhraseCount">,
   embedder: Embedder,
   opts: { now?: Date; config?: Partial<ClusterConfig>; signal?: AbortSignal } = {},
 ): Promise<{ clustered: number; created: number }> {
@@ -163,6 +192,12 @@ export async function clusterNewSignals(
   const candidates = store.recentNarratives(since, embedder);
   for (const signal of signals) {
     if (opts.signal?.aborted) break; // a shutdown: the Signals already clustered stay, the rest are picked up by the next pass
+    if (parseLaunchpadSignal(signal)) {
+      // Launchpad creates and bonds are grouped by the token's name and ticker, not embedded (docs/adr/0007, amendment of 2026-11-14).
+      if (placeLaunchpadSignal(store, signal, now.toISOString(), since, config, embedder).created) created++;
+      clustered++;
+      continue;
+    }
     const embedding = await embedder.embed(signal);
     clustered++;
     if (standsAlone(signal)) {
@@ -170,17 +205,23 @@ export async function clusterNewSignals(
       created++;
       continue;
     }
-    const target = nearestNarrative(embedding, candidates, config.joinThreshold);
+    const target = nearestNarrative(embedding, candidates, config.joinThreshold, config.maxNarrativeSignals);
     if (target) {
       const centroid = incrementalMean(target.centroid, embedding, target.signalCount + 1);
       store.joinNarrative(target.id, signal, centroid, now.toISOString());
       target.centroid = centroid;
       target.signalCount++;
-    } else {
-      const id = store.createNarrative(signal, embedding, now.toISOString(), embedder);
-      candidates.push({ id, centroid: embedding, signalCount: 1 });
-      created++;
+      continue;
     }
+    // Not near any news Narrative: a headline or a DexScreener token that names a launchpad subject joins that Narrative instead of starting one.
+    const launchpad = crossSourceTarget(store, signal, since, config, embedder);
+    if (launchpad !== undefined) {
+      store.joinNarrative(launchpad, signal, [], now.toISOString());
+      continue;
+    }
+    const id = store.createNarrative(signal, embedding, now.toISOString(), embedder);
+    candidates.push({ id, centroid: embedding, signalCount: 1 });
+    created++;
   }
   return { clustered, created };
 }
