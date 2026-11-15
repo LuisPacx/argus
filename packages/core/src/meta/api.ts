@@ -1,3 +1,5 @@
+import type { Proposal } from "../datastore.ts";
+import type { MemeIdeaRef } from "../meme/types.ts";
 import type { MetaCounts, MetaRow, MetaRun, MetaTopToken } from "./store.ts";
 import { META_RULE, type MetaWindow } from "./config.ts";
 import { coverageNote, type MetaCoverage } from "./coverage.ts";
@@ -31,6 +33,8 @@ export interface MetaApiRow {
   summarySource: MetaSummarySource;
   /** Present while the Meta's Hot now event is live (raised within the cool-down): why and when. */
   hot?: HotMark;
+  /** The Meta's live meme ideas (`new` or `shortlisted` Proposals of kind meme), newest first (missed ideas ticket 06). Absent when it has none. */
+  ideas?: MemeIdeaRef[];
 }
 
 /** Why a Meta is marked hot and when it was raised. `reason` is written by code. */
@@ -63,11 +67,12 @@ function apiToken(t: MetaTopToken): MetaApiToken {
   return t.marketCapUsd !== undefined && BASE58_ADDRESS.test(t.mint) ? { ...t, url: `https://dexscreener.com/solana/${t.mint}` } : { ...t };
 }
 
-/** One stored row in the shape the War Room renders; `hot` is set while the Meta's Hot now event is live. */
-export function apiRow(row: MetaRow, hot?: HotMark): MetaApiRow {
+/** One stored row in the shape the War Room renders; `hot` is set while the Meta's Hot now event is live, `ideas` when it has live meme ideas. */
+export function apiRow(row: MetaRow, hot?: HotMark, ideas?: readonly MemeIdeaRef[]): MetaApiRow {
   const line = metaLine(row);
   return {
     ...(hot ? { hot } : {}),
+    ...(ideas && ideas.length > 0 ? { ideas: [...ideas] } : {}),
     rank: row.rank,
     label: row.label,
     firstSeenAt: row.firstSeenAt,
@@ -82,7 +87,13 @@ export function apiRow(row: MetaRow, hot?: HotMark): MetaApiRow {
 }
 
 /** The response for a window: the stored run, or an empty list (not an error) before the first run. */
-export function metasResponse(run: MetaRun | undefined, window: MetaWindow, noteBelow: number = META_RULE.coverageNoteBelow, hot: ReadonlyMap<string, HotMark> = new Map()): MetasResponse {
+export function metasResponse(
+  run: MetaRun | undefined,
+  window: MetaWindow,
+  noteBelow: number = META_RULE.coverageNoteBelow,
+  hot: ReadonlyMap<string, HotMark> = new Map(),
+  ideas: ReadonlyMap<string, readonly MemeIdeaRef[]> = new Map(),
+): MetasResponse {
   if (!run) return { window, computedAt: null, note: null, windowTokens: 0, windowMigrations: 0, baseMigrationRate: null, coverage: null, coverageNote: null, metas: [] };
   return {
     window,
@@ -93,6 +104,18 @@ export function metasResponse(run: MetaRun | undefined, window: MetaWindow, note
     baseMigrationRate: run.baseMigrationRate,
     coverage: run.coverage,
     coverageNote: coverageNote(run.coverage, window, noteBelow),
-    metas: run.rows.map((r) => apiRow(r, hot.get(r.key))),
+    metas: run.rows.map((r) => apiRow(r, hot.get(r.key), ideas.get(r.key))),
   };
+}
+
+/** The live meme Proposals grouped by their Meta's key, as the Meta list shows them (newest first; the input is already in that order). */
+export function memeIdeasByKey(live: readonly Proposal[]): Map<string, MemeIdeaRef[]> {
+  const out = new Map<string, MemeIdeaRef[]>();
+  for (const p of live) {
+    if (p.kind !== "meme" || p.metaKey === null || (p.status !== "new" && p.status !== "shortlisted")) continue;
+    const list = out.get(p.metaKey) ?? [];
+    list.push({ id: p.id, name: p.name, ticker: p.ticker, angle: p.whyNow, status: p.status, riskLabels: p.meme?.riskLabels ?? [], createdAt: p.createdAt, expiresAt: p.expiresAt });
+    out.set(p.metaKey, list);
+  }
+  return out;
 }

@@ -1,16 +1,17 @@
-import { PROPOSAL_STATUSES, type CollisionStatus, type ProposalQuery, type ProposalSort, type ProposalStatus } from "@argus/core";
+import { PROPOSAL_STATUSES, type CollisionStatus, type ProposalKind, type ProposalQuery, type ProposalSort, type ProposalStatus } from "@argus/core";
 import { withResume } from "../../utils/resume.ts";
 import { withScore } from "../../utils/score.ts";
 
 const SORTS: readonly ProposalSort[] = ["score", "newest", "changed", "usage"];
 const COLLISIONS: readonly CollisionStatus[] = ["clear", "collides", "unknown"];
+const KINDS: readonly ProposalKind[] = ["narrative", "meme"];
 const WINDOWS_MS: Record<string, number> = { "24h": 24 * 3_600_000, "7d": 7 * 24 * 3_600_000, "30d": 30 * 24 * 3_600_000 };
 const bad = (what: string) => createError({ statusCode: 400, statusMessage: `Invalid ${what}` });
 const one = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 
 /**
  * The Proposals list, filtered and sorted in the datastore. Query: `sort` (score, newest, changed, usage; default score), `status`
- * (a Proposal status), `collision` (clear, collides, unknown), `created` (24h, 7d, 30d: created within that long).
+ * (a Proposal status), `kind` (narrative or meme, ADR 0013), `collision` (clear, collides, unknown), `created` (24h, 7d, 30d: created within that long).
  */
 export default defineEventHandler((event) => {
   const q = getQuery(event);
@@ -24,6 +25,11 @@ export default defineEventHandler((event) => {
   if (status !== undefined) {
     if (!PROPOSAL_STATUSES.includes(status as ProposalStatus)) throw bad("status");
     query.status = status as ProposalStatus;
+  }
+  const kind = one(q.kind);
+  if (kind !== undefined) {
+    if (!KINDS.includes(kind as ProposalKind)) throw bad("kind");
+    query.kind = kind as ProposalKind;
   }
   const collision = one(q.collision);
   if (collision !== undefined) {

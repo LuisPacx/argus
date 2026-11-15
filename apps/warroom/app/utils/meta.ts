@@ -2,6 +2,7 @@
 // worker through GET /api/metas; this file only turns that payload into display text. Every string in the payload is creator-written
 // or model text: it is cut here and rendered as text only, and a link exists only where `safeHttpUrl` accepted the URL.
 import { safeHttpUrl } from "./safe-link.ts";
+import { ideaViews, type MetaIdeaPayload, type MetaIdeaView } from "./meme.ts";
 
 /** The page refreshes the ranking this often (the worker computes it every 15 minutes at most), not with the 3-second list poll. */
 export const META_POLL_MS = 60_000;
@@ -53,6 +54,8 @@ export interface MetaPayload {
     summarySource?: string;
     /** Present while the Meta's Hot now event is live. */
     hot?: { reason: string; raisedAt: string };
+    /** The Meta's live meme ideas (missed ideas ticket 06), newest first. */
+    ideas?: MetaIdeaPayload[];
   }>;
 }
 
@@ -121,6 +124,8 @@ export interface MetaRowView {
   summary: string | null;
   /** "Hot now: entered top 5, 2 hours ago" while the Meta's Hot now event is live; null otherwise. */
   hot: string | null;
+  /** The Meta's live meme ideas; absent (not an empty list) when it has none. */
+  ideas?: MetaIdeaView[];
 }
 
 export interface MetaView {
@@ -179,7 +184,9 @@ function rowView(m: MetaPayload["metas"][number], nowMs: number, window: "6h" | 
   const summary = clampText(m.summary, SUMMARY_CHARS);
   const hotAge = typeof m.hot?.raisedAt === "string" ? ageText(m.hot.raisedAt, nowMs) : null;
   const hotReason = clampText(m.hot?.reason, HOT_REASON_CHARS);
+  const ideas = ideaViews(m.ideas, nowMs);
   return {
+    ...(ideas.length > 0 ? { ideas } : {}),
     hot: m.hot ? `Hot now${hotReason !== "" ? `: ${hotReason}` : ""}${hotAge !== null ? `, ${hotAge}` : ""}` : null,
     rank: m.rank,
     label: clampText(m.label, LABEL_CHARS),

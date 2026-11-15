@@ -23,6 +23,12 @@ const CREATED = [
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },
 ];
+// The kind of a Proposal (ADR 0013): a Narrative's, or a meme idea for a Meta that is Hot now.
+const KINDS = [
+  { value: "", label: "All kinds" },
+  { value: "narrative", label: "Narrative" },
+  { value: "meme", label: "Meme" },
+];
 const STATUSES = [
   { value: "", label: "All statuses" },
   ...["new", "shortlisted", "spec-drafted", "approved", "building", "built", "build-failed", "needs-human", "launched", "closed", "dismissed"].map((value) => ({ value, label: value })),
@@ -31,18 +37,19 @@ const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
   const v = typeof raw === "string" ? raw : "";
   return allowed.some((o) => o.value === v) ? v : "";
 };
-type Current = { sort: string; status: string; collision: string; created: string };
+type Current = { sort: string; status: string; collision: string; created: string; kind: string };
 const current = computed<Current>(() => ({
   sort: pick(route.query.sort, SORTS) || DEFAULT_PROPOSAL_SORT,
   status: pick(route.query.status, STATUSES),
   collision: pick(route.query.collision, COLLISIONS),
   created: pick(route.query.created, CREATED),
+  kind: pick(route.query.kind, KINDS),
 }));
 const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
   const sort = proposalUrlSort(c.sort);
   if (sort) q.sort = sort;
-  for (const k of ["status", "collision", "created"] as const) if (c[k]) q[k] = c[k];
+  for (const k of ["kind", "status", "collision", "created"] as const) if (c[k]) q[k] = c[k];
   return q;
 };
 // The API default is score, so the request always names its sort.
@@ -51,11 +58,12 @@ const apiQuery = (c: Current) => ({ ...withDefaults(c), sort: proposalApiSort(c.
 const to = (patch: Partial<Current>) => ({ path: "/", query: { ...(showForm.value ? { new: String(route.query.new || "1") } : {}), ...withDefaults({ ...current.value, ...patch }) } });
 const opts = (list: Array<{ value: string; label: string }>, key: keyof Current) =>
   list.map((o) => ({ label: o.label, to: to({ [key]: o.value }), active: current.value[key] === o.value }));
-const filtered = computed(() => !!(current.value.status || current.value.collision || current.value.created));
-const clearTo = computed(() => to({ status: "", collision: "", created: "" }));
+const filtered = computed(() => !!(current.value.status || current.value.collision || current.value.created || current.value.kind));
+const clearTo = computed(() => to({ status: "", collision: "", created: "", kind: "" }));
 const choose = (key: string, value: string) => void navigateTo(to({ [key]: value }), { replace: true });
 const groups = computed(() => [
   { kind: "seg" as const, key: "sort", title: "Sort", label: "Sort", options: opts(SORTS, "sort") },
+  { kind: "seg" as const, key: "kind", title: "Kind", label: "Kind filter", options: opts(KINDS, "kind") },
   { kind: "seg" as const, key: "collision", title: "Collisions", label: "Collision filter", options: opts(COLLISIONS, "collision") },
   { kind: "select" as const, key: "status", title: "Status", id: "proposal-status", value: current.value.status, options: STATUSES },
   { kind: "select" as const, key: "created", title: "Created", id: "proposal-created", value: current.value.created, options: CREATED },
@@ -195,6 +203,7 @@ async function submit() {
 }
 
 const newCount = computed(() => proposals.value.filter((p) => p.status === "new").length);
+const memeCount = computed(() => proposals.value.filter((p) => p.kind === "meme").length);
 const researchView = computed(() => (research.value ? researchBar(research.value) : null));
 // Whether a row has anything to say under its main line.
 const hasNotes = (p: (typeof proposals.value)[number]) =>
@@ -205,7 +214,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
   <div class="grid gap-8">
     <div>
       <h2 class="page-title">Proposals</h2>
-      <p class="page-sub">{{ proposals.length }} {{ proposals.length === 1 ? "Proposal" : "Proposals" }}, {{ newCount }} new</p>
+      <p class="page-sub" data-test="proposal-counts">{{ proposals.length }} {{ proposals.length === 1 ? "Proposal" : "Proposals" }}, {{ newCount }} new<template v-if="memeCount > 0">, {{ memeCount }} meme</template></p>
     </div>
 
     <p v-if="actionError && !shortlisting && dismissing === null" class="note note-red" role="alert">{{ actionError }}</p>
@@ -253,12 +262,21 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
                 </h3>
                 <span class="faint text-xs font-medium uppercase tracking-wide">{{ p.ticker }}</span>
                 <StatusPill :status="p.status" />
+                <span v-if="p.kind === 'meme'" class="pill pill-outline" data-test="kind-pill" title="A token idea for a Meta that is Hot now: no Spec, no Build, no Score">meme</span>
               </div>
-              <p class="muted mt-2 line-clamp-3 whitespace-pre-line text-sm leading-relaxed">{{ p.narrativeSummary }}</p>
+              <template v-if="p.kind === 'meme'">
+                <p class="muted mt-2 line-clamp-2 min-w-0 break-words text-sm leading-relaxed" data-test="meme-angle">{{ memeRowView(p).angle }}</p>
+                <p class="faint mt-1 line-clamp-2 min-w-0 break-words text-xs" data-test="meme-meta-line">{{ memeRowView(p).metaLine }}</p>
+              </template>
+              <p v-else class="muted mt-2 line-clamp-3 whitespace-pre-line text-sm leading-relaxed">{{ p.narrativeSummary }}</p>
             </div>
 
             <div class="flex items-center gap-4">
-              <template v-if="p.score">
+              <div v-if="p.kind === 'meme'" class="flex min-w-0 flex-wrap items-center gap-1.5" data-test="risk-labels">
+                <span v-for="(l, n) in memeRowView(p).riskLabels" :key="n" class="pill pill-amber min-w-0 max-w-full whitespace-normal break-words" data-test="risk-label">{{ l }}</span>
+                <span v-if="memeRowView(p).riskLabels.length === 0" class="faint text-sm">No risk label</span>
+              </div>
+              <template v-else-if="p.score">
                 <span class="pill pill-accent shrink-0 px-3 py-2 text-base tabular-nums">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
                 <ScoreBars class="above min-w-0 grow" compact :scores="p.score.scores" />
               </template>
@@ -268,13 +286,15 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
             <CollisionChecks pills class="above" :collisions="p.collisions" />
 
             <div class="muted grid gap-1 text-xs">
-              <span>Narrative age: <span data-test="narrative-age">{{ p.narrativeCreatedAt ? narrativeAge(p.narrativeCreatedAt) : "n/a" }}</span></span>
+              <span v-if="p.kind === 'meme'">Idea age: <span data-test="idea-age">{{ narrativeAge(p.createdAt) }}</span></span>
+              <span v-else>Narrative age: <span data-test="narrative-age">{{ p.narrativeCreatedAt ? narrativeAge(p.narrativeCreatedAt) : "n/a" }}</span></span>
               <span v-if="p.expiresAt" data-test="time-left">{{ timeLeft(p.expiresAt) }}</span>
               <span><span class="above" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): ${{ p.agentCostUsd.toFixed(2) }}</span></span>
             </div>
 
             <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="above flex flex-wrap items-center gap-2 lg:justify-end">
-              <button v-if="p.status === 'new'" class="btn btn-primary" :disabled="busy(p.id)" @click="askShortlist(p)">Shortlist</button>
+              <!-- A meme idea has no Spec to pay for, so shortlisting it asks nothing. -->
+              <button v-if="p.status === 'new'" class="btn btn-primary" :disabled="busy(p.id)" @click="p.kind === 'meme' ? send(p.id, 'shortlist') : askShortlist(p)">Shortlist</button>
               <button v-if="p.status === 'shortlisted' && p.specError" class="btn btn-primary" :disabled="busy(p.id) || !!p.brainRunInFlightSince" @click="send(p.id, 'retry-spec')">
                 Retry Spec
               </button>

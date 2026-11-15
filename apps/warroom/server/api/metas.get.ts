@@ -1,4 +1,4 @@
-import { isMetaWindow, liveHot, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
+import { isMetaWindow, liveHot, memeIdeasByKey, metaConfigFromEnv, metasResponse, type MetaWindow } from "@argus/core";
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 10;
@@ -26,5 +26,6 @@ export default defineEventHandler((event) => {
   const config = metaConfigFromEnv();
   const store = useStore();
   // A Meta whose Hot now event is live (raised within the cool-down) carries `hot`: why and when.
-  return metasResponse(store.latestMetas(window, limit), window, config.coverageNoteBelow, liveHot(store, new Date(), config));
+  // A Meta with live meme ideas (missed ideas ticket 06) carries them in `ideas`, newest first.
+  return metasResponse(store.latestMetas(window, limit), window, config.coverageNoteBelow, liveHot(store, new Date(), config), memeIdeasByKey(store.liveMemeProposals()));
 });

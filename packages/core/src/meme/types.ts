@@ -66,6 +66,20 @@ export interface MetaSnapshot {
   news: SnapshotNews[];
 }
 
+/** A live idea as the Meta list shows it under its Meta: enough to read it and to open its card. Text is model-written and untrusted. */
+export interface MemeIdeaRef {
+  id: number;
+  name: string;
+  ticker: string;
+  /** The joke and why now. */
+  angle: string;
+  status: "new" | "shortlisted";
+  riskLabels: string[];
+  createdAt: string;
+  /** When it closes if nobody acts (ISO); null only for a status that never expires. */
+  expiresAt: string | null;
+}
+
 /** One idea to store. The Proposal's name, ticker and description are the idea's; the angle is stored as `whyNow`. */
 export interface NewMemeIdea extends MemeFields {
   name: string;

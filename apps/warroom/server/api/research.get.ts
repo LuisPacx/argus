@@ -1,4 +1,4 @@
-import { API_DEFAULT_ROUTING, apiFallbackConfigFromEnv, MAX_NEW_PROPOSALS_PER_DAY, proposeConfigFromEnv, researchConfigFromEnv, researchUsage } from "@argus/core";
+import { API_DEFAULT_ROUTING, apiFallbackConfigFromEnv, MAX_NEW_PROPOSALS_PER_DAY, memeConfigFromEnv, proposeConfigFromEnv, researchConfigFromEnv, researchUsage } from "@argus/core";
 
 /**
  * How much of the day's research allowance is used: the shared judge-plus-propose budget in Est. usage (the figure the worker holds
@@ -13,7 +13,9 @@ export default defineEventHandler(() => {
   let usage;
   let cap: number;
   let apiConfig;
+  let meme;
   try {
+    meme = memeConfigFromEnv(process.env);
     usage = researchUsage(store, now, researchConfigFromEnv(process.env));
     cap = Math.min(proposeConfigFromEnv(process.env).maxNewPerDay, MAX_NEW_PROPOSALS_PER_DAY);
     apiConfig = apiFallbackConfigFromEnv(process.env);
@@ -24,5 +26,7 @@ export default defineEventHandler(() => {
   const today = store.researchProposalsSince(dayAgo);
   const apiSpent = store.apiSpendSince(dayAgo, { judge: API_DEFAULT_ROUTING.judge.maxBudgetUsd, propose: API_DEFAULT_ROUTING.propose.maxBudgetUsd });
   const api = { enabled: apiConfig.enabled, capUsd: apiConfig.dailyUsd, usedUsd: apiSpent.chargedUsd, runs: apiSpent.runs, exhausted: apiSpent.chargedUsd >= apiConfig.dailyUsd };
-  return { ...usage, newProposals: today, newProposalsCap: cap, windowHours: 24, api };
+  // The meme ideas task counts in the research budget above; its own run count and cap (missed ideas ticket 06) are shown beside it.
+  const memeRuns = store.memeIdeasSpendSince(dayAgo).runs;
+  return { ...usage, newProposals: today, newProposalsCap: cap, windowHours: 24, api, memeIdeas: { enabled: meme.enabled, runs: memeRuns, cap: meme.config.maxRunsPerDay } };
 });

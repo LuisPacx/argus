@@ -13,6 +13,8 @@ export interface ResearchPayload {
   newProposals: number;
   newProposalsCap: number;
   api: { enabled: boolean; capUsd: number; usedUsd: number; runs: number; exhausted: boolean };
+  /** The meme ideas task (missed ideas ticket 06): its runs in the same 24 hours (they count in the budget above), its own cap and its switch. */
+  memeIdeas?: { enabled: boolean; runs: number; cap: number };
 }
 
 export interface ResearchBarView {
@@ -42,6 +44,10 @@ export function researchBar(r: ResearchPayload): ResearchBarView {
     `API spend is real money billed by the Anthropic API, unlike Est. usage. Only the API fallback spends it, when the subscription is rate-limited: $${r.api.usedUsd.toFixed(4)} of $${r.api.capUsd.toFixed(2)} daily cap over ${runs(r.api.runs)}.`,
   ];
   if (!r.api.enabled) details.push("API fallback is off: set ARGUS_API_FALLBACK=1 and ANTHROPIC_API_KEY in .env to turn it on.");
+  if (r.memeIdeas) {
+    details.push(`Meme ideas: ${r.memeIdeas.runs} of ${r.memeIdeas.cap} runs in the last 24 h (counted in the budget above)${r.memeIdeas.enabled ? "." : "; off until ARGUS_MEME_IDEAS=1."}`);
+    if (r.memeIdeas.runs >= r.memeIdeas.cap) alerts.push("Meme ideas cap reached: no new idea run starts until older runs leave the 24 hours.");
+  }
   return {
     label: "Research 24h",
     budget: `$${r.usedUsd.toFixed(2)} / $${r.budgetUsd.toFixed(2)}`,

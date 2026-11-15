@@ -1,4 +1,4 @@
-import { MAX_REVISE_INSTRUCTION_CHARS, cleanupPlan, cleanupRefusal, isMintAddress, type CommandType } from "@argus/core";
+import { MAX_REVISE_INSTRUCTION_CHARS, MEME_NO_BUILD_MESSAGE, MEME_REFUSED_COMMANDS, cleanupPlan, cleanupRefusal, isMintAddress, type CommandType } from "@argus/core";
 
 const types: CommandType[] = ["shortlist", "undo-shortlist", "dismiss", "approve", "revise", "retry-spec", "requeue", "mark-launched", "cleanup-build"];
 
@@ -9,6 +9,8 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ type?: string; reason?: string }>(event);
   const type = types.find((t) => t === body?.type);
   if (!type) throw createError({ statusCode: 400, statusMessage: "Unknown command type" });
+  // A meme Proposal (ADR 0013) has no Spec, Approve or Build: those commands are refused here for fast feedback, and again by the worker.
+  if (proposal.kind === "meme" && MEME_REFUSED_COMMANDS.includes(type)) throw createError({ statusCode: 409, statusMessage: MEME_NO_BUILD_MESSAGE });
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   if (type === "dismiss" && !reason) throw createError({ statusCode: 400, statusMessage: "Dismissal needs a reason" });
   if (type === "revise" && !reason) throw createError({ statusCode: 400, statusMessage: "Revise needs an instruction" });

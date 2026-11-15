@@ -2,7 +2,8 @@
 // The /meta page's list: every Meta of the latest run, each with the numbers behind it, a trend word, its top tokens and a one-line summary.
 // Everything in `view` is untrusted text (token names are written by token creators, the summary by a model): interpolated as text only
 // (no raw-HTML directive), clamped by `metaView`, and a link exists only where `metaView` produced an http(s) href, drawn by UrlLink.
-// Each row's id is its `anchor`, the fragment the home strip links to. Template-only on purpose: server/test/meta-render.test.ts renders it.
+// Each row's id is its `anchor`, the fragment the home strip links to. A Meta's live meme ideas (missed ideas ticket 06) are listed under it,
+// each linking to its own card by its numeric id. Template-only on purpose: server/test/meta-render.test.ts renders it.
 import type { MetaView } from "../utils/meta.ts";
 defineProps<{ view: MetaView }>();
 </script>
@@ -40,6 +41,22 @@ defineProps<{ view: MetaView }>();
             <span v-else class="break-words">{{ t.text }}</span>
           </li>
         </ul>
+        <div v-if="r.ideas && r.ideas.length > 0" class="grid gap-2 border-t border-[var(--wr-line)] pt-2" data-test="meta-ideas">
+          <p class="faint text-xs font-medium uppercase tracking-wide">Meme ideas</p>
+          <ul class="grid gap-2">
+            <li v-for="i in r.ideas" :key="i.id" class="grid min-w-0 gap-1" :data-test="`meta-idea-${i.id}`">
+              <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="pill pill-outline shrink-0" data-test="idea-kind">meme</span>
+                <NuxtLink :to="i.href" class="min-w-0 break-words font-semibold hover:underline" data-test="idea-name">{{ i.name }}</NuxtLink>
+                <span class="faint text-xs font-medium uppercase tracking-wide">{{ i.ticker }}</span>
+                <span class="pill shrink-0" :class="i.status === 'shortlisted' ? 'pill-accent' : ''" data-test="idea-status">{{ i.status }}</span>
+                <span v-for="(l, n) in i.riskLabels" :key="n" class="pill pill-amber min-w-0 max-w-full whitespace-normal break-words" data-test="idea-risk">{{ l }}</span>
+                <span v-if="i.expires" class="faint text-xs" data-test="idea-expires">{{ i.expires }}</span>
+              </div>
+              <p v-if="i.angle" class="muted min-w-0 break-words text-xs leading-relaxed" data-test="idea-angle">{{ i.angle }}</p>
+            </li>
+          </ul>
+        </div>
       </li>
     </ol>
   </div>

@@ -26,6 +26,9 @@ async function loadSpec() {
 if (p.value?.specHash) await loadSpec();
 
 const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }));
+// A meme Proposal (ADR 0013) is an idea for a Meta, with no Narrative, Tech, Spec or Score: its card is the idea, the Meta's snapshot and the evidence.
+const isMeme = computed(() => p.value?.kind === "meme");
+const meme = computed(() => (p.value && p.value.kind === "meme" ? memeView(p.value, Date.now()) : null));
 
 // Refreshed by the 3 s poll below: `p` changes, so the "last checked" age recomputes.
 const buildNotice = computed(() => (p.value ? buildNoticeView(p.value, Date.now()) : null));
@@ -87,8 +90,17 @@ async function save() {
 }
 
 const mint = ref("");
+// Dismissing a meme idea (the other kinds are dismissed from the Proposals list): a reason is required, as for any Proposal.
+const dismissingMeme = ref(false);
+const dismissReason = ref("");
+async function dismissMeme() {
+  if (await send("dismiss", dismissReason.value)) {
+    dismissingMeme.value = false;
+    dismissReason.value = "";
+  }
+}
 
-async function send(type: "shortlist" | "undo-shortlist" | "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched" | "cleanup-build", reason = ""): Promise<boolean> {
+async function send(type: "shortlist" | "undo-shortlist" | "dismiss" | "revise" | "approve" | "retry-spec" | "requeue" | "mark-launched" | "cleanup-build", reason = ""): Promise<boolean> {
   // Undo is the one command that is meant for a Spec run in flight (it cancels it), so only a pending command holds it back.
   if (sending.value || (type === "undo-shortlist" ? pending.value : working.value)) return false;
   sending.value = true;
@@ -153,10 +165,12 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <h2 class="page-title">{{ p.name }}</h2>
             <span class="faint text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
             <StatusPill :status="p.status" />
+            <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a Meta that is Hot now: no Spec, no Build, no Score">meme</span>
             <BuildBlockedMarker :view="buildNotice" />
             <span v-if="p.score" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
           </div>
-          <div class="mt-6 grid gap-5">
+          <p v-if="isMeme" class="muted mt-3 min-w-0 break-words text-sm" data-test="meme-meta-line">{{ meme?.meta.label ? `An idea for the Meta ${meme.meta.label}.` : "An idea for a Meta." }} No Spec, no Build and no Score: shortlist it, dismiss it with a reason, or let it expire.</p>
+          <div v-if="!isMeme" class="mt-6 grid gap-5">
             <div><p class="eyebrow mb-1.5">Narrative summary</p><p class="whitespace-pre-line leading-relaxed">{{ p.narrativeSummary }}</p></div>
             <div><p class="eyebrow mb-1.5">Tech one-liner</p><p class="leading-relaxed">{{ p.techOneLiner }}</p></div>
             <div><p class="eyebrow mb-1.5">Why now</p><p class="leading-relaxed">{{ p.whyNow }}</p></div>
@@ -172,16 +186,51 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
           </p>
         </section>
 
-        <WhyPanel :view="why" />
+        <MemeCard v-if="meme" :view="meme" />
+        <WhyPanel v-else :view="why" />
 
-        <section v-if="p.status === 'new'" class="surface grid gap-3" data-test="shortlist-section">
+        <section v-if="p.status === 'new' && isMeme" class="surface grid gap-3" data-test="shortlist-section">
+          <h3 class="section-title">Decide</h3>
+          <p class="note muted">Shortlisting a meme idea starts no Spec and no Build: it only keeps the idea for 7 days instead of 6 hours. Dismiss needs a reason.</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <button class="btn btn-primary" :disabled="working || sending" @click="send('shortlist')">Shortlist</button>
+            <template v-if="!dismissingMeme">
+              <button class="btn" :disabled="working || sending" @click="dismissingMeme = true">Dismiss</button>
+            </template>
+            <template v-else>
+              <input v-model="dismissReason" class="field field-sm w-56" placeholder="Reason" />
+              <button class="btn btn-danger" :disabled="!dismissReason.trim() || working || sending" @click="dismissMeme">Confirm dismiss</button>
+              <button class="btn btn-ghost" @click="dismissingMeme = false">Cancel</button>
+            </template>
+          </div>
+          <p v-if="error" class="note note-red">{{ error }}</p>
+        </section>
+
+        <section v-else-if="p.status === 'new'" class="surface grid gap-3" data-test="shortlist-section">
           <h3 class="section-title">Shortlist</h3>
           <p class="note muted">Shortlisting starts drafting a Spec with the brain (one Sonnet run).</p>
           <div><button class="btn btn-primary" :disabled="working || sending" @click="confirmingShortlist = true">Shortlist</button></div>
           <p v-if="error && !confirmingShortlist" class="note note-red">{{ error }}</p>
         </section>
 
-        <section v-if="p.status === 'shortlisted' || p.status === 'spec-drafted'" class="surface grid gap-3" data-test="undo-section">
+        <section v-if="p.status === 'shortlisted' && isMeme" class="surface grid gap-3" data-test="undo-section">
+          <h3 class="section-title">Shortlist</h3>
+          <p class="note muted">Shortlisted: the idea stays for 7 days. Undo takes it back to new (it closes 6 hours after it was made). It is not a dismissal.</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <button class="btn" :disabled="!canUndo" @click="send('undo-shortlist')">Undo shortlist</button>
+            <template v-if="!dismissingMeme">
+              <button class="btn" :disabled="working || sending" @click="dismissingMeme = true">Dismiss</button>
+            </template>
+            <template v-else>
+              <input v-model="dismissReason" class="field field-sm w-56" placeholder="Reason" />
+              <button class="btn btn-danger" :disabled="!dismissReason.trim() || working || sending" @click="dismissMeme">Confirm dismiss</button>
+              <button class="btn btn-ghost" @click="dismissingMeme = false">Cancel</button>
+            </template>
+          </div>
+          <p v-if="error" class="note note-red">{{ error }}</p>
+        </section>
+
+        <section v-else-if="p.status === 'shortlisted' || p.status === 'spec-drafted'" class="surface grid gap-3" data-test="undo-section">
           <h3 class="section-title">Shortlist</h3>
           <p class="note muted">
             Shortlisted. Undo takes it back to new: a Spec run in flight is cancelled and the Spec draft is discarded. It is not a dismissal. Possible until you approve the Spec.
