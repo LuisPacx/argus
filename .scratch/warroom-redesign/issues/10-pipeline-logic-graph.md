@@ -56,15 +56,15 @@ Clicking (or Enter on) a node opens a side panel (a `<Transition>` slide, focus 
 ## Acceptance
 
 Slice a:
-- [ ] `PIPELINE` in `packages/core/src/pipeline-graph.ts` has the ten stage nodes and Meta, Beta finder and Study, each with a status; RSS catalog, Google Trends and GitHub trending are `context-only`, Beta finder is `off`.
-- [ ] Every number in a rule is a `ref()` over an imported constant or config object; no numeric literal stands for a gate or cap (a test fails on a literal value inside a `rules` entry, or the file has none).
-- [ ] The sync test enumerates items 1 to 4 above and passes on the current tree.
-- [ ] Stays in sync, proved two ways: `pipelineGaps()` is called in the test with a registry that adds a fake Source id, a fake `...Tick`, a fake brain task and a fake config key, and returns a gap for each; and in Comments, a recorded manual run: add a fake Source to `SOURCE_CLASS` (or a fake `new FooSource(` line in `main.ts`) without a graph node, run the test, see it fail naming the Source, revert.
-- [ ] `docs/architecture.md` system overview and lifecycle diagrams are generated between markers; editing the graph (or `TRANSITIONS`) without `pnpm docs:graph` fails `pipeline-docs.test.ts`; the Build Runner diagram is untouched and marked as not generated.
-- [ ] The generated overview still shows what the old one showed (Telegram, Launch handoff, the Study and Playbook path), via `onPage: false` nodes.
-- [ ] `/pipeline` is in the nav as "How it works", renders from `GET /api/pipeline` with no client import of `@argus/core`, and answers 200 in `verify:boot`.
-- [ ] The layout helper has a test (columns, rows, edge paths, no overlap); no `v-html`; no new dependency; no JS timer-driven animation.
-- [ ] `INGEST_TICK_MS`, `JUDGE_TICK_MS`, `STUDY_TICK_MS` live in core, and `main.ts` imports them.
+- [x] `PIPELINE` in `packages/core/src/pipeline-graph.ts` has the ten stage nodes and Meta, Beta finder and Study, each with a status; RSS catalog, Google Trends and GitHub trending are `context-only`, Beta finder is `off`.
+- [x] Every number in a rule is a `ref()` over an imported constant or config object; no numeric literal stands for a gate or cap (a test fails on a literal value inside a `rules` entry, or the file has none).
+- [x] The sync test enumerates items 1 to 4 above and passes on the current tree.
+- [x] Stays in sync, proved two ways: `pipelineGaps()` is called in the test with a registry that adds a fake Source id, a fake `...Tick`, a fake brain task and a fake config key, and returns a gap for each; and in Comments, a recorded manual run: add a fake Source to `SOURCE_CLASS` (or a fake `new FooSource(` line in `main.ts`) without a graph node, run the test, see it fail naming the Source, revert.
+- [x] `docs/architecture.md` system overview and lifecycle diagrams are generated between markers; editing the graph (or `TRANSITIONS`) without `pnpm docs:graph` fails `pipeline-docs.test.ts`; the Build Runner diagram is untouched and marked as not generated.
+- [x] The generated overview still shows what the old one showed (Telegram, Launch handoff, the Study and Playbook path), via `onPage: false` nodes.
+- [x] `/pipeline` is in the nav as "How it works", renders from `GET /api/pipeline` with no client import of `@argus/core`, and answers 200 in `verify:boot`.
+- [x] The layout helper has a test (columns, rows, edge paths, no overlap); no `v-html`; no new dependency; no JS timer-driven animation.
+- [x] `INGEST_TICK_MS`, `JUDGE_TICK_MS`, `STUDY_TICK_MS` live in core, and `main.ts` imports them.
 
 Slice b:
 - [ ] `GET /api/pipeline-live` returns the per-edge counts and per-node spend above for a rolling 24 h; a test with an in-memory store seeds each table and checks every figure, including a row at 23 h 59 m (counted) and 24 h 01 m (not).
@@ -100,3 +100,23 @@ One commit per slice, after the full `pnpm check`. Subjects `War Room ticket 10a
 5. **Beta finder `off`:** there is no switch in code to read (it is a library and a backtest script, `scripts/backtest-beta.mjs`), so its status is a declared value in the graph, not derived. Accept that, or add a config flag as part of its own ticket?
 
 ## Comments
+
+**2026-11-14, the Operator answered the five open questions, all as recommended:**
+1. The Build Runner sequence diagram stays hand-written; it is marked "Not generated" in `docs/architecture.md` and the Build node points to section 4.
+2. The ADR 0011 market-Signal rule is a labelled gate on the Narratives to Judge edge ("Needs a market Signal from", value from `MARKET_SOURCE_IDS`).
+3. The Study is rule-based: `BrainTask` has no `study` (config `study_rule=v1`). The Study node is drawn with no Claude cost and no `brainTask`; `docs/architecture.md` section 5 (type, routing table, `study` paragraph, fallback line), and the matching sentences in sections 2 and 7, now say the `study` task is planned and not built.
+4. For slice b: "judged" is distinct Narratives judged per 24 h; PumpPortal creates and Signals ingested are separate edges (edge metrics `creates_seen` on Sources to Study, `signals_ingested` on Sources to Signals).
+5. Beta finder `off` is a declared value in the graph (with a status note linking ticket viral-sources/04) until a real switch exists.
+
+**Slice a, 2026-11-14.** Built as the ticket says, plus these decisions it did not settle:
+- Every rule that covers a gate or cap carries a `key` (`CONSTANT` or `CONSTANT.field`); the sync test checks coverage by key and that `ref()` equals the code's value at that key. A rule with no key shows a derived or incidental figure (a tick interval, a per-run budget).
+- The registry also covers `META_WINDOWS` and `MARKET_SOURCE_IDS` (named in the ticket's list of constants, not in its item 3). `LEFT_OUT` lives in the test, each entry with a reason; an entry with no reason, or for an item the code no longer has, is itself a gap.
+- Node `worker` may be one pass or a list (Meta runs `metaTick` and `metaSummaryTick`). Edges may carry `gates` (rules) and `dashed` (an Operator decision or a path not wired yet, such as Beta finder to Proposals).
+- `pipeline-docs.test.ts` and `pnpm docs:graph` use start and end markers `<!-- generated:pipeline-overview -->` ... `<!-- /generated:pipeline-overview -->` (same for `pipeline-lifecycle`). The regenerated lifecycle diagram labels edges `reason (actor)` straight from `TRANSITIONS`. It shows `launched -> closed` with actor `operator`, as the table says; the prose table below it still says "system (phase 3a)". Not changed here.
+- Interval constants went to `packages/core/src/ticks.ts`; `SEED_GATE_MIN_SCORE` is exported from `rubric.ts`.
+- The page has no poll yet (slice b adds it). The layout puts the Sources chips in a taller Sources node, so the side row (Study, Meta, Beta finder) sits beneath it; a screen narrower than 1206 px scrolls the graph sideways.
+- Not done on purpose: the browser box (cos does the Chrome check at 1240 px and a phone width) and the shared "full `pnpm check` per slice" box (kept open for b and c).
+
+**Recorded manual bite run (slice a).** Added `"fake:bite": "context"` to `SOURCE_CLASS` in `packages/core/src/sources/source-class.ts` with no graph node, ran `pnpm exec vitest run packages/core/src/pipeline-graph.test.ts`, and the sync test failed with: `Source "fake:bite" (class context) is in the Source class table but on no Sources node chip.` Reverted; the tree was clean again.
+
+Slice a check: `pnpm check` passed on the committed tree (128 files, 1951 tests), stamped tree `eb937331a4`; `verify:boot` answered 2xx on `/pipeline` (own temp DB, port 3162).
