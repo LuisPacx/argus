@@ -9,6 +9,7 @@ import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
+import { oneLine } from "./judge.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
@@ -1067,6 +1068,23 @@ export class Datastore {
   liveMemeProposals(): Proposal[] {
     const rows = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.kind = 'meme' AND p.status IN ('new', 'shortlisted') ORDER BY p.created_at DESC, p.meme_slot, p.id`).all() as unknown as Row[];
     return rows.map(toProposal);
+  }
+
+  /**
+   * The Techs of Proposals created in the last `days` days (counted from `created_at`, so a status change keeps nothing "recent"),
+   * newest first, each flattened to one line, exact duplicates dropped, at most `max`. A Proposal with no Tech (`meme`) is skipped.
+   * What the propose prompt lists so the model picks a different Tech (proposal-routing ticket 02). READ ONLY.
+   */
+  recentTechs(now: Date, days = 14, max = 20): string[] {
+    const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+    const rows = this.db.prepare("SELECT tech_one_liner FROM proposals WHERE created_at >= ? AND tech_one_liner != '' ORDER BY created_at DESC, id DESC").all(since) as Array<{ tech_one_liner: string }>;
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const line = oneLine(r.tech_one_liner, 1000);
+      if (line !== "") seen.add(line);
+      if (seen.size >= max) break;
+    }
+    return [...seen];
   }
 
   /** Proposals still `new` whose Telegram card has not been queued, oldest first. */

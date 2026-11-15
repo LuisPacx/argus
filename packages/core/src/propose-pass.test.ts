@@ -228,6 +228,49 @@ describe("migrated-token examples in the prompt (ticket 22)", () => {
   });
 });
 
+describe("recent Techs in the prompt (proposal-routing ticket 02)", () => {
+  const prior = (store: Datastore, n: number, tech: string) => store.createResearchProposal({ narrativeSummary: "n", techOneLiner: tech, whyNow: "w", name: `Old ${n}`, ticker: "OLD", description: "d", evidenceLinks: [], narrativeId: 9000 + n, scoreId: 9000 + n }, { now: hours(-24 * n) });
+
+  it("the first run, the repair and the name-retry prompts all carry the block", async () => {
+    const TWO = JSON.stringify({ ...JSON.parse(ANSWER), evidence: ["https://a.example/1", "https://b.example/2"] });
+    const clear = (s: string): CollisionResult => ({ dex: { status: s as "clear", detail: s, source: "DexScreener", checkedAt: NOW.toISOString() }, github: { status: "clear", detail: "clear", source: "GitHub", checkedAt: NOW.toISOString() } });
+    const RETRY = JSON.stringify({ ...JSON.parse(ANSWER), name: "Paw Street", ticker: "PAWST" });
+    const { store, pass, calls } = setup({ FAKE_CLAUDE_RESULT: TWO, FAKE_CLAUDE_SEQUENCE: JSON.stringify([{}, { FAKE_CLAUDE_RESULT: ANSWER }, { FAKE_CLAUDE_RESULT: RETRY }]) });
+    prior(store, 1, "spot-the-original copycat game");
+    prior(store, 2, "a tax calculator");
+    addScored(store, "One");
+    const collisions: CollisionChecker = { check: async ({ name }) => clear(name === "Stock Paws" ? "collides" : "clear") };
+    expect(await pass({}, { collisions })).toMatchObject({ proposed: 1 });
+    expect(calls()).toHaveLength(3);
+    expect(calls()[1]!.argv[1]).toContain("Your last answer was refused");
+    expect(calls()[2]!.argv[1]).toContain("was rejected because");
+    for (const call of calls()) {
+      const prompt = call.argv[1]!;
+      expect(prompt).toContain("START recent-techs (untrusted)");
+      expect(prompt).toContain("- spot-the-original copycat game\n- a tax calculator\n");
+      expect(prompt).toContain("Recent Techs:");
+    }
+  });
+
+  it("no recent Proposals gives no block", async () => {
+    const { store, pass, calls } = setup();
+    addScored(store, "One");
+    await pass();
+    expect(calls()[0]!.argv[1]).not.toContain("recent-techs");
+  });
+
+  it("a read that throws is logged and the pass prompts without the block, and still stores the Proposal", async () => {
+    const { store, pass, calls, lines } = setup();
+    addScored(store, "One");
+    store.recentTechs = () => {
+      throw new Error("proposals locked");
+    };
+    expect(await pass()).toMatchObject({ proposed: 1 });
+    expect(calls()[0]!.argv[1]).not.toContain("recent-techs");
+    expect(lines.some((l) => l.includes("recent Techs not read") && l.includes("proposals locked"))).toBe(true);
+  });
+});
+
 describe("the buildability gate", () => {
   it("never proposes a Narrative below the Rubric's gate, and spawns nothing for it", async () => {
     const { store, pass, calls } = setup();

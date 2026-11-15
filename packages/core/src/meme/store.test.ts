@@ -314,3 +314,37 @@ describe("lists, sorting and counts", () => {
     expect(store.unannouncedNewProposals().every((p) => p.kind === "narrative")).toBe(true);
   });
 });
+
+describe("recentTechs (proposal-routing ticket 02)", () => {
+  const DAY = 24 * HOUR;
+  const made = (store: Datastore, n: number, tech: string, when: number) => store.createResearchProposal({ ...narrative, techOneLiner: tech, narrativeId: n, scoreId: n }, { now: at(when) });
+
+  it("lists Techs newest first, flattened, deduplicated, with the 14 day edge counted from creation and a meme Proposal skipped", () => {
+    const dir = tempDir("argus-techs-");
+    const file = join(dir, "argus.db");
+    const store = Datastore.open(file);
+    made(store, 1, "too old", -14 * DAY - 1);
+    const edge = made(store, 2, "on the edge", -14 * DAY);
+    made(store, 3, "a game\nof  cats", -3 * DAY);
+    made(store, 4, "a game of cats", -2 * DAY); // the same line once flattened
+    made(store, 5, "newest", -HOUR);
+    store.createMemeProposals(trio(), { now: at(-30 * 60_000) });
+    store.close();
+    const db = new DatabaseSync(file);
+    db.prepare("UPDATE proposals SET updated_at = ? WHERE id = ?").run(at(0).toISOString(), edge.id); // a later change keeps nothing "recent"
+    db.close();
+    const reopened = Datastore.open(file);
+    expect(reopened.recentTechs(at(0))).toEqual(["newest", "a game of cats", "on the edge"]);
+    expect(reopened.recentTechs(at(DAY))).toEqual(["newest", "a game of cats"]); // a day later the edge Proposal has aged out
+    reopened.close();
+  });
+
+  it("returns at most 20", () => {
+    const store = Datastore.open(":memory:");
+    for (let i = 1; i <= 25; i++) made(store, i, `tech ${i}`, -i * 6 * HOUR);
+    const techs = store.recentTechs(at(0));
+    expect(techs).toHaveLength(20);
+    expect(techs[0]).toBe("tech 1");
+    expect(techs[19]).toBe("tech 20");
+  });
+});
