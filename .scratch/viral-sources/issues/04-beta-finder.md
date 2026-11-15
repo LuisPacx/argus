@@ -3,7 +3,7 @@
 
 **What to build:** argus proposes **Betas** (GLOSSARY: a token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar) for the live top Metas, so the Operator can launch into a Meta that is still carrying tokens to migration. The hard part is not finding the biggest Meta but the one with **room left**: some Metas are saturated (Dacity/Audacity: 1 migration in 228 creates in 24 h), others are still converting (GTA VI: 31 of 153, about 20%). Rank Metas by room left, and for the best few propose a Beta name, ticker and angle that is distinct from every existing clone. Launching stays manual (the Operator, ADR 0002); argus spends no SOL, signs nothing and holds no keys.
 
-**Status:** slices 1, 2, 5 on main (1eefa66, 2db7238, f10d03a, 1270357); slices 3-4 paused until the 2026-11-18 backtest re-run
+**Status:** slices 1, 2, 5 on main (1eefa66, 2db7238, f10d03a, 1270357); slices 3-4 superseded 2026-11-14 by missed-ideas/05-06 (see the last Comment); the 2026-11-18 backtest re-run still runs
 
 **Blocked by:** 03 Part A (slices 1 and 3 of `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`: the token subject key, clone clusters, and the stored 6 h and 24 h Meta ranking with the base migration rate, per-group saturation and market cap). Also start only after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it.
 
@@ -162,3 +162,7 @@ Lift of room-left over base: 1.07x (6 h unfiltered), 1.13x (6 h after 60 s), 1.2
 ### Deploy 2026-11-11 (`.scratch/cos.md`)
 
 Slices 1, 2 and 5 were already ticked by the worker; nothing new to tick. Deployed per "DEPLOYED" (main 1270357); "MIGRATION REHEARSAL 2" and "TIP VERIFIED" (112/1790, stamp c8bb0d433e) cover the stack including `beta-finder`, whose live-DB guard fix (5f986d5) is in. Paused until the backtest re-run on 2026-11-18 (user decision, journal "USER all as recommended": success measure = migrated after 60 s or market cap reached); slices 3 and 4 only if it shows lift. Left open: output validation, kind/migration/lifecycle, caps and switch, War Room, Docs (all slices 3/4), and "Full `pnpm check` passes once before each commit" (spans the unbuilt slices).
+
+### 2026-11-14, slices 3 and 4 superseded (`.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, Q11)
+
+Slices 3 (the Beta proposal task and the `beta` Proposal kind) and 4 (War Room) are **superseded** by `.scratch/missed-ideas/issues/05-meme-proposal-kind.md` (the `meme` kind replaces `beta`; ADR and GLOSSARY) and `.scratch/missed-ideas/issues/06-meta-meme-idea-generation.md` (generation and War Room). Their unticked boxes (output validation, kind/migration/lifecycle, caps and switch, War Room, Docs) are not built here; the same checks are carried by 05 and 06. Slices 1, 2 and 5 stay: the room-left ranking is an input to ticket 06, and the distinct-name rule (slice 2) is the name-copy check. **The 2026-11-18 backtest re-run still runs** (scheduled; user decision of 2026-11-14): its result feeds ticket 06 and is recorded here.
