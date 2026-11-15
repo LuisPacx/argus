@@ -3,7 +3,7 @@
 
 **What to build:** a Proposal card and its detail page show the Score that was current when the propose pass created it, not only the Narrative's latest. When the latest Score differs, add a "now: X" line so the reader sees both. Today a Proposal can look like it broke the buildability gate: Proposal 155 was created from Score 930 (buildability 5, gate 5.0) at 11:07:21, then the Narrative was judged again, Score 931 (buildability 4) at 12:07, and the card shows 931, so buildability 4 sits next to a Proposal that "should not exist". It was not a bug (the pass re-checks the gate at creation, `packages/core/src/propose.ts:519-522`); the card hid the Score that decided it. Decided by the user (GRILL R1 USER, Q3 (a), 2026-11-15, `.scratch/cos.md`). Buildability is noisy: 1, 5, 4 across three judgements in 90 minutes.
 
-**Status:** open
+**Status:** done (see Comments)
 
 **Blocked by:** none.
 
@@ -25,13 +25,13 @@
 
 ## Acceptance criteria
 
-- [ ] `WarRoomStore` can read a Score by id; test for a stored id, a null id and an id with no row.
-- [ ] `GET /api/proposals` and `GET /api/proposals/:id` return `score` as the Score the Proposal was created from and `latestScore` only when the Narrative has a later Score; tests in the War Room API: one Proposal with no newer Score (no `latestScore`), one with a newer Score (both present, ids differ), a Proposal with null `scoreId` and a hand-entered one (fall back to today's), and the list `sort=score` order unchanged or consciously updated with a test.
-- [ ] Render tests: with `latestScore` the card and detail page show the creation Score and a "now:" line naming the newer total and the changed dimension(s); without it, no "now:" line. A reproduction of 155 (buildability 5 then 4) shows 5 as the main Score and "now: ... buildability 4".
-- [ ] The Why panel and everything else that reads `p.score` still works (existing tests pass; the Why panel uses the creation Score, which is what the Proposal was judged on; say so in a Comment).
-- [ ] `pnpm page:check /` and `pnpm page:check /proposals/<id>` against a War Room on a copy of the data (a Proposal with a newer Score): exit 0, no overflow at 390 or 1240 px, no console, page or request errors; screenshots of both looked at and noted in Comments.
-- [ ] GLOSSARY.md Proposal line updated.
-- [ ] Type-check and the full test suite pass.
+- [x] `WarRoomStore` can read a Score by id; test for a stored id, a null id and an id with no row.
+- [x] `GET /api/proposals` and `GET /api/proposals/:id` return `score` as the Score the Proposal was created from and `latestScore` only when the Narrative has a later Score; tests in the War Room API: one Proposal with no newer Score (no `latestScore`), one with a newer Score (both present, ids differ), a Proposal with null `scoreId` and a hand-entered one (fall back to today's), and the list `sort=score` order unchanged or consciously updated with a test.
+- [x] Render tests: with `latestScore` the card and detail page show the creation Score and a "now:" line naming the newer total and the changed dimension(s); without it, no "now:" line. A reproduction of 155 (buildability 5 then 4) shows 5 as the main Score and "now: ... buildability 4".
+- [x] The Why panel and everything else that reads `p.score` still works (existing tests pass; the Why panel uses the creation Score, which is what the Proposal was judged on; say so in a Comment).
+- [x] `pnpm page:check /` and `pnpm page:check /proposals/<id>` against a War Room on a copy of the data (a Proposal with a newer Score): exit 0, no overflow at 390 or 1240 px, no console, page or request errors; screenshots of both looked at and noted in Comments.
+- [x] GLOSSARY.md Proposal line updated.
+- [x] Type-check and the full test suite pass.
 
 ## Constraints
 
@@ -44,6 +44,10 @@
 1. **Which Score should the list sort and the Why panel use?** Default: the creation Score for both (it is what the Proposal was judged on). If you prefer the latest for sorting (fresher), say so; the card would still show both.
 
 ## Comments
+
+- **Done (implementation).** `Datastore.getScore(id)` (in `WarRoomStore`); `withScore` returns `score` = creation Score and `latestScore` only when the latest id differs (null or dangling `scoreId` falls back to latest as `score`); `ScoreNow.vue` + `utils/score-now.ts` draw "now: 3.4/10, buildability 4" (changed total and dimensions only) on the list card and detail page; the pill has a title "The Score this Proposal was created from". Tests: `apps/warroom/server/test/score-now.test.ts` (store read by id/null/missing, API with and without a newer Score, null/dangling scoreId and hand-entered, sort, 155 reproduction, render with and without "now:"); `research.test.ts` and `proposals-list.test.ts` updated.
+- **Open question 1 answered with the default:** the Why panel and the `sort=score` order use the creation Score (the sort SQL joins `COALESCE(score_id row, latest)`), so a later re-score no longer moves a Proposal in the list; `proposals-list.test.ts` seed changed so Alpha was created from its 9.
+- **page:check** against a War Room (port 3217) on a `.backup` copy of `.data/argus.db`: `/proposals/155` exit 0 and `/` exit 0, 0 console/page/request errors. 155 shows main 4.8/10 (Score 930, buildability 5) and "now: 3.4/10, momentum 5, buildability 4, hook 2, legitimacy 4" (Score 931). The detail page had a pre-existing 390 px overflow (486 px: the unbroken mint in the Narrative summary, also on the live :3100 page); fixed with `[overflow-wrap:anywhere]` on that paragraph, then no overflow. Screenshots looked at: list at 390 shows the line under the bars on re-scored cards and no line on others; detail at 390 shows it under the pill.
 
 - **Decision (user, 2026-11-15, GRILL R1 USER Q3 (a)):** the card shows the gate-time Score and "now: X" when the Narrative's latest Score differs.
 - **Not a bug:** Proposal 155's buildability 4 is the later Score; at creation it was 5 and the gate re-check (`propose.ts:519-522`) passed (`.scratch/cos.md`, GRILL FACTS).

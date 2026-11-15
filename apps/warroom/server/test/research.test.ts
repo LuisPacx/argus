@@ -108,7 +108,7 @@ it("GET /api/research: a 10 USD quota at share 0.5 gives a 5 USD budget that 11 
   expect(() => research()).toThrow(new RegExp(`at most ${MAX_NEW_PROPOSALS_PER_DAY}`)); // a larger cap is refused, never passed through
 });
 
-it("GET /api/proposals gives a research Proposal its Narrative's latest Score and age, and a hand-entered one none", () => {
+it("GET /api/proposals gives a research Proposal the Score it was created from and age, and a hand-entered one none", () => {
   const { narrativeId, scoreId } = narrativeWithScore();
   const researched = store.createResearchProposal({ ...fields("Researched"), narrativeId, scoreId });
   const hand = store.createProposal(fields("Hand"));
@@ -118,9 +118,9 @@ it("GET /api/proposals gives a research Proposal its Narrative's latest Score an
   expect(rows.find((x) => x.id === hand.id)).toMatchObject({ narrativeId: null, narrativeCreatedAt: null, score: null });
 });
 
-it("the card follows a re-score: GET /api/proposals/:id returns the latest Score, not the one it was proposed on", () => {
+it("after a re-score GET /api/proposals/:id returns the Score it was proposed on as score and the newer one as latestScore", () => {
   const { narrativeId, scoreId } = narrativeWithScore();
   const p = store.createResearchProposal({ ...fields("Cat"), narrativeId, scoreId });
   const newer = store.recordScore({ narrativeId, rubricVersion: 1, scores: { ...SCORES, hook: 10 }, total: 8, rationale: "again", signalCount: 1, changedMateriallyAt: new Date().toISOString(), createdAt: new Date().toISOString() });
-  expect(one({ params: { id: String(p.id) } })).toMatchObject({ scoreId, score: { id: newer, scores: { hook: 10 } } });
+  expect(one({ params: { id: String(p.id) } })).toMatchObject({ scoreId, score: { id: scoreId, scores: SCORES }, latestScore: { id: newer, scores: { hook: 10 } } });
 });

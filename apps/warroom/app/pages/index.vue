@@ -277,8 +277,11 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
                 <span v-if="memeRowView(p).riskLabels.length === 0" class="faint text-sm">No risk label</span>
               </div>
               <template v-else-if="p.score">
-                <span class="pill pill-accent shrink-0 px-3 py-2 text-base tabular-nums">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
-                <ScoreBars class="above min-w-0 grow" compact :scores="p.score.scores" />
+                <span class="pill pill-accent shrink-0 px-3 py-2 text-base tabular-nums" title="The Score this Proposal was created from">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
+                <div class="min-w-0 grow">
+                  <ScoreBars class="above" compact :scores="p.score.scores" />
+                  <ScoreNow class="mt-1.5" :created="p.score" :latest="p.latestScore" />
+                </div>
               </template>
               <span v-else class="faint text-sm">No score</span>
             </div>

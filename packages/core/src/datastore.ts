@@ -102,7 +102,7 @@ export interface Proposal {
   expiresAt: string | null;
   /** The Narrative the propose pass made this Proposal from; null for a hand-entered one. A Narrative has at most one Proposal. */
   narrativeId: number | null;
-  /** The Score that passed the gate when it was proposed (the card shows the Narrative's latest, see `latestScore`). */
+  /** The Score that passed the gate when it was proposed (the card shows it, and "now" when the Narrative has a newer one, see `getScore`). */
   scoreId: number | null;
   /** When that Narrative started: the card's Narrative age counts from it. */
   narrativeCreatedAt: string | null;
@@ -640,6 +640,7 @@ export type WarRoomStore = Pick<
   | "saveRubric"
   | "listRubricVersions"
   | "latestScore"
+  | "getScore"
   | "researchSpendSince"
   | "apiSpendSince"
   | "brainRunsFor"
@@ -1072,7 +1073,7 @@ export class Datastore {
 
   /**
    * The Proposals list the War Room shows, filtered and sorted in SQL so a `limit` (none by default) cuts the right rows. Sorts:
-   * `score` (default: the Narrative's latest Score total, highest first, Proposals with none last, `meme` ones among them, then newest), `newest` (by
+   * `score` (default: the total of the Score the Proposal was created from, else the Narrative's latest, highest first, Proposals with none last, `meme` ones among them, then newest), `newest` (by
    * creation), `changed` (last update), `usage` (Est. usage, highest first). Filters: `status`, `collision`, `createdSince`.
    */
   queryProposals(q: ProposalQuery = {}): Proposal[] {
@@ -1105,7 +1106,7 @@ export class Datastore {
     const rows = this.db
       .prepare(
         `${PROPOSAL_SELECT}
-         LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = p.narrative_id)
+         LEFT JOIN scores s ON s.id = COALESCE((SELECT id FROM scores WHERE id = p.score_id), (SELECT MAX(id) FROM scores WHERE narrative_id = p.narrative_id))
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY ${order}
          LIMIT ?`,
@@ -1558,7 +1559,14 @@ export class Datastore {
     return rows.map((r) => ({ title: r.title, recentSignals: r.recent }));
   }
 
-  /** A Narrative's latest Score (what its Proposal's card shows), or undefined before it has one. */
+  /** One Score by id (a Proposal's `scoreId`), or undefined for a null id or an id with no row. */
+  getScore(id: number | null): Score | undefined {
+    if (id === null) return undefined;
+    const row = this.db.prepare("SELECT * FROM scores WHERE id = ?").get(id) as unknown as ScoreRow | undefined;
+    return row && toScore(row);
+  }
+
+  /** A Narrative's latest Score (what its Proposal's card shows as "now" when newer than the Score it was created from), or undefined before it has one. */
   latestScore(narrativeId: number): Score | undefined {
     const row = this.db.prepare("SELECT * FROM scores WHERE narrative_id = ? ORDER BY id DESC LIMIT 1").get(narrativeId) as unknown as ScoreRow | undefined;
     return row && toScore(row);

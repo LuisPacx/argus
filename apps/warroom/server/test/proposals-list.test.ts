@@ -40,12 +40,12 @@ function seed() {
   const n1 = narrative(1);
   const n2 = narrative(2);
   const n3 = narrative(3);
-  const first = score(n1, 4, 3000);
-  score(n1, 9, 2000);
+  score(n1, 4, 3000);
+  const nine = score(n1, 9, 2000);
   const second = score(n2, 6.5, 1000);
-  const a = store.createResearchProposal({ ...fields("Alpha"), narrativeId: n1, scoreId: first, collisions: collisions("collides", "clear") }, { now: ago(40 * DAY) });
+  const a = store.createResearchProposal({ ...fields("Alpha"), narrativeId: n1, scoreId: nine, collisions: collisions("collides", "clear") }, { now: ago(40 * DAY) });
   const b = store.createResearchProposal({ ...fields("Beta"), narrativeId: n2, scoreId: second, collisions: collisions("clear", "clear") }, { now: ago(3 * DAY) });
-  const c = store.createResearchProposal({ ...fields("Gamma"), narrativeId: n3, scoreId: first, collisions: collisions("clear", "unknown") }, { now: ago(2 * 3_600_000) });
+  const c = store.createResearchProposal({ ...fields("Gamma"), narrativeId: n3, scoreId: 9999 /* no such Score row: Gamma's Narrative has no Score */, collisions: collisions("clear", "unknown") }, { now: ago(2 * 3_600_000) });
   store.transition(b.id, "shortlisted", "operator");
   const d = store.createProposal(fields("Delta")); // created after the transition, so it is the newest and the most recently changed
   const run = (proposalId: number, cost: number) => store.finishBrainRun(store.startBrainRun({ proposalId, task: "spec", backend: "claude-code", model: "m" }), { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
@@ -60,7 +60,7 @@ beforeEach(() => {
   p = seed();
 });
 
-it("GET /api/proposals sorts by the Narrative's latest Score, highest first, unscored last (the default)", () => {
+it("GET /api/proposals sorts by the Score each Proposal was created from, highest first, unscored last (the default)", () => {
   expect(list().map((r) => [r.id, r.score?.total ?? null])).toEqual([
     [p.a, 9],
     [p.b, 6.5],
