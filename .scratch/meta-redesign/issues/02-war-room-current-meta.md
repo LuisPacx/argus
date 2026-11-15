@@ -1,0 +1,51 @@
+# 02: War Room shows the Current Meta (Metas, Watching, cooling) and moves the old list into a collapsed "All launch themes"
+**Model:** sonnet / medium. One read API, one view module and two components in an established pattern (the Hot now panel and the Meta strip are the templates), plus `page:check` boxes. No new rule: ticket 01 decides what is a Meta; this ticket only displays it.
+
+**What to build:** `/meta` and the home page show what the user asked for: at most **3 Metas** (each led by a token at millions of market cap), **"No Meta right now"** when there is none, and under it **Watching** (up to 3 subjects, labelled **not a Meta**). The old ranked list of launch themes (about 50 rows, counts only) moves into a **collapsed "All launch themes"** section on `/meta`. Decided by the user on 2026-11-15 (`.scratch/cos.md`: USER COMPLAINT, "USER (all rec) Q11 (a), Q12 (b), Q15 (b)", "META R USER", Q23 (a) "All launch themes counts only").
+
+**Status:** open
+
+**Blocked by:** 01 (the `meta_current` table, `Datastore.currentMetas()` and the rule). Ticket 03 changes the "Hot now" panel on the same pages; the two touch `index.vue` and `meta.vue` in different places, so land 02 first.
+
+## What is there today (read 2026-11-15)
+
+- Home: `index.vue:244-246` renders `<HotNow>` then `<MetaStrip>`; it fetches `/api/metas` with `limit: META_ROWS` (5) for the window `24h` (`index.vue:98`; `utils/meta.ts:12`). `MetaStrip.vue` is a row of cards "Current Meta last 24h" that link to `/meta#<anchor>`.
+- `/meta`: `meta.vue:9` fetches `/api/metas` with `limit: 50`, shows the window toggle (24 h / 6 h), `<HotNow>` and `<MetaList>` (every row with trend word, counts, top tokens, summary, Hot now mark and meme ideas). `metaView` in `utils/meta.ts:205` (rows, state `waiting` / `none` / `stale` / `ok`, footer, coverage note) is the view layer; every string is clamped and rendered as text, links only through `safeHttpUrl` (`utils/safe-link.ts`).
+- `GET /api/metas` (`server/api/metas.get.ts`) returns the stored launch-theme rows with summaries, `hot` and `ideas`. Its tests: `server/test/metas.test.ts`, `meta-view.test.ts`, `meta-render.test.ts`, `hot-render.test.ts`.
+- After ticket 01 the stored Metas and Watching are `Datastore.currentMetas()` (each: key, label, leader token with market cap and `stale`, `holding`, `enteredAt`, 6 h and 24 h counts, top tokens). Summaries and meme ideas are still keyed by that same group `key`, so `liveHot`-style lookups by key keep working.
+
+## Approach (a default; say if you want it changed)
+
+1. **API.** New `GET /api/current-meta` (`server/api/current-meta.get.ts`, read-only, no query): `{ computedAt, coverageNote, metas: CurrentMetaRow[], watching: CurrentMetaRow[] }`. A row adds to the stored shape: `summary` and `summarySource` (the stored line when fresh, else the templated numbers line, as `apiRow` does in `packages/core/src/meta/api.ts`), `ideas` (the live meme Proposals of that key, `memeIdeasByKey`), and for a Meta the live `hot` mark while ticket 03 has not replaced it (leave the field optional so 03 changes only what fills it). Pure builder `currentMetaResponse` in core `meta/api.ts` beside `metasResponse`, so the page computes nothing. Before the first run: empty lists and `computedAt: null`. `GET /api/metas` stays as it is and now serves only "All launch themes".
+2. **View.** `utils/meta.ts` gets `currentMetaView(payload, nowMs)`: `state` (`waiting` / `stale` (run older than `META_STALE_MS`, 2 h) / `ok`), `metas[]`, `watching[]`, `emptyNote` ("No Meta right now"), footer and coverage note. A Meta view row: label, leader token as text (`$JENSEN`, cap `$2.4M`, DexScreener link only through `safeHttpUrl`), "N creators copying in 24 h", "Meta since 3 hours ago" from `enteredAt`, the summary, top tokens, meme ideas (the existing `ideaViews`), and a **cooling** pill when `holding` is true (leader below the entry cap, kept while at or above the stay cap), with a one-line explanation in the title text. A leader marked `stale` shows "cap as of the last answer". A Watching row has the same fields, the pill **Watching, not a Meta**, and no meme ideas and no summary unless ticket 03 stored one (03 decides which Watching rows get a summary; the view shows whatever is stored).
+3. **Components.** `CurrentMeta.vue` (new, template-only like `MetaStrip.vue` so a render test can mount it) used on both pages: Metas as cards, then "Watching" as a smaller list with its own heading and a muted line "Not a Meta: a token is up but has not reached the entry market cap." On the home page it replaces `MetaStrip` (`index.vue:246`) and links to `/meta`; on `/meta` it sits where `HotNow` and the top of `MetaList` are today. With no Meta: the note "No Meta right now" stays visible, Watching still shows, nothing else is hidden. `MetaStrip.vue` is deleted, with its render test moved to the new component.
+4. **All launch themes.** `/meta` keeps `MetaList` and the 24 h / 6 h toggle, now inside a native `<details id="all-launch-themes">` that is **closed by default**, titled "All launch themes" with the row count in the summary line ("All launch themes (50)"). Rows show counts only (tokens, creators, migrations unfiltered and after 60 s, trend word, top tokens): **no summary line and no meme ideas** (summaries are for Metas and Watching only, ticket 03; until 03 lands the stored lines are simply not shown there). The link `/meta#all-launch-themes` opens it (a small `onMounted` that sets `open` when the fragment matches). The home page does not list launch themes; a one-line link "All launch themes" goes to that fragment.
+5. **Copy.** The page note (`meta.vue` paragraph) is rewritten in the user's words: a Meta is a current trend with a token really high; Watching is not a Meta; the list below is launch counts, not Metas. The word "Meta" no longer appears on a row of the launch-theme list: its rows are "themes".
+6. **No clutter on phone:** at 390 px the cards stack, Watching rows wrap, the `<details>` summary is a full-width tap target (min height 44 px), and nothing scrolls horizontally.
+
+## Acceptance criteria
+
+- [ ] `GET /api/current-meta` returns at most 3 Metas and 3 Watching in leader-cap order with leader token, cap, copies, `holding`, `enteredAt`, summary, ideas; empty lists and `computedAt: null` before the first run; a status 400 is not needed (no query); test in `server/test/current-meta.test.ts` with a seeded datastore.
+- [ ] `currentMetaView` and `CurrentMeta.vue` render: 2 Metas + 3 Watching; no Meta + 2 Watching ("No Meta right now" and the Watching list); nothing at all (waiting); a stale run; a `holding` Meta with the cooling pill and a `stale` cap. Hostile text (`<script>`, `javascript:` URLs, 5,000-character names, bidi controls) in a label, ticker, summary or leader name is cut and shown as text, never as markup or a link (render tests beside `server/test/meta-render.test.ts`).
+- [ ] `/meta` shows Current Meta first, then the collapsed "All launch themes" with the window toggle inside it; the closed `<details>` renders no row HTML above the fold; opening it shows the 50-row list with counts only and no summary text; `/meta#all-launch-themes` opens it.
+- [ ] The home page shows Current Meta in place of the old strip, with the empty state and the Watching label; no launch-theme list on it.
+- [ ] Words: "Watching" rows say "not a Meta" in the row or its heading; a cooling Meta says why; no row of the launch-theme list is called a Meta.
+- [ ] **Browser** (`pnpm page:check`, never the user's Chrome): `/` and `/meta` and `/meta#all-launch-themes` on a seeded private War Room (port 3217, a `.backup` copy of the DB, deleted afterwards), at 1240 and 390 px: exit 0, no console, page or request errors, no horizontal overflow at 390, screenshot paths in Comments. For the `<details>` keyboard check use `--keys "focus=<the summary selector>,Enter" --watch <the details selector>` (the script aborts any non-GET and counts it a failure). Both a seed with Metas and one with none are checked (two DB copies, or one copy edited between runs).
+- [ ] Existing War Room tests for the old strip and list are updated, not loosened (`meta-render`, `meta-view`, `metas`).
+- [ ] Type-check and the full `pnpm check` pass, run once before the commit.
+
+## Constraints
+
+- Text only: no raw-HTML directive anywhere; links only through `safeHttpUrl`; every payload field is clamped in the view. Read-only API (no command, no write). No new host.
+- Do not change the Hot now panel or its API (ticket 03), the launch-theme ranking, or any rule.
+- Follow `docs/agents/worker-rules.md` and `CODING_STANDARDS.md`. Commit subject `Meta redesign ticket 02: War Room shows the Current Meta`, body ends with `Ticket: .scratch/meta-redesign/issues/02-war-room-current-meta.md` before the trailers. No `Closes #N`.
+
+## Open questions
+
+1. **"Cooling" wording.** Default: the pill reads "cooling" for a Meta whose leader is between the stay and entry caps. The user's own phrase was "cooling state if any"; change the word here if you prefer another.
+2. **Ordering of Watching and Metas on the home page when there is no Meta:** default is the empty note first, Watching below it, both visible without scrolling at 1240 px.
+
+## Comments
+
+- **Written 2026-11-15.** Split as asked (Metas, Watching, cooling, collapsed list, `page:check`); one adjustment: the API is a new read (`/api/current-meta`) instead of widening `/api/metas`, so the launch-theme list keeps its own cache and limit and the two payloads cannot be confused. `MetaStrip.vue` goes away because the home page no longer lists themes.
+- **Interplay with 03:** the "Hot now" panel stays on both pages until 03 swaps it for "New Meta"; this ticket leaves its place in the layout (above Current Meta) alone.
