@@ -58,7 +58,7 @@ it("GET /api/metas returns the stored latest run: rank, label, first seen, both 
   const mints: string[] = [];
   for (let i = 0; i < 12; i++) mints.push(launch("woohao", `a${i}`, { createdMin: i < 4 ? 60 : 600, migratedAfterSec: i < 3 ? 300 : undefined }));
   for (let i = 0; i < 5; i++) launch("DeepSeek", `b${i}`, { migratedAfterSec: 100 });
-  await recomputeMetas(store, { now: new Date(NOW), dex: { tokenPairs: async (_c, addresses) => addresses.filter((a) => a === mints[0]).map((tokenAddress) => ({ chainId: "solana", tokenAddress, name: "", symbol: "", url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0, marketCapUsd: 13_000_000 })) } });
+  await recomputeMetas(store, { now: new Date(NOW), dex: { tokenPairs: async (_c, addresses) => addresses.filter((a) => a === mints[0]).map((tokenAddress) => ({ chainId: "solana", tokenAddress, name: "", symbol: "", url: "", liquidityUsd: 1_000_000, volume24hUsd: 1_000_000, priceChange24hPct: 0, marketCapUsd: 13_000_000 })) } });
   const r = get();
   expect(r).toMatchObject({ window: "24h", computedAt: "2026-11-11T20:00:00.000Z", windowTokens: 17, windowMigrations: 8 });
   expect(r.baseMigrationRate).toBeCloseTo(8 / 17);
@@ -124,7 +124,7 @@ it("GET /api/metas is JSON text only: hostile names pass through as strings, and
   const evil = "javascript:alert(1)//".padEnd(44, "x");
   store.study.recordTokenEvent({ kind: "create", mint: evil, receivedAt: new Date(NOW - 60_000).toISOString(), signature: "", name: "Evil", symbol: "EVIL", creator: "E".padEnd(44, "x"), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
   store.study.recordTokenEvent({ kind: "create", mint: `${evil}2`, receivedAt: new Date(NOW - 60_000).toISOString(), signature: "", name: "Evil", symbol: "EVIL", creator: "F".padEnd(44, "x"), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
-  await recomputeMetas(store, { now: new Date(NOW), dex: { tokenPairs: async (_c, addresses) => addresses.map((tokenAddress) => ({ chainId: "solana", tokenAddress, name: "", symbol: "", url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0, marketCapUsd: 5_000 })) } });
+  await recomputeMetas(store, { now: new Date(NOW), dex: { tokenPairs: async (_c, addresses) => addresses.map((tokenAddress) => ({ chainId: "solana", tokenAddress, name: "", symbol: "", url: "", liquidityUsd: 100_000, volume24hUsd: 100_000, priceChange24hPct: 0, marketCapUsd: 5_000 })) } });
   const evilRow = get().metas.find((m) => m.label === "Evil")!;
   expect(evilRow.topTokens[0]!.marketCapUsd).toBe(5_000);
   expect(JSON.stringify(evilRow)).not.toContain("dexscreener.com");

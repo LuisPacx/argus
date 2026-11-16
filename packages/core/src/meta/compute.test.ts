@@ -281,7 +281,7 @@ describe("recomputeMetas: market cap", () => {
           throw new TypeError("fetch failed");
         }
         const addresses = url.split("/").pop()!.split(",");
-        return JSON.stringify(addresses.map((a) => ({ chainId: "solana", baseToken: { address: a, name: "", symbol: "" }, marketCap: 250_000 })));
+        return JSON.stringify(addresses.map((a) => ({ chainId: "solana", baseToken: { address: a, name: "", symbol: "" }, marketCap: 250_000, liquidity: { usd: 100_000 }, volume: { h24: 100_000 } })));
       };
       const dex = new DexScreenerClient({ fetchText, retries, sleep: async () => {}, log: () => {} });
       const result = await recomputeMetas(store, { now: new Date(NOW), dex });
@@ -547,6 +547,23 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: mints[3], source: "theme", marketCapUsd: 1_500_000 } });
   });
 
+  it("a theme-lookup token passes the same fake-token filter as any leader: one at 124x its liquidity is no leader, one within 100x is", async () => {
+    const answer = (fake: string, real: string): MetaDexClient => ({
+      async tokenPairs(_chain, addresses) {
+        return addresses.flatMap((a) => (a === fake ? [pair(a, 76_900_000, { liquidityUsd: 618_000 })] : a === real ? [pair(a, 1_500_000, { liquidityUsd: 400_000 })] : []));
+      },
+    });
+    const store = Datastore.open(":memory:");
+    const mints = jensenWave(store);
+    const [fake, real] = [mints[3] as string, mints[5] as string];
+    await recompute(store, answer(fake, real), 0);
+    expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: real, source: "theme", marketCapUsd: 1_500_000 } });
+    // with only the fake answered, the subject has no leader at all
+    const only = Datastore.open(":memory:");
+    const fakeOnly = jensenWave(only)[3] as string;
+    expect(await recompute(only, answer(fakeOnly, "none"), 0)).toMatchObject({ metas: 0 });
+  });
+
   it("lookups never exceed leaderCalls (30 tokens each), highest stored figure first", async () => {
     const store = Datastore.open(":memory:");
     const all = Array.from({ length: 100 }, (_, i) => {
@@ -730,17 +747,19 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       expect(log.lines[0]).not.toMatch(/[\u0000-\u001f]/);
     });
 
-    it("a previous Meta's leader is looked up first and kept on the old rule: it holds with figures the filter would refuse", async () => {
+    it("a previous Meta's leader is looked up first and passes the same filter (Q16): with no volume it is no longer fresh, only carried at its last figure", async () => {
       const store = Datastore.open(":memory:");
       jensenWave(store);
       const J = mintOf();
       trend(store, J, "Jensen Huang ($JENSEN)", 7_000_000);
       expect(await run(store, fakeDex(new Map([[J, 7_000_000]])).client, 0)).toMatchObject({ metas: 1 });
-      // The next tick DexScreener shows J with no volume at all: a new candidate would fail, the held Meta stays.
+      // The next tick DexScreener shows J with no volume at all: its new figure is refused, the held Meta keeps the last one (stale).
+      const log = logged();
       const dex: MetaDexClient = { async tokenPairs(_c, a) { return a.includes(J) ? [pair(J, 6_000_000, { liquidityUsd: 100, volume24hUsd: 0 })] : []; } };
-      const second = await run(store, dex, 15);
+      const second = await run(store, dex, 15, { log: log.log });
       expect(second).toMatchObject({ metas: 1 });
-      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 6_000_000, stale: false });
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 7_000_000, stale: true });
+      expect(log.lines.some((l) => l.includes("failed verification"))).toBe(true);
     });
 
     it("looks up previous leaders first, then candidates by the lists' market cap, highest first, within leaderCalls (100 candidates, 2 calls: exactly 2 calls of 30)", async () => {

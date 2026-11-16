@@ -341,9 +341,17 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
       const mints = candidates(s, config.dexCandidates);
       try {
         const asked = new Set(mints);
+        const byMint = new Map<string, DexPair[]>();
         for (const p of await opts.dex.tokenPairs("solana", mints)) {
-          if (!asked.has(p.tokenAddress) || p.marketCapUsd === undefined || !(p.marketCapUsd > 0)) continue;
-          s.caps.set(p.tokenAddress, Math.max(s.caps.get(p.tokenAddress) ?? 0, p.marketCapUsd));
+          if (!asked.has(p.tokenAddress)) continue;
+          const list = byMint.get(p.tokenAddress);
+          if (list) list.push(p);
+          else byMint.set(p.tokenAddress, [p]);
+        }
+        // Every leader passes the one fake-token filter (ADR 0015, Q16), a theme's own token too: a token that fails has no cap here.
+        for (const [mint, pairs] of byMint) {
+          const verdict = verifyAgainstDex(pairs, config);
+          if (verdict.ok && verdict.marketCapUsd !== undefined) s.caps.set(mint, Math.max(s.caps.get(mint) ?? 0, verdict.marketCapUsd));
         }
         streak = 0;
       } catch (e) {
@@ -522,9 +530,9 @@ interface LeaderLookupInput {
 
 /**
  * The leaders' current market caps within `config.leaderCalls` calls of up to 30 tokens each. Order: last run's leaders first (a Meta is
- * never lost to the budget), then the top-down candidates (highest source market cap first). Previous leaders keep the rule of ADR 0014
- * (the largest market cap over a token's pairs, no filter), so a Meta already held is not dropped by the filter. A top-down candidate is
- * accepted only when DexScreener's own figures also pass the three tests of the fake-token filter (the cap-to-liquidity test reads the
+ * never lost to the budget), then the top-down candidates (highest source market cap first). Every leader, a previous one too, is
+ * accepted only when DexScreener's own figures pass the three tests of the fake-token filter (`verifyAgainstDex`, the one rule for every
+ * leader path, Q16; the cap-to-liquidity test reads the
  * larger of DexScreener's liquidity and the list's when Jupiter's organic score for the token is high enough, see `verifyAgainstDex`), and its market cap is that of its deepest pair (ADR 0015
  * decision 2): one that fails is logged and is no leader. A token DexScreener did not answer, or a call that failed
  * or fell outside the budget, simply yields no token here; `currentMetas` carries a previous leader at its last figure and never creates
@@ -592,18 +600,13 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
         const first = createdMs.length > 0 ? Math.min(...createdMs) : undefined;
         const created = k.createdAt ?? (first !== undefined && Number.isFinite(new Date(first).getTime()) ? new Date(first).toISOString() : undefined);
         let cap: number | undefined;
-        if (k.topDown) {
-          const verdict = verifyAgainstDex(pairs, config, { ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}), ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}) });
-          if (verdict.ok) {
-            cap = verdict.marketCapUsd;
-            out.verdicts.set(mint, { verified: true });
-          } else {
-            out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
-            input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
-          }
+        const verdict = verifyAgainstDex(pairs, config, { ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}), ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}) });
+        if (verdict.ok) {
+          cap = verdict.marketCapUsd;
+          if (k.topDown) out.verdicts.set(mint, { verified: true });
         } else {
-          const caps = pairs.flatMap((p) => (p.marketCapUsd !== undefined && p.marketCapUsd > 0 ? [p.marketCapUsd] : []));
-          cap = caps.length > 0 ? Math.max(...caps) : undefined;
+          if (k.topDown) out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
+          input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
         }
         if (cap !== undefined) out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false, freshAt: input.now });
       }
