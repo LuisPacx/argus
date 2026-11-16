@@ -1,6 +1,6 @@
 # A Meta is led by a token's market cap
 
-Status: accepted (Meta redesign ticket 01, 2026-11-15; decided by the Operator). Supersedes the ranking part of ADR 0012 (the rank order and the list of what a Meta is); see "What stays" below.
+Status: accepted (Meta redesign ticket 01, 2026-11-15; decided by the Operator). Supersedes the ranking part of ADR 0012 (the rank order and the list of what a Meta is); see "What stays" below. **Discovery superseded by ADR 0015 (2026-11-16):** how a leader and its subject are found (the "Subject and leader" bullet, the "trending Signal is a candidate" bullet, the second step of the lookup order, and open question 2) is now top-down from Jupiter and GeckoTerminal trending, with an AI grouping step; the thresholds, Watching, hysteresis, budget rules and storage below still stand.
 
 A Meta is a current trend with a token really high: millions of market cap, lasting minutes to days, at most 3 at a time. The NVIDIA CEO case is the model: one subject, many copies, one token far above them. Argus finds it from the token's market cap, not from how many creators copy a theme. Plain code, no model call; the Brain has no part in deciding what is a Meta.
 
@@ -23,3 +23,5 @@ A Meta is still not a Narrative and not a Proposal; this creates no Narrative, P
 Update (meta-redesign ticket 03, 2026-11-15): the pieces left on the launch-theme ranking above now run on Metas. **New Meta** replaces Hot now: one event (`meta_new_events`) each time a subject is a Meta in this run and was not in the run before (nothing on a first run, after a restart, or after a pause longer than `ARGUS_META_STATE_MAX_MINUTES`); it is shown on home and `/meta` for 6 hours while the subject is still a Meta, and it starts the meme ideas run (ADR 0013, amended). Summaries are written only for the Metas and the Watching subjects (at most 6 in all); launch themes show counts only. The judge and propose prompt block lists the Metas then the Watching subjects (at most 6), each with its leader token and cap, labelled "Watching, not a Meta" for the second kind.
 
 Open: (1) a Watching floor (default none; a $2k token can be Watching when nothing else exists); (2) polling the trending feed live in the tick instead of using stored Signals plus the carry-over (one more call a tick; default no). Decided: staying needs no copies, only the $500k cap.
+
+Update (ADR 0015, 2026-11-16): open question (2) is answered yes and discovery moves to a live top-down poll (Jupiter `toptrending/1h` and GeckoTerminal `trending_pools`, DexScreener only to verify), with an AI step that groups the trending tokens and the top 30 themes into named subjects and a rule fallback. The copies rule now counts pump.fun and bonk launches. Everything else in this ADR stands.
