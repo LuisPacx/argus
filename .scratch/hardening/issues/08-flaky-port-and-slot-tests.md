@@ -12,12 +12,13 @@
 
 ## Acceptance criteria
 
-- [ ] The seed test in `scripts/page-check-browser.test.ts` picks a free port per run and checks the cleanup line for that port; no hard-coded listening port remains in the tests
-- [ ] The live port 3100 is still refused by `--seed` (existing `scripts/page-seed.test.ts` cases pass)
-- [ ] The racing-reclaimers test in `scripts/test-slot.test.ts` no longer spawns a process per round, and no timeout was raised
-- [ ] 10 runs of each of the two test files (one loop, `--maxWorkers=2`) all pass
-- [ ] `pnpm check` passes and stamps the committed tree
+- [x] The seed test in `scripts/page-check-browser.test.ts` picks a free port per run and checks the cleanup line for that port; no hard-coded listening port remains in the tests
+- [x] The live port 3100 is still refused by `--seed` (existing `scripts/page-seed.test.ts` cases pass)
+- [x] The racing-reclaimers test in `scripts/test-slot.test.ts` no longer spawns a process per round, and no timeout was raised
+- [x] 10 runs of each of the two test files (one loop, `--maxWorkers=2`) all pass
+- [x] `pnpm check` passes and stamps the committed tree
 
 ## Comments
 
 - 2026-11-16: approved by the user; implemented by a worker, boxes left for cos.
+- 2026-11-16: boxes ticked on review (MERGE) + verifier (check 2459, slot test 5/5 at --maxWorkers=2).
