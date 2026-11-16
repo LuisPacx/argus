@@ -475,6 +475,9 @@ export function migrate(db: DatabaseSync): void {
   // Meta runs and ranked rows (viral sources ticket 03): additive tables, nothing existing is altered.
   migrateMeta(db);
   ensureColumn(db, "meta_current", "leader_fresh_at", "TEXT"); // a table made before this column existed (null reads as the run's own time)
+  // Meta redesign ticket 06 (ADR 0015): who named a subject (`ai` or `rules`) and the member launch themes the grouping step merged into it (JSON). NULL on older rows reads as `rules` and none.
+  ensureColumn(db, "meta_current", "named_by", "TEXT");
+  ensureColumn(db, "meta_current", "themes", "TEXT");
   // Covered hours of the 6 h and 24 h windows at each run (viral sources ticket 05); NULL on older runs means unknown, no note.
   ensureColumn(db, "meta_runs", "coverage_hours_6h", "INTEGER");
   ensureColumn(db, "meta_runs", "coverage_hours_24h", "INTEGER");
@@ -1883,9 +1886,14 @@ export class Datastore {
     return this.spendSince(["meme-ideas"], since, caps);
   }
 
-  /** What research (judge, propose, the Meta summary line and the meme ideas) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
+  /** What the Meta grouping task has spent since `since` (ISO), as for `judgeSpendSince`: the figure its own daily cap is held to. */
+  metaGroupSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["meta-group"], since, caps);
+  }
+
+  /** What research (judge, propose, the Meta summary line, the Meta grouping and the meme ideas) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meme-ideas"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas"], since, caps);
   }
 
   /**

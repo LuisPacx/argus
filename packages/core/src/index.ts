@@ -28,6 +28,8 @@ export * from "./meta/topdown-source.ts";
 export * from "./meta/api.ts";
 export * from "./meta/summary.ts";
 export * from "./meta/summary-pass.ts";
+export * from "./meta/grouping.ts";
+export * from "./meta/group-pass.ts";
 export * from "./meta/news.ts";
 export * from "./meta/new-meta.ts";
 export * from "./meta/new-meta-api.ts";

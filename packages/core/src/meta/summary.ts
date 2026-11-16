@@ -169,6 +169,9 @@ function oneLine(text: string, max: number): string {
   return [...flat].length > max ? `${[...flat].slice(0, max).join("").trimEnd()}…` : flat;
 }
 
+/** `oneLine` for the grouping prompt (`grouping.ts`): the same cut, so a name there is as safe in a line as in the summary prompt. */
+export const promptLine = oneLine;
+
 /** A token as the summary prompt shows it. All text is creator-written. */
 export interface MetaSummaryToken {
   name: string;

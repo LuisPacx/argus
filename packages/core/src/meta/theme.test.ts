@@ -102,6 +102,29 @@ describe("mergeThemes on the labelled set", () => {
     expect(merged.length).toBeLessThan(groups.length); // the matching tails joined their anchors
   });
 
+  it("a merged theme is named by its creators, not by its anchor or its biggest minter: the GTA group is gta6 / GTA 6, not lucia (ADR 0015)", () => {
+    // The 2026-11-16 shape, built by hand so the anchor is the Lucia cluster (the old code kept the anchor's key and label): one creator minted
+    // `Lucia From GTA 6 ($LUCIA)` 44 times beside ten creators with one `GTA 6 ($GTA6)` each (eleven creators: the anchor); five more creators
+    // launched one GTA VI token each (a tail under the anchor size, whose `gta6` form joins it).
+    type T = GroupableToken & { creator: string };
+    const anchorTokens: T[] = [
+      ...Array.from({ length: 44 }, (_, i): T => ({ mint: `l${i}`, name: "Lucia From GTA 6", symbol: "LUCIA", creator: "luciaMaker" })),
+      ...Array.from({ length: 10 }, (_, i): T => ({ mint: `g${i}`, name: "GTA 6", symbol: "GTA6", creator: `six${i}` })),
+    ];
+    const tailTokens: T[] = Array.from({ length: 5 }, (_, i): T => ({ mint: `v${i}`, name: "GTA VI", symbol: "GTA6", creator: `vi${i}` }));
+    const config = { ...DEFAULT_THEME_CONFIG, minAnchorCreators: 10 };
+    const groups = (order: 1 | -1) => [
+      { key: "lucia", label: "Lucia From GTA 6", tokens: order === 1 ? anchorTokens : [...anchorTokens].reverse() },
+      { key: "gta6", label: "GTA 6", tokens: order === 1 ? tailTokens : [...tailTokens].reverse() },
+    ];
+    for (const order of [1, -1] as const) {
+      const merged = mergeThemes(groups(order), config);
+      expect(merged).toHaveLength(1);
+      expect(merged[0]).toMatchObject({ key: "gta6", label: "GTA 6" });
+      expect(merged[0]!.tokens).toHaveLength(59);
+    }
+  });
+
   it("changes nothing when a theme merge is switched off (no anchor is large enough)", () => {
     const groups = groupTokens(tokens);
     expect(mergeThemes(groups, { ...DEFAULT_THEME_CONFIG, minAnchorCreators: Number.POSITIVE_INFINITY })).toEqual(groups);

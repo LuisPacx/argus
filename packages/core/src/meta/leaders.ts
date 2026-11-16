@@ -1,7 +1,7 @@
 import type { MetaConfig, MetaWindow } from "./config.ts";
 import { isGenericKey } from "./group.ts";
 import { subjectKey } from "./key.ts";
-import type { CurrentLeader, CurrentMeta, MetaCounts, MetaTopToken } from "./store.ts";
+import type { CurrentLeader, CurrentMeta, CurrentTheme, MetaCounts, MetaTopToken } from "./store.ts";
 import { DEFAULT_THEME_CONFIG, tokenWholeForms } from "./theme.ts";
 
 /**
@@ -27,6 +27,14 @@ export interface LeaderSubject {
   topTokens: MetaTopToken[];
   /** The group's tokens; their whole names are what a leader can match. */
   tokens: readonly { name: string; symbol: string }[];
+  /** Who named it; absent reads as `rules`. */
+  namedBy?: "ai" | "rules";
+  /** A subject the grouping step built: the launch-theme keys it merged (a leader or a previous Meta that names one of them belongs to it). */
+  memberKeys?: readonly string[];
+  /** A subject the grouping step built: the trending tokens it holds (explicit membership: these mints lead this subject and no other, whatever their names). */
+  memberMints?: readonly string[];
+  /** The member themes shown under it. */
+  themes?: CurrentTheme[];
 }
 
 export interface LeaderToken extends CurrentLeader {
@@ -140,13 +148,30 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   }
 
   const subjects: LeaderSubject[] = [...input.subjects];
+  // A group key finds its subject: the subject's own key, or the key of a launch theme the grouping step merged into it (members first, so a
+  // subject's own key always wins a clash). A trending token the grouping step put in a subject leads that subject by membership, not by name.
   const byKey = new Map<string, number>();
+  subjects.forEach((s, i) => {
+    for (const k of s.memberKeys ?? []) byKey.set(k, i);
+  });
   subjects.forEach((s, i) => byKey.set(s.key, i));
+  const members = new Map<string, number>();
+  subjects.forEach((s, i) => {
+    for (const m of s.memberMints ?? []) members.set(m, i);
+  });
   const index = formIndex(subjects, minChars);
   const copies = (i: number) => (subjects[i] as LeaderSubject).counts["24h"].creators;
   const prevMetaKeys = new Set(prevMetas.map((m) => m.key));
-  /** A subject can be led when it meets the copies rule, or is a Meta already (staying does not need copies). */
-  const open = (i: number) => copies(i) >= config.minCopies || prevMetaKeys.has((subjects[i] as LeaderSubject).key);
+  /** A subject can be led when it meets the copies rule, or is a Meta already (staying does not need copies); a merged subject is one when any theme in it was. */
+  const open = (i: number) => {
+    const s = subjects[i] as LeaderSubject;
+    return copies(i) >= config.minCopies || prevMetaKeys.has(s.key) || (s.memberKeys ?? []).some((k) => prevMetaKeys.has(k));
+  };
+  /** The subject that holds this trending token by membership, when it can be led. */
+  const heldBy = (mint: string): number | undefined => {
+    const i = members.get(mint);
+    return i !== undefined && open(i) ? i : undefined;
+  };
 
   /** The best subject a token names among those that pass `ok`: most distinct creators, then the smaller key. */
   const match = (t: LeaderToken, ok: (i: number) => boolean): number | undefined => {
@@ -165,10 +190,10 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
     let i = byKey.get(p.key);
     if (i === undefined) {
       const lead = tokens.get(p.leader.mint);
-      i = lead ? match(lead, open) : undefined;
+      i = lead ? (heldBy(lead.mint) ?? match(lead, open)) : undefined;
     }
     if (i === undefined) {
-      subjects.push({ key: p.key, label: p.label, counts: noCounts(), topTokens: p.topTokens, tokens: [] });
+      subjects.push({ key: p.key, label: p.label, counts: noCounts(), topTokens: p.topTokens, tokens: [], ...(p.namedBy !== undefined ? { namedBy: p.namedBy } : {}), ...(p.themes !== undefined ? { themes: p.themes } : {}) });
       i = subjects.length - 1;
       byKey.set(p.key, i);
     }
@@ -183,6 +208,11 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   };
   const ownByMint = new Map([...continues].map(([i, p]) => [p.leader.mint, i]));
   for (const t of tokens.values()) {
+    const held = heldBy(t.mint);
+    if (held !== undefined) {
+      offer(held, t);
+      continue;
+    }
     if (t.groupKey !== undefined) {
       const i = byKey.get(t.groupKey);
       if (i !== undefined && open(i)) offer(i, t);
@@ -218,6 +248,8 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
     return {
       key: subject.key,
       label: subject.label,
+      namedBy: subject.namedBy ?? "rules",
+      themes: subject.themes ?? [],
       leader: publicLeader(s.leader),
       holding: kind === "meta" && s.leader.marketCapUsd < config.enterMcapUsd,
       enteredAt: sameKind?.enteredAt ?? nowIso,

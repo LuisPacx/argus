@@ -46,7 +46,7 @@ export function resolvePipelineLive(graph: PipelineGraph, data: PipelineLiveData
   const nodes: Record<string, PipelineLiveNode> = {};
   for (const n of graph.nodes) {
     if (n.brainTask === undefined) continue;
-    if (!owner.has(n.brainTask)) owner.set(n.brainTask, n.id);
+    for (const task of [n.brainTask, ...(n.alsoBrainTasks ?? [])]) if (!owner.has(task)) owner.set(task, n.id);
     nodes[n.id] = { runs: 0, spendUsd: 0, apiRuns: 0, apiUsd: 0 };
   }
   const other: PipelineLiveResponse["other"] = { runs: 0, spendUsd: 0, apiRuns: 0, apiUsd: 0, tasks: [] };

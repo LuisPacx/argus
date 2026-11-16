@@ -9,6 +9,7 @@ import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
+import { DEFAULT_META_GROUP_CONFIG } from "./meta/group-pass.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
 import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
@@ -34,6 +35,8 @@ const LEFT_OUT: Record<string, string> = {
   "DEFAULT_META_SUMMARY_CONFIG.maxPerPass": "per-pass pacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.minAgeMinutes": "retry spacing of the one-line task, below this picture",
   "DEFAULT_META_SUMMARY_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
+  "DEFAULT_META_GROUP_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
+  "DEFAULT_META_GROUP_CONFIG.skipTicks": "a circuit breaker, below the level of a high-level picture",
   "DEFAULT_MEME_CONFIG.maxPerPass": "per-pass pacing of the meme ideas task, below this picture",
   "DEFAULT_MEME_CONFIG.failedRetryMinutes": "retry spacing of the meme ideas task, below this picture",
   "DEFAULT_MEME_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
@@ -94,6 +97,7 @@ function realRegistry(): PipelineRegistry {
       ...flatten("DEFAULT_PROPOSE_CONFIG", DEFAULT_PROPOSE_CONFIG),
       ...flatten("DEFAULT_RESEARCH_BUDGET_CONFIG", DEFAULT_RESEARCH_BUDGET_CONFIG),
       ...flatten("DEFAULT_META_SUMMARY_CONFIG", DEFAULT_META_SUMMARY_CONFIG),
+      ...flatten("DEFAULT_META_GROUP_CONFIG", DEFAULT_META_GROUP_CONFIG),
       ...flatten("DEFAULT_MEME_CONFIG", DEFAULT_MEME_CONFIG),
       ...flatten("MEME_EXPIRY_MS", MEME_EXPIRY_MS),
       MAX_MEME_RUNS_PER_DAY,
@@ -129,7 +133,7 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "proposeTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
-    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meme-ideas", "build"]);
+    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "build"]);
     expect(Object.keys(r.config).length).toBeGreaterThan(30);
   });
 

@@ -158,8 +158,9 @@ describe("meta persistence", () => {
     const second = store.meta.saveRun(run(T0 + 15 * 60_000, [row("A"), row("B")], { current }));
     const read = store.currentMetas()!;
     expect(read).toMatchObject({ runId: second, computedAt: new Date(T0 + 15 * 60_000).toISOString() });
-    expect(read.metas).toEqual(current.metas);
-    expect(read.watching).toEqual(current.watching);
+    // A row saved by hand with no `namedBy` or `themes` reads back as named by rules, with no themes (ticket 06).
+    expect(read.metas).toEqual(current.metas.map((m) => ({ ...m, namedBy: "rules", themes: [] })));
+    expect(read.watching).toEqual(current.watching.map((m) => ({ ...m, namedBy: "rules", themes: [] })));
     expect(read.metas[1]).toMatchObject({ holding: true, counts: { "24h": { creators: 6 } } });
     // as-of reads the newest run at or before the time
     expect(store.currentMetas(new Date(T0 + 60_000).toISOString())).toMatchObject({ runId: first, metas: [] });
@@ -209,6 +210,76 @@ describe("meta persistence", () => {
     expect(again.currentMetas()).toMatchObject({ metas: [], watching: [] });
     again.close();
     expect(tables(path)).toContain("meta_current");
+  });
+
+  const namedRow = (over: Partial<CurrentMeta> = {}): CurrentMeta => ({
+    key: "gta6",
+    label: "GTA 6",
+    namedBy: "ai",
+    themes: [{ key: "gta6", label: "GTA 6", tokens: 197, creators: 110 }, { key: "lucia", label: "Lucia", tokens: 270, creators: 156 }],
+    leader: { mint: "M", name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_050_000, source: "trending", stale: false, freshAt: "2026-11-16T00:00:00.000Z" },
+    holding: false,
+    enteredAt: "2026-11-16T00:00:00.000Z",
+    counts: row("K").counts,
+    topTokens: [],
+    ...over,
+  });
+
+  it("meta_current.named_by and themes are stored and read back; a table made before them gets the columns, its old rows read as rules with no themes, and a second open changes nothing", () => {
+    const path = join(tempDir("meta-current-named-"), "argus.db");
+    const first = Datastore.open(path);
+    first.meta.saveRun(run(T0, [row("A")], { current: { metas: [namedRow()], watching: [namedRow({ key: "w", label: "W", namedBy: "rules", themes: [] })] } }));
+    expect(first.currentMetas()!.metas[0]).toMatchObject({ namedBy: "ai", label: "GTA 6", themes: [{ key: "gta6", label: "GTA 6", tokens: 197, creators: 110 }, { key: "lucia", label: "Lucia", tokens: 270, creators: 156 }] });
+    expect(first.currentMetas()!.watching[0]).toMatchObject({ namedBy: "rules", themes: [] });
+    first.close();
+    // The table as the live database has it today: no such columns (rehearsed on a throwaway file, never the live one).
+    const raw = new DatabaseSync(path);
+    raw.exec("ALTER TABLE meta_current DROP COLUMN named_by");
+    raw.exec("ALTER TABLE meta_current DROP COLUMN themes");
+    raw.close();
+    const again = Datastore.open(path);
+    expect(again.currentMetas()!.metas[0]).toMatchObject({ label: "GTA 6", namedBy: "rules", themes: [] });
+    again.meta.saveRun(run(T0 + 15 * 60_000, [row("A")], { current: { metas: [namedRow()], watching: [] } }));
+    expect(again.currentMetas()!.metas[0]).toMatchObject({ namedBy: "ai", themes: [{ key: "gta6" }, { key: "lucia" }] });
+    again.close();
+    const reopened = Datastore.open(path);
+    expect(reopened.currentMetas()!.metas[0]!.themes).toHaveLength(2);
+    reopened.close();
+    const columns = new DatabaseSync(path, { readOnly: true });
+    const names = (columns.prepare("PRAGMA table_info(meta_current)").all() as { name: string }[]).map((c) => c.name);
+    columns.close();
+    expect(names.filter((n) => n === "named_by" || n === "themes")).toEqual(["named_by", "themes"]);
+  });
+
+  it("meta_groupings is created on an older file, holds the validated answers with their cost, and is pruned with the runs", () => {
+    const path = join(tempDir("meta-groupings-"), "argus.db");
+    const first = Datastore.open(path);
+    const grouping = (hash: string) => ({ inputHash: hash, answer: { subjects: [{ name: "GTA 6", items: ["T1", "H1"] }], refs: { T1: "T:M", H1: "H:gta6" } }, costUsd: 0.0123, brainRunId: 7 });
+    const old = first.meta.saveRun(run(T0 - 20 * DAY, [row("A")], { grouping: grouping("old") }));
+    expect(first.meta.latestGrouping()).toMatchObject({ runId: old, inputHash: "old" });
+    first.close();
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE meta_groupings");
+    raw.close();
+    const reopened = Datastore.open(path);
+    expect(tables(path)).toContain("meta_groupings");
+    expect(reopened.meta.latestGrouping()).toBeUndefined();
+    const run1 = reopened.meta.saveRun(run(T0 - 3 * DAY, [row("A")], { grouping: grouping("h1") }));
+    const run2 = reopened.meta.saveRun(run(T0, [row("A")], { grouping: grouping("h2") }));
+    expect(reopened.meta.latestGrouping()).toEqual({ id: expect.any(Number), computedAt: new Date(T0).toISOString(), runId: run2, inputHash: "h2", source: "ai", answer: grouping("h2").answer, costUsd: 0.0123, brainRunId: 7 });
+    // as of an earlier time, the earlier answer
+    expect(reopened.meta.latestGrouping(new Date(T0 - DAY).toISOString())).toMatchObject({ runId: run1, inputHash: "h1" });
+    // a run saved with no grouping stores none
+    reopened.meta.saveRun(run(T0 + 60_000, [row("A")]));
+    expect(reopened.meta.latestGrouping()).toMatchObject({ runId: run2 });
+    // pruned with the runs (14 days): the 20-day-old one went with its run when the later runs were saved
+    reopened.meta.saveRun(run(T0 + 30 * DAY, [row("A")]));
+    reopened.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    const left = (db.prepare("SELECT COUNT(*) AS n FROM meta_groupings").get() as { n: number }).n;
+    const orphans = (db.prepare("SELECT COUNT(*) AS n FROM meta_groupings WHERE run_id NOT IN (SELECT id FROM meta_runs)").get() as { n: number }).n;
+    db.close();
+    expect([left, orphans]).toEqual([0, 0]);
   });
 
   const newEvent = (runId: number, key = "jensen", raisedAt = new Date(T0).toISOString()) => ({

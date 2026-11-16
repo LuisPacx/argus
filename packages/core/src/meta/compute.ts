@@ -5,8 +5,9 @@ import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaW
 import { metaCoverage } from "./coverage.ts";
 import { cleanLabel, groupTokens, isGenericKey, type TokenGroup } from "./group.ts";
 import { subjectKey } from "./key.ts";
+import { applyGrouping, buildGroupItems, GROUP_MAX_THEMES, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type ThemeInput, type TrendingInput } from "./grouping.ts";
 import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
-import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaRow, NewMetaRun } from "./store.ts";
+import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaGrouping, NewMetaRow, NewMetaRun } from "./store.ts";
 import { mergeThemes } from "./theme.ts";
 import { verifyAgainstDex, type DroppedCandidate, type TopDownCandidate, type TopDownResult } from "./topdown.ts";
 
@@ -42,6 +43,15 @@ export interface RecomputeOptions {
   topDown?: () => Promise<TopDownResult>;
   /** The overall bound on `topDown` (default 20 s). */
   topDownTimeoutMs?: number;
+  /**
+   * The AI grouping step (ADR 0015, decision 4; meta redesign ticket 06): given the tick's items (the trending tokens that passed the filter at
+   * the entry cap, and the top launch themes), answers with the checked subjects, or with nothing. Awaited before the write transaction, within
+   * `groupTimeoutMs`; it never throws into the tick: nothing, a refusal, a timeout or an error all mean the tick groups by rules. The worker
+   * builds it around the Brain (`createGroupStep`); a replay or a test passes none or a fake.
+   */
+  group?: (input: GroupInput) => Promise<GroupAnswer | undefined>;
+  /** The overall bound on `group` (default 90 s). */
+  groupTimeoutMs?: number;
 }
 
 export interface RecomputeResult {
@@ -60,6 +70,8 @@ export interface RecomputeResult {
   metas: number;
   watching: number;
   current: NewMetaCurrent;
+  /** How the subjects were grouped and named this tick (ticket 06): by the AI step (an answer called for or reused) or by rules, and how many subjects the answer built. */
+  group: { source: "ai" | "rules"; reused: boolean; subjects: number };
 }
 
 export const META_NOTE =
@@ -77,6 +89,9 @@ const LOOKUP_BATCH = 30;
 
 /** The overall bound on the top-down read of one tick: three pages and a Jupiter list with their retries fit well inside it. */
 const TOPDOWN_TIMEOUT_MS = 20_000;
+
+/** The overall bound on the grouping step of one tick (a haiku run of a short list; the route's own cap is 2 minutes). */
+const GROUP_TIMEOUT_MS = 90_000;
 
 /** How DexScreener's check of one top-down candidate went: passed, failed (with the test), or not done (with why). */
 interface Verdict {
@@ -99,6 +114,8 @@ interface GroupStat {
   counts: Record<MetaWindow, MetaCounts>;
   /** Creates of the pump and bonk launchpads: the copies rule of the Metas, and the counts a Meta or Watching row stores (ADR 0015 decision 3). */
   copies: Record<MetaWindow, MetaCounts>;
+  /** The bonk creates attached to the group (they are part of `copies` only). */
+  bonkRecs: Rec[];
   /** Market cap per looked-up mint. */
   caps: Map<string, number>;
 }
@@ -269,16 +286,38 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     let first = Number.POSITIVE_INFINITY;
     for (const r of grecs) first = Math.min(first, r.createdMs);
     const counts = countsOf(grecs);
-    const extra = bonkOf.get(gi);
+    const bonkRecs = (bonkOf.get(gi) ?? []).map((token): Rec => ({ token, createdMs: Date.parse(token.createdAt), migratedMs: null }));
     return {
       group,
       recs: grecs,
       firstSeenAt: new Date(first).toISOString(),
       counts,
-      copies: extra ? countsOf([...grecs, ...extra.map((token): Rec => ({ token, createdMs: Date.parse(token.createdAt), migratedMs: null }))]) : counts,
+      copies: bonkRecs.length > 0 ? countsOf([...grecs, ...bonkRecs]) : counts,
+      bonkRecs,
       caps: new Map(),
     };
   });
+  /**
+   * One subject's stat from the launch themes the grouping step put together: its tokens are the union of theirs (one creator who launched in
+   * three themes counts once), its counts and top tokens are computed again from that union, and its caps are theirs. Nothing here reads
+   * the model's words but the name.
+   */
+  const mergeStats = (members: GroupStat[], key: string, label: string): GroupStat => {
+    const recs = members.flatMap((m) => m.recs);
+    const bonkRecs = members.flatMap((m) => m.bonkRecs);
+    const caps = new Map<string, number>();
+    for (const m of members) for (const [mint, cap] of m.caps) caps.set(mint, Math.max(caps.get(mint) ?? 0, cap));
+    const counts = countsOf(recs);
+    return {
+      group: { key, label, tokens: members.flatMap((m) => m.group.tokens) },
+      recs,
+      firstSeenAt: new Date(Math.min(...members.map((m) => Date.parse(m.firstSeenAt)))).toISOString(),
+      counts,
+      copies: bonkRecs.length > 0 ? countsOf([...recs, ...bonkRecs]) : counts,
+      bonkRecs,
+      caps,
+    };
+  };
 
   // The size floor (ticket 05): a Meta needs enough tokens and enough distinct creators in that window. Applied here, once, before the
   // DexScreener budget and the ranking, so the stored rows, the API, the pages and the prompt block never see a smaller group.
@@ -340,10 +379,22 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   dexCalls += lookedUp.calls;
   dexFailures += lookedUp.failures;
   const prevKeys = new Set((carried?.metas ?? []).map((m) => m.key));
+
+  // 4c. The AI grouping step (ticket 06, ADR 0015 decision 4): the trending tokens that passed the filter at the entry cap and the top launch
+  // themes go to it as ids; its checked answer says which belong together and what to call them. Awaited before the write transaction, bounded,
+  // and never fatal: with no answer the subjects below are the launch themes as the creator vote named them.
+  const items = buildGroupItems(trendingInputs(topDown, fresh, lookedUp.verdicts), themeInputs(stats), config.enterMcapUsd);
+  const answer = await askGroupStep(opts, items, now);
+  const statOf = new Map(stats.map((s) => [s.group.key, s]));
+  const applied = answer ? applyGrouping(items, answer.subjects, (key) => statOf.get(key), mergeStats) : undefined;
   // The copies rule and the counts a Meta stores include bonk launches; the launch-theme rows below keep the pump counts.
-  const subjects: LeaderSubject[] = stats
-    .filter((s) => s.copies["24h"].creators >= config.minCopies || prevKeys.has(s.group.key))
-    .map((s) => ({ key: s.group.key, label: s.group.label, counts: s.copies, topTokens: topTokensOf(s, config.topTokens), tokens: s.group.tokens }));
+  const subjectStats: Array<{ stat: GroupStat; extra: Pick<LeaderSubject, "namedBy" | "memberKeys" | "memberMints" | "themes"> }> = [
+    ...(applied?.subjects ?? []).map((a) => ({ stat: a.stat, extra: { namedBy: "ai" as const, memberKeys: a.themeKeys, memberMints: a.mints, themes: a.themes } })),
+    ...stats.filter((s) => !applied?.groupedThemeKeys.has(s.group.key)).map((stat) => ({ stat, extra: { namedBy: "rules" as const } })),
+  ];
+  const subjects: LeaderSubject[] = subjectStats
+    .filter(({ stat, extra }) => stat.copies["24h"].creators >= config.minCopies || prevKeys.has(stat.group.key) || (extra.memberKeys ?? []).some((k) => prevKeys.has(k)))
+    .map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, counts: stat.copies, topTokens: topTokensOf(stat, config.topTokens), tokens: stat.group.tokens, ...extra }));
   const current = currentMetas({ subjects, tokens: fresh, previous: carried, now, config });
 
   // 5. Rank each window and shape the rows.
@@ -370,7 +421,9 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const computedAt = now.toISOString();
   const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
   const candidateRows = candidatesOf(topDown, lookedUp.verdicts);
-  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows, coverage, current, candidates: candidateRows });
+  // An answer the Brain was called for this tick is stored with the run (a reused one is stored already, and keeps its own time so the reuse window ends).
+  const grouping: NewMetaGrouping | undefined = answer && !answer.reused ? { inputHash: answer.inputHash, answer: storeAnswer(items, answer.subjects), costUsd: answer.costUsd, brainRunId: answer.brainRunId } : undefined;
+  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows, coverage, current, candidates: candidateRows, ...(grouping ? { grouping } : {}) });
   return {
     runId,
     computedAt,
@@ -383,7 +436,55 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     metas: current.metas.length,
     watching: current.watching.length,
     current,
+    group: { source: applied ? "ai" : "rules", reused: answer?.reused ?? false, subjects: applied?.subjects.length ?? 0 },
   };
+}
+
+/**
+ * The trending tokens the grouping step may see: those the top-down lists named that passed the filter and whose verified market cap is
+ * known this run (a candidate DexScreener's own figures refused is not one; a leader carried from last run, or priced by a launch theme, is,
+ * at the figure the run has for it).
+ */
+function trendingInputs(topDown: TopDownResult, fresh: readonly LeaderToken[], verdicts: ReadonlyMap<string, Verdict>): TrendingInput[] {
+  const capOf = new Map<string, number>();
+  for (const t of fresh) capOf.set(t.mint, Math.max(capOf.get(t.mint) ?? 0, t.marketCapUsd));
+  const out: TrendingInput[] = [];
+  for (const c of topDown.candidates) {
+    const cap = capOf.get(c.mint);
+    if (cap === undefined || verdicts.get(c.mint)?.verified === false) continue;
+    out.push({ mint: c.mint, name: c.name, symbol: c.symbol, marketCapUsd: cap, lists: c.sources });
+  }
+  return out;
+}
+
+/** The top launch themes by distinct creators in 24 h (bonk included): their key, label, counts and the names most used in them. */
+function themeInputs(stats: readonly GroupStat[]): ThemeInput[] {
+  return stats
+    .filter((s) => !s.group.key.startsWith("unkeyed:"))
+    .sort((a, b) => b.copies["24h"].creators - a.copies["24h"].creators || cmpStr(a.group.key, b.group.key))
+    .slice(0, GROUP_MAX_THEMES)
+    .map((s) => {
+      const used = new Map<string, number>();
+      for (const t of s.group.tokens) {
+        const name = cleanLabel(t.name);
+        if (name !== "") used.set(name, (used.get(name) ?? 0) + 1);
+      }
+      const names = [...used].sort((a, b) => b[1] - a[1] || cmpStr(a[0], b[0])).map(([name]) => name);
+      return { key: s.group.key, label: s.group.label, tokens: s.copies["24h"].tokens, creators: s.copies["24h"].creators, names };
+    });
+}
+
+/** Calls the grouping step within its bound. No step, nothing to group, a timeout or an error all give no answer: the tick groups by rules. */
+async function askGroupStep(opts: RecomputeOptions, items: readonly GroupItem[], now: Date): Promise<GroupAnswer | undefined> {
+  if (!opts.group || !items.some((i) => i.kind === "theme")) return undefined;
+  const controller = new AbortController();
+  try {
+    return await withTimeout(opts.group({ items, inputHash: itemsHash(items), now, signal: controller.signal }), opts.groupTimeoutMs ?? GROUP_TIMEOUT_MS);
+  } catch (e) {
+    controller.abort();
+    opts.log?.(`[worker] meta group: rules (${e instanceof Error ? e.message : String(e)})`);
+    return undefined;
+  }
 }
 
 /** The stored candidate rows: the kept ones with how DexScreener's check went, then the dropped ones with the filter's reason. */

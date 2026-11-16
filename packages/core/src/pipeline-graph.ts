@@ -15,6 +15,7 @@ import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
+import { DEFAULT_META_GROUP_CONFIG, metaGroupConfigFromEnv } from "./meta/group-pass.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
 import { DEFAULT_CLUSTER_CONFIG } from "./narratives.ts";
@@ -88,6 +89,8 @@ export interface PipelineNode {
   worker?: string | readonly string[];
   /** The Brain task it spends Claude on (a key of `DEFAULT_ROUTING`). Absent: plain code, no Claude cost. */
   brainTask?: string;
+  /** Further Brain tasks the node spends Claude on (the Meta node writes summaries and groups subjects): drawn, counted in the node's live spend, not named on the page. */
+  alsoBrainTasks?: readonly string[];
   sources?: readonly SourceChip[];
   /** Shape in the generated overview: a box (default), a store (data kept) or an actor (a person). */
   shape?: "box" | "store" | "actor";
@@ -333,7 +336,7 @@ export const PIPELINE: PipelineGraph = {
       column: 1,
       row: 1,
       status: "on",
-      what: "A Meta is a current trend with a token really high (ADR 0014, ADR 0015): plain code reads what is trending now on Jupiter and GeckoTerminal, drops fakes and tokenized stocks, has DexScreener verify each survivor's market cap, matches the leader token (of any age) to the launch theme that copies it (launches on the pump and bonk launchpads both count as copiers), and stores at most 3 Metas and up to 3 Watching subjects, with hysteresis. The old launch-theme ranking (clone clusters of the last day's creates, \"All launch themes\" on /meta) keeps running as context, with counts only. Plain code also raises New Meta, one event each time a subject becomes a Meta; Claude writes only a one-line summary, for the Metas and the Watching subjects (at most 6), which also sees the matching news as context.",
+      what: "A Meta is a current trend with a token really high (ADR 0014, ADR 0015): plain code reads what is trending now on Jupiter and GeckoTerminal, drops fakes and tokenized stocks, has DexScreener verify each survivor's market cap, matches the leader token (of any age) to the launch theme that copies it (launches on the pump and bonk launchpads both count as copiers), and stores at most 3 Metas and up to 3 Watching subjects, with hysteresis. The old launch-theme ranking (clone clusters of the last day's creates, \"All launch themes\" on /meta) keeps running as context, with counts only. Each tick Claude also groups the trending tokens and the top 30 launch themes into named subjects (so Lucia, Vice City and GTA VI are one subject), reusing the last answer while nothing changed and stopping at a daily cap; with no answer plain code names a subject by the creators who used the name most, merging spelling aliases strictly. It decides only grouping and names: the leader, the market caps and the copier counts are computed by code from the members. Plain code also raises New Meta, one event each time a subject becomes a Meta; Claude writes a one-line summary, for the Metas and the Watching subjects (at most 6), which also sees the matching news as context.",
       rules: [
         { label: "A token's market cap makes its subject a Meta at", key: "META_RULE.enterMcapUsd", ref: () => META_RULE.enterMcapUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).enterMcapUsd },
         { label: "A Meta stays one while its leader is at least", key: "META_RULE.stayMcapUsd", ref: () => META_RULE.stayMcapUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).stayMcapUsd },
@@ -361,12 +364,19 @@ export const PIPELINE: PipelineGraph = {
         { label: "Summary spend per run", key: "DEFAULT_ROUTING.meta-summary.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meta-summary"].maxBudgetUsd, unit: "usd" },
         { label: "Summary wall clock per run", key: "DEFAULT_ROUTING.meta-summary.timeoutMs", ref: () => DEFAULT_ROUTING["meta-summary"].timeoutMs, unit: "ms" },
         { label: "Summary model", ref: () => DEFAULT_ROUTING["meta-summary"].model, unit: "text" },
+        { label: "Claude groups and names the subjects each tick", key: "DEFAULT_META_GROUP_CONFIG.enabled", ref: () => String(DEFAULT_META_GROUP_CONFIG.enabled), unit: "text", live: (env) => String(metaGroupConfigFromEnv(env).enabled) },
+        { label: "Grouping spend per day", key: "DEFAULT_META_GROUP_CONFIG.maxDailyUsd", ref: () => DEFAULT_META_GROUP_CONFIG.maxDailyUsd, unit: "usd", live: (env) => metaGroupConfigFromEnv(env).maxDailyUsd },
+        { label: "An unchanged grouping is reused for up to", key: "DEFAULT_META_GROUP_CONFIG.reuseMinutes", ref: () => DEFAULT_META_GROUP_CONFIG.reuseMinutes, unit: "min", live: (env) => metaGroupConfigFromEnv(env).reuseMinutes },
+        { label: "Grouping spend per run", key: "DEFAULT_ROUTING.meta-group.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meta-group"].maxBudgetUsd, unit: "usd" },
+        { label: "Grouping wall clock per run", key: "DEFAULT_ROUTING.meta-group.timeoutMs", ref: () => DEFAULT_ROUTING["meta-group"].timeoutMs, unit: "ms" },
+        { label: "Grouping model", ref: () => DEFAULT_ROUTING["meta-group"].model, unit: "text" },
       ],
       adrs: ["0012-metas-are-ranked-from-launchpad-data-by-plain-code.md", "0014-a-meta-is-led-by-a-tokens-market-cap.md", "0015-metas-are-found-top-down.md"],
-      tickets: [META_TICKET, ".scratch/meta-redesign/issues/01-market-led-meta-rule.md", ".scratch/meta-redesign/issues/03-new-meta-event-meme-trigger-summaries-prompt.md", ".scratch/meta-redesign/issues/05-top-down-leader-sources.md"],
-      files: ["packages/core/src/meta/compute.ts", "packages/core/src/meta/leaders.ts", "packages/core/src/meta/topdown.ts", "packages/core/src/meta/topdown-source.ts", "packages/core/src/sources/jupiter.ts", "packages/core/src/sources/geckoterminal.ts", "packages/core/src/meta/config.ts", "packages/core/src/meta/summary-pass.ts", "packages/core/src/meta/new-meta.ts", "packages/core/src/meta/news.ts"],
+      tickets: [META_TICKET, ".scratch/meta-redesign/issues/01-market-led-meta-rule.md", ".scratch/meta-redesign/issues/03-new-meta-event-meme-trigger-summaries-prompt.md", ".scratch/meta-redesign/issues/05-top-down-leader-sources.md", ".scratch/meta-redesign/issues/06-ai-grouping-and-naming-with-rule-fallback.md"],
+      files: ["packages/core/src/meta/compute.ts", "packages/core/src/meta/leaders.ts", "packages/core/src/meta/grouping.ts", "packages/core/src/meta/group-pass.ts", ".claude/skills/meta-group/SKILL.md", "packages/core/src/meta/topdown.ts", "packages/core/src/meta/topdown-source.ts", "packages/core/src/sources/jupiter.ts", "packages/core/src/sources/geckoterminal.ts", "packages/core/src/meta/config.ts", "packages/core/src/meta/summary-pass.ts", "packages/core/src/meta/new-meta.ts", "packages/core/src/meta/news.ts"],
       worker: ["metaTick", "metaSummaryTick"],
       brainTask: "meta-summary",
+      alsoBrainTasks: ["meta-group"],
     },
     {
       id: "meme",
@@ -667,7 +677,7 @@ export function pipelineGaps(graph: PipelineGraph, registry: PipelineRegistry): 
   const drawnWorkers = new Set(graph.nodes.flatMap(workersOf));
   for (const tick of registry.ticks) if (!drawnWorkers.has(tick) && !skipped(tick)) gaps.push(`The worker runs ${tick} but no node has it as its worker (and it is not in LEFT_OUT).`);
   for (const w of drawnWorkers) if (!registry.ticks.includes(w)) gaps.push(`A node names the worker pass ${w}, which apps/worker/src/main.ts does not define.`);
-  const drawnTasks = new Set(graph.nodes.flatMap((n) => (n.brainTask === undefined ? [] : [n.brainTask])));
+  const drawnTasks = new Set(graph.nodes.flatMap((n) => [...(n.brainTask === undefined ? [] : [n.brainTask]), ...(n.alsoBrainTasks ?? [])]));
   for (const task of registry.brainTasks) if (!drawnTasks.has(task) && !skipped(task)) gaps.push(`DEFAULT_ROUTING has the brain task "${task}" but no node has it as its brainTask (and it is not in LEFT_OUT).`);
   for (const t of drawnTasks) if (!registry.brainTasks.includes(t)) gaps.push(`A node names the brain task "${t}", which DEFAULT_ROUTING does not have.`);
 

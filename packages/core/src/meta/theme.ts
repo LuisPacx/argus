@@ -1,4 +1,4 @@
-import { isGenericKey, type GroupableToken, type TokenGroup } from "./group.ts";
+import { isGenericKey, nameGroup, tokenKeys, type GroupableToken, type TokenGroup } from "./group.ts";
 import { normaliseKey } from "./key.ts";
 
 /**
@@ -89,6 +89,16 @@ function subjectForms<T extends GroupableToken>(group: TokenGroup<T>, config: Th
   return out;
 }
 
+/**
+ * A merged group keeps its anchor as the cluster the others join, but its key and label are voted again over all its tokens, by distinct
+ * creators like `groupTokens` (ADR 0015): the anchor's own name no longer wins just because it was the anchor. The anchor's key stands when
+ * no token of the merged group has a usable key.
+ */
+function renamed<T extends GroupableToken>(group: TokenGroup<T>): TokenGroup<T> {
+  const named = nameGroup(group.tokens, tokenKeys);
+  return { ...group, key: named.key ?? group.key, label: named.label !== "" ? named.label : group.label };
+}
+
 /** Folds small clusters into the anchors whose subject they name. Returns the groups biggest first, then by key, like `groupTokens`. */
 export function mergeThemes<T extends GroupableToken & { creator: string }>(groups: TokenGroup<T>[], config: ThemeConfig = DEFAULT_THEME_CONFIG): TokenGroup<T>[] {
   const anchors = groups
@@ -118,7 +128,7 @@ export function mergeThemes<T extends GroupableToken & { creator: string }>(grou
   }
 
   const out = [...kept];
-  for (const a of anchors) out.push(a.absorbed.length === 0 ? a.group : { ...a.group, tokens: [...a.group.tokens, ...a.absorbed.flatMap((g) => g.tokens)] });
+  for (const a of anchors) out.push(a.absorbed.length === 0 ? a.group : renamed({ ...a.group, tokens: [...a.group.tokens, ...a.absorbed.flatMap((g) => g.tokens)] }));
   out.sort((x, y) => y.tokens.length - x.tokens.length || cmpStr(x.key, y.key));
   return out;
 }

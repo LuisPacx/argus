@@ -402,7 +402,8 @@ describe("summariseMetas: matching news as context (missed ideas ticket 03)", ()
       store.recordSignals(signals);
       const { brain, prompts } = fakeBrain(() => answer);
       expect(await run(store, brain)).toMatchObject({ called: 1, accepted: 0, refused: 1 });
-      expect(prompts[0]).not.toMatch(/777|888/);
+      // The random boundary lines are hex and can hold 777 or 888 by chance (about 4 runs in 100): they are not part of what the model was shown.
+      expect(prompts[0]!.replaceAll(/BOUNDARY-[0-9a-f]{24}/g, "BOUNDARY")).not.toMatch(/777|888/);
     }
   });
 

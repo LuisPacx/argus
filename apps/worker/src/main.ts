@@ -9,10 +9,12 @@ import {
   missingCloudflareVariables,
   captureDueSnapshots,
   captureRunCap,
+  createGroupStep,
   createTopDownReader,
   generateMemeIdeas,
   memeConfigFromEnv,
   metaConfigFromEnv,
+  metaGroupConfigFromEnv,
   metaIntervalMinutes,
   metaSummaryConfigFromEnv,
   raiseNewMetasSafely,
@@ -338,9 +340,14 @@ const metaDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_S
 // Leaders are found top-down (ADR 0015): Jupiter's and GeckoTerminal's trending lists, within ARGUS_META_TOPDOWN_CALLS requests a tick, then
 // verified on DexScreener. ARGUS_JUPITER_URL (the whole list prefix, ending in a slash) and ARGUS_GECKOTERMINAL_URL exist for tests and local mirrors.
 const metaTopDown = createTopDownReader({ config: metaConfig, jupiterUrl: process.env.ARGUS_JUPITER_URL || undefined, geckoUrl: process.env.ARGUS_GECKOTERMINAL_URL || undefined });
+// The AI grouping step (meta redesign ticket 06, ADR 0015): the Brain task `meta-group` names the subjects each tick, reused while its inputs
+// are unchanged (up to 60 min) and capped at ARGUS_META_GROUP_MAX_DAILY_USD (1.00) a day; ARGUS_META_GROUP_AI=0 turns it off. Any failure or
+// refusal leaves the tick on the rule-based names. A dry run never calls it (the Brain's dry run answers nothing).
+const metaGroupConfig = metaGroupConfigFromEnv(process.env);
+const metaGroup = createGroupStep(store, brain, { config: metaGroupConfig, research: researchBudget, log: console.log, signal: shutdown.signal });
 const metaTick = reentrant(
   async () => {
-    const r = await recomputeMetas(store, { dex: metaDex, topDown: metaTopDown, config: metaConfig, log: console.error });
+    const r = await recomputeMetas(store, { dex: metaDex, topDown: metaTopDown, config: metaConfig, group: metaGroup, log: console.error });
     console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s) (${r.leaderCalls} for leaders), ${r.dexFailures} failed, top-down ${r.topDown.requests} request(s) ${r.topDown.kept} kept ${r.topDown.dropped} dropped${r.topDown.errors.length > 0 ? ` (${r.topDown.errors.length} failed)` : ""}, ${r.metas} Meta(s), ${r.watching} Watching`);
     // Market-led Metas (ADR 0014): who leads each one, so the log says why a Meta is (or is not) there.
     for (const m of r.current.metas) console.log(`[worker] Meta "${m.label}": leader ${m.leader.symbol || m.leader.name} $${Math.round(m.leader.marketCapUsd).toLocaleString("en-US")}${m.holding ? " (holding)" : ""}${m.leader.stale ? " (stale)" : ""}`);

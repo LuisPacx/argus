@@ -3,6 +3,7 @@ import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } fro
 import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
 import { TRENDING_SOURCE_ID, type TrendingSignalRow } from "./candidates.ts";
+import type { StoredGroupAnswer } from "./grouping.ts";
 
 /**
  * Meta runs and rows (ticket 03, slice 3): each recompute is stored additively so a day's ranking can be replayed and the Study can
@@ -62,11 +63,24 @@ export interface CurrentLeader {
   freshAt: string;
 }
 
-/** A subject led by a token's market cap (ADR 0014): a Meta, or a Watching subject. `key` is the launch-theme group key. */
-export interface CurrentMeta {
+/** A launch theme that is a member of a grouped subject, as stored under it: the creator-voted label and its real counts (meta redesign ticket 06). */
+export interface CurrentTheme {
   key: string;
   /** Creator-written text, cleaned and cut: still untrusted. */
   label: string;
+  tokens: number;
+  creators: number;
+}
+
+/** A subject led by a token's market cap (ADR 0014): a Meta, or a Watching subject. `key` is the launch-theme group key. */
+export interface CurrentMeta {
+  key: string;
+  /** The subject's name: the grouping step's (`namedBy: ai`) or the group's creator-voted label (`rules`). Creator-written text, cleaned and cut: still untrusted. */
+  label: string;
+  /** Who named it (ADR 0015, decision 4). Always set on a stored row; absent only where a test builds a row by hand, which reads as `rules`. */
+  namedBy?: "ai" | "rules";
+  /** The member launch themes the grouping step merged into this subject, most creators first, at most 12; empty for a subject named by rules. */
+  themes?: CurrentTheme[];
   leader: CurrentLeader;
   /** A Meta whose leader is between the stay and the enter market cap. Always false for Watching. */
   holding: boolean;
@@ -107,6 +121,26 @@ export interface NewMetaRun {
   current?: NewMetaCurrent;
   /** The top-down candidates the run read, kept and dropped, each with its reason (ADR 0015). Absent stores none. */
   candidates?: NewMetaCandidate[];
+  /** The grouping answer this run was built from, when the Brain was called for it this tick (a reused answer is already stored). Absent stores none. */
+  grouping?: NewMetaGrouping;
+}
+
+/** One validated answer of the grouping step (`meta_groupings`): what it was made for (the items' identities, hashed), the answer and what it cost. */
+export interface NewMetaGrouping {
+  inputHash: string;
+  answer: StoredGroupAnswer;
+  /** What the Brain reported for the run, in Est. usage dollars. */
+  costUsd: number;
+  /** The `brain_runs` row of the call. */
+  brainRunId: number | null;
+}
+
+export interface MetaGrouping extends NewMetaGrouping {
+  id: number;
+  computedAt: string;
+  /** The Meta run that stored it. */
+  runId: number;
+  source: "ai";
 }
 
 /**
@@ -254,8 +288,22 @@ export function migrateMeta(db: DatabaseSync): void {
     entered_at TEXT NOT NULL,
     counts TEXT NOT NULL,
     top_tokens TEXT NOT NULL,
+    named_by TEXT,
+    themes TEXT,
     PRIMARY KEY (run_id, kind, rank)
   )`);
+  // Meta redesign ticket 06 (ADR 0015): the grouping step's validated answers, one per Brain call, for reuse and for a replay. Additive; pruned with the runs.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_groupings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    computed_at TEXT NOT NULL,
+    run_id INTEGER NOT NULL,
+    input_hash TEXT NOT NULL,
+    source TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    cost_usd REAL NOT NULL,
+    brain_run_id INTEGER
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS meta_groupings_computed_at ON meta_groupings (computed_at)");
   // Meta redesign ticket 05 (ADR 0015): the top-down candidates of each run, kept and dropped, with the reason. Additive; pruned with the runs.
   db.exec(`CREATE TABLE IF NOT EXISTS meta_candidates (
     run_id INTEGER NOT NULL,
@@ -391,10 +439,48 @@ function parseCounts(text: string): Record<MetaWindow, MetaCounts> {
   return isRecord(data) ? { "6h": one(data["6h"]), "24h": one(data["24h"]) } : { "6h": zero, "24h": zero };
 }
 
+function parseStoredAnswer(text: string): StoredGroupAnswer | undefined {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(data) || !Array.isArray(data.subjects) || !isRecord(data.refs)) return undefined;
+  const subjects: StoredGroupAnswer["subjects"] = [];
+  for (const s of data.subjects) {
+    if (!isRecord(s) || typeof s.name !== "string" || !Array.isArray(s.items)) return undefined;
+    subjects.push({ name: s.name, items: s.items.filter((x): x is string => typeof x === "string") });
+  }
+  const refs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data.refs)) if (typeof v === "string") refs[k] = v;
+  return { subjects, refs };
+}
+
+function parseThemes(text: unknown): CurrentTheme[] {
+  if (typeof text !== "string") return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const out: CurrentTheme[] = [];
+  for (const t of data) {
+    if (!isRecord(t) || typeof t.key !== "string") continue;
+    const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+    out.push({ key: t.key, label: typeof t.label === "string" ? t.label : "", tokens: n(t.tokens), creators: n(t.creators) });
+  }
+  return out;
+}
+
 function toCurrent(r: Row, runAt: string): CurrentMeta {
   return {
     key: r.key as string,
     label: r.label as string,
+    namedBy: r.named_by === "ai" ? "ai" : "rules",
+    themes: parseThemes(r.themes),
     leader: {
       mint: r.leader_mint as string,
       name: r.leader_name as string,
@@ -436,8 +522,11 @@ export class MetaStore {
     );
     const insertCurrent = this.db.prepare(
       `INSERT INTO meta_current (run_id, kind, rank, key, label, leader_mint, leader_name, leader_symbol, leader_market_cap_usd, leader_created_at, leader_fresh_at, leader_source,
-         stale, holding, entered_at, counts, top_tokens)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         stale, holding, entered_at, counts, top_tokens, named_by, themes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertGrouping = this.db.prepare(
+      `INSERT INTO meta_groupings (computed_at, run_id, input_hash, source, answer, cost_usd, brain_run_id) VALUES (?, ?, ?, 'ai', ?, ?, ?)`,
     );
     const insertCandidate = this.db.prepare(
       `INSERT INTO meta_candidates (run_id, seq, mint, name, symbol, market_cap_usd, liquidity_usd, volume_24h_usd, sources, ranks, verified, reason)
@@ -459,9 +548,10 @@ export class MetaStore {
         const list = kind === "meta" ? run.current?.metas : run.current?.watching;
         (list ?? []).forEach((m, i) => {
           const l = m.leader;
-          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens));
+          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens), m.namedBy ?? "rules", JSON.stringify(m.themes ?? []));
         });
       }
+      if (run.grouping) insertGrouping.run(run.computedAt, id, run.grouping.inputHash, JSON.stringify(run.grouping.answer), run.grouping.costUsd, run.grouping.brainRunId);
       (run.candidates ?? []).forEach((c, i) => {
         insertCandidate.run(id, i + 1, c.mint, c.name, c.symbol, c.marketCapUsd ?? null, c.liquidityUsd ?? null, c.volume24hUsd ?? null, JSON.stringify(c.sources), JSON.stringify(c.ranks), c.verified === null ? null : c.verified ? 1 : 0, c.reason ?? null);
       });
@@ -480,6 +570,7 @@ export class MetaStore {
     this.db.prepare("DELETE FROM meta_rows WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_current WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_candidates WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
+    this.db.prepare("DELETE FROM meta_groupings WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_new_events WHERE raised_at < ?").run(cutoff);
@@ -576,6 +667,24 @@ export class MetaStore {
       verified: r.verified === null ? null : r.verified === 1,
       ...(r.reason !== null ? { reason: r.reason as string } : {}),
     }));
+  }
+
+  /**
+   * The newest stored grouping answer computed at or before `asOf` (default: the newest), or undefined. A row whose answer cannot be read
+   * back as the stored shape is skipped, so a damaged row never reaches the pass. READ ONLY.
+   */
+  latestGrouping(asOf?: string): MetaGrouping | undefined {
+    const rows = (
+      asOf === undefined
+        ? this.db.prepare("SELECT * FROM meta_groupings ORDER BY computed_at DESC, id DESC LIMIT 5").all()
+        : this.db.prepare("SELECT * FROM meta_groupings WHERE computed_at <= ? ORDER BY computed_at DESC, id DESC LIMIT 5").all(asOf)
+    ) as Row[];
+    for (const r of rows) {
+      const answer = parseStoredAnswer(r.answer as string);
+      if (!answer) continue;
+      return { id: r.id as number, computedAt: r.computed_at as string, runId: r.run_id as number, inputHash: r.input_hash as string, source: "ai", answer, costUsd: r.cost_usd as number, brainRunId: (r.brain_run_id as number | null) ?? null };
+    }
+    return undefined;
   }
 
   /** The summary records of these group keys (those that have one). READ ONLY. */

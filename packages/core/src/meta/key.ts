@@ -54,6 +54,41 @@ export function normaliseText(text: string, maxChars: number): string {
   return out;
 }
 
+/** The roman numerals `aliasKey` converts: two or more letters, `ii` to `xx`. The single letters `i`, `v` and `x` are never numerals here (`gta v`, `mix`). */
+const ROMAN_NUMERALS: ReadonlyMap<string, number> = new Map([
+  ["ii", 2], ["iii", 3], ["iv", 4], ["vi", 6], ["vii", 7], ["viii", 8], ["ix", 9],
+  ["xi", 11], ["xii", 12], ["xiii", 13], ["xiv", 14], ["xv", 15], ["xvi", 16], ["xvii", 17], ["xviii", 18], ["xix", 19], ["xx", 20],
+]);
+const LONGEST_NUMERAL = 5;
+/** The letters a roman numeral is written in: a suffix that follows one of them is part of a longer run (`starxxi`), not a numeral of its own. */
+const NUMERAL_LETTERS = "ivx";
+/** A numeral only counts after a base of at least this many characters, so `taxi`, `mix` and `vivi` stay as they are. */
+const MIN_ALIAS_BASE_CHARS = 3;
+
+/** True when `text` has at least `n` characters (code points); reads only its first `4 * n` code units, so a megabyte costs the same as a short name. */
+function hasChars(text: string, n: number): boolean {
+  return Array.from(text.slice(0, n * 4)).length >= n;
+}
+
+/**
+ * The strict alias form of a key (ADR 0015, decision 4): spaces removed, then a trailing roman numeral `ii` to `xx` after a base of at least
+ * three characters replaced by its digits. `gta 6`, `gta6`, `gta vi` and `gtavi` all give `gta6`; `gta 5`, `gta v` and `gta iv` do not meet
+ * it; `taxi`, `wifi`, `mix`, `vivi`, `civic` and `xi` keep their own form. Pure and linear: one pass to remove the spaces and a lookup of at
+ * most five suffixes in a fixed table, no pattern built from the text. A numeral that follows another numeral letter (`starxxi`) is part of a
+ * longer run, not a numeral.
+ */
+export function aliasKey(key: string): string {
+  const joined = key.replaceAll(" ", "");
+  for (let len = Math.min(LONGEST_NUMERAL, joined.length); len >= 2; len--) {
+    const n = ROMAN_NUMERALS.get(joined.slice(joined.length - len));
+    if (n === undefined) continue;
+    const base = joined.slice(0, joined.length - len);
+    if (NUMERAL_LETTERS.includes(base.slice(-1)) && base !== "") continue;
+    if (hasChars(base, MIN_ALIAS_BASE_CHARS)) return `${base}${n}`;
+  }
+  return joined;
+}
+
 /** The distinct keys of a token: its name's, then its ticker's. Zero, one or two. */
 export function subjectKey(name: string, symbol: string): string[] {
   const keys: string[] = [];

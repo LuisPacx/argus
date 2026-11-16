@@ -1,21 +1,26 @@
-import { subjectKey } from "./key.ts";
+import { aliasKey, normaliseKey, subjectKey } from "./key.ts";
 
 /**
  * Clone clusters (ticket 03, slice 1): tokens that share a subject key are one group, found with a union-find over the keys, so
  * `米苏 ($MISU)` and `Misu ($Misu)` meet through `misu`. One key space for names and tickers: a token called Trump and another with the
  * ticker TRUMP are the same subject. Plain code over untrusted text; linear in the number of tokens.
+ *
+ * Meta redesign ticket 06 (ADR 0015, decision 4): keys meet through their strict alias form (`aliasKey`: `gta 6`, `gta6`, `gta vi` and `gtavi`
+ * are one), and a group is named by what the most distinct creators used, not the most tokens (one creator's 44 mints no longer name it).
  */
 
 export interface GroupableToken {
   mint: string;
   name: string;
   symbol: string;
+  /** The wallet that launched the token. Absent or empty counts as a creator of its own, so a token with no creator casts one vote. */
+  creator?: string;
 }
 
 export interface TokenGroup<T extends GroupableToken> {
-  /** The group's most frequent subject key (ties: the smaller), stable whatever the input order. `unkeyed:<mint>` for a token with no usable key. */
+  /** The key used by the most distinct creators (then the most tokens, then the smaller string), stable whatever the input order. `unkeyed:<mint>` for a token with no usable key. */
   key: string;
-  /** The most frequent name, cleaned and cut for display. Still creator-written text: callers that show it in a prompt cap and fence it again. */
+  /** The name used by the most distinct creators, cleaned and cut for display. Still creator-written text: callers that show it in a prompt cap and fence it again. */
   label: string;
   tokens: T[];
 }
@@ -102,22 +107,101 @@ class UnionFind {
 
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** The key or name with the highest count; ties go to the smaller string, so the answer does not depend on input order. */
-function mostFrequent(counts: Map<string, number>): string {
-  let best = "";
-  let bestN = -1;
-  for (const [k, n] of counts) if (n > bestN || (n === bestN && cmpStr(k, best) < 0)) [best, bestN] = [k, n];
+/** One candidate key or name in a vote: the creators that used it (a token with no creator is a creator of its own) and how many tokens carry it. */
+interface Tally {
+  creators: Set<string>;
+  tokens: number;
+}
+
+/** The creator a token counts as in a vote. An empty or missing creator is distinct per mint, so it never merges with another token's. */
+const voterOf = (t: GroupableToken): string => (t.creator !== undefined && t.creator !== "" ? t.creator : `\u0000${t.mint}`);
+
+function cast(votes: Map<string, Tally>, value: string, voter: string): void {
+  let tally = votes.get(value);
+  if (!tally) votes.set(value, (tally = { creators: new Set(), tokens: 0 }));
+  tally.creators.add(voter);
+  tally.tokens++;
+}
+
+/** The winner of a vote: most distinct creators, then most tokens, then the smaller string, so the answer does not depend on input order. Undefined for an empty vote. */
+function winner(votes: Map<string, Tally>): string | undefined {
+  let best: string | undefined;
+  let bestTally: Tally | undefined;
+  for (const [value, tally] of votes) {
+    const better =
+      bestTally === undefined ||
+      tally.creators.size > bestTally.creators.size ||
+      (tally.creators.size === bestTally.creators.size && (tally.tokens > bestTally.tokens || (tally.tokens === bestTally.tokens && cmpStr(value, best as string) < 0)));
+    if (better) [best, bestTally] = [value, tally];
+  }
   return best;
 }
 
-/** Groups tokens that share a non-generic subject key. Biggest group first, then by key. Tokens with no usable key are groups of one. */
+/**
+ * Names a group of tokens by creator weight (ADR 0015, decision 4). `keysOf` says which keys each token votes for (a creator counts once per
+ * key and once per name, however many tokens of theirs carry it). Spelling aliases are one key (`aliasKey`): the vote is among alias forms, by the
+ * distinct creators who used any spelling of one (a creator who wrote both `gta6` and `gta vi` counts once), and the key is the most used original
+ * spelling of the winning form, so `gta6` beats `gta` when more creators wrote some spelling of GTA 6 than wrote plain GTA. The label is the most
+ * used cleaned name whose own key is in the winning form (so label and key agree), else the most used name, else the most used ticker. Returns
+ * the key (undefined when no token has a usable key) and the label. `mergeThemes` calls it again over a merged group's tokens.
+ */
+export function nameGroup<T extends GroupableToken>(tokens: readonly T[], keysOf: (t: T) => readonly string[]): { key: string | undefined; label: string } {
+  const forms = new Map<string, Tally>();
+  const spellings = new Map<string, Map<string, Tally>>();
+  const names = new Map<string, Tally>();
+  const namesOfForm = new Map<string, Map<string, Tally>>();
+  const symbols = new Map<string, Tally>();
+  for (const t of tokens) {
+    const voter = voterOf(t);
+    const seenForms = new Set<string>();
+    for (const k of keysOf(t)) {
+      const form = aliasKey(k);
+      // A token whose name and ticker are two spellings of one form is one vote for the form, but each spelling still counts for itself.
+      if (!seenForms.has(form)) cast(forms, form, voter);
+      seenForms.add(form);
+      let own = spellings.get(form);
+      if (!own) spellings.set(form, (own = new Map()));
+      cast(own, k, voter);
+    }
+    const name = cleanLabel(t.name);
+    if (name !== "") {
+      cast(names, name, voter);
+      // The name also votes inside the form its own key belongs to, so the label can agree with the key.
+      const nameForm = aliasKey(normaliseKey(t.name));
+      let own = namesOfForm.get(nameForm);
+      if (!own) namesOfForm.set(nameForm, (own = new Map()));
+      cast(own, name, voter);
+    }
+    const symbol = cleanLabel(t.symbol);
+    if (symbol !== "") cast(symbols, symbol, voter);
+  }
+  const form = winner(forms);
+  const label = (form === undefined ? undefined : winner(namesOfForm.get(form) ?? new Map())) ?? winner(names) ?? winner(symbols) ?? "";
+  return { key: form === undefined ? undefined : winner(spellings.get(form) as Map<string, Tally>), label };
+}
+
+/** The non-generic keys of one token: what it votes for and what joins it to others. */
+export const tokenKeys = (t: GroupableToken): string[] => subjectKey(t.name, t.symbol).filter((k) => !isGenericKey(k));
+
+/**
+ * Groups tokens that share a non-generic subject key, or keys that differ only by spelling aliases (`aliasKey`). Biggest group first, then by
+ * key. Tokens with no usable key are groups of one. The group's key and label are the ones most distinct creators used (`nameGroup`).
+ */
 export function groupTokens<T extends GroupableToken>(tokens: readonly T[], opts: GroupOptions = {}): TokenGroup<T>[] {
   const maxPartners = opts.maxPartners ?? DEFAULT_MAX_PARTNERS;
-  const keysOf = tokens.map((t) => subjectKey(t.name, t.symbol).filter((k) => !isGenericKey(k)));
+  const keysOf = tokens.map(tokenKeys);
+  // The alias form of each key (computed once per key): what keys meet through, and what a hub is counted on.
+  const alias = new Map<string, string>();
+  const aliasOf = (k: string): string => {
+    let a = alias.get(k);
+    if (a === undefined) alias.set(k, (a = aliasKey(k)));
+    return a;
+  };
+  const aliasesOf = keysOf.map((ks) => [...new Set(ks.map(aliasOf))]);
 
   // A hub key (tied to very many distinct other keys) is dropped before any merging.
   const partners = new Map<string, Set<string>>();
-  for (const ks of keysOf) {
+  for (const ks of aliasesOf) {
     if (ks.length < 2) continue;
     for (const k of ks) {
       let set = partners.get(k);
@@ -130,7 +214,7 @@ export function groupTokens<T extends GroupableToken>(tokens: readonly T[], opts
 
   const uf = new UnionFind();
   const index = new Map<string, number>();
-  const usable = keysOf.map((ks) => ks.filter((k) => !hubs.has(k)));
+  const usable = aliasesOf.map((ks) => ks.filter((k) => !hubs.has(k)));
   for (const ks of usable) {
     let first = -1;
     for (const k of ks) {
@@ -141,31 +225,21 @@ export function groupTokens<T extends GroupableToken>(tokens: readonly T[], opts
     }
   }
 
-  interface Acc {
-    tokens: T[];
-    keys: Map<string, number>;
-    names: Map<string, number>;
-    symbols: Map<string, number>;
-  }
-  const acc = new Map<string, Acc>();
+  const acc = new Map<string, T[]>();
   tokens.forEach((t, i) => {
     const ks = usable[i] as string[];
     const gid = ks.length > 0 ? `k${uf.find(index.get(ks[0] as string) as number)}` : `u${i}`;
-    let a = acc.get(gid);
-    if (!a) acc.set(gid, (a = { tokens: [], keys: new Map(), names: new Map(), symbols: new Map() }));
-    a.tokens.push(t);
-    for (const k of ks) a.keys.set(k, (a.keys.get(k) ?? 0) + 1);
-    const name = cleanLabel(t.name);
-    if (name !== "") a.names.set(name, (a.names.get(name) ?? 0) + 1);
-    const symbol = cleanLabel(t.symbol);
-    if (symbol !== "") a.symbols.set(symbol, (a.symbols.get(symbol) ?? 0) + 1);
+    const list = acc.get(gid);
+    if (list) list.push(t);
+    else acc.set(gid, [t]);
   });
 
   const groups: TokenGroup<T>[] = [];
-  for (const a of acc.values()) {
-    const key = a.keys.size > 0 ? mostFrequent(a.keys) : `unkeyed:${(a.tokens[0] as T).mint}`;
-    const label = a.names.size > 0 ? mostFrequent(a.names) : mostFrequent(a.symbols);
-    groups.push({ key, label, tokens: a.tokens });
+  const keyOf = new Map<T, string[]>(tokens.map((t, i) => [t, keysOf[i] as string[]]));
+  for (const list of acc.values()) {
+    // A token votes for its original spellings, except those whose alias form is a hub (they were never used to join anything).
+    const named = nameGroup(list, (t) => (keyOf.get(t) as string[]).filter((k) => !hubs.has(aliasOf(k))));
+    groups.push({ key: named.key ?? `unkeyed:${(list[0] as T).mint}`, label: named.label, tokens: list });
   }
   groups.sort((x, y) => y.tokens.length - x.tokens.length || cmpStr(x.key, y.key));
   return groups;

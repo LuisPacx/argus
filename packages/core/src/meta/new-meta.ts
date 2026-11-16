@@ -13,6 +13,7 @@ import { metaMoney } from "./summary.ts";
  * - Hysteresis (ADR 0014) already stops a Meta flapping at the entry cap, so there is no cool-down here; a subject that fell out and
  *   comes back is a new Meta again.
  * - A subject that was only Watching and is now a Meta is new.
+ * - A Meta that was re-keyed or renamed (the grouping step of ADR 0015) is not new while its leader is the one that led a Meta in the run before.
  */
 
 const MIN_MS = 60_000;
@@ -38,9 +39,12 @@ export function newMetaEvents(current: MetaCurrent, previous: MetaCurrent | unde
   const gapMin = (Date.parse(current.computedAt) - Date.parse(previous.computedAt)) / MIN_MS;
   if (!Number.isFinite(gapMin) || gapMin > config.stateMaxMinutes) return [];
   const was = new Set(previous.metas.map((m) => m.key));
+  // A subject renamed or re-keyed by the grouping step (ticket 06: `lucia` became `gta6`) is the same Meta while its leader is the one that led
+  // a Meta in the run before: the continuation of ADR 0014 follows the leader's mint, so a new key alone is not a new Meta.
+  const ledBefore = new Set(previous.metas.map((m) => m.leader.mint));
   const out: NewMetaNewEvent[] = [];
   current.metas.forEach((m, i) => {
-    if (was.has(m.key)) return;
+    if (was.has(m.key) || ledBefore.has(m.leader.mint)) return;
     out.push({
       key: m.key,
       label: m.label,

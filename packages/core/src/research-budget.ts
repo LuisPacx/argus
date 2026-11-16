@@ -52,12 +52,14 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
  */
 export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor">): RunCaps {
   // The subscription's caps, even while the API fallback is serving: Est. usage is charged at the subscription's per-run cap.
-  const route = (task: "judge" | "propose" | "meta-summary" | "meme-ideas") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
+  const route = (task: "judge" | "propose" | "meta-summary" | "meta-group" | "meme-ideas") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
   return {
     judge: route("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
     propose: route("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
     // The Meta summary line counts in the research share too (viral sources ticket 03, slice 5).
     "meta-summary": route("meta-summary").maxBudgetUsd ?? DEFAULT_ROUTING["meta-summary"].maxBudgetUsd,
+    // And the Meta grouping (meta redesign ticket 06, ADR 0015): its own $1.00 a day cap sits inside this budget.
+    "meta-group": route("meta-group").maxBudgetUsd ?? DEFAULT_ROUTING["meta-group"].maxBudgetUsd,
     // So do the meme ideas (missed ideas ticket 06): their own run cap is taken from this budget, not added to it.
     "meme-ideas": route("meme-ideas").maxBudgetUsd ?? DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd,
   };
@@ -67,6 +69,7 @@ export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = {
   judge: DEFAULT_ROUTING.judge.maxBudgetUsd,
   propose: DEFAULT_ROUTING.propose.maxBudgetUsd,
   "meta-summary": DEFAULT_ROUTING["meta-summary"].maxBudgetUsd,
+  "meta-group": DEFAULT_ROUTING["meta-group"].maxBudgetUsd,
   "meme-ideas": DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd,
 };
 

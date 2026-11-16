@@ -3,6 +3,7 @@ import { apiFallbackConfigFromEnv } from "./api-fallback.ts";
 import { judgeConfigFromEnv } from "./judge.ts";
 import { memeConfigFromEnv } from "./meme/pass.ts";
 import { metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
+import { metaGroupConfigFromEnv } from "./meta/group-pass.ts";
 import { metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { proposeConfigFromEnv } from "./propose.ts";
 import { researchConfigFromEnv } from "./research-budget.ts";
@@ -44,6 +45,7 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
   const fallback = apiFallbackConfigFromEnv(env);
   const meta = metaConfigFromEnv(env);
   const metaSummary = metaSummaryConfigFromEnv(env);
+  const metaGroup = metaGroupConfigFromEnv(env);
   const meme = memeConfigFromEnv(env);
   const rule = STUDY_CAPTURE_RULE;
   const onOff = (b: boolean) => (b ? "on" : "off");
@@ -72,6 +74,7 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
     `meta_state_min=${meta.stateMaxMinutes}`,
     `meta_summary_runs_24h=${metaSummary.maxRunsPerDay}`,
     `meta_summary_usd_24h=${metaSummary.maxDailyUsd}`,
+    `meta_group=${metaGroup.enabled ? "ai" : "off"}/$${metaGroup.maxDailyUsd.toFixed(2)}`,
     `meme_ideas=${onOff(meme.enabled)}`,
     `meme_runs_24h=${meme.config.maxRunsPerDay}`,
     `build_dry_run=${onOff(facts.buildDryRun)}`,

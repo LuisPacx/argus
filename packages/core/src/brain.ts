@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
-export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meme-ideas";
+export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas";
 export type BrainBackend = "claude-code" | "api";
 
 /** What a task needs to run: free-form text handed to the skill. */
@@ -144,6 +144,9 @@ export const DEFAULT_ROUTING: Routing = {
   spec: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 2, timeoutMs: 10 * MINUTE, tools: [] },
   // One short line about a Meta (viral sources ticket 03, slice 5): a judge-sized haiku run, no tools, and no API fallback (it waits out a rate limit).
   "meta-summary": { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.05, timeoutMs: 3 * MINUTE, tools: [] },
+  // Grouping and naming of the trending tokens and the top launch themes into subjects (meta redesign ticket 06, ADR 0015): one short JSON object from a
+  // haiku run with no tools (its input is untrusted token names), no API fallback (it waits out a rate limit and the tick groups by rules). Capped at $1.00 a day.
+  "meta-group": { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.05, timeoutMs: 2 * MINUTE, tools: [] },
   // Three meme ideas for a current Meta (missed ideas ticket 06, ADR 0013, amended by meta redesign ticket 03): one short JSON object from a sonnet run with no tools (its
   // input is untrusted token and news text), and no API fallback (it waits out a rate limit). A run of that size costs about ten cents.
   "meme-ideas": { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.3, timeoutMs: 5 * MINUTE, tools: [] },
