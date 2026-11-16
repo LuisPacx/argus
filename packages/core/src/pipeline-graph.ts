@@ -345,6 +345,7 @@ export const PIPELINE: PipelineGraph = {
         { label: "A trending token needs liquidity of at least", key: "META_RULE.topDownMinLiquidityUsd", ref: () => META_RULE.topDownMinLiquidityUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).topDownMinLiquidityUsd },
         { label: "A trending token's market cap may be at most this many times its liquidity", key: "META_RULE.topDownMaxCapLiquidityRatio", ref: () => META_RULE.topDownMaxCapLiquidityRatio, unit: "count", live: (env) => metaConfigFromEnv(env).topDownMaxCapLiquidityRatio },
         { label: "A trending token needs 24 h volume of at least", key: "META_RULE.topDownMinVolumeUsd", ref: () => META_RULE.topDownMinVolumeUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).topDownMinVolumeUsd },
+        { label: "Jupiter organic score at which the list's liquidity counts in DexScreener's verification", key: "META_RULE.topDownMinOrganicScore", ref: () => META_RULE.topDownMinOrganicScore, unit: "score", live: (env) => metaConfigFromEnv(env).topDownMinOrganicScore },
         { label: "Earlier Meta state older than this is not carried", key: "META_RULE.stateMaxMinutes", ref: () => META_RULE.stateMaxMinutes, unit: "min", live: (env) => metaConfigFromEnv(env).stateMaxMinutes },
         { label: "Ranked every", key: "DEFAULT_META_INTERVAL_MINUTES", ref: () => metaIntervalMinutes({}), unit: "min", diagram: true, live: (env) => metaIntervalMinutes(env) },
         { label: "Windows", key: "META_WINDOWS", ref: () => META_WINDOWS.join(", "), unit: "text" },

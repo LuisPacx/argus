@@ -31,6 +31,8 @@ export interface TopDownCandidate {
   /** The token's place (1 = first) on each list it was on. GeckoTerminal's is its best pool's place across the pages read. */
   ranks: Partial<Record<TopDownSource, number>>;
   createdAt?: string;
+  /** Jupiter's organic score (0 to 100), absent for a token not on Jupiter's list. Read by the verification. */
+  organicScore?: number;
 }
 
 /** A token the filter dropped, with the figures it had (absent where the lists gave none) and the reason, for the War Room and the replay. */
@@ -170,7 +172,7 @@ export function topDownCandidates(input: { jupiter: readonly JupiterToken[]; gec
       if (failed.length > 0) drop(`fake: ${failed.join("; ")}`);
       else {
         const created = [m.jupiter?.createdAt, ...m.pools.map((p) => p.createdAt)].filter((c): c is string => c !== undefined).sort()[0];
-        candidates.push({ ...base, marketCapUsd: marketCapUsd as number, liquidityUsd: liquidityUsd as number, volume24hUsd: volume24hUsd as number, ...(created !== undefined ? { createdAt: created } : {}) });
+        candidates.push({ ...base, marketCapUsd: marketCapUsd as number, liquidityUsd: liquidityUsd as number, volume24hUsd: volume24hUsd as number, ...(created !== undefined ? { createdAt: created } : {}), ...(m.jupiter?.organicScore !== undefined ? { organicScore: m.jupiter.organicScore } : {}) });
       }
     }
   }
@@ -195,12 +197,14 @@ export interface DexVerdict {
  * The DexScreener side of the filter: liquidity and 24 h volume summed over the token's pairs, market cap from the pair with the most
  * liquidity (market cap, else FDV). `pairs` are the answer's pairs for this one token.
  *
- * The cap-to-liquidity test reads the larger of DexScreener's summed liquidity and `listLiquidityUsd`, the token-level figure the trending
- * lists gave. Found on the live replay of 2026-11-16: the real GTA VI had $271k of liquidity on Jupiter's list but one $62k pair in
- * DexScreener's token lookup (the rest of its pools were not returned), so its cap stood at 123 times DexScreener's liquidity and the
- * strict reading refused the token this rule exists to find. Liquidity and volume minimums are still DexScreener's own.
+ * The cap-to-liquidity test reads the larger of DexScreener's summed liquidity and the list's token-level liquidity, but only when the
+ * token's Jupiter organic score is at least `topDownMinOrganicScore` (the Operator's decision, Q14 a). Found on the live replay of
+ * 2026-11-16: the real GTA VI (organic score 73) had $271k of liquidity on Jupiter's list but one $62k pair in DexScreener's token lookup,
+ * so its cap stood at 123 times DexScreener's liquidity and the strict reading refused the token this rule exists to find. A token with
+ * no Jupiter score (GeckoTerminal only) or a lower one is judged on DexScreener's liquidity alone, so a list figure cannot rescue a fake.
+ * Liquidity and volume minimums are always DexScreener's own.
  */
-export function verifyAgainstDex(pairs: readonly DexPair[], config: TopDownFilterConfig, listLiquidityUsd?: number): DexVerdict {
+export function verifyAgainstDex(pairs: readonly DexPair[], config: TopDownFilterConfig & Pick<MetaConfig, "topDownMinOrganicScore">, list?: { liquidityUsd?: number; organicScore?: number }): DexVerdict {
   if (pairs.length === 0) return { ok: false, reason: "no DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
   let deepest = pairs[0] as DexPair;
   let liquidityUsd = 0;
@@ -211,6 +215,7 @@ export function verifyAgainstDex(pairs: readonly DexPair[], config: TopDownFilte
     if (p.liquidityUsd > deepest.liquidityUsd) deepest = p;
   }
   const marketCapUsd = positive(deepest.marketCapUsd) ? deepest.marketCapUsd : positive(deepest.fdvUsd) ? deepest.fdvUsd : undefined;
-  const failed = fakeTestFailures({ marketCapUsd, liquidityUsd, volume24hUsd }, config, Math.max(liquidityUsd, listLiquidityUsd ?? 0));
+  const credited = list?.organicScore !== undefined && list.organicScore >= config.topDownMinOrganicScore ? (list.liquidityUsd ?? 0) : 0;
+  const failed = fakeTestFailures({ marketCapUsd, liquidityUsd, volume24hUsd }, config, Math.max(liquidityUsd, credited));
   return { ok: failed.length === 0, ...(failed.length > 0 ? { reason: failed.join("; ") } : {}), ...(marketCapUsd !== undefined ? { marketCapUsd } : {}), liquidityUsd, volume24hUsd };
 }

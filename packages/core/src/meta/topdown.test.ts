@@ -7,7 +7,7 @@ import { JupiterTokensClient, type JupiterToken } from "../sources/jupiter.ts";
 import { META_RULE } from "./config.ts";
 import { fakeTestFailures, isStockToken, STOCK_NAME_MARKERS, STOCK_TAGS, topDownCandidates, verifyAgainstDex } from "./topdown.ts";
 
-const config = { topDownMinLiquidityUsd: META_RULE.topDownMinLiquidityUsd, topDownMaxCapLiquidityRatio: META_RULE.topDownMaxCapLiquidityRatio, topDownMinVolumeUsd: META_RULE.topDownMinVolumeUsd };
+const config = { topDownMinLiquidityUsd: META_RULE.topDownMinLiquidityUsd, topDownMaxCapLiquidityRatio: META_RULE.topDownMaxCapLiquidityRatio, topDownMinVolumeUsd: META_RULE.topDownMinVolumeUsd, topDownMinOrganicScore: META_RULE.topDownMinOrganicScore };
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "../fixtures", name), "utf8");
 const GTA6 = "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz";
 const FAKE_GTA = "EcLbZ6Zc".padEnd(44, "f"); // the fake "GTA VI": $12.07B on $48.3M of liquidity and $2.28 of 24 h volume
@@ -202,13 +202,37 @@ describe("verifyAgainstDex: DexScreener's own figures", () => {
     expect(verifyAgainstDex([dexPair(300_000, undefined, 900_000, { fdvUsd: 7_000_000 })], config)).toMatchObject({ ok: true, marketCapUsd: 7_000_000 });
   });
 
-  it("the ratio test reads the larger of DexScreener's liquidity and the list's (live replay 2026-11-16: GTA VI is $7.67M on one $62k pair, but $271k on Jupiter's list)", () => {
+  describe("the list's liquidity counts only for a Jupiter organic score of at least 50 (Operator Q14 a)", () => {
+    // live replay 2026-11-16: GTA VI is $7.67M on one $62k DexScreener pair, but $271k on Jupiter's list, organic score 73
     const gta = [dexPair(62_331, 7_670_054, 746_088)];
-    expect(verifyAgainstDex(gta, config).reason).toBe("cap 123x liquidity (over 100x)"); // the strict reading refuses the real token
-    expect(verifyAgainstDex(gta, config, 271_310)).toMatchObject({ ok: true, marketCapUsd: 7_670_054, liquidityUsd: 62_331 });
-    expect(verifyAgainstDex(gta, config, 62_000).ok).toBe(false); // a list that shows no more liquidity does not help
-    // the minimums stay DexScreener's own: a deep list figure does not make up for a thin DexScreener pair or no volume
-    expect(verifyAgainstDex([dexPair(40_000, 2_000_000, 900_000)], config, 5_000_000).reason).toBe("liquidity $40,000 under $50,000");
-    expect(verifyAgainstDex([dexPair(300_000, 7_000_000, 20)], config, 5_000_000).reason).toBe("24 h volume $20 under $50,000");
+
+    it("GTA VI with score 73 passes on the list's $271k; the strict reading (no list) refuses it", () => {
+      expect(verifyAgainstDex(gta, config).reason).toBe("cap 123x liquidity (over 100x)");
+      expect(verifyAgainstDex(gta, config, { liquidityUsd: 271_310, organicScore: 73.17 })).toMatchObject({ ok: true, marketCapUsd: 7_670_054, liquidityUsd: 62_331 });
+      expect(verifyAgainstDex(gta, config, { liquidityUsd: 271_310, organicScore: 50 }).ok).toBe(true); // 50 itself counts
+    });
+
+    it("the fake with inflated list liquidity and a low score fails: the list figure is not credited", () => {
+      for (const organicScore of [49.9, 12, 0]) expect(verifyAgainstDex(gta, config, { liquidityUsd: 48_300_000, organicScore }).reason, String(organicScore)).toBe("cap 123x liquidity (over 100x)");
+    });
+
+    it("a candidate with no score (GeckoTerminal only, or an absent field) uses DexScreener's liquidity alone", () => {
+      expect(verifyAgainstDex(gta, config, { liquidityUsd: 48_300_000 }).reason).toBe("cap 123x liquidity (over 100x)");
+      expect(verifyAgainstDex(gta, config, {}).ok).toBe(false);
+    });
+
+    it("the knob moves the line, and the minimums stay DexScreener's own", () => {
+      expect(verifyAgainstDex(gta, { ...config, topDownMinOrganicScore: 80 }, { liquidityUsd: 271_310, organicScore: 73 }).ok).toBe(false);
+      expect(verifyAgainstDex(gta, { ...config, topDownMinOrganicScore: 0 }, { liquidityUsd: 271_310, organicScore: 0 }).ok).toBe(true);
+      const rich = { liquidityUsd: 5_000_000, organicScore: 90 };
+      expect(verifyAgainstDex([dexPair(40_000, 2_000_000, 900_000)], config, rich).reason).toBe("liquidity $40,000 under $50,000");
+      expect(verifyAgainstDex([dexPair(300_000, 7_000_000, 20)], config, rich).reason).toBe("24 h volume $20 under $50,000");
+    });
+  });
+
+  it("the Jupiter organic score reaches the candidate, and a Gecko-only one has none", () => {
+    const out = run([jup(1, { organicScore: 73 })], [pool(2)]);
+    expect(out.candidates.find((c) => c.mint === mintOf(1))!.organicScore).toBe(73);
+    expect(out.candidates.find((c) => c.mint === mintOf(2))).not.toHaveProperty("organicScore");
   });
 });

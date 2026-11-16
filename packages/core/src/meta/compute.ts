@@ -424,7 +424,7 @@ interface LeaderLookupInput {
  * never lost to the budget), then the top-down candidates (highest source market cap first). Previous leaders keep the rule of ADR 0014
  * (the largest market cap over a token's pairs, no filter), so a Meta already held is not dropped by the filter. A top-down candidate is
  * accepted only when DexScreener's own figures also pass the three tests of the fake-token filter (the cap-to-liquidity test reads the
- * larger of DexScreener's liquidity and the list's, see `verifyAgainstDex`), and its market cap is that of its deepest pair (ADR 0015
+ * larger of DexScreener's liquidity and the list's when Jupiter's organic score for the token is high enough, see `verifyAgainstDex`), and its market cap is that of its deepest pair (ADR 0015
  * decision 2): one that fails is logged and is no leader. A token DexScreener did not answer, or a call that failed
  * or fell outside the budget, simply yields no token here; `currentMetas` carries a previous leader at its last figure and never creates
  * a Meta from it. Three failed calls in a row end the lookups of the run.
@@ -446,6 +446,8 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
     topDown: boolean;
     /** The token-level liquidity the trending lists gave a top-down candidate (read by the cap-to-liquidity test of the verification). */
     listLiquidityUsd?: number;
+    /** The candidate's Jupiter organic score, when it is on Jupiter's list: the list's liquidity counts only above the knob. */
+    listOrganicScore?: number;
   }
   const known = new Map<string, Known>();
   const order: string[] = [];
@@ -461,7 +463,7 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
   }
   const byCap = (a: TopDownCandidate, b: TopDownCandidate) => b.marketCapUsd - a.marketCapUsd || cmpStr(a.mint, b.mint);
   for (const c of [...input.candidates].sort(byCap)) {
-    const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
+    const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, ...(c.organicScore !== undefined ? { listOrganicScore: c.organicScore } : {}), ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
     out.verdicts.set(c.mint, skipped(wanted ? "not looked up: leader call budget used" : "not looked up: already a previous leader or priced by a launch theme"));
   }
 
@@ -490,13 +492,13 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
         const created = k.createdAt ?? (first !== undefined && Number.isFinite(new Date(first).getTime()) ? new Date(first).toISOString() : undefined);
         let cap: number | undefined;
         if (k.topDown) {
-          const verdict = verifyAgainstDex(pairs, config, k.listLiquidityUsd);
+          const verdict = verifyAgainstDex(pairs, config, { ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}), ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}) });
           if (verdict.ok) {
             cap = verdict.marketCapUsd;
             out.verdicts.set(mint, { verified: true });
           } else {
             out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
-            input.log?.(`[meta] leader ${k.symbol || k.name || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
+            input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
           }
         } else {
           const caps = pairs.flatMap((p) => (p.marketCapUsd !== undefined && p.marketCapUsd > 0 ? [p.marketCapUsd] : []));

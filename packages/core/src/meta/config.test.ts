@@ -48,6 +48,14 @@ describe("meta config", () => {
     for (const raw of ["", "x", "1.5", "0", "-1"]) expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_CALLS: raw }).topDownCalls, raw).toBe(5);
   });
 
+  it("the organic-score line for crediting the list's liquidity is 50 by default, bounded 0 to 100, junk keeps 50", () => {
+    expect(META_RULE.topDownMinOrganicScore).toBe(50);
+    expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_MIN_ORGANIC: "70" }).topDownMinOrganicScore).toBe(70);
+    expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_MIN_ORGANIC: "0" }).topDownMinOrganicScore).toBe(0);
+    expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_MIN_ORGANIC: "100" }).topDownMinOrganicScore).toBe(100);
+    for (const raw of ["101", "-1", "x", "", "50.5"]) expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_MIN_ORGANIC: raw }).topDownMinOrganicScore, raw).toBe(50);
+  });
+
   it("a stay above enter keeps both defaults, and stay equal to enter is allowed", () => {
     expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "400000", ARGUS_META_STAY_MCAP_USD: "800000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
     expect(metaConfigFromEnv({ ARGUS_META_STAY_MCAP_USD: "1500000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });

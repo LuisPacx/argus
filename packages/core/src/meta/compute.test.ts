@@ -696,19 +696,38 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       expect(await run(thin, thinDex, 0)).toMatchObject({ metas: 0 });
     });
 
-    it("the cap-to-liquidity test reads the larger of DexScreener's liquidity and the list's: the real GTA VI replay shape ($7.67M on one $62k pair, $271k on the list) passes, a fake on both views does not", async () => {
-      const lists = (liquidityUsd: number) => async (): Promise<TopDownResult> => ({ candidates: [{ mint: GTA_MINT, name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_300_000, liquidityUsd, volume24hUsd: 1_085_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 15, geckoterminal: 9 } }], dropped: [], requests: 4, errors: [] });
+    it("the list's liquidity counts in the cap-to-liquidity test only for a Jupiter organic score of 50 or more: GTA VI (73) passes; a low score, or no score, is judged on DexScreener alone", async () => {
       const GTA_MINT = "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz";
+      const lists = (liquidityUsd: number, organicScore?: number, name = "GTA VI") => async (): Promise<TopDownResult> => ({ candidates: [{ mint: GTA_MINT, name, symbol: "GTA6", marketCapUsd: 7_300_000, liquidityUsd, volume24hUsd: 1_085_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 15, geckoterminal: 9 }, ...(organicScore !== undefined ? { organicScore } : {}) }], dropped: [], requests: 4, errors: [] });
       const dex: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054, { liquidityUsd: 62_331, volume24hUsd: 746_088 })]; } };
-      const real = Datastore.open(":memory:");
-      launchMany(real, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
-      expect(await run(real, dex, 0, { topDown: lists(271_000) })).toMatchObject({ metas: 1 });
+      const fresh = () => {
+        const s = Datastore.open(":memory:");
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+        return s;
+      };
+      const real = fresh();
+      expect(await run(real, dex, 0, { topDown: lists(271_000, 73) })).toMatchObject({ metas: 1 });
       expect(real.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: GTA_MINT, marketCapUsd: 7_670_054, source: "trending" });
-      const fake = Datastore.open(":memory:");
-      launchMany(fake, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+      // the fake: inflated list liquidity, low score
+      const low = logged();
+      expect(await run(fresh(), dex, 0, { topDown: lists(48_300_000, 12), log: low.log })).toMatchObject({ metas: 0 });
+      expect(low.lines).toEqual(["[meta] leader GTA6 failed verification: cap 123x liquidity (over 100x)"]);
+      // no score (GeckoTerminal only): DexScreener's liquidity alone
+      const none = logged();
+      expect(await run(fresh(), dex, 0, { topDown: lists(48_300_000), log: none.log })).toMatchObject({ metas: 0 });
+      expect(none.lines).toEqual(low.lines);
+      // the knob moves the line
+      expect(await run(fresh(), dex, 0, { topDown: lists(271_000, 73), config: { ...cfg, topDownMinOrganicScore: 80 } })).toMatchObject({ metas: 0 });
+    });
+
+    it("a creator's newline or control character in a token name never reaches a log line", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const candidate: TopDownCandidate = { mint: mintOf(), name: "Jensen\nHuang", symbol: "JEN\r\nSEN\u0007\u001b[2J", marketCapUsd: 3_000_000, liquidityUsd: 500_000, volume24hUsd: 500_000, sources: ["jupiter"], ranks: { jupiter: 1 } };
       const log = logged();
-      expect(await run(fake, dex, 0, { topDown: lists(62_000), log: log.log })).toMatchObject({ metas: 0 });
-      expect(log.lines).toEqual(["[meta] leader GTA6 failed verification: cap 123x liquidity (over 100x)"]);
+      await run(store, { async tokenPairs() { return []; } }, 0, { topDown: async () => ({ candidates: [candidate], dropped: [], requests: 0, errors: [] }), log: log.log });
+      expect(log.lines).toEqual(["[meta] leader JEN SEN[2J failed verification: no DexScreener pair"]);
+      expect(log.lines[0]).not.toMatch(/[\u0000-\u001f]/);
     });
 
     it("a previous Meta's leader is looked up first and kept on the old rule: it holds with figures the filter would refuse", async () => {
