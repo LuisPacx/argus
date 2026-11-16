@@ -192,7 +192,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
 
         <section v-if="p.status === 'new' && isMeme" class="surface grid gap-3" data-test="shortlist-section">
           <h3 class="section-title">Decide</h3>
-          <p class="note muted">Shortlisting a meme idea starts no Spec and no Build: it only keeps the idea for 7 days instead of 6 hours. Dismiss needs a reason.</p>
+          <p class="note muted">Shortlisting a meme idea starts no Spec and no Build: it only keeps the idea for 7 days instead of 12 hours. Dismiss needs a reason.</p>
           <div class="flex flex-wrap items-center gap-2">
             <button class="btn btn-primary" :disabled="working || sending" @click="send('shortlist')">Shortlist</button>
             <template v-if="!dismissingMeme">
@@ -216,7 +216,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
 
         <section v-if="p.status === 'shortlisted' && isMeme" class="surface grid gap-3" data-test="undo-section">
           <h3 class="section-title">Shortlist</h3>
-          <p class="note muted">Shortlisted: the idea stays for 7 days. Undo takes it back to new (it closes 6 hours after it was made). It is not a dismissal.</p>
+          <p class="note muted">Shortlisted: the idea stays for 7 days. Undo takes it back to new (it closes 12 hours after it was made). It is not a dismissal.</p>
           <div class="flex flex-wrap items-center gap-2">
             <button class="btn" :disabled="!canUndo" @click="send('undo-shortlist')">Undo shortlist</button>
             <template v-if="!dismissingMeme">

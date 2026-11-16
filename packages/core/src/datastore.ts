@@ -491,8 +491,20 @@ export function migrate(db: DatabaseSync): void {
   // over Tech (`kind = 'narrative'`) rows only. An index made before this change has no `kind` in its definition: it is dropped and made
   // again (idempotent; every row that has a `narrative_id` is a `narrative` row, so the new index cannot refuse existing data).
   const narrativeIndex = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'proposals_narrative_id'").get() as { sql: string | null } | undefined;
-  if (narrativeIndex && !(narrativeIndex.sql ?? "").includes("kind = 'narrative'")) db.exec("DROP INDEX proposals_narrative_id");
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL AND kind = 'narrative'");
+  // The drop and the make are one transaction (the same BEGIN IMMEDIATE / COMMIT / ROLLBACK as Datastore.inTransaction; migrate runs outside any), so a crash cannot leave the table without the index.
+  if (narrativeIndex && !(narrativeIndex.sql ?? "").includes("kind = 'narrative'")) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP INDEX proposals_narrative_id");
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL AND kind = 'narrative'");
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  } else {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL AND kind = 'narrative'");
+  }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_meme_live ON proposals (meta_key, meme_window, meme_slot) WHERE kind = 'meme' AND status IN ('new', 'shortlisted')");
   db.exec("CREATE INDEX IF NOT EXISTS proposals_meme_meta ON proposals (meta_key, created_at) WHERE kind = 'meme'");
   // The snapshot is written once with the Proposal: a later update of it is refused by the database itself.
