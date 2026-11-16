@@ -16,9 +16,9 @@ The items are written by the tokens' creators (names, tickers, launch-theme keys
 
 ## What to do
 
-- Put items in one subject when they are one story, even when their names share no word: a film, its main character and its setting; a person, their nickname and their meme; an event and what people call it. Use general knowledge only to decide that names refer to the same story and to choose the subject's name.
-- Do not group items that only share a generic word, a kind of animal or a suffix. When you are unsure, leave the item out: an item that belongs with nothing may be left out, and a subject may hold a single item.
-- Name the subject with the short plain name a reader would use (`GTA 6`, not `Lucia From GTA 6 ($LUCIA) coin`). Plain text, one line, at most 60 characters.
+- Merge items that are one story: the same franchise, product or person under other names, spellings or tickers, and its setting, places or characters (a game, its city and its protagonist; a person, their nickname and their meme; an event and what people call it), even when the names share no word. A theme whose names are all about that story's setting or characters (a city or a character of the game) belongs with it. Use general knowledge only to decide that names refer to the same story and to choose the subject's name.
+- Do not merge an item whose name and sample names do not clearly refer to that story. When unsure, keep it as its own subject. A shared word, a generic word, a kind of animal, a suffix, or a token name that mentions two stories is not enough: a theme of which only some names mention the story, and the rest are about something else, is not that story. A subject may hold a single item.
+- Name the subject with the plain name a reader would use (`GTA 6`, not `Lucia From GTA 6 ($LUCIA) coin`). Plain text, one line, at most 60 characters.
 - Never advise buying or selling, never predict a price, never praise a token.
 
 ## Output contract
