@@ -572,6 +572,12 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
   }
   const byCap = (a: TopDownCandidate, b: TopDownCandidate) => b.marketCapUsd - a.marketCapUsd || cmpStr(a.mint, b.mint);
   for (const c of [...input.candidates].sort(byCap)) {
+    // A previous leader that is also trending keeps the list's liquidity and organic score for its verification (the Q14 credit), else it would fail the strict 100x on its next tick.
+    const held = known.get(c.mint);
+    if (held && !held.topDown) {
+      held.listLiquidityUsd = c.liquidityUsd;
+      if (c.organicScore !== undefined) held.listOrganicScore = c.organicScore;
+    }
     const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, ...(c.organicScore !== undefined ? { listOrganicScore: c.organicScore } : {}), ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
     out.verdicts.set(c.mint, skipped(wanted ? "not looked up: leader call budget used" : "not looked up: already a previous leader or priced by a launch theme"));
   }

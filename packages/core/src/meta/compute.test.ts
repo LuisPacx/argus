@@ -762,6 +762,22 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       expect(log.lines.some((l) => l.includes("failed verification"))).toBe(true);
     });
 
+    it("a previous leader that is trending again keeps the list's liquidity credit: a credited one (score 73) stays fresh on tick two, an uncredited one over 100x is carried stale", async () => {
+      const GTA_MINT = "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz";
+      const lists = (organicScore: number) => async (): Promise<TopDownResult> => ({ candidates: [{ mint: GTA_MINT, name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_300_000, liquidityUsd: 271_000, volume24hUsd: 1_085_000, sources: ["jupiter"], ranks: { jupiter: 15 }, organicScore }], dropped: [], requests: 1, errors: [] });
+      const deep: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054)]; } };
+      const thin: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054, { liquidityUsd: 62_331, volume24hUsd: 746_088 })]; } };
+      const twoTicks = async (organicScore: number) => {
+        const s = Datastore.open(":memory:");
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+        await run(s, deep, 0, { topDown: lists(organicScore) });
+        await run(s, thin, 15, { topDown: lists(organicScore) });
+        return s.currentMetas()!.metas[0]!.leader;
+      };
+      expect(await twoTicks(73)).toMatchObject({ mint: GTA_MINT, marketCapUsd: 7_670_054, stale: false });
+      expect(await twoTicks(12)).toMatchObject({ mint: GTA_MINT, stale: true });
+    });
+
     it("looks up previous leaders first, then candidates by the lists' market cap, highest first, within leaderCalls (100 candidates, 2 calls: exactly 2 calls of 30)", async () => {
       const store = Datastore.open(":memory:");
       const all = Array.from({ length: 100 }, (_, i) => {
