@@ -9,6 +9,20 @@ export const fmtWhen = (iso: string): string => {
   return (d.getFullYear() === new Date().getFullYear() ? WHEN : WHEN_YEAR).format(d);
 };
 
+const UTC_WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** "6 Nov 23:49 UTC": the text a relative time shows until the client clock is set (the same on the server and in any browser time zone); "" when `iso` is not a date. */
+export const fmtUtc = (iso: string): string => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${UTC_WHEN.format(d).replace(",", "")} UTC`;
+};
+
+/** "04:10:02 UTC"; "" when `iso` is not a date. */
+export const fmtUtcClock = (iso: string): string => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${d.toISOString().slice(11, 19)} UTC`;
+};
+
 /** The first letters of a Rubric dimension key, for the compact score bars in list rows. */
 export const abbrev = (key: string): string => (key.length <= 4 ? key : key.slice(0, 3));
 

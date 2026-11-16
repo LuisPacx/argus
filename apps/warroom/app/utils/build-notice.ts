@@ -1,5 +1,6 @@
 // What an approved Proposal says about its Build, from the Proposal API's own fields. The refusal message holds a filesystem path, an
 // image tag or a variable name; the component draws it as text only (no raw-HTML directive).
+import { fmtUtcClock } from "./format.ts";
 
 /** The part of GET /api/proposals/:id this reads (the server's `ProposalBuildStatus` plus `status`; the server test types the response with it). */
 export interface BuildNoticeInput {
@@ -16,8 +17,9 @@ export interface BuildNoticeView {
   checked: string | null;
 }
 
-/** "12 s ago", "3 min ago", "2 h ago". */
-function checkedAge(iso: string, nowMs: number): string {
+/** "12 s ago", "3 min ago", "2 h ago"; "04:10:02 UTC" while the clock is 0 (before mount). */
+export function checkedAge(iso: string, nowMs: number): string {
+  if (nowMs <= 0) return fmtUtcClock(iso);
   const s = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 1000));
   if (!Number.isFinite(s)) return "";
   if (s < 60) return `${s} s ago`;

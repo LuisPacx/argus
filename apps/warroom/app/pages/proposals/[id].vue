@@ -28,10 +28,12 @@ if (p.value?.specHash) await loadSpec();
 const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }));
 // A meme Proposal (ADR 0013) is an idea for a Meta, with no Narrative, Tech, Spec or Score: its card is the idea, the Meta's snapshot and the evidence.
 const isMeme = computed(() => p.value?.kind === "meme");
-const meme = computed(() => (p.value && p.value.kind === "meme" ? memeView(p.value, Date.now()) : null));
+// 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
+const nowMs = useNowMs();
+const meme = computed(() => (p.value && p.value.kind === "meme" ? memeView(p.value, nowMs.value) : null));
 
-// Refreshed by the 3 s poll below: `p` changes, so the "last checked" age recomputes.
-const buildNotice = computed(() => (p.value ? buildNoticeView(p.value, Date.now()) : null));
+// Recomputes when the clock ticks and when the 3 s poll below changes `p`.
+const buildNotice = computed(() => (p.value ? buildNoticeView(p.value, nowMs.value) : null));
 
 const pending = computed(() => commands.value.some((c) => c.proposalId === p.value?.id && c.status === "pending"));
 const working = computed(() => !!p.value?.brainRunInFlightSince || !!p.value?.specRevision || pending.value);

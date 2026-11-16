@@ -1,6 +1,7 @@
 // What the home page's "Current Meta (last 24h)" section shows. The ranking, the grouping and the summary line all come from the
 // worker through GET /api/metas; this file only turns that payload into display text. Every string in the payload is creator-written
 // or model text: it is cut here and rendered as text only, and a link exists only where `safeHttpUrl` accepted the URL.
+import { fmtUtc } from "./format.ts";
 import { safeHttpUrl } from "./safe-link.ts";
 import { ideaViews, type MetaIdeaPayload, type MetaIdeaView } from "./meme.ts";
 
@@ -68,10 +69,14 @@ export function trendWord(tokens6h: number, tokens24h: number): MetaTrendWord | 
 
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 
-/** "just now", "12 minutes ago", "14 hours ago", "3 days ago"; a time in the future (clock skew) reads "just now"; null when `iso` is not a date. */
+/**
+ * "just now", "12 minutes ago", "14 hours ago", "3 days ago"; a time in the future (clock skew) reads "just now"; null when `iso` is not a date.
+ * With `nowMs <= 0` (the clock before mount) it is the absolute UTC time, "6 Nov 23:49 UTC", the same on the server and the first client render.
+ */
 export function ageText(iso: string, nowMs: number): string | null {
   const then = Date.parse(iso);
   if (!Number.isFinite(then) || !Number.isFinite(nowMs)) return null;
+  if (nowMs <= 0) return fmtUtc(iso);
   const mins = Math.floor((nowMs - then) / 60_000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${plural(mins, "minute")} ago`;
@@ -214,7 +219,7 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
   });
   const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const computedMs = Date.parse(computedAt);
-  if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
+  if (nowMs > 0 && Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
     return { state: "stale", rows, footer, note: `The launch-theme ranking is stale (computed ${plural(hours, "hour")} ago).`, coverageNote };
   }
@@ -325,7 +330,7 @@ export function currentMetaView(payload: CurrentMetaPayload | null | undefined, 
   const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const emptyNote = metas.length === 0 ? "No Meta right now" : null;
   const computedMs = Date.parse(computedAt);
-  if (Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
+  if (nowMs > 0 && Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
     return { state: "stale", metas, watching, emptyNote, note: `The Meta run is stale (computed ${plural(hours, "hour")} ago).`, footer, coverageNote };
   }

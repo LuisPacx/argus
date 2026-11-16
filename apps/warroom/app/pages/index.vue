@@ -110,16 +110,13 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(newMetaTimer));
 
-const nowMs = ref(Date.now());
+// 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
+const nowMs = useNowMs();
 const metaSection = computed(() => currentMetaView(currentMeta.value, nowMs.value));
 const newMetaSection = computed(() => newMetaView(newMetas.value, nowMs.value));
-let clock: ReturnType<typeof setInterval> | undefined;
-onMounted(() => {
-  clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
-});
-onBeforeUnmount(() => clearInterval(clock));
 // Time left before a stale Proposal closes itself (the worker closes it; a Brain run in flight holds it off).
 const timeLeft = (expiresAt: string) => {
+  if (nowMs.value <= 0) return `Expires ${fmtUtc(expiresAt)}`;
   const mins = Math.floor((new Date(expiresAt).getTime() - nowMs.value) / 60_000);
   if (mins <= 0) return "Expires on the next worker tick";
   if (mins < 60) return `Expires in ${mins} min`;
@@ -129,6 +126,7 @@ const timeLeft = (expiresAt: string) => {
 
 // How long ago a Narrative started (the card's Narrative age).
 const narrativeAge = (since: string) => {
+  if (nowMs.value <= 0) return fmtUtc(since);
   const mins = Math.max(0, Math.floor((nowMs.value - new Date(since).getTime()) / 60_000));
   if (mins < 60) return `${mins} min`;
   const hours = Math.floor(mins / 60);

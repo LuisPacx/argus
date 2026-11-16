@@ -2,7 +2,7 @@
 // made (the stored snapshot) and the evidence links. Every string here is model-written (the idea), creator-written (token names) or
 // third-party (headlines): it is cut here, rendered as text only, and a link exists only where `safeHttpUrl` accepted the URL.
 import { ageText, clampText, tokenViews, type MetaTokenView } from "./meta.ts";
-import { bareUrl } from "./format.ts";
+import { bareUrl, fmtUtc } from "./format.ts";
 import { safeHttpUrl } from "./safe-link.ts";
 
 const NAME_CHARS = 40;
@@ -253,7 +253,7 @@ export interface MetaIdeaView {
   status: string;
   angle: string;
   riskLabels: string[];
-  /** "closes in 5 h" for an idea in new, "shortlisted" for a shortlisted one. */
+  /** "closes in 5 h" (or "closes 17 Nov 04:10 UTC" before the client clock is set) for an idea in new, "shortlisted" for a shortlisted one. */
   expires: string | null;
 }
 
@@ -264,7 +264,13 @@ export function ideaViews(ideas: readonly MetaIdeaPayload[] | undefined, nowMs: 
     const name = clampText(i.name, NAME_CHARS);
     if (name === "") return [];
     const left = typeof i.expiresAt === "string" ? Math.floor((Date.parse(i.expiresAt) - nowMs) / 60_000) : Number.NaN;
-    const expires = i.status !== "new" || !Number.isFinite(left) ? (i.status === "shortlisted" ? "shortlisted" : null) : left <= 0 ? "closes on the next worker tick" : left < 60 ? `closes in ${left} min` : `closes in ${Math.floor(left / 60)} h`;
+    const expires =
+      i.status !== "new" || !Number.isFinite(left)
+        ? i.status === "shortlisted" ? "shortlisted" : null
+        : nowMs <= 0 ? `closes ${fmtUtc(i.expiresAt ?? "")}`
+        : left <= 0 ? "closes on the next worker tick"
+        : left < 60 ? `closes in ${left} min`
+        : `closes in ${Math.floor(left / 60)} h`;
     return [{ id: i.id, href: `/proposals/${i.id}`, name, ticker: clampText(i.ticker, TICKER_CHARS), status: clampText(i.status, 20), angle: clampText(i.angle, ANGLE_CHARS), riskLabels: riskLabelsOf({ riskLabels: i.riskLabels }), expires }];
   });
 }

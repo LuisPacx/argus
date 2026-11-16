@@ -12,10 +12,10 @@ const { data: current, refresh: refreshCurrent } = await useFetch("/api/current-
 
 const { data: newMetas, refresh: refreshNewMeta } = await useFetch("/api/new-metas", { default: () => null });
 
-const nowMs = ref(Date.now());
+// 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
+const nowMs = useNowMs();
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 let newMetaTimer: ReturnType<typeof setInterval> | undefined;
-let clock: ReturnType<typeof setInterval> | undefined;
 const themes = ref<HTMLDetailsElement | null>(null);
 // The fragment names the closed list (or a theme row inside it): open it so the target is visible.
 const openForHash = () => {
@@ -33,14 +33,12 @@ const openForHash = () => {
 onMounted(() => {
   metaTimer = setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS);
   newMetaTimer = setInterval(() => void refreshNewMeta(), NEW_META_POLL_MS);
-  clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
   openForHash();
 });
 watch(() => route.hash, () => nextTick(openForHash));
 onBeforeUnmount(() => {
   clearInterval(metaTimer);
   clearInterval(newMetaTimer);
-  clearInterval(clock);
 });
 
 const view = computed(() => metaView(metas.value, nowMs.value, { rows: 50, window: window.value }));

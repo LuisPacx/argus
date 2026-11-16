@@ -68,13 +68,10 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(timer));
 
-const nowMs = ref(Date.now());
-let clock: ReturnType<typeof setInterval> | undefined;
-onMounted(() => {
-  clock = setInterval(() => (nowMs.value = Date.now()), 30_000);
-});
-onBeforeUnmount(() => clearInterval(clock));
+// 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
+const nowMs = useNowMs();
 const age = (createdAt: string) => {
+  if (nowMs.value <= 0) return fmtUtc(createdAt);
   const mins = Math.max(0, Math.floor((nowMs.value - new Date(createdAt).getTime()) / 60_000));
   if (mins < 60) return `${mins} min`;
   const hours = Math.floor(mins / 60);

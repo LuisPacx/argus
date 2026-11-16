@@ -9,19 +9,13 @@ const animate = !useNuxtApp().isHydrating;
 
 const refresh = () => void Promise.all([refreshSources(), refreshNarratives(), refreshRuns(), refreshUsage()]);
 
-// The clock starts at a fixed value so the server and the first client render agree; it is set to the real time on mount.
-const nowMs = ref(0);
+// 0 until mounted, so the server and the first client render agree; see composables/useNowMs.ts.
+const nowMs = useNowMs(1_000);
 let poll: ReturnType<typeof setInterval> | undefined;
-let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  nowMs.value = Date.now();
   poll = setInterval(refresh, 10_000);
-  clock = setInterval(() => (nowMs.value = Date.now()), 1_000);
 });
-onBeforeUnmount(() => {
-  clearInterval(poll);
-  clearInterval(clock);
-});
+onBeforeUnmount(() => clearInterval(poll));
 
 const clockTime = (iso: string) => new Date(iso).toISOString().slice(11, 19) + " UTC";
 const span = (secs: number) => {

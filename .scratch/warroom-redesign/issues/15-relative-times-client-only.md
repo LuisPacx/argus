@@ -3,7 +3,7 @@
 
 **What to build:** every relative time on the War Room ("40 minutes ago", "Expires in 12 min", "closes in 3 h", "last checked 12 s ago") is computed from a shared clock that is `0` on the server and on the first client render, and set to the real time on mount. Until then the text is an absolute UTC time, the same on both sides. Approved by the user 2026-11-16 (`.scratch/cos.md`, "yes relative-time ticket").
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none. (Follows 14, whose seeded runs exposed it.)
 
@@ -86,3 +86,5 @@ One commit after the full `pnpm check`. Subject `War Room ticket 15: relative ti
 ## Comments
 
 - **Written 2026-11-16** after the user's approval ("yes relative-time ticket", `cos.md` 11-16 USER).
+- **Decisions 2026-11-16:** the user accepted every recommended answer to the five open questions: (1) shared clock, no `<RelativeTime>` component; (2) absolute UTC text on the first render; (3) `fmtWhen` time zone stays a separate follow-up ticket, not done here; (4) 30 s tick everywhere except `activity.vue` (1 s); (5) stale notes appear after mount.
+- **Done 2026-11-16.** `useNowMs()` (`app/composables/useNowMs.ts`, 0 until mounted) now feeds index, meta, narratives, proposal and activity pages; `ageText`, `ideaViews`, `checkedAge` and the page countdown helpers show absolute UTC text (`fmtUtc`, `fmtUtcClock` in `utils/format.ts`) while the clock is 0. Tests: `apps/warroom/server/test/relative-times.test.ts` (view text equal under two stubbed `Date.now()` values and no "ago", relative form with a real clock, TZ-independent UTC text, stale note waits, source scan of utils and pages). The tests render the view functions, not full page components. Seeded `pnpm page:check --seed --all`, 10 runs one after another: exit codes 0 0 0 0 0 0 0 0 0 0; every run 8 pages, each "console errors: 0, page errors: 0, failed requests: 0"; no "Hydration" line in any run. Screenshots in `/var/tmp/page-check/` (for example `proposals-4-390.png`, `proposals-5-390.png`). Boxes left for cos.
