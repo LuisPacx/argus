@@ -33,7 +33,7 @@
 - [x] The Meta tick's streak rule is unchanged: three calls that fail after their retries end the lookups, and a call that succeeds on its retry resets the streak (counting fake client in `compute.test.ts`).
 - [x] The trending Source and the collision checks keep their tests unchanged and green (`dexscreener.test.ts`, `backoff.test.ts`, `collision*.test.ts`); no test waits on a real timer longer than 100 ms.
 - [x] Type-check and the full `pnpm check` pass, run once before the commit.
-- [x] Post-deploy (not a test; the builder cannot do it): after the next restart, `grep -c "DexScreener lookup failed" <worker log>` over a day is recorded in the ticket's Comments with the count of `[dexscreener] retry` lines. A day with 0 failures and some retries is the pass; a day with no retries says only that no failure happened.
+- [ ] Post-deploy (not a test; the builder cannot do it): after the next restart, `grep -c "DexScreener lookup failed" <worker log>` over a day is recorded in the ticket's Comments with the count of `[dexscreener] retry` lines. A day with 0 failures and some retries is the pass; a day with no retries says only that no failure happened.
 
 ## Constraints
 
@@ -50,3 +50,4 @@
 
 - **Written 2026-11-16** from the user's decisions in `.scratch/cos.md`. Code read: `sources/dexscreener.ts`, `sources/http.ts`, `sources/backoff.ts`, `meta/compute.ts`, worker `main.ts` (clients at `:223`, `:336`, `:367`).
 - **Post-deploy 2026-11-16 (restart 07:08:00Z, first Meta tick 07:08:10Z):** since this start, `[dexscreener] retry` lines: 0; `DexScreener lookup failed` lines: 0 (the first Meta tick made 20 DexScreener calls, 0 failed). `lookup failed` lines in the 24 h before the restart: 3 (2026-11-15 17:02Z, keys `lucia`, `bounty`, `steven`). Box ticked on the 0-failures basis; the retry path itself has not fired on live data yet.
+- 2026-11-16: post-deploy box reopened: the 07:08Z counts cover minutes, not a day; re-count after 2026-11-17 07:08Z.
