@@ -56,7 +56,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     try {
       const narratives = store.listNarratives();
       const claudeCalls = existsSync(claudeLog) ? readFileSync(claudeLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : [];
-      return { code, out, listed: store.queryNarratives({ limit: 500, kind: "news" }), signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
+      return { code, out, listed: store.queryNarratives({ limit: 500, kind: "news" }), launchpad: store.queryNarratives({ limit: 500, kind: "launchpad" }), signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
     } finally {
       store.close();
     }
@@ -155,11 +155,14 @@ const storyFeed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Story
 <item><title>Moon Cat ($MCAT)</title><link>https://story.example.org/moon</link><description>d</description><guid>story-1</guid><pubDate>Sun, 15 Jun 2026 08:00:00 GMT</pubDate></item>
 </channel></rss>`;
 it("the same one-shot tick then judges and proposes only the Narratives with a market Signal and a news Signal (ticket 24, ticket 05)", async () => {
-  const { code, out, listed, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:other", path: "/other" }, { id: "rss:story", path: "/story" }], { ...extraRoutes, "/story": { status: 200, body: storyFeed } }, extraEnv, MARKET_NARRATIVES);
+  const { code, out, listed, launchpad, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:other", path: "/other" }, { id: "rss:story", path: "/story" }], { ...extraRoutes, "/story": { status: 200, body: storyFeed } }, extraEnv, MARKET_NARRATIVES);
   expect(code).toBe(0);
   const market = listed.filter((n) => n.sourceClass === "market");
   expect(market).toHaveLength(MARKET_NARRATIVES);
   expect(listed.length).toBeGreaterThan(market.length); // context-only Narratives exist and are left alone
+  // The second token (Rocket Bot, no headline) is a launchpad-kind Narrative: it is never judged.
+  expect(launchpad.length).toBeGreaterThan(0);
+  expect(scores.some((s) => launchpad.some((n) => n.id === s.narrativeId))).toBe(false);
   expect(out).toContain(`[worker] judge tick: ${market.length} scored, 0 refused, 0 failed`);
   const judgeCalls = claudeCalls.filter((c) => c.argv[1]!.startsWith("/judge\n\n"));
   expect(judgeCalls).toHaveLength(market.length);

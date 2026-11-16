@@ -310,7 +310,7 @@ describe("DexScreener tokens never found a news Narrative (proposal-routing tick
     expect(ds.listNarratives(100).find((n) => n.title === "Poppy ($POPPY)")).toBeDefined();
   });
 
-  it("a token near an existing news Narrative still joins it, and a later token of the same name then joins that one", async () => {
+  it("a token near an existing news Narrative joins it, and no new Narrative is started", async () => {
     const ds = Datastore.open(":memory:");
     const headline: Signal = { id: "rss:test:poppy", sourceId: "rss:test", sourceLabel: "Test", title: "Poppy ($POPPY)", summary: "", url: "", publishedAt: "2026-11-10T20:00:00.000Z" };
     ds.recordSignals([headline, dex("A", "Poppy ($POPPY)")], NOW);

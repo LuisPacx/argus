@@ -1582,7 +1582,7 @@ export class Datastore {
    * counts against the run cap; it becomes eligible the moment it gains Signals to reach the minimum. Default 1 (no filter); the
    * judge passes `JudgeConfig.minSignals`. Order: busiest first.
    * Also left out: a Narrative with no market Signal (ticket 24, `sources/source-class.ts`): context Signals are background only. Same
-   * for a skipped Narrative: no run, no cap use; it is eligible the moment it gains a market Signal.
+   * for a skipped Narrative: no run, no cap use; it is eligible the moment it gains a market Signal and a news Signal (HAS_NEWS_SIGNAL).
    */
   narrativesToJudge(
     embedder: NarrativeEmbedder,
