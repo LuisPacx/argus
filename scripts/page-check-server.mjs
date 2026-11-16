@@ -142,8 +142,8 @@ export async function startSeededServer({ port = SEED_DEFAULT_PORT, now, base = 
     const logFd = fs.openSync(logFile, 'a');
     const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(port), '--strictPort'], {
       cwd: ROOT,
-      // ARGUS_NO_DOTENV: never the operator's .env. TMPDIR: inside the throwaway dir, never /tmp.
-      env: { ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', TMPDIR: serverTmp },
+      // ARGUS_NO_DOTENV: never the operator's .env. ARGUS_NUXT_BUILD_DIR: own build dir (see nuxt.config.ts), so no shared .nuxt/ and no lock clash with the live server. TMPDIR: inside the throwaway dir, never /tmp.
+      env: { ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt'), TMPDIR: serverTmp },
       detached: true,
       stdio: ['ignore', logFd, logFd],
     });
