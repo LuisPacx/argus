@@ -140,12 +140,17 @@ function blockTelegram(): () => void {
     ARGUS_TELEGRAM_URL: process.env.ARGUS_TELEGRAM_URL,
     ARGUS_DEXSCREENER_SEARCH_URL: process.env.ARGUS_DEXSCREENER_SEARCH_URL,
     ARGUS_GITHUB_SEARCH_URL: process.env.ARGUS_GITHUB_SEARCH_URL,
+    ARGUS_JUPITER_URL: process.env.ARGUS_JUPITER_URL,
+    ARGUS_GECKOTERMINAL_URL: process.env.ARGUS_GECKOTERMINAL_URL,
   };
   process.env.ARGUS_NO_DOTENV = "1";
   process.env.ARGUS_TELEGRAM_URL = "http://127.0.0.1:1";
   // The collision checks of a worker a test spawns reach DexScreener and GitHub through these: dead too, so a check there is "unknown".
   process.env.ARGUS_DEXSCREENER_SEARCH_URL = "http://127.0.0.1:1";
   process.env.ARGUS_GITHUB_SEARCH_URL = "http://127.0.0.1:1";
+  // The Meta tick's top-down lists (meta-redesign ticket 05): dead too, so a worker's tick reads "no top-down candidates" and never the real lists.
+  process.env.ARGUS_JUPITER_URL = "http://127.0.0.1:1/";
+  process.env.ARGUS_GECKOTERMINAL_URL = "http://127.0.0.1:1";
   return () => {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];

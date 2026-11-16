@@ -60,6 +60,28 @@ describe("meta persistence", () => {
     expect(tables(path)).toEqual(before);
   });
 
+  it("meta_candidates (ADR 0015) migrates additively and idempotently: a database from before it gets the table, a reopen changes nothing, the existing rows are untouched", () => {
+    const path = join(tempDir("meta-cand-"), "argus.db");
+    const first = Datastore.open(path);
+    first.meta.saveRun(run(T0));
+    first.close();
+    // The live database before this ticket: every meta table but the new one.
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE meta_candidates");
+    raw.close();
+    expect(tables(path)).not.toContain("meta_candidates");
+    const second = Datastore.open(path);
+    expect(second.latestMetas("24h", 10)?.rows).toHaveLength(2);
+    const id = second.meta.saveRun(run(T0 + 1_000, [row("A")], { candidates: [{ mint: "M1", name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_000_000, sources: ["jupiter"], ranks: { jupiter: 2 }, verified: true }] }));
+    second.close();
+    const after = tables(path);
+    expect(after).toContain("meta_candidates");
+    const third = Datastore.open(path);
+    expect(tables(path)).toEqual(after);
+    expect(third.meta.candidates(id)).toEqual([{ mint: "M1", name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_000_000, sources: ["jupiter"], ranks: { jupiter: 2 }, verified: true }]);
+    third.close();
+  });
+
   it("stores a run and latestMetas returns the newest run, per window, ranked, cut to the limit", () => {
     const store = Datastore.open(":memory:");
     expect(store.latestMetas("24h", 10)).toBeUndefined();

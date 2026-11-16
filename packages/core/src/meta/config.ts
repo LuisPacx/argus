@@ -74,6 +74,14 @@ export interface MetaConfig {
   leaderCalls: number;
   /** Stored Meta state older than this many minutes (a pause) is not carried into the next run. */
   stateMaxMinutes: number;
+  /** Top-down leaders (ADR 0015): HTTP requests per tick to the two trending lists together, retries included. A normal tick makes 4. */
+  topDownCalls: number;
+  /** The fake-token filter: a candidate's liquidity must be at least this many USD. */
+  topDownMinLiquidityUsd: number;
+  /** The fake-token filter: its market cap may be at most this many times its liquidity. */
+  topDownMaxCapLiquidityRatio: number;
+  /** The fake-token filter: its 24 h volume must be at least this many USD. */
+  topDownMinVolumeUsd: number;
 }
 
 export const META_RULE: MetaConfig = {
@@ -101,6 +109,10 @@ export const META_RULE: MetaConfig = {
   watching: 3,
   leaderCalls: 4,
   stateMaxMinutes: 120,
+  topDownCalls: 5,
+  topDownMinLiquidityUsd: 50_000,
+  topDownMaxCapLiquidityRatio: 100,
+  topDownMinVolumeUsd: 50_000,
 };
 
 /** How often the worker recomputes, in minutes. */
@@ -146,6 +158,8 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
  * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8). The market-led rule (ADR 0014): `ARGUS_META_ENTER_MCAP_USD`
  * and `ARGUS_META_STAY_MCAP_USD` (1 to 999999999; stay above enter keeps both defaults), `ARGUS_META_MIN_COPIES` (1 to 1000),
  * `ARGUS_META_MAX_METAS` and `ARGUS_META_WATCHING` (0 to 20), `ARGUS_META_LEADER_CALLS` (0 to 20) and `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080).
+ * The top-down leaders (ADR 0015): `ARGUS_META_TOPDOWN_CALLS` (1 to 10 requests a tick), and the fake-token filter `ARGUS_META_TOPDOWN_MIN_LIQ_USD` and
+ * `ARGUS_META_TOPDOWN_MIN_VOLUME_USD` (0 to 999999999) and `ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO` (1 to 100000).
  */
 export function metaConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaConfig {
   const enter = intIn(env.ARGUS_META_ENTER_MCAP_USD, 1, 999_999_999, META_RULE.enterMcapUsd);
@@ -168,5 +182,9 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     watching: intIn(env.ARGUS_META_WATCHING, 0, 20, META_RULE.watching),
     leaderCalls: intIn(env.ARGUS_META_LEADER_CALLS, 0, 20, META_RULE.leaderCalls),
     stateMaxMinutes: intIn(env.ARGUS_META_STATE_MAX_MINUTES, 1, 10_080, META_RULE.stateMaxMinutes),
+    topDownCalls: intIn(env.ARGUS_META_TOPDOWN_CALLS, 1, 10, META_RULE.topDownCalls),
+    topDownMinLiquidityUsd: intIn(env.ARGUS_META_TOPDOWN_MIN_LIQ_USD, 0, 999_999_999, META_RULE.topDownMinLiquidityUsd),
+    topDownMaxCapLiquidityRatio: intIn(env.ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO, 1, 100_000, META_RULE.topDownMaxCapLiquidityRatio),
+    topDownMinVolumeUsd: intIn(env.ARGUS_META_TOPDOWN_MIN_VOLUME_USD, 0, 999_999_999, META_RULE.topDownMinVolumeUsd),
   };
 }

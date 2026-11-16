@@ -68,6 +68,7 @@ export function startupConfigLine(env: Record<string, string | undefined>, facts
     `meta_copies=${meta.minCopies}`,
     `meta_max=${meta.maxMetas}/${meta.watching}`,
     `meta_leader_calls=${meta.leaderCalls}`,
+    `meta_topdown=${meta.topDownCalls}/${meta.topDownMinLiquidityUsd}/${meta.topDownMinVolumeUsd}`,
     `meta_state_min=${meta.stateMaxMinutes}`,
     `meta_summary_runs_24h=${metaSummary.maxRunsPerDay}`,
     `meta_summary_usd_24h=${metaSummary.maxDailyUsd}`,

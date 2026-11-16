@@ -1,0 +1,82 @@
+{
+  "data": [
+    {
+      "id": "solana_Ho1aSG6WGH1FfXdEHrK2f4Ggt1Hoxo9s5jcLMDqeyeBz",
+      "type": "pool",
+      "attributes": {
+        "name": "mihao / SOL",
+        "address": "Ho1aSG6WGH1FfXdEHrK2f4Ggt1Hoxo9s5jcLMDqeyeBz",
+        "pool_created_at": "2026-10-25T16:43:15Z",
+        "fdv_usd": "15109994.5012377",
+        "market_cap_usd": "15109994.6794861",
+        "reserve_in_usd": "433045.9654",
+        "volume_usd": { "h1": "178248.543173028", "h24": "3005524.2536668" }
+      },
+      "relationships": {
+        "base_token": { "data": { "id": "solana_4CxjZyMNoF1p6eXHXHv1TWpS2X47CuUmLwtGe18spump", "type": "token" } },
+        "quote_token": { "data": { "id": "solana_So11111111111111111111111111111111111111112", "type": "token" } },
+        "dex": { "data": { "id": "pumpswap", "type": "dex" } }
+      }
+    },
+    {
+      "id": "solana_5E3dXLXGwmTDCokA51WYYaKttjFZBwqCoyUHBUi5gt2m",
+      "type": "pool",
+      "attributes": {
+        "name": "GATO / SOL",
+        "address": "5E3dXLXGwmTDCokA51WYYaKttjFZBwqCoyUHBUi5gt2m",
+        "pool_created_at": "2026-08-25T12:27:21Z",
+        "fdv_usd": "6943999.0597252",
+        "market_cap_usd": null,
+        "reserve_in_usd": "272098.941",
+        "volume_usd": { "h1": "13240.9200415465", "h24": "1531330.15347468" }
+      },
+      "relationships": {
+        "base_token": { "data": { "id": "solana_HsprHxBRgiVaQdRf3TnKNuZZtaX9JUSPgMFdAkk6pump", "type": "token" } },
+        "quote_token": { "data": { "id": "solana_So11111111111111111111111111111111111111112", "type": "token" } },
+        "dex": { "data": { "id": "pumpswap", "type": "dex" } }
+      }
+    },
+    {
+      "id": "solana_5AFbwVSQPJf4cgEjq4TajZYyPYUvYktrRN3SahNrPnmv",
+      "type": "pool",
+      "attributes": {
+        "name": "GTA6 / SOL",
+        "address": "5AFbwVSQPJf4cgEjq4TajZYyPYUvYktrRN3SahNrPnmv",
+        "pool_created_at": "2026-10-29T13:56:21Z",
+        "fdv_usd": "7290436.0",
+        "market_cap_usd": null,
+        "reserve_in_usd": "65004.1056",
+        "volume_usd": { "h1": "30316.5669718169", "h24": "743799.830132759" }
+      },
+      "relationships": {
+        "base_token": { "data": { "id": "solana_4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz", "type": "token" } },
+        "quote_token": { "data": { "id": "solana_So11111111111111111111111111111111111111112", "type": "token" } },
+        "dex": { "data": { "id": "meteora", "type": "dex" } }
+      }
+    },
+    {
+      "id": "solana_3jW1ykKqUTNgNUDGbrwXpvZKtMFf4pWytoTP3TeXhKBQ",
+      "type": "pool",
+      "attributes": {
+        "name": "Rocco / TTWO",
+        "address": "3jW1ykKqUTNgNUDGbrwXpvZKtMFf4pWytoTP3TeXhKBQ",
+        "pool_created_at": "2026-11-05T15:05:35Z",
+        "fdv_usd": "1163250.8779399",
+        "market_cap_usd": null,
+        "reserve_in_usd": "114964.9836",
+        "volume_usd": { "h1": "6183.845306938", "h24": "363158.047837658" }
+      },
+      "relationships": {
+        "base_token": { "data": { "id": "solana_HZbiEpF2oM658EpjNRRqxharz5L9Ddm8akpSH2R5pump", "type": "token" } },
+        "quote_token": { "data": { "id": "solana_TTWofwAge91oFhZs7kpQdyrVRkmevgM88xijGvQFbKo", "type": "token" } },
+        "dex": { "data": { "id": "pumpswap", "type": "dex" } }
+      }
+    }
+  ],
+  "included": [
+    { "id": "solana_4CxjZyMNoF1p6eXHXHv1TWpS2X47CuUmLwtGe18spump", "type": "token", "attributes": { "address": "4CxjZyMNoF1p6eXHXHv1TWpS2X47CuUmLwtGe18spump", "name": "ni hao cat", "symbol": "mihao", "decimals": 6 } },
+    { "id": "solana_HsprHxBRgiVaQdRf3TnKNuZZtaX9JUSPgMFdAkk6pump", "type": "token", "attributes": { "address": "HsprHxBRgiVaQdRf3TnKNuZZtaX9JUSPgMFdAkk6pump", "name": "GTA6CAT", "symbol": "GATO", "decimals": 6 } },
+    { "id": "solana_4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz", "type": "token", "attributes": { "address": "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz", "name": "GTA VI", "symbol": "GTA6", "decimals": 9 } },
+    { "id": "solana_HZbiEpF2oM658EpjNRRqxharz5L9Ddm8akpSH2R5pump", "type": "token", "attributes": { "address": "HZbiEpF2oM658EpjNRRqxharz5L9Ddm8akpSH2R5pump", "name": "Rocco", "symbol": "Rocco", "decimals": 6 } }
+  ]
+}

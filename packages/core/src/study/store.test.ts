@@ -390,3 +390,38 @@ describe("recentMigrated (the propose prompt's examples, ticket 22)", () => {
     expect(store.study.recentMigrated(10).map((r) => r.name)).toEqual(["Moon Cat", "Fish", "Bird"]);
   });
 });
+
+describe("createdBetween (the Meta ranking's read; bonk launches only on request, ADR 0015 decision 3)", () => {
+  const FROM = iso(-10);
+  const TO = iso(1_000);
+  function seeded() {
+    const store = open();
+    store.study.recordTokenEvent(create(1, 5, { name: "Pump one", creator: "CreatorA" }));
+    store.study.recordTokenEvent(create(2, 6, { name: "Bonk one", symbol: "B1", creator: "CreatorB", pool: "bonk" }));
+    store.study.recordTokenEvent(create(3, 7, { name: "Other chain", creator: "CreatorC", pool: "moonshot" }));
+    store.study.recordTokenEvent(create(4, 8, { name: "No uri", creator: "CreatorD", uri: "" })); // a pump create with no metadata: out of scope, whatever the option
+    store.study.recordTokenEvent(create(5, 9, { name: "Pump two", creator: "CreatorE" }));
+    store.study.recordTokenEvent(migrate(99, 10)); // a migration whose create was never seen: no create time
+    store.study.recordTokenEvent(create(6, 5_000, { name: "Late bonk", creator: "CreatorF", pool: "bonk" })); // after the window
+    return store;
+  }
+
+  it("without the option it returns exactly what it always returned: the pump creates, no bonk, no other launchpad, with the pool", () => {
+    const rows = seeded().study.createdBetween(FROM, TO);
+    expect(rows.map((r) => r.name).sort()).toEqual(["Pump one", "Pump two"]);
+    expect(rows.every((r) => r.pool === "pump")).toBe(true);
+    expect(seeded().study.createdBetween(FROM, TO, {})).toEqual(rows);
+    expect(seeded().study.createdBetween(FROM, TO, { includeBonk: false })).toEqual(rows);
+  });
+
+  it("with includeBonk a bonk create comes with its name, symbol, creator and pool, and a create of any other pool still does not", () => {
+    const rows = seeded().study.createdBetween(FROM, TO, { includeBonk: true });
+    expect(rows.map((r) => r.name).sort()).toEqual(["Bonk one", "Pump one", "Pump two"]);
+    expect(rows.find((r) => r.name === "Bonk one")).toEqual({ mint: mintOf(2), name: "Bonk one", symbol: "B1", creator: "CreatorB", createdAt: iso(6), migratedAt: null, pool: "bonk" });
+  });
+
+  it("the window still applies to bonk creates", () => {
+    expect(seeded().study.createdBetween(iso(5_000), iso(6_000), { includeBonk: true }).map((r) => r.name)).toEqual(["Late bonk"]);
+    expect(seeded().study.createdBetween(iso(2_000), iso(3_000), { includeBonk: true })).toEqual([]);
+  });
+});

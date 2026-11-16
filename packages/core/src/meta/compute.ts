@@ -3,11 +3,12 @@ import type { DexPair } from "../sources/dexscreener.ts";
 import type { LaunchedToken } from "../study/store.ts";
 import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow, type RankKey } from "./config.ts";
 import { metaCoverage } from "./coverage.ts";
-import { cleanLabel, groupTokens, type TokenGroup } from "./group.ts";
-import { trendingCandidates, type TrendingCandidate } from "./candidates.ts";
+import { cleanLabel, groupTokens, isGenericKey, type TokenGroup } from "./group.ts";
+import { subjectKey } from "./key.ts";
 import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
-import type { MetaCounts, MetaTopToken, NewMetaCurrent, NewMetaRow, NewMetaRun } from "./store.ts";
+import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaRow, NewMetaRun } from "./store.ts";
 import { mergeThemes } from "./theme.ts";
+import { verifyAgainstDex, type DroppedCandidate, type TopDownCandidate, type TopDownResult } from "./topdown.ts";
 
 /**
  * The Meta recompute (ticket 03, slice 3): reads the last 24 h of launchpad creates from the Study, groups them into clone clusters
@@ -15,7 +16,10 @@ import { mergeThemes } from "./theme.ts";
  * cap of the top groups within a call budget, ranks by the rule in `config.ts`, and stores the run. Plain code, no LLM.
  *
  * Order of work matters for the database: the read, the grouping and the network calls all happen before one short insert
- * transaction (`MetaStore.saveRun`), so no write lock is held while DexScreener answers.
+ * transaction (`MetaStore.saveRun`), so no write lock is held while DexScreener or the trending lists answer.
+ *
+ * Leaders are found top-down (ADR 0015): the worker passes `topDown`, which reads Jupiter's and GeckoTerminal's trending lists and filters
+ * out fakes and tokenized stocks; DexScreener only verifies what survives. A subject's copiers count bonk launches as well (decision 3).
  */
 
 /** The one DexScreener method this job needs; `DexScreenerClient` satisfies it, tests pass a counting fake. */
@@ -30,6 +34,14 @@ export interface RecomputeOptions {
   dex?: MetaDexClient;
   config?: MetaConfig;
   log?: (message: string) => void;
+  /**
+   * Reads the top-down leader candidates (ADR 0015). Awaited before the write transaction. Without it, or when it throws or takes longer
+   * than `topDownTimeoutMs`, the tick has no top-down candidates, says so once in the log, and carries on with the previous leaders and
+   * the launch themes. A replay passes none.
+   */
+  topDown?: () => Promise<TopDownResult>;
+  /** The overall bound on `topDown` (default 20 s). */
+  topDownTimeoutMs?: number;
 }
 
 export interface RecomputeResult {
@@ -42,6 +54,8 @@ export interface RecomputeResult {
   dexFailures: number;
   /** Of `dexCalls`, the calls that looked up the leaders' market caps. */
   leaderCalls: number;
+  /** The top-down reads of the run (ADR 0015): requests to the two lists, candidates kept and dropped, and what failed. All zero without `topDown`. */
+  topDown: { requests: number; kept: number; dropped: number; errors: string[] };
   /** How many Metas and Watching subjects the run stored (ADR 0014). */
   metas: number;
   watching: number;
@@ -61,6 +75,15 @@ const DEX_MAX_CONSECUTIVE_FAILURES = 3;
 /** One `tokenPairs` call takes at most this many addresses (`dexscreener.ts` MAX_LOOKUP). */
 const LOOKUP_BATCH = 30;
 
+/** The overall bound on the top-down read of one tick: three pages and a Jupiter list with their retries fit well inside it. */
+const TOPDOWN_TIMEOUT_MS = 20_000;
+
+/** How DexScreener's check of one top-down candidate went: passed, failed (with the test), or not done (with why). */
+interface Verdict {
+  verified: boolean | null;
+  reason?: string;
+}
+
 interface Rec {
   token: LaunchedToken;
   createdMs: number;
@@ -72,9 +95,55 @@ interface GroupStat {
   group: TokenGroup<LaunchedToken>;
   recs: Rec[];
   firstSeenAt: string;
+  /** Creates of the pump launchpad only: the launch-theme rows, the size floor and the ranking read these. */
   counts: Record<MetaWindow, MetaCounts>;
+  /** Creates of the pump and bonk launchpads: the copies rule of the Metas, and the counts a Meta or Watching row stores (ADR 0015 decision 3). */
+  copies: Record<MetaWindow, MetaCounts>;
   /** Market cap per looked-up mint. */
   caps: Map<string, number>;
+}
+
+/**
+ * Hands each bonk create to the group of pump creates that already holds a token with one of its subject keys. A bonk token whose keys name no
+ * group, or two groups, joins none: a subject without a launch-theme member has no copiers (ADR 0015), and the groups themselves are the
+ * ones the launch-theme rows show, so they never change with bonk creates in the store.
+ */
+function attachBonk(groups: readonly TokenGroup<LaunchedToken>[], bonk: readonly LaunchedToken[]): Map<number, LaunchedToken[]> {
+  const out = new Map<number, LaunchedToken[]>();
+  if (bonk.length === 0) return out;
+  const usable = (t: LaunchedToken) => subjectKey(t.name, t.symbol).filter((k) => !isGenericKey(k));
+  const owner = new Map<string, number>();
+  const AMBIGUOUS = -1;
+  groups.forEach((g, i) => {
+    for (const t of g.tokens)
+      for (const k of usable(t)) {
+        const cur = owner.get(k);
+        if (cur === undefined) owner.set(k, i);
+        else if (cur !== i) owner.set(k, AMBIGUOUS);
+      }
+  });
+  for (const t of bonk) {
+    const hits = new Set<number>();
+    for (const k of usable(t)) {
+      const g = owner.get(k);
+      if (g !== undefined && g !== AMBIGUOUS) hits.add(g);
+    }
+    if (hits.size !== 1) continue;
+    const i = [...hits][0] as number;
+    const list = out.get(i);
+    if (list) list.push(t);
+    else out.set(i, [t]);
+  }
+  return out;
+}
+
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => void (timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -115,7 +184,7 @@ function compareStats(window: MetaWindow, order: readonly RankKey[]) {
   };
 }
 
-function countsFor(recs: Rec[], fromMs: number, organicAfterSec: number): MetaCounts {
+function countsFor(recs: readonly Rec[], fromMs: number, organicAfterSec: number): MetaCounts {
   const creators = new Set<string>();
   let tokens = 0;
   let migrations = 0;
@@ -164,7 +233,10 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const windowFrom = (w: MetaWindow) => nowMs - META_WINDOW_HOURS[w] * HOUR_MS;
 
   // 1. Read (one indexed pass) and shape.
-  const tokens = store.study.createdBetween(new Date(windowFrom("24h")).toISOString(), now.toISOString());
+  // One read: the pump creates feed everything the launch themes show; the bonk creates only join a subject's copiers (step 3).
+  const everyone = store.study.createdBetween(new Date(windowFrom("24h")).toISOString(), now.toISOString(), { includeBonk: true });
+  const tokens = everyone.filter((t) => t.pool !== "bonk");
+  const bonk = everyone.filter((t) => t.pool === "bonk");
   const recs = new Map<string, Rec>();
   for (const token of tokens) {
     const migratedMs = token.migratedAt !== null ? Date.parse(token.migratedAt) : Number.NaN;
@@ -186,18 +258,24 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
 
   // 3. Group and count.
   const clones = groupTokens(tokens);
-  const stats: GroupStat[] = (config.theme ? mergeThemes(clones, config.theme) : clones).map((group) => {
+  const grouped = config.theme ? mergeThemes(clones, config.theme) : clones;
+  const bonkOf = attachBonk(grouped, bonk);
+  const countsOf = (list: readonly Rec[]): Record<MetaWindow, MetaCounts> => ({
+    "6h": countsFor(list, windowFrom("6h"), config.organicAfterSec),
+    "24h": countsFor(list, windowFrom("24h"), config.organicAfterSec),
+  });
+  const stats: GroupStat[] = grouped.map((group, gi) => {
     const grecs = group.tokens.map((t) => recs.get(t.mint) as Rec);
     let first = Number.POSITIVE_INFINITY;
     for (const r of grecs) first = Math.min(first, r.createdMs);
+    const counts = countsOf(grecs);
+    const extra = bonkOf.get(gi);
     return {
       group,
       recs: grecs,
       firstSeenAt: new Date(first).toISOString(),
-      counts: {
-        "6h": countsFor(grecs, windowFrom("6h"), config.organicAfterSec),
-        "24h": countsFor(grecs, windowFrom("24h"), config.organicAfterSec),
-      },
+      counts,
+      copies: extra ? countsOf([...grecs, ...extra.map((token): Rec => ({ token, createdMs: Date.parse(token.createdAt), migratedMs: null }))]) : counts,
       caps: new Map(),
     };
   });
@@ -237,7 +315,18 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     }
   }
 
-  // 4b. The market-led Metas (ADR 0014): leaders by current market cap, from the theme lookups above, the trending Signals and last run's leaders.
+  // 4a. The top-down candidates (ADR 0015): the two trending lists, filtered. Read before the write transaction; never fatal.
+  let topDown: TopDownResult = { candidates: [], dropped: [], requests: 0, errors: [] };
+  if (opts.topDown) {
+    try {
+      topDown = await withTimeout(opts.topDown(), opts.topDownTimeoutMs ?? TOPDOWN_TIMEOUT_MS);
+      if (topDown.errors.length > 0) opts.log?.(`[meta] top-down sources failed: ${topDown.errors.join("; ")}`);
+    } catch (e) {
+      opts.log?.(`[meta] top-down sources failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // 4b. The market-led Metas (ADR 0014): leaders by current market cap, from the theme lookups above, the top-down candidates and last run's leaders.
   const previous = store.meta.current(now.toISOString());
   const carried = carriedState(previous, now, config.stateMaxMinutes);
   const fresh: LeaderToken[] = [];
@@ -246,15 +335,15 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
       const rec = recs.get(mint);
       if (rec) fresh.push({ mint, name: cleanLabel(rec.token.name), symbol: cleanLabel(rec.token.symbol), marketCapUsd: cap, createdAt: rec.token.createdAt, source: "theme", stale: false, freshAt: now.toISOString(), groupKey: s.group.key });
     }
-  const trending = trendingCandidates(store.meta.trendingSignals(new Date(windowFrom("24h")).toISOString(), now.toISOString()));
-  const lookedUp = await lookUpLeaders({ dex: opts.dex, config, now: now.toISOString(), log: opts.log, have: new Set(fresh.map((t) => t.mint)), previous: carried, trending });
+  const lookedUp = await lookUpLeaders({ dex: opts.dex, config, now: now.toISOString(), log: opts.log, have: new Set(fresh.map((t) => t.mint)), previous: carried, candidates: topDown.candidates });
   fresh.push(...lookedUp.tokens);
   dexCalls += lookedUp.calls;
   dexFailures += lookedUp.failures;
   const prevKeys = new Set((carried?.metas ?? []).map((m) => m.key));
+  // The copies rule and the counts a Meta stores include bonk launches; the launch-theme rows below keep the pump counts.
   const subjects: LeaderSubject[] = stats
-    .filter((s) => s.counts["24h"].creators >= config.minCopies || prevKeys.has(s.group.key))
-    .map((s) => ({ key: s.group.key, label: s.group.label, counts: s.counts, topTokens: topTokensOf(s, config.topTokens), tokens: s.group.tokens }));
+    .filter((s) => s.copies["24h"].creators >= config.minCopies || prevKeys.has(s.group.key))
+    .map((s) => ({ key: s.group.key, label: s.group.label, counts: s.copies, topTokens: topTokensOf(s, config.topTokens), tokens: s.group.tokens }));
   const current = currentMetas({ subjects, tokens: fresh, previous: carried, now, config });
 
   // 5. Rank each window and shape the rows.
@@ -280,8 +369,41 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   // 6. One short write transaction: the inserts, then the prune.
   const computedAt = now.toISOString();
   const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
-  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows, coverage, current });
-  return { runId, computedAt, tokensRead: tokens.length, groups: stats.length, dexCalls, dexFailures, leaderCalls: lookedUp.calls, metas: current.metas.length, watching: current.watching.length, current };
+  const candidateRows = candidatesOf(topDown, lookedUp.verdicts);
+  const runId = store.meta.saveRun({ computedAt, note: META_NOTE, rule: config, dexCalls, dexFailures, base, rows, coverage, current, candidates: candidateRows });
+  return {
+    runId,
+    computedAt,
+    tokensRead: tokens.length,
+    groups: stats.length,
+    dexCalls,
+    dexFailures,
+    leaderCalls: lookedUp.calls,
+    topDown: { requests: topDown.requests, kept: topDown.candidates.length, dropped: topDown.dropped.length, errors: topDown.errors },
+    metas: current.metas.length,
+    watching: current.watching.length,
+    current,
+  };
+}
+
+/** The stored candidate rows: the kept ones with how DexScreener's check went, then the dropped ones with the filter's reason. */
+function candidatesOf(topDown: TopDownResult, verdicts: ReadonlyMap<string, Verdict>): NewMetaCandidate[] {
+  const shape = (c: TopDownCandidate | DroppedCandidate) => ({
+    mint: c.mint,
+    name: c.name,
+    symbol: c.symbol,
+    ...(c.marketCapUsd !== undefined ? { marketCapUsd: c.marketCapUsd } : {}),
+    ...(c.liquidityUsd !== undefined ? { liquidityUsd: c.liquidityUsd } : {}),
+    ...(c.volume24hUsd !== undefined ? { volume24hUsd: c.volume24hUsd } : {}),
+    sources: [...c.sources],
+    ranks: { ...c.ranks } as Record<string, number>,
+  });
+  const kept = topDown.candidates.map((c): NewMetaCandidate => {
+    const v = verdicts.get(c.mint);
+    return { ...shape(c), verified: v?.verified ?? null, ...(v?.reason !== undefined ? { reason: v.reason } : {}) };
+  });
+  const dropped = topDown.dropped.map((c): NewMetaCandidate => ({ ...shape(c), verified: null, reason: c.reason }));
+  return [...kept, ...dropped];
 }
 
 interface LeaderLookupInput {
@@ -293,62 +415,100 @@ interface LeaderLookupInput {
   /** Mints whose market cap this run already has (the theme lookups): not asked again. */
   have: ReadonlySet<string>;
   previous: PreviousMetas | undefined;
-  trending: readonly TrendingCandidate[];
+  /** The top-down candidates that passed the filter, highest source market cap first. */
+  candidates: readonly TopDownCandidate[];
 }
 
 /**
  * The leaders' current market caps within `config.leaderCalls` calls of up to 30 tokens each. Order: last run's leaders first (a Meta is
- * never lost to the budget), then trending tokens by the figure stored on their Signal (highest first), then the rest. A token DexScreener
- * did not answer, or a call that failed or fell outside the budget, simply yields no token here; `currentMetas` carries a previous leader at
- * its last figure and never creates a Meta from it. Three failed calls in a row end the lookups of the run.
+ * never lost to the budget), then the top-down candidates (highest source market cap first). Previous leaders keep the rule of ADR 0014
+ * (the largest market cap over a token's pairs, no filter), so a Meta already held is not dropped by the filter. A top-down candidate is
+ * accepted only when DexScreener's own figures also pass the three tests of the fake-token filter (the cap-to-liquidity test reads the
+ * larger of DexScreener's liquidity and the list's, see `verifyAgainstDex`), and its market cap is that of its deepest pair (ADR 0015
+ * decision 2): one that fails is logged and is no leader. A token DexScreener did not answer, or a call that failed
+ * or fell outside the budget, simply yields no token here; `currentMetas` carries a previous leader at its last figure and never creates
+ * a Meta from it. Three failed calls in a row end the lookups of the run.
  */
-async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: LeaderToken[]; calls: number; failures: number }> {
-  const out = { tokens: [] as LeaderToken[], calls: 0, failures: 0 };
+async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: LeaderToken[]; calls: number; failures: number; verdicts: Map<string, Verdict> }> {
+  const out = { tokens: [] as LeaderToken[], calls: 0, failures: 0, verdicts: new Map<string, Verdict>() };
   const { dex, config } = input;
-  if (!dex || config.leaderCalls <= 0) return out;
+  const skipped = (reason: string): Verdict => ({ verified: null, reason });
+  if (!dex || config.leaderCalls <= 0) {
+    for (const c of input.candidates) out.verdicts.set(c.mint, skipped("not looked up: no DexScreener lookups"));
+    return out;
+  }
   interface Known {
     name: string;
     symbol: string;
     source: "trending" | "theme";
     createdAt?: string;
+    /** A top-down candidate: verified on DexScreener's figures, not taken on the max-cap rule. */
+    topDown: boolean;
+    /** The token-level liquidity the trending lists gave a top-down candidate (read by the cap-to-liquidity test of the verification). */
+    listLiquidityUsd?: number;
   }
   const known = new Map<string, Known>();
   const order: string[] = [];
-  const want = (mint: string, k: Known) => {
-    if (input.have.has(mint) || known.has(mint)) return;
+  const want = (mint: string, k: Known): boolean => {
+    if (input.have.has(mint) || known.has(mint)) return false;
     known.set(mint, k);
     order.push(mint);
+    return true;
   };
   for (const row of [...(input.previous?.metas ?? []), ...(input.previous?.watching ?? [])]) {
     const l = row.leader;
-    want(l.mint, { name: l.name, symbol: l.symbol, source: l.source, ...(l.createdAt !== undefined ? { createdAt: l.createdAt } : {}) });
+    want(l.mint, { name: l.name, symbol: l.symbol, source: l.source, topDown: false, ...(l.createdAt !== undefined ? { createdAt: l.createdAt } : {}) });
   }
-  const byStoredCap = (a: TrendingCandidate, b: TrendingCandidate) => (b.storedCapUsd ?? -1) - (a.storedCapUsd ?? -1) || cmpStr(a.mint, b.mint);
-  for (const c of [...input.trending].sort(byStoredCap)) want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
+  const byCap = (a: TopDownCandidate, b: TopDownCandidate) => b.marketCapUsd - a.marketCapUsd || cmpStr(a.mint, b.mint);
+  for (const c of [...input.candidates].sort(byCap)) {
+    const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
+    out.verdicts.set(c.mint, skipped(wanted ? "not looked up: leader call budget used" : "not looked up: already a previous leader or priced by a launch theme"));
+  }
 
   let streak = 0;
   for (let at = 0, n = 0; at < order.length && n < config.leaderCalls; at += LOOKUP_BATCH, n++) {
-    if (streak >= DEX_MAX_CONSECUTIVE_FAILURES) break;
+    if (streak >= DEX_MAX_CONSECUTIVE_FAILURES) {
+      for (const mint of order.slice(at)) if (known.get(mint)?.topDown) out.verdicts.set(mint, skipped("not looked up: DexScreener failed three calls in a row"));
+      break;
+    }
     const mints = order.slice(at, at + LOOKUP_BATCH);
     out.calls++;
     try {
-      const best = new Map<string, { cap: number; createdMs?: number }>();
       const asked = new Set(mints);
+      const byMint = new Map<string, DexPair[]>();
       for (const p of await dex.tokenPairs("solana", mints)) {
-        if (!asked.has(p.tokenAddress) || p.marketCapUsd === undefined || !(p.marketCapUsd > 0)) continue;
-        const cur = best.get(p.tokenAddress);
-        const createdMs = p.pairCreatedAt !== undefined && p.pairCreatedAt > 0 ? p.pairCreatedAt : undefined;
-        best.set(p.tokenAddress, { cap: Math.max(cur?.cap ?? 0, p.marketCapUsd), ...(cur?.createdMs !== undefined || createdMs !== undefined ? { createdMs: Math.min(cur?.createdMs ?? Infinity, createdMs ?? Infinity) } : {}) });
+        if (!asked.has(p.tokenAddress)) continue;
+        const list = byMint.get(p.tokenAddress);
+        if (list) list.push(p);
+        else byMint.set(p.tokenAddress, [p]);
       }
-      for (const [mint, b] of best) {
+      for (const mint of mints) {
         const k = known.get(mint) as Known;
-        const created = k.createdAt ?? (b.createdMs !== undefined && Number.isFinite(new Date(b.createdMs).getTime()) ? new Date(b.createdMs).toISOString() : undefined);
-        out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: b.cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false, freshAt: input.now });
+        const pairs = byMint.get(mint) ?? [];
+        const createdMs = pairs.flatMap((p) => (p.pairCreatedAt !== undefined && p.pairCreatedAt > 0 ? [p.pairCreatedAt] : []));
+        const first = createdMs.length > 0 ? Math.min(...createdMs) : undefined;
+        const created = k.createdAt ?? (first !== undefined && Number.isFinite(new Date(first).getTime()) ? new Date(first).toISOString() : undefined);
+        let cap: number | undefined;
+        if (k.topDown) {
+          const verdict = verifyAgainstDex(pairs, config, k.listLiquidityUsd);
+          if (verdict.ok) {
+            cap = verdict.marketCapUsd;
+            out.verdicts.set(mint, { verified: true });
+          } else {
+            out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
+            input.log?.(`[meta] leader ${k.symbol || k.name || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
+          }
+        } else {
+          const caps = pairs.flatMap((p) => (p.marketCapUsd !== undefined && p.marketCapUsd > 0 ? [p.marketCapUsd] : []));
+          cap = caps.length > 0 ? Math.max(...caps) : undefined;
+        }
+        if (cap !== undefined) out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false, freshAt: input.now });
       }
       streak = 0;
     } catch (e) {
       out.failures++;
       streak++;
+      for (const mint of mints) if (known.get(mint)?.topDown) out.verdicts.set(mint, skipped("not looked up: DexScreener lookup failed"));
       input.log?.(`[meta] DexScreener leader lookup failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }

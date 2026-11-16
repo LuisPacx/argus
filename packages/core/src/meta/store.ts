@@ -105,6 +105,29 @@ export interface NewMetaRun {
   coverage?: MetaCoverage;
   /** The market-led Metas and Watching subjects of this run (ADR 0014). Absent stores none. */
   current?: NewMetaCurrent;
+  /** The top-down candidates the run read, kept and dropped, each with its reason (ADR 0015). Absent stores none. */
+  candidates?: NewMetaCandidate[];
+}
+
+/**
+ * One token the top-down lists named in a run, for the War Room and a replay: "why is the big token not a Meta" has an answer without
+ * rerunning anything. Name and symbol are creator-written text, cleaned and cut: still untrusted.
+ */
+export interface NewMetaCandidate {
+  mint: string;
+  name: string;
+  symbol: string;
+  marketCapUsd?: number;
+  liquidityUsd?: number;
+  volume24hUsd?: number;
+  /** `jupiter`, `geckoterminal` or both. */
+  sources: string[];
+  /** The token's place on each list, by source. */
+  ranks: Record<string, number>;
+  /** True when DexScreener's own figures passed the same tests, false when they did not, null when it was not asked (dropped, over budget, or a failed call). */
+  verified: boolean | null;
+  /** Why it was dropped or not verified (`fake: cap 250x liquidity`, `stock token`, `failed verification: ...`); absent for a verified candidate. */
+  reason?: string;
 }
 
 export interface MetaRow extends NewMetaRow {
@@ -233,6 +256,22 @@ export function migrateMeta(db: DatabaseSync): void {
     top_tokens TEXT NOT NULL,
     PRIMARY KEY (run_id, kind, rank)
   )`);
+  // Meta redesign ticket 05 (ADR 0015): the top-down candidates of each run, kept and dropped, with the reason. Additive; pruned with the runs.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta_candidates (
+    run_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    mint TEXT NOT NULL,
+    name TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    market_cap_usd REAL,
+    liquidity_usd REAL,
+    volume_24h_usd REAL,
+    sources TEXT NOT NULL,
+    ranks TEXT NOT NULL,
+    verified INTEGER,
+    reason TEXT,
+    PRIMARY KEY (run_id, seq)
+  )`);
 }
 
 /**
@@ -288,6 +327,26 @@ function parseTopTokens(text: string): MetaTopToken[] {
       symbol: typeof t.symbol === "string" ? t.symbol : "",
       ...(typeof t.marketCapUsd === "number" ? { marketCapUsd: t.marketCapUsd } : {}),
     });
+  }
+  return out;
+}
+
+function parseStrings(text: string): string[] {
+  try {
+    const data: unknown = JSON.parse(text);
+    return Array.isArray(data) ? data.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseRanks(text: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  try {
+    const data: unknown = JSON.parse(text);
+    if (isRecord(data)) for (const [k, v] of Object.entries(data)) if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  } catch {
+    // unreadable: no ranks
   }
   return out;
 }
@@ -380,6 +439,10 @@ export class MetaStore {
          stale, holding, entered_at, counts, top_tokens)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const insertCandidate = this.db.prepare(
+      `INSERT INTO meta_candidates (run_id, seq, mint, name, symbol, market_cap_usd, liquidity_usd, volume_24h_usd, sources, ranks, verified, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
     this.db.exec("BEGIN IMMEDIATE");
     let id: number;
     try {
@@ -399,6 +462,9 @@ export class MetaStore {
           insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens));
         });
       }
+      (run.candidates ?? []).forEach((c, i) => {
+        insertCandidate.run(id, i + 1, c.mint, c.name, c.symbol, c.marketCapUsd ?? null, c.liquidityUsd ?? null, c.volume24hUsd ?? null, JSON.stringify(c.sources), JSON.stringify(c.ranks), c.verified === null ? null : c.verified ? 1 : 0, c.reason ?? null);
+      });
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");
@@ -413,6 +479,7 @@ export class MetaStore {
     const cutoff = new Date(beforeMs).toISOString();
     this.db.prepare("DELETE FROM meta_rows WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_current WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
+    this.db.prepare("DELETE FROM meta_candidates WHERE run_id IN (SELECT id FROM meta_runs WHERE computed_at < ?)").run(cutoff);
     this.db.prepare("DELETE FROM meta_runs WHERE computed_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_summaries WHERE tried_at < ?").run(cutoff);
     this.db.prepare("DELETE FROM meta_new_events WHERE raised_at < ?").run(cutoff);
@@ -492,6 +559,23 @@ export class MetaStore {
     const out: MetaCurrent = { runId: run.id as number, computedAt: run.computed_at as string, metas: [], watching: [] };
     for (const r of rows) (r.kind === "meta" ? out.metas : out.watching).push(toCurrent(r, out.computedAt));
     return out;
+  }
+
+  /** The top-down candidates a run stored, in the order stored (kept first, then dropped). READ ONLY. */
+  candidates(runId: number): NewMetaCandidate[] {
+    const rows = this.db.prepare("SELECT * FROM meta_candidates WHERE run_id = ? ORDER BY seq").all(runId) as Row[];
+    return rows.map((r) => ({
+      mint: r.mint as string,
+      name: r.name as string,
+      symbol: r.symbol as string,
+      ...(r.market_cap_usd !== null ? { marketCapUsd: r.market_cap_usd as number } : {}),
+      ...(r.liquidity_usd !== null ? { liquidityUsd: r.liquidity_usd as number } : {}),
+      ...(r.volume_24h_usd !== null ? { volume24hUsd: r.volume_24h_usd as number } : {}),
+      sources: parseStrings(r.sources as string),
+      ranks: parseRanks(r.ranks as string),
+      verified: r.verified === null ? null : r.verified === 1,
+      ...(r.reason !== null ? { reason: r.reason as string } : {}),
+    }));
   }
 
   /** The summary records of these group keys (those that have one). READ ONLY. */

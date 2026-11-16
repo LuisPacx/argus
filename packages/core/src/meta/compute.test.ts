@@ -8,6 +8,7 @@ import { recomputeMetas as recomputeWithRule, type MetaDexClient, type Recompute
 import { metasResponse } from "./api.ts";
 import { META_RULE, metaConfigFromEnv } from "./config.ts";
 import { metaLines, selectMetas } from "./prompt-block.ts";
+import type { TopDownCandidate, TopDownResult } from "./topdown.ts";
 
 /** The pre-ticket-05 floor (2 tokens, no creator minimum): the tests that are not about the floor use tiny groups. */
 const LOW_FLOOR = { ...META_RULE, minTokens: 2, minCreators: 1 };
@@ -45,8 +46,9 @@ function launch(store: Datastore, s: Spec): string {
 
 const launchMany = (store: Datastore, count: number, f: (i: number) => Spec) => Array.from({ length: count }, (_, i) => launch(store, f(i)));
 
-const pair = (mint: string, marketCapUsd?: number): DexPair => ({
-  chainId: "solana", tokenAddress: mint, name: "", symbol: "", url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0, ...(marketCapUsd !== undefined ? { marketCapUsd } : {}),
+/** A pair that passes the fake-token filter's liquidity and volume tests (a top-down candidate is verified on them), unless `over` says otherwise. */
+const pair = (mint: string, marketCapUsd?: number, over: Partial<DexPair> = {}): DexPair => ({
+  chainId: "solana", tokenAddress: mint, name: "", symbol: "", url: "", liquidityUsd: 1_000_000, volume24hUsd: 1_000_000, priceChange24hPct: 0, ...(marketCapUsd !== undefined ? { marketCapUsd } : {}), ...over,
 });
 
 /** A counting fake: answers each address with the market cap in `caps`, and records every call. */
@@ -173,7 +175,7 @@ describe("recomputeMetas: windows and counts", () => {
     const store = Datastore.open(":memory:");
     launchMany(store, 4, (i) => ({ name: "Cluster", creator: i, migratedAfterSec: i < 2 ? 5 : undefined })); // 2 of 4
     launchMany(store, 6, (i) => ({ name: `Single ${i}`, symbol: `S${i}`, migratedAfterSec: i === 0 ? 5 : undefined })); // 1 of 6
-    launchMany(store, 10, (i) => ({ name: `Other chain ${i}`, pool: "bonk", migratedAfterSec: undefined })); // out of scope: not in the base
+    launchMany(store, 10, (i) => ({ name: `Other chain ${i}`, pool: "bonk", migratedAfterSec: undefined })); // bonk creates count as copiers of a Meta (ADR 0015), but the base rate stays pump launches only
     launch(store, { name: "Old", createdMin: 8 * 60, migratedAfterSec: 5 }); // outside 6 h, inside 24 h
     await recomputeMetas(store, { now: new Date(NOW) });
     const run24 = store.latestMetas("24h", 10)!;
@@ -502,14 +504,19 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
   const cfg = { ...META_RULE, minTokens: 2, minCreators: 1 };
   const T = (min: number) => new Date(NOW + min * 60_000);
 
-  /** One `dexscreener:trending` Signal, first seen `ago` minutes before NOW, as the Source writes it (the figure is the one at first sight). */
-  function trend(store: Datastore, mint: string, title: string, storedCap?: number, agoMin = 120) {
-    store.recordSignals(
-      [{ id: `dexscreener:trending:solana:${mint}`, sourceId: "dexscreener:trending", sourceLabel: "DexScreener trending", title, summary: `Boosted on DexScreener.${storedCap !== undefined ? ` market cap $${storedCap.toLocaleString("en-US")}.` : ""}`, url: "", publishedAt: "2026-11-10T10:00:00.000Z" }],
-      new Date(NOW - agoMin * 60_000),
-    );
+  /**
+   * One top-down candidate (the trending lists' answer, after the filter), titled `Name ($SYMBOL)`; `listedCap` is the figure the list gave
+   * and only orders the lookups. The leaders of ticket 01 came from stored `dexscreener:trending` Signals; since ADR 0015 they come from here.
+   */
+  const candidatesOf = new WeakMap<Datastore, TopDownCandidate[]>();
+  function trend(store: Datastore, mint: string, title: string, listedCap?: number, _agoMin = 120) {
+    const list = candidatesOf.get(store) ?? [];
+    candidatesOf.set(store, list);
+    const m = /^(.*) \(\$(.*)\)$/.exec(title);
+    list.push({ mint, name: m?.[1] ?? title, symbol: m?.[2] ?? "", marketCapUsd: listedCap ?? 1_000, liquidityUsd: 500_000, volume24hUsd: 500_000, sources: ["jupiter"], ranks: { jupiter: list.length + 1 } });
   }
-  const recompute = (store: Datastore, dex: MetaDexClient | undefined, at: number, over: Partial<typeof cfg> = {}) => recomputeWithRule(store, { now: T(at), dex, config: { ...cfg, ...over } });
+  const topDownOf = (store: Datastore) => async (): Promise<TopDownResult> => ({ candidates: candidatesOf.get(store) ?? [], dropped: [], requests: 0, errors: [] });
+  const recompute = (store: Datastore, dex: MetaDexClient | undefined, at: number, over: Partial<typeof cfg> = {}) => recomputeWithRule(store, { now: T(at), dex, topDown: topDownOf(store), config: { ...cfg, ...over } });
   const jensenWave = (store: Datastore, creators = 12) => launchMany(store, creators, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}` }));
 
   it("replay of run 143's shape: the Jensen leader at $96k gives no Meta and Watching; at $2M it gives one Meta (a fixture, not the live database)", async () => {
@@ -638,5 +645,225 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     expect(rowsOf(led, "6h")).toBe(rowsOf(plain, "6h"));
     expect(led.currentMetas()!.metas).toHaveLength(1);
     expect(snapshot(led)).toBe(before);
+  });
+
+  describe("top-down leaders (ADR 0015, meta-redesign ticket 05)", () => {
+    const logged = () => {
+      const lines: string[] = [];
+      return { lines, log: (m: string) => void lines.push(m) };
+    };
+    const run = (store: Datastore, dex: MetaDexClient | undefined, at: number, extra: Partial<RecomputeOptions> = {}) => recomputeWithRule(store, { now: T(at), dex, topDown: topDownOf(store), config: cfg, ...extra });
+
+    it("no Meta from an unverified token: one DexScreener cannot answer, or answers with $20 of volume, is not a leader; one within the filter at $7.05M is", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const [silent, thin, real] = [mintOf(), mintOf(), mintOf()];
+      trend(store, silent, "Jensen Huang ($JENSEN)", 9_000_000);
+      trend(store, thin, "Jensen Thin ($JTHIN)", 8_000_000);
+      const dex: MetaDexClient = {
+        async tokenPairs(_chain, addresses) {
+          return addresses.flatMap((a) => (a === thin ? [pair(a, 8_000_000, { volume24hUsd: 20 })] : a === real ? [pair(a, 7_050_000)] : []));
+        },
+      };
+      const first = logged();
+      expect(await run(store, dex, 0, { log: first.log })).toMatchObject({ metas: 0, watching: 0 });
+      expect(first.lines).toContain("[meta] leader JTHIN failed verification: 24 h volume $20 under $50,000");
+      expect(store.currentMetas()!.metas).toEqual([]);
+      const stored = store.meta.candidates(store.meta.current()!.runId);
+      expect(stored.find((c) => c.mint === silent)).toMatchObject({ verified: false, reason: "failed verification: no DexScreener pair" });
+      expect(stored.find((c) => c.mint === thin)).toMatchObject({ verified: false });
+
+      trend(store, real, "Jensen Real ($JENSEN)", 7_050_000);
+      expect(await run(store, dex, 1)).toMatchObject({ metas: 1 });
+      expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: real, symbol: "JENSEN", marketCapUsd: 7_050_000, source: "trending", stale: false } });
+      expect(store.meta.candidates(store.meta.current()!.runId).find((c) => c.mint === real)).toMatchObject({ verified: true });
+    });
+
+    it("the leader's cap is the deepest pair's, not the largest pair's: a thin $12M pair beside a $7M deep one gives $7M", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 7_000_000);
+      const dex: MetaDexClient = { async tokenPairs(_chain, addresses) { return addresses.includes(J) ? [pair(J, 12_000_000, { liquidityUsd: 1_000, volume24hUsd: 500 }), pair(J, 7_000_000, { liquidityUsd: 300_000, volume24hUsd: 400_000 })] : []; } };
+      await run(store, dex, 0);
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 7_000_000 });
+      // and a thin deepest pair cannot make a leader on its own, whatever its cap
+      const thin = Datastore.open(":memory:");
+      jensenWave(thin);
+      const F = mintOf();
+      trend(thin, F, "Jensen Huang ($JENSEN)", 7_000_000);
+      const thinDex: MetaDexClient = { async tokenPairs() { return [pair(F, 5_000_000, { liquidityUsd: 20_000, volume24hUsd: 900_000 })]; } };
+      expect(await run(thin, thinDex, 0)).toMatchObject({ metas: 0 });
+    });
+
+    it("the cap-to-liquidity test reads the larger of DexScreener's liquidity and the list's: the real GTA VI replay shape ($7.67M on one $62k pair, $271k on the list) passes, a fake on both views does not", async () => {
+      const lists = (liquidityUsd: number) => async (): Promise<TopDownResult> => ({ candidates: [{ mint: GTA_MINT, name: "GTA VI", symbol: "GTA6", marketCapUsd: 7_300_000, liquidityUsd, volume24hUsd: 1_085_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 15, geckoterminal: 9 } }], dropped: [], requests: 4, errors: [] });
+      const GTA_MINT = "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz";
+      const dex: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054, { liquidityUsd: 62_331, volume24hUsd: 746_088 })]; } };
+      const real = Datastore.open(":memory:");
+      launchMany(real, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+      expect(await run(real, dex, 0, { topDown: lists(271_000) })).toMatchObject({ metas: 1 });
+      expect(real.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: GTA_MINT, marketCapUsd: 7_670_054, source: "trending" });
+      const fake = Datastore.open(":memory:");
+      launchMany(fake, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+      const log = logged();
+      expect(await run(fake, dex, 0, { topDown: lists(62_000), log: log.log })).toMatchObject({ metas: 0 });
+      expect(log.lines).toEqual(["[meta] leader GTA6 failed verification: cap 123x liquidity (over 100x)"]);
+    });
+
+    it("a previous Meta's leader is looked up first and kept on the old rule: it holds with figures the filter would refuse", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 7_000_000);
+      expect(await run(store, fakeDex(new Map([[J, 7_000_000]])).client, 0)).toMatchObject({ metas: 1 });
+      // The next tick DexScreener shows J with no volume at all: a new candidate would fail, the held Meta stays.
+      const dex: MetaDexClient = { async tokenPairs(_c, a) { return a.includes(J) ? [pair(J, 6_000_000, { liquidityUsd: 100, volume24hUsd: 0 })] : []; } };
+      const second = await run(store, dex, 15);
+      expect(second).toMatchObject({ metas: 1 });
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 6_000_000, stale: false });
+    });
+
+    it("looks up previous leaders first, then candidates by the lists' market cap, highest first, within leaderCalls (100 candidates, 2 calls: exactly 2 calls of 30)", async () => {
+      const store = Datastore.open(":memory:");
+      const all = Array.from({ length: 100 }, (_, i) => {
+        const mint = mintOf();
+        trend(store, mint, `Token ${i} ($T${i})`, (i + 1) * 1_000);
+        return mint;
+      });
+      const dex = fakeDex(new Map(all.map((m) => [m, 50_000])));
+      const r = await run(store, dex.client, 0, { config: { ...cfg, leaderCalls: 2 } });
+      expect(dex.calls.map((c) => c.length)).toEqual([30, 30]);
+      expect(r).toMatchObject({ dexCalls: 2, leaderCalls: 2 });
+      expect(dex.calls[0]).toEqual([...all].reverse().slice(0, 30)); // highest listed cap first
+      expect(dex.calls[1]).toEqual([...all].reverse().slice(30, 60));
+      const stored = store.meta.candidates(r.runId);
+      expect(stored.filter((c) => c.verified === null).map((c) => c.reason)).toEqual(Array(40).fill("not looked up: leader call budget used"));
+    });
+
+    it("the top-down read is optional and never fatal: a failure, a timeout or partial errors are logged once and the previous Meta stays", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
+      expect(await run(store, fakeDex(new Map([[J, 3_000_000]])).client, 0)).toMatchObject({ metas: 1 });
+
+      const down = logged();
+      const failed = await run(store, fakeDex(new Map([[J, 2_900_000]])).client, 15, { topDown: async () => { throw new Error("both lists down"); }, log: down.log });
+      expect(down.lines.filter((l) => l.startsWith("[meta] top-down sources failed"))).toEqual(["[meta] top-down sources failed: both lists down"]);
+      expect(failed).toMatchObject({ metas: 1, topDown: { requests: 0, kept: 0, dropped: 0, errors: [] } });
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 2_900_000, stale: false }); // the previous leader's lookup still ran
+
+      const slow = logged();
+      const timedOut = await run(store, fakeDex(new Map([[J, 2_800_000]])).client, 30, { topDown: () => new Promise<TopDownResult>(() => {}), topDownTimeoutMs: 25, log: slow.log });
+      expect(slow.lines).toEqual(["[meta] top-down sources failed: timed out after 25 ms"]);
+      expect(timedOut).toMatchObject({ metas: 1 });
+
+      const partial = logged();
+      const some = await run(store, fakeDex(new Map([[J, 2_700_000]])).client, 45, { topDown: async () => ({ candidates: [], dropped: [], requests: 3, errors: ["jupiter: Jupiter: response is not JSON", "geckoterminal page 2: boom"] }), log: partial.log });
+      expect(partial.lines).toEqual(["[meta] top-down sources failed: jupiter: Jupiter: response is not JSON; geckoterminal page 2: boom"]);
+      expect(some.topDown).toMatchObject({ requests: 3, errors: ["jupiter: Jupiter: response is not JSON", "geckoterminal page 2: boom"] });
+      expect(some.metas).toBe(1);
+    });
+
+    it("with neither dex nor topDown the tick still works, and the launch themes and the themes' lookups are as before", async () => {
+      const store = Datastore.open(":memory:");
+      const mints = jensenWave(store);
+      expect(await recomputeWithRule(store, { now: T(0), config: cfg })).toMatchObject({ metas: 0, dexCalls: 0, topDown: { requests: 0, kept: 0, dropped: 0, errors: [] } });
+      // The theme lookup alone still makes a Meta (no top-down read involved).
+      expect(await recomputeWithRule(store, { now: T(1), dex: fakeDex(new Map([[mints[2] as string, 2_000_000]])).client, config: cfg })).toMatchObject({ metas: 1 });
+    });
+
+    it("stores every candidate it read, kept and dropped, with the reason, and prunes them with the run", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const [a, b, c, d] = [mintOf(), mintOf(), mintOf(), mintOf()];
+      const kept = (mint: string, name: string, cap: number): TopDownCandidate => ({ mint, name, symbol: name.toUpperCase(), marketCapUsd: cap, liquidityUsd: 500_000, volume24hUsd: 600_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 3, geckoterminal: 7 } });
+      const topDown = async (): Promise<TopDownResult> => ({
+        candidates: [kept(a, "Jensen", 7_000_000), kept(b, "Jensen Fail", 6_000_000), kept(c, "Unanswered", 5_000_000)],
+        dropped: [{ mint: d, name: "GTA VI", symbol: "GTA6", marketCapUsd: 12_070_000_000, liquidityUsd: 48_300_000, volume24hUsd: 2.28, sources: ["jupiter"], ranks: { jupiter: 4 }, reason: "fake: cap 250x liquidity (over 100x)" }],
+        requests: 4,
+        errors: [],
+      });
+      const dex: MetaDexClient = { async tokenPairs(_c, addresses) { return addresses.flatMap((x) => (x === a ? [pair(a, 7_000_000)] : x === b ? [pair(b, 6_000_000, { volume24hUsd: 1 })] : [])); } };
+      const r = await run(store, dex, 0, { topDown });
+      expect(r.topDown).toEqual({ requests: 4, kept: 3, dropped: 1, errors: [] });
+      expect(store.meta.candidates(r.runId)).toEqual([
+        { mint: a, name: "Jensen", symbol: "JENSEN", marketCapUsd: 7_000_000, liquidityUsd: 500_000, volume24hUsd: 600_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 3, geckoterminal: 7 }, verified: true },
+        { mint: b, name: "Jensen Fail", symbol: "JENSEN FAIL", marketCapUsd: 6_000_000, liquidityUsd: 500_000, volume24hUsd: 600_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 3, geckoterminal: 7 }, verified: false, reason: "failed verification: 24 h volume $1 under $50,000" },
+        { mint: c, name: "Unanswered", symbol: "UNANSWERED", marketCapUsd: 5_000_000, liquidityUsd: 500_000, volume24hUsd: 600_000, sources: ["jupiter", "geckoterminal"], ranks: { jupiter: 3, geckoterminal: 7 }, verified: false, reason: "failed verification: no DexScreener pair" },
+        { mint: d, name: "GTA VI", symbol: "GTA6", marketCapUsd: 12_070_000_000, liquidityUsd: 48_300_000, volume24hUsd: 2.28, sources: ["jupiter"], ranks: { jupiter: 4 }, verified: null, reason: "fake: cap 250x liquidity (over 100x)" },
+      ]);
+      // retention: a run 15 days later deletes the first run and its candidates
+      const later = await recomputeWithRule(store, { now: new Date(NOW + 15 * 24 * 3_600_000), config: cfg, topDown: async () => ({ candidates: [], dropped: [], requests: 0, errors: [] }) });
+      expect(store.meta.candidates(r.runId)).toEqual([]);
+      expect(store.meta.candidates(later.runId)).toEqual([]);
+    });
+
+    it("the Meta tick leaves no Narrative, Proposal or Score behind (a top-down read changes none)", async () => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store);
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
+      const snapshot = () => JSON.stringify([store.listNarratives(), store.listProposals(), store.queryNarratives({})]);
+      const before = snapshot();
+      await run(store, fakeDex(new Map([[J, 3_000_000]])).client, 0);
+      expect(snapshot()).toBe(before);
+    });
+  });
+
+  describe("bonk launches count as copiers (ADR 0015 decision 3)", () => {
+    const wave = (store: Datastore, pump: number, bonk: number, name = "Jensen") => {
+      launchMany(store, pump, (i) => ({ name, creator: `p${String(i).padStart(3, "0")}` }));
+      launchMany(store, bonk, (i) => ({ name, creator: `b${String(i).padStart(3, "0")}`, pool: "bonk" }));
+    };
+    const withLeader = async (store: Datastore) => {
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
+      return recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 0, { minCopies: 11 });
+    };
+
+    it("a subject with 6 pump creators and 5 bonk creators has 11 copiers and is a Meta; with 6 and 3 it is not", async () => {
+      const yes = Datastore.open(":memory:");
+      wave(yes, 6, 5);
+      expect(await withLeader(yes)).toMatchObject({ metas: 1 });
+      expect(yes.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", counts: { "24h": { creators: 11, tokens: 11 } } }); // the stored counts include the bonk creators
+
+      const no = Datastore.open(":memory:");
+      wave(no, 6, 3);
+      expect(await withLeader(no)).toMatchObject({ metas: 0, watching: 0 });
+    });
+
+    it("the launch-theme rows, base rate, size floor and coverage are identical with and without bonk creates in the store", async () => {
+      const plain = Datastore.open(":memory:");
+      const mixed = Datastore.open(":memory:");
+      for (const s of [plain, mixed]) {
+        seq = 500;
+        wave(s, 6, 0);
+        launchMany(s, 4, (i) => ({ name: "Other", creator: `o${i}` }));
+      }
+      // bonk creates that name the Jensen group, one that names no group, and a pile that would pass the size floor alone
+      launchMany(mixed, 5, (i) => ({ name: "Jensen", creator: `bb${i}`, pool: "bonk" }));
+      launchMany(mixed, 12, (i) => ({ name: "Bonk Only", creator: `bo${i}`, pool: "bonk" }));
+      for (const s of [plain, mixed]) await recompute(s, undefined, 0);
+      const whole = (s: Datastore, w: "6h" | "24h") => JSON.stringify(s.latestMetas(w, 100));
+      expect(whole(mixed, "24h")).toBe(whole(plain, "24h"));
+      expect(whole(mixed, "6h")).toBe(whole(plain, "6h"));
+      expect(mixed.latestMetas("24h", 100)!.rows.map((r) => r.label)).not.toContain("Bonk Only");
+    });
+
+    it("a bonk token joins the group that holds one of its name or ticker keys; one whose keys point at two groups, or at none, joins neither", async () => {
+      const store = Datastore.open(":memory:");
+      launchMany(store, 3, (i) => ({ name: "Alphaone", symbol: "ALPHAONE", creator: `a${i}` }));
+      launchMany(store, 3, (i) => ({ name: "Betatwo", symbol: "BETATWO", creator: `c${i}` }));
+      launchMany(store, 2, (i) => ({ name: "Something else", symbol: "ALPHAONE", creator: `e${i}`, pool: "bonk" })); // its ticker key is Alphaone's: joins
+      launchMany(store, 2, (i) => ({ name: "Alphaone", symbol: "BETATWO", creator: `f${i}`, pool: "bonk" })); // two keys, two groups: joins neither
+      launchMany(store, 2, (i) => ({ name: "Gammathree", symbol: "GAMMA", creator: `g${i}`, pool: "bonk" })); // no group at all
+      const A = mintOf();
+      trend(store, A, "Alphaone ($ALPHAONE)", 3_000_000);
+      await recompute(store, fakeDex(new Map([[A, 3_000_000]])).client, 0, { minCopies: 1 });
+      const m = store.currentMetas()!.metas.find((x) => x.key === "alphaone")!;
+      expect(m.counts["24h"]).toMatchObject({ creators: 5, tokens: 5 }); // 3 pump creators and the 2 bonk creators of the first kind
+    });
   });
 });

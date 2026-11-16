@@ -35,6 +35,19 @@ describe("meta config", () => {
     expect(junk).toEqual(META_RULE);
   });
 
+  it("the top-down defaults are ADR 0015's: 5 requests a tick, $50,000 liquidity, 100 times, $50,000 volume", () => {
+    expect(META_RULE).toMatchObject({ topDownCalls: 5, topDownMinLiquidityUsd: 50_000, topDownMaxCapLiquidityRatio: 100, topDownMinVolumeUsd: 50_000 });
+  });
+
+  it("reads each top-down knob, bounded, and junk keeps the default", () => {
+    const c = metaConfigFromEnv({ ARGUS_META_TOPDOWN_CALLS: "3", ARGUS_META_TOPDOWN_MIN_LIQ_USD: "80000", ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO: "50", ARGUS_META_TOPDOWN_MIN_VOLUME_USD: "0" });
+    expect(c).toMatchObject({ topDownCalls: 3, topDownMinLiquidityUsd: 80_000, topDownMaxCapLiquidityRatio: 50, topDownMinVolumeUsd: 0 });
+    expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_CALLS: "10" }).topDownCalls).toBe(10);
+    const junk = metaConfigFromEnv({ ARGUS_META_TOPDOWN_CALLS: "11", ARGUS_META_TOPDOWN_MIN_LIQ_USD: "-5", ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO: "0", ARGUS_META_TOPDOWN_MIN_VOLUME_USD: "1e9" });
+    expect(junk).toEqual(META_RULE);
+    for (const raw of ["", "x", "1.5", "0", "-1"]) expect(metaConfigFromEnv({ ARGUS_META_TOPDOWN_CALLS: raw }).topDownCalls, raw).toBe(5);
+  });
+
   it("a stay above enter keeps both defaults, and stay equal to enter is allowed", () => {
     expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "400000", ARGUS_META_STAY_MCAP_USD: "800000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
     expect(metaConfigFromEnv({ ARGUS_META_STAY_MCAP_USD: "1500000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });

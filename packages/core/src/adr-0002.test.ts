@@ -20,6 +20,14 @@ import { describe, expect, it } from "vitest";
  * READ_ONLY_RPC_MODULE, and only for READ_ONLY_RPC_HOST (https, path "/") and READ_ONLY_RPC_METHODS. Everything else in rules 1-4 still
  * applies in that file (no SDK, no key, no write or signing method, no other host), and nothing is allowed anywhere else.
  *
+ * The second exception is the read-only token list (ADR 0015 decision 1, meta-redesign ticket 05), granted by the Operator on 2026-11-16
+ * (cos.md Q12 a): Jupiter is a swap host and stays banned, except that exactly one module, READ_ONLY_TOKEN_LIST_MODULE, may name exactly one
+ * host, READ_ONLY_TOKEN_LIST_HOST (https, no userinfo, no port), and only under the path prefix READ_ONLY_TOKEN_LIST_PATH (the public
+ * trending list). The Operator's grant was the wider `/tokens/v2/*`; ADR 0015 narrows it to this prefix. Everything else in rules 1-4 still
+ * applies in that module, so no quote, swap, price-for-trading or wallet endpoint, no `@jup-ag/*` package, no key; it also takes the strict
+ * host rules of the module above (no host built at run time, no string assembly). Widening any of these three needs the Operator's say-so.
+ * Tests of that module must not spell the host: they import the prefix constant from it.
+ *
  * This is a tripwire, not a proof. A banned host is caught as a URL (literal scheme) and, since ticket 23, as a bare hostname in the text
  * whatever precedes it (`${scheme}://h`, `"//h"`, `"ht" + "tps://h"`, a constant), after undoing escapes (a `\n`, `\r` or `\t` escape too: a
  * URL parser drops LF, CR and TAB), percent-encoding, case, full-width and zero-width forms, and after joining adjacent string literals.
@@ -126,6 +134,11 @@ const RPC_METHODS = [
 export const READ_ONLY_RPC_MODULE = "packages/core/src/study/helius.ts";
 export const READ_ONLY_RPC_HOST = "mainnet.helius-rpc.com";
 export const READ_ONLY_RPC_METHODS = ["getMultipleAccounts", "getTransactionsForAddress", "getAccountInfo", "getSignaturesForAddress", "getTransaction"];
+
+// The read-only token list allowance (see the header). Widening any of these three needs the Operator's say-so.
+export const READ_ONLY_TOKEN_LIST_MODULE = "packages/core/src/sources/jupiter.ts";
+export const READ_ONLY_TOKEN_LIST_HOST = "lite-api.jup.ag";
+export const READ_ONLY_TOKEN_LIST_PATH = "/tokens/v2/toptrending/";
 
 const KEY_WORDS = /\b(Keypair|secretKey|privateKey|PRIVATE_KEY|mnemonic)\b/;
 
@@ -252,7 +265,7 @@ const stripBlockComments = (text: string): string => {
 const HOST_TOKEN = /(\[::1\]|[a-z0-9-]+(?:\.+[a-z0-9-]+)*)(\.*)(?::(\d{1,5}))?/gi;
 
 // ADR 0002 rule 2 for a banned host that is not inside a URL with a literal scheme, with the same allowances as for URLs.
-function bareHostViolations(file: string, text: string, readOnlyRpc: boolean, already: string[]): string[] {
+function bareHostViolations(file: string, text: string, readOnlyRpc: boolean, tokenList: boolean, already: string[]): string[] {
   const found: string[] = [];
   for (const m of text.matchAll(HOST_TOKEN)) {
     const host = stripTrailingDots(m[1]!.toLowerCase());
@@ -283,6 +296,8 @@ function bareHostViolations(file: string, text: string, readOnlyRpc: boolean, al
         // the pinned read-only host: the exact host, as a plain token or after a literal `https://` (never `//`, `${s}://` or userinfo), path "/";
         // one sentence period after the path (`https://mainnet.helius-rpc.com/.`) is dropped, as the URL scan does
         (readOnlyRpc && plain && host === READ_ONLY_RPC_HOST && !/[@/\\]$/.test(before.replace(/https:\/\/$/i, "")) && /^(?:[,;!?\]}:]*|\/?(?:[?#].*)?)$/.test(rest.replace(/\.$/, ""))) ||
+        // the token list: the exact host after a literal `https://` (never `//`, `${s}://` or userinfo), followed by the list's path prefix
+        (tokenList && plain && tidy && host === READ_ONLY_TOKEN_LIST_HOST && /https:\/\/$/i.test(before) && !/[@/\\]$/.test(before.replace(/https:\/\/$/i, "")) && path.startsWith(READ_ONLY_TOKEN_LIST_PATH)) ||
         // the bare apex name as prose in a frozen file
         (!readOnlyRpc && BARE_APEX_FILES.has(file.split(sep).join("/")) && plain && (host === "pump.fun" || host === "pumpportal.fun") && !/[/@\\]$/.test(before) && /^[,;!?\]}:]*$/.test(rest)));
     const msg = `${file}: bare banned host ${hostPort}`;
@@ -296,6 +311,7 @@ function bareHostViolations(file: string, text: string, readOnlyRpc: boolean, al
 export function violations(file: string, text: string): string[] {
   const out: string[] = [];
   const readOnlyRpc = file.split(sep).join("/") === READ_ONLY_RPC_MODULE;
+  const tokenList = file.split(sep).join("/") === READ_ONLY_TOKEN_LIST_MODULE;
   if (file.endsWith("package.json")) {
     const pkg = JSON.parse(text) as Record<string, Record<string, string> | undefined>;
     for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
@@ -327,7 +343,9 @@ export function violations(file: string, text: string): string[] {
       const ok = !extended && ((host === "pumpportal.fun" && (u.pathname === "/api/data" || u.pathname.startsWith("/api/data/"))) || (host === "pump.fun" && u.pathname.startsWith("/coin/")));
       // The pinned form only: the exact host (no trailing dot), https, no port or userinfo, path "/".
       const readOnly = readOnlyRpc && !extended && u.protocol === "https:" && u.hostname === READ_ONLY_RPC_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname === "/";
-      if (!ok && !readOnly) bad.push(`${file}: endpoint ${u.href}`);
+      // The token list: https, the exact host, no port or userinfo, and the parsed path (dot segments already resolved) under the list prefix.
+      const listOk = tokenList && !extended && u.protocol === "https:" && u.hostname === READ_ONLY_TOKEN_LIST_HOST && u.port === "" && u.username === "" && u.password === "" && u.pathname.startsWith(READ_ONLY_TOKEN_LIST_PATH) && !head.includes("\\");
+      if (!ok && !readOnly && !listOk) bad.push(`${file}: endpoint ${u.href}`);
     }
     return bad;
   };
@@ -342,9 +360,9 @@ export function violations(file: string, text: string): string[] {
   // joined across adjacent literals with "" and with ".".
   const norm = normalizeForHosts(text);
   const views = [norm, norm.replace(/\\[nrt]/g, "")].flatMap((t) => [t, joinLiterals(t), joinLiterals(t, ".")]);
-  for (const t of new Set([normalizeForHosts(text, false), ...views])) for (const v of bareHostViolations(file, t, readOnlyRpc, out)) if (!out.includes(v)) out.push(v);
+  for (const t of new Set([normalizeForHosts(text, false), ...views])) for (const v of bareHostViolations(file, t, readOnlyRpc, tokenList, out)) if (!out.includes(v)) out.push(v);
   const normFile = file.split(sep).join("/");
-  if (readOnlyRpc ? DYNAMIC_HOST_STRICT.test(text) || DYNAMIC_HOST.test(text) : DYNAMIC_HOST.test(text) && !DYNAMIC_HOST_FILES.has(normFile)) out.push(`${file}: URL with a host built at run time`);
+  if (readOnlyRpc || tokenList ? DYNAMIC_HOST_STRICT.test(text) || DYNAMIC_HOST.test(text) : DYNAMIC_HOST.test(text) && !DYNAMIC_HOST_FILES.has(normFile)) out.push(`${file}: URL with a host built at run time`);
   if (!readOnlyRpc && /jsonrpc/i.test(text)) out.push(`${file}: JSON-RPC request outside ${READ_ONLY_RPC_MODULE}`);
   const setting = RPC_ENDPOINT_SETTING.exec(text);
   if (setting) out.push(`${file}: RPC endpoint setting ${setting[0]}`);
@@ -352,10 +370,8 @@ export function violations(file: string, text: string): string[] {
     if (readOnlyRpc && READ_ONLY_RPC_METHODS.includes(method)) continue;
     if (new RegExp(`["'\`]${method}["'\`]`).test(text)) out.push(`${file}: RPC method "${method}"`);
   }
-  if (readOnlyRpc) {
-    if (/\bmethod\b/.test(text.replace(METHOD_LITERAL, ""))) out.push(`${file}: JSON-RPC method that is not a literal`);
-    for (const [name, re] of MODULE_BANNED_CONSTRUCTS) if (re.test(text)) out.push(`${file}: ${name}`);
-  }
+  if (readOnlyRpc && /\bmethod\b/.test(text.replace(METHOD_LITERAL, ""))) out.push(`${file}: JSON-RPC method that is not a literal`);
+  if (readOnlyRpc || tokenList) for (const [name, re] of MODULE_BANNED_CONSTRUCTS) if (re.test(text)) out.push(`${file}: ${name}`);
   const key = KEY_WORDS.exec(text);
   if (key) out.push(`${file}: key handling ${key[0]}`);
   const sign = SIGNING_PRIMITIVES.exec(text) ?? SIGNING_IMPORT.exec(text);
@@ -397,7 +413,7 @@ describe("ADR 0002: argus never touches a chain", () => {
 
   it("the walk covers the read-only Sources that mention pump.fun, PumpPortal and DexScreener", () => {
     const files = sourceFiles(ROOT).map((f) => relative(ROOT, f));
-    for (const f of ["pumpportal.ts", "dexscreener.ts"]) expect(files).toContain(join("packages", "core", "src", "sources", f));
+    for (const f of ["pumpportal.ts", "dexscreener.ts", "jupiter.ts", "geckoterminal.ts"]) expect(files).toContain(join("packages", "core", "src", "sources", f));
   });
 
   describe("the rule itself", () => {
@@ -1041,12 +1057,12 @@ describe("ADR 0002: argus never touches a chain", () => {
             ["unicode escape zeros", after("\\u{", "0")], ["hex entity zeros", after("&#x", "0")], ["decimal entity zeros", after("&#", "0")],
             ["hex digits", run("\\x4")], ["percent signs", run("%")], ["ideographic stops", run("。")],
             ["banned hosts", run("api.helius.xyz ")], ["banned hosts with paths", run("pump.fun/")], ["bare apex names", run("pump.fun. ")],
-            ["pinned hosts", run("mainnet.helius-rpc.com. ")], ["ports", run(":8899")], ["host and port", run("localhost:8899 ")],
+            ["pinned hosts", run("mainnet.helius-rpc.com. ")], ["list prefixes", run("https://lite-api.jup.ag/tokens/v2/toptrending/ ")], ["list hosts", run("lite-api.jup.ag. ")], ["ports", run(":8899")], ["host and port", run("localhost:8899 ")],
             ["setting names", run("RPC_")], ["helius names", run("HELIUS_")], ["signing calls", run("crypto.sign ")], ["signing then spaces", after("crypto.sign", " ")],
             ["everything at once", run(`"'\`/*\${.concat(%2e. \n\\`)],
           ];
           const slow: string[] = [];
-          for (const file of ["big.ts", M]) {
+          for (const file of ["big.ts", M, READ_ONLY_TOKEN_LIST_MODULE]) {
             for (const [name, make] of CASES) {
               // a cubic scan needs about an hour on 20k characters, so a small probe goes first; a pass needs both sizes to be fast
               for (const [n, limit] of [[2_000, 300], [20_000, 3_000]] as const) {
@@ -1155,6 +1171,110 @@ describe("ADR 0002: argus never touches a chain", () => {
       it("does not loosen the other read-only Sources' rules", () => {
         expect(violations(M, 'const s = "wss://pumpportal.fun/api/data"; const l = `https://pump.fun/coin/${m}`;')).toEqual([]);
         expect(violations(M, 'fetch("https://pump.fun/api/ipfs")')).toHaveLength(1);
+      });
+    });
+
+    describe("the read-only token list allowance (ADR 0015, meta-redesign ticket 05; the Operator's say-so, 2026-11-16, Q12 a)", () => {
+      const J = READ_ONLY_TOKEN_LIST_MODULE;
+      const LIST = `https://${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}`;
+      const reader = [`const PREFIX = "${LIST}";`, "const url = (interval: string, n: number) => `${PREFIX}${interval}?limit=${n}`;"].join("\n");
+
+      it("is one module, one https host and one path prefix, and the module is not the RPC module", () => {
+        expect(J).toBe("packages/core/src/sources/jupiter.ts");
+        expect(READ_ONLY_TOKEN_LIST_HOST).toBe("lite-api.jup.ag");
+        expect(READ_ONLY_TOKEN_LIST_PATH).toBe("/tokens/v2/toptrending/");
+        expect(J).not.toBe(READ_ONLY_RPC_MODULE);
+        expect(BANNED_HOSTS.some((r) => r.test(READ_ONLY_TOKEN_LIST_HOST))).toBe(true); // banned by default, allowed only in the module
+      });
+
+      it("passes in the module for the list prefix, with an interpolated interval and a query", () => {
+        expect(violations(J, reader)).toEqual([]);
+        expect(violations(J, `fetch("${LIST}1h?limit=50")`)).toEqual([]);
+        expect(violations(J, `// reads ${LIST}1h, a public list.`)).toEqual([]);
+        expect(violations(J.split("/").join(sep), reader)).toEqual([]);
+      });
+
+      it("fires for the same code in any other file", () => {
+        for (const f of [
+          "packages/core/src/sources/jupiter.test.ts",
+          "packages/core/src/sources/jupiter2.ts",
+          "packages/core/src/jupiter.ts",
+          "packages/core/src/sources/sub/jupiter.ts",
+          "apps/worker/src/jupiter.ts",
+          "packages/core/src/sources/jupiter.mjs",
+          "x/packages/core/src/sources/jupiter.ts",
+          "jupiter.ts",
+          READ_ONLY_RPC_MODULE,
+        ]) {
+          const found = violations(f, reader);
+          expect(found.some((v) => v.includes(`endpoint ${LIST}`) || v.includes("bare banned host")), f).toBe(true);
+        }
+        expect(violations(`${J}.bak.ts`, reader).length).toBeGreaterThan(0);
+        expect(violations("other.ts", `const h = "${READ_ONLY_TOKEN_LIST_HOST}";`).some((v) => v.includes("bare banned host"))).toBe(true);
+      });
+
+      it("fires inside the module for a quote, swap or any other path, host, scheme, port or userinfo", () => {
+        for (const url of [
+          "https://quote-api.jup.ag/v6/swap",
+          "https://quote-api.jup.ag/v6/quote",
+          "https://api.jup.ag/tokens/v2/toptrending/1h",
+          "https://price.jup.ag/v6/price",
+          "https://www.jup.ag/tokens/v2/toptrending/1h",
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/search?query=x`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/recent`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toporganicscore/1h`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/swap/v1/quote`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/price/v3?ids=x`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toptrending`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toptrendingx/1h`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toptrending/../search`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toptrending/%2e%2e/search`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}/tokens/v2/toptrending/..\\search`,
+          `http://${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h`,
+          `wss://${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}:8443${READ_ONLY_TOKEN_LIST_PATH}1h`,
+          `https://user:pw@${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}.${READ_ONLY_TOKEN_LIST_PATH}1h`,
+          `https://${READ_ONLY_TOKEN_LIST_HOST}%2e${READ_ONLY_TOKEN_LIST_PATH}1h`,
+        ]) expect(violations(J, `fetch("${url}")`).length, url).toBeGreaterThan(0);
+        // the swap host named in the task's own words
+        expect(violations(J, `${reader}\nfetch("https://quote-api.jup.ag/v6/swap")`).some((v) => v.includes("endpoint https://quote-api.jup.ag/v6/swap"))).toBe(true);
+        // the host without a literal scheme, or with the scheme built, is not the allowance either
+        for (const src of [`fetch("//${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h")`, `fetch("${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h")`, `fetch(\`\${s}://${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}1h\`)`, `const h = "${READ_ONLY_TOKEN_LIST_HOST}";`, `const u = "u@${READ_ONLY_TOKEN_LIST_HOST}${READ_ONLY_TOKEN_LIST_PATH}";`]) {
+          expect(violations(J, src).length, src).toBeGreaterThan(0);
+        }
+        // an interpolation that extends the host or the last path segment
+        for (const src of ["fetch(`https://lite-api.jup.ag${path}`)", "fetch(`https://lite-api.jup.ag/tokens/v2/toptrending${x}`)", "fetch(`https://lite-api.jup.ag.${d}/`)"]) expect(violations(J, src).length, src).toBeGreaterThan(0);
+      });
+
+      it("fires inside the module for SDKs, keys, signing, RPC methods and the other read-only host", () => {
+        expect(violations(J, `${reader}\nimport { Jupiter } from "@jup-ag/api";`)).toEqual([`${J}: import @jup-ag/api`]);
+        expect(violations(J, `${reader}\nconst j = require("@jup-ag/core");`)).toHaveLength(1);
+        expect(violations("package.json", JSON.stringify({ dependencies: { "@jup-ag/api": "1" } }))).toHaveLength(1);
+        for (const key of ["const kp = Keypair.generate();", "const s = wallet.secretKey;", "process.env.PRIVATE_KEY"]) expect(violations(J, `${reader}\n${key}`), key).toHaveLength(1);
+        expect(violations(J, `${reader}\nrpc("getBalance", [x]);`)).toEqual([`${J}: RPC method "getBalance"`]);
+        expect(violations(J, `${reader}\nrpc("getTransaction", [x]);`)).toEqual([`${J}: RPC method "getTransaction"`]); // the RPC module's reads are not granted here
+        expect(violations(J, `${reader}\nfetch("https://${READ_ONLY_RPC_HOST}/")`).length).toBeGreaterThan(0);
+        expect(violations(J, `${reader}\nconst b = { jsonrpc: "2.0" };`)).toEqual([`${J}: JSON-RPC request outside ${READ_ONLY_RPC_MODULE}`]);
+      });
+
+      it("gives the RPC module no Jupiter host, and the list module no loosening of the RPC rules", () => {
+        expect(violations(READ_ONLY_RPC_MODULE, reader).length).toBeGreaterThan(0);
+        expect(violations(J, `fetch("https://${READ_ONLY_RPC_HOST}/?api-key=x")`).length).toBeGreaterThan(0);
+        expect(violations(J, 'fetch("https://quote-api.jup.ag/v6/swap")')).toHaveLength(1);
+      });
+
+      it("takes the module's strict rules: no host built at run time, no string assembly", () => {
+        const DYN = `${J}: URL with a host built at run time`;
+        for (const src of ["fetch(`https://${HOST}/`)", 'fetch("https://" + host + "/")', 'const s = "https://";', 'fetch([scheme, HOST].join("://"))']) expect(violations(J, src), src).toContain(DYN);
+        for (const [src, what] of [
+          ['const p = "/tokens/v2/" + "search";', "concatenated string literals"],
+          ["const m = String.fromCharCode(115);", "string assembly"],
+          ["eval(code);", "eval or Function constructor"],
+          ["const m = await import(name);", "dynamic import"],
+        ] as const) expect(violations(J, src).some((v) => v.includes(what)), src).toBe(true);
+        expect(violations(J, reader)).toEqual([]);
       });
     });
 

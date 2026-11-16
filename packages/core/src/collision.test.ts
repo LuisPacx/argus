@@ -190,6 +190,11 @@ describe("the test run", () => {
     expect(process.env.ARGUS_DEXSCREENER_SEARCH_URL).toBe("http://127.0.0.1:1");
     expect(process.env.ARGUS_GITHUB_SEARCH_URL).toBe("http://127.0.0.1:1");
   });
+
+  it("points the Meta tick's two trending lists at a dead loopback port too", () => {
+    expect(process.env.ARGUS_JUPITER_URL).toBe("http://127.0.0.1:1/");
+    expect(process.env.ARGUS_GECKOTERMINAL_URL).toBe("http://127.0.0.1:1");
+  });
 });
 
 describe("describeCollision", () => {

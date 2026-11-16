@@ -70,6 +70,8 @@ export interface LaunchedToken {
   creator: string;
   createdAt: string;
   migratedAt: string | null;
+  /** The launchpad pool the create named: `pump`, or `bonk` when a read asked for bonk launches too. */
+  pool: string;
 }
 
 export interface NewSnapshot {
@@ -416,12 +418,15 @@ export class StudyStore {
    * READ ONLY. The pump.fun tokens whose create was seen from `fromIso` to `toIso` (both ISO, inclusive), for the Meta ranking (viral
    * sources ticket 03). Other launchpads' creates (`out-of-scope`) and migrations whose create was never seen (`missed`, no create time)
    * are left out. Text fields are creator-written. One indexed pass; nothing is written.
+   *
+   * With `includeBonk` the creates of the bonk launchpad (pool `bonk`, stored `out-of-scope` because the Study is about pump.fun) come
+   * too, for the Meta rule's copiers (ADR 0015 decision 3). Creates of any other pool stay out. Without it the read is what it always was.
    */
-  createdBetween(fromIso: string, toIso: string): LaunchedToken[] {
+  createdBetween(fromIso: string, toIso: string, opts: { includeBonk?: boolean } = {}): LaunchedToken[] {
     const rows = this.db
       .prepare(
-        `SELECT mint, name, symbol, creator, created_at, migrated_at FROM study_tokens
-         WHERE first_seen_at >= ? AND created_at >= ? AND created_at <= ? AND status <> 'out-of-scope'`,
+        `SELECT mint, name, symbol, creator, created_at, migrated_at, pool FROM study_tokens
+         WHERE first_seen_at >= ? AND created_at >= ? AND created_at <= ? AND (status <> 'out-of-scope'${opts.includeBonk ? " OR pool = 'bonk'" : ""})`,
       )
       .all(fromIso, fromIso, toIso) as Row[];
     return rows.map((r) => ({
@@ -431,6 +436,7 @@ export class StudyStore {
       creator: r.creator as string,
       createdAt: r.created_at as string,
       migratedAt: r.migrated_at as string | null,
+      pool: r.pool as string,
     }));
   }
 
