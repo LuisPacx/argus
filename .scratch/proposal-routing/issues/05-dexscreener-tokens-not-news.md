@@ -46,14 +46,14 @@ Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... wr
 
 ## Acceptance criteria
 
-- [ ] A DexScreener token that matches no news Narrative and no launchpad claim starts a `kind = 'launchpad'` Narrative with its name (and ticker) keys, not a news one; a second token of the same name joins it; a token with no usable keys stands alone as launchpad-kind. Tests in `narratives.test.ts` (or the clustering test file it uses).
-- [ ] A DexScreener token near an existing news Narrative still joins it; a token whose name a launchpad Narrative holds still joins that one (`crossSourceTarget` unchanged).
-- [ ] No news Narrative is created with only market-Source Signals: a pass over several tokens and no headlines creates no `kind = 'news'` row.
-- [ ] `narrativesToJudge`, `narrativesToPropose` and 04's `narrativesToMeme` require at least one non-market Signal as well as a market one, through one shared `HAS_NEWS_SIGNAL` fragment. Tests in `propose-store.test.ts`: a token-only news Narrative (legacy shape) is returned by none; the same Narrative with one headline Signal added is returned by the judge and propose selectors.
-- [ ] Meta leaders are unchanged: `trendingSignals` returns the same Signals before and after, and a Meta run over a fixture is identical (`meta/` tests pass untouched).
-- [ ] The measurement of Q6 is in the ticket's Comments before the commit.
-- [ ] ADR 0007 and ADR 0011 amended; GLOSSARY and `docs/architecture.md` agree.
-- [ ] Full `pnpm check` once before the commit.
+- [x] A DexScreener token that matches no news Narrative and no launchpad claim starts a `kind = 'launchpad'` Narrative with its name (and ticker) keys, not a news one; a second token of the same name joins it; a token with no usable keys stands alone as launchpad-kind. Tests in `narratives.test.ts` (or the clustering test file it uses).
+- [x] A DexScreener token near an existing news Narrative still joins it; a token whose name a launchpad Narrative holds still joins that one (`crossSourceTarget` unchanged).
+- [x] No news Narrative is created with only market-Source Signals: a pass over several tokens and no headlines creates no `kind = 'news'` row.
+- [x] `narrativesToJudge`, `narrativesToPropose` and 04's `narrativesToMeme` require at least one non-market Signal as well as a market one, through one shared `HAS_NEWS_SIGNAL` fragment. Tests in `propose-store.test.ts`: a token-only news Narrative (legacy shape) is returned by none; the same Narrative with one headline Signal added is returned by the judge and propose selectors.
+- [x] Meta leaders are unchanged: `trendingSignals` returns the same Signals before and after, and a Meta run over a fixture is identical (`meta/` tests pass untouched).
+- [x] The measurement of Q6 is in the ticket's Comments before the commit.
+- [x] ADR 0007 and ADR 0011 amended; GLOSSARY and `docs/architecture.md` agree.
+- [x] Full `pnpm check` once before the commit.
 
 ## Constraints
 
