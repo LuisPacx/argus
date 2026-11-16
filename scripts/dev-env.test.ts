@@ -40,9 +40,18 @@ describe("withDotenvArgus", () => {
     expect(dotenvLine(r)).toBe("env: 1 ARGUS_* from .env (ARGUS_B); 1 overridden by the shell (ARGUS_A)");
   });
 
+  it("never takes ARGUS_NUXT_BUILD_DIR from .env, and reports it by key only", () => {
+    const f = envFile("ARGUS_A=1\nARGUS_NUXT_BUILD_DIR=/secret/elsewhere\n");
+    const r = withDotenvArgus({}, f);
+    expect(r.env).toEqual({ ARGUS_A: "1" });
+    expect(r.ignored).toEqual(["ARGUS_NUXT_BUILD_DIR"]);
+    expect(dotenvLine(r)).toBe("env: 1 ARGUS_* from .env (ARGUS_A); 0 overridden by the shell; 1 ignored (ARGUS_NUXT_BUILD_DIR)");
+    expect(dotenvLine(r)).not.toContain("/secret");
+  });
+
   it("is a no-op without a .env", () => {
     const r = withDotenvArgus({ X: "1" }, "/nonexistent/.env");
-    expect(r).toEqual({ env: { X: "1" }, fromFile: [], overridden: [] });
+    expect(r).toEqual({ env: { X: "1" }, fromFile: [], overridden: [], ignored: [] });
     expect(dotenvLine(r)).toBe("env: 0 ARGUS_* from .env; 0 overridden by the shell");
   });
 });
