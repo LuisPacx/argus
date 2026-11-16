@@ -64,6 +64,52 @@ function retryAfterMs(res: Response): number | undefined {
   return Math.min(Math.max(ms, 0), MAX_RETRY_AFTER_MS);
 }
 
+export interface RetryOptions {
+  /** Retries after the first attempt (default 2, so 3 attempts in all). 0 turns retrying off. */
+  retries?: number;
+  /** The first wait; each later one doubles (default 500 ms). */
+  baseMs?: number;
+  /** No single wait is longer than this, a server's Retry-After included (default 5,000 ms). */
+  maxWaitMs?: number;
+  /** Replaces the timer wait (tests pass a recorder). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Called before each wait, for a log line. `attempt` is the number of the retry about to run, from 1. */
+  onRetry?: (info: { url: string; attempt: number; retries: number; error: unknown; waitMs: number }) => void;
+}
+
+const RETRY_STATUSES = new Set([408, 425, 429]);
+
+/** A network error (undici's `TypeError: fetch failed`), a timeout (`AbortError`), or a 408, 425, 429 or 5xx answer. Anything else will not get better. */
+export function isTransientFetchError(e: unknown): boolean {
+  if (e instanceof HttpError) return RETRY_STATUSES.has(e.status) || (e.status >= 500 && e.status <= 599);
+  if (e instanceof TypeError) return true;
+  return e instanceof Error && e.name === "AbortError";
+}
+
+/**
+ * Wraps a `FetchText` so a transient failure is tried again, with doubling waits (no jitter). The last error is thrown unchanged.
+ * Only the fetch is retried: the caller parses the body, so a bad body after a 2xx is never fetched twice.
+ */
+export function retryingFetchText(fetchText: FetchText, opts: RetryOptions = {}): FetchText {
+  const retries = Math.max(0, Math.floor(opts.retries ?? 2));
+  const baseMs = opts.baseMs ?? 500;
+  const maxWaitMs = opts.maxWaitMs ?? 5_000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  return async (url) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fetchText(url);
+      } catch (error) {
+        if (attempt > retries || !isTransientFetchError(error)) throw error;
+        const floor = error instanceof HttpError ? (error.retryAfterMs ?? 0) : 0;
+        const waitMs = Math.min(Math.max(baseMs * 2 ** (attempt - 1), floor), maxWaitMs);
+        opts.onRetry?.({ url, attempt, retries, error, waitMs });
+        await sleep(waitMs);
+      }
+    }
+  };
+}
+
 /** Fetches with a timer that stays armed until the body is read, so a trickled body is bounded too. Remote bodies are untrusted. */
 export function timedFetchText(opts: TimedFetchOptions): FetchText {
   return async (url) => {

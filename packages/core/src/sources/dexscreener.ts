@@ -1,4 +1,4 @@
-import { timedFetchText, type FetchText } from "./http.ts";
+import { retryingFetchText, timedFetchText, type FetchText } from "./http.ts";
 import { safeUrl, stripHtml } from "./rss.ts";
 import type { Signal, Source } from "./source.ts";
 
@@ -48,6 +48,14 @@ export interface DexScreenerClientOptions {
   fetchText?: FetchText;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Retries after a transient failure (network error, timeout, 408/425/429/5xx). Default 2 on the network fetch; an injected `fetchText` is used as given unless this is set. 0 turns it off. */
+  retries?: number;
+  /** The first retry wait in ms (doubles each time). Default 500. */
+  retryBaseMs?: number;
+  /** Replaces the retry timer (tests). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Receives the one-line retry notes. Default `console.log`. */
+  log?: (line: string) => void;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -62,7 +70,27 @@ export class DexScreenerClient {
 
   constructor(opts: DexScreenerClientOptions = {}) {
     this.baseUrl = opts.baseUrl ?? API_BASE;
-    this.fetchText = opts.fetchText ?? timedFetchText({ what: "DexScreener", timeoutMs: opts.timeoutMs ?? API_TIMEOUT_MS, maxBytes: API_MAX_BYTES, headers: { accept: "application/json" } });
+    const inner = opts.fetchText ?? timedFetchText({ what: "DexScreener", timeoutMs: opts.timeoutMs ?? API_TIMEOUT_MS, maxBytes: API_MAX_BYTES, headers: { accept: "application/json" } });
+    const log = opts.log ?? ((line: string) => console.log(line));
+    // Retries are on by default for the network fetch; a test's fake is used as given unless `retries` is set.
+    this.fetchText =
+      opts.fetchText && opts.retries === undefined
+        ? inner
+        : retryingFetchText(inner, {
+            retries: opts.retries ?? 2,
+            ...(opts.retryBaseMs !== undefined ? { baseMs: opts.retryBaseMs } : {}),
+            ...(opts.sleep ? { sleep: opts.sleep } : {}),
+            onRetry: ({ url, attempt, retries, error, waitMs }) => {
+              const why = error instanceof Error ? error.message : String(error);
+              let path = "";
+              try {
+                path = new URL(url).pathname;
+              } catch {
+                // not a URL: log no path
+              }
+              log(`[dexscreener] retry ${attempt}/${retries} after ${why} (waiting ${waitMs} ms): ${path}`);
+            },
+          });
   }
 
   private async json(path: string): Promise<unknown> {

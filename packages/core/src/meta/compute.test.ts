@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
-import type { DexPair } from "../sources/dexscreener.ts";
+import { DexScreenerClient, type DexPair } from "../sources/dexscreener.ts";
 import { tempDir } from "../testing/temp.ts";
 import { recomputeMetas as recomputeWithRule, type MetaDexClient, type RecomputeOptions } from "./compute.ts";
 import { metasResponse } from "./api.ts";
@@ -254,6 +254,45 @@ describe("recomputeMetas: market cap", () => {
     const flaky = fakeDex(new Map(), { failOn: (n) => n !== 3 && n !== 6 });
     await recomputeMetas(store, { now: new Date(NOW), dex: flaky.client });
     expect(flaky.calls.length).toBe(8); // fail, fail, ok, fail, fail, ok, fail, fail: never 3 in a row
+  });
+
+  it("a lookup that succeeds on its retry resets the failure streak (counting fake: each call fails once, then answers)", async () => {
+    const store = Datastore.open(":memory:");
+    for (let g = 0; g < 8; g++) launchMany(store, 3, (i) => ({ name: `Group${g}`, creator: `g${g}-${i}` }));
+    // The client retries inside tokenPairs, so the tick sees only the final outcome: 2 failures, 1 success, repeated, never 3 in a row.
+    const flaky = fakeDex(new Map(), { failOn: (n) => n % 3 !== 0 });
+    const r = await recomputeMetas(store, { now: new Date(NOW), dex: flaky.client });
+    expect(flaky.calls.length).toBe(8);
+    expect(r.dexFailures).toBe(6);
+  });
+
+  it("replay of the 111 failures: every request fails its first attempt; with retries the run has 0 failures, without them the streak ends the lookups", async () => {
+    const store = Datastore.open(":memory:");
+    for (let g = 0; g < 6; g++) launchMany(store, 3, (i) => ({ name: `Theme${g}`, creator: `t${g}-${i}`, migratedAfterSec: 20 }));
+    const run = async (retries: number) => {
+      const seen = new Set<string>();
+      let fetches = 0;
+      const fetchText = async (url: string) => {
+        fetches++;
+        if (!seen.has(url)) {
+          seen.add(url);
+          throw new TypeError("fetch failed");
+        }
+        const addresses = url.split("/").pop()!.split(",");
+        return JSON.stringify(addresses.map((a) => ({ chainId: "solana", baseToken: { address: a, name: "", symbol: "" }, marketCap: 250_000 })));
+      };
+      const dex = new DexScreenerClient({ fetchText, retries, sleep: async () => {}, log: () => {} });
+      const result = await recomputeMetas(store, { now: new Date(NOW), dex });
+      return { result, fetches };
+    };
+    const withRetries = await run(2);
+    expect(withRetries.result.dexFailures).toBe(0); // dexFailures with retries: 0
+    expect(rows(store).length).toBe(6);
+    expect(rows(store).every((r) => r.marketCapUsd !== undefined)).toBe(true);
+    const without = await run(0);
+    expect(without.result.dexFailures).toBe(3); // the old behaviour: 3 failed calls in a row end the theme lookups
+    expect(without.fetches).toBe(3); // one attempt per call, no retry
+    expect(rows(store).every((r) => r.marketCapUsd === undefined)).toBe(true);
   });
 
   it("never makes more DexScreener calls than the budget, and never more than one per group", async () => {

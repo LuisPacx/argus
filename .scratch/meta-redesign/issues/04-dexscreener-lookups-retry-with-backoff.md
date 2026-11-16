@@ -3,7 +3,7 @@
 
 **What to build:** a failed DexScreener request is retried a bounded number of times with growing waits before it counts as a failure. Today one transient error is a lost lookup: the worker log had 111 `[meta] DexScreener lookup failed for <key>: fetch failed` lines before the 2026-11-16 04:59Z restart (theme lookups), each one a theme with no market cap for that tick, and three in a row end the tick's lookups. Decided by the user on 2026-11-16 (`.scratch/cos.md`: "GTA USER" Q5 yes, "USER: all as recommended" Q11 "MR/04 retries"; reasons in `docs/adr/0015-metas-are-found-top-down.md`, decision 1 for why the wrapper is shared).
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** none. Ticket 05 reuses the wrapper written here.
 

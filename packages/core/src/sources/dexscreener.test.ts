@@ -226,11 +226,60 @@ describe("DexScreenerClient default fetch", () => {
   it("sends JSON requests through the bounded fetch and fails a non-2xx", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 429, statusText: "Too Many Requests", headers: { "retry-after": "30" } }));
     try {
-      const err = await new DexScreenerClient().topBoosts().catch((e: unknown) => e);
+      const err = await new DexScreenerClient({ sleep: async () => {}, log: () => {} }).topBoosts().catch((e: unknown) => e);
       expect(err).toMatchObject({ status: 429, retryAfterMs: 30_000 });
       expect(spy).toHaveBeenCalledWith(boostsUrl, expect.objectContaining({ headers: { accept: "application/json" }, signal: expect.any(AbortSignal) }));
+      expect(spy).toHaveBeenCalledTimes(3); // the production default retries twice
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("the production default retries a network error, and logs the path only", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValue(new Response("[]"));
+    const waits: number[] = [];
+    const lines: string[] = [];
+    try {
+      const out = await new DexScreenerClient({ sleep: async (ms) => void waits.push(ms), log: (l) => void lines.push(l) }).search("moon cat").then(() => "no", (e: unknown) => (e as Error).message);
+      expect(out).toContain("unexpected search response"); // `[]` is not a search answer: parsed once, not retried
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(waits).toEqual([500]);
+      expect(lines).toEqual(["[dexscreener] retry 1/2 after fetch failed (waiting 500 ms): /latest/dex/search"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("DexScreenerClient retries", () => {
+  const failing = (errors: number, body = "[]") => {
+    let calls = 0;
+    return { fetchText: async () => (calls++ < errors ? Promise.reject(new TypeError("fetch failed")) : body), calls: () => calls };
+  };
+
+  it("with an injected fetchText and no retries option: one call, one throw", async () => {
+    const f = failing(1);
+    await expect(new DexScreenerClient({ fetchText: f.fetchText }).topBoosts()).rejects.toThrow("fetch failed");
+    expect(f.calls()).toBe(1);
+  });
+
+  it("with retries 2 it retries, and with retries 0 it does not", async () => {
+    const f = failing(2);
+    expect(await new DexScreenerClient({ fetchText: f.fetchText, retries: 2, sleep: async () => {}, log: () => {} }).topBoosts()).toEqual([]);
+    expect(f.calls()).toBe(3);
+    const off = failing(1);
+    await expect(new DexScreenerClient({ fetchText: off.fetchText, retries: 0 }).topBoosts()).rejects.toThrow("fetch failed");
+    expect(off.calls()).toBe(1);
+  });
+
+  it("a 2xx body that is not JSON throws its parse error after one fetch; a 200 with {} makes search throw after one fetch", async () => {
+    const html = failing(0, "<html>");
+    const a = new DexScreenerClient({ fetchText: html.fetchText, retries: 2, sleep: async () => {} });
+    await expect(a.tokenPairs("solana", [MOON])).rejects.toThrow(SyntaxError);
+    expect(html.calls()).toBe(1);
+    const empty = failing(0, "{}");
+    const b = new DexScreenerClient({ fetchText: empty.fetchText, retries: 2, sleep: async () => {} });
+    await expect(b.search("moon")).rejects.toThrow("unexpected search response");
+    expect(empty.calls()).toBe(1);
   });
 });
