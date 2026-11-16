@@ -11,11 +11,11 @@ A single raw item observed from a Source, such as a post, an article, a trending
 A place Signals are observed from, such as a news feed, a social account or search, a trends feed, or a launchpad feed. Every Source has a Source class.
 
 **Source class**:
-Whether a Source is `market` or `context`. A market Source (PumpPortal, DexScreener) observes the token market itself; a context Source (news feeds, Google Trends, GitHub trending) observes the world. Only a Narrative that holds at least one market Signal is judged and proposed; context Signals are background for the agents. A Source that is not declared is `context`; a new Source must be declared `market` on purpose. See ADR 0011.
+Whether a Source is `market` or `context`. A market Source (PumpPortal, DexScreener) observes the token market itself; a context Source (news feeds, Google Trends, GitHub trending) observes the world. Only a `news` Narrative that holds at least one market Signal and at least one non-market Signal (a headline) is judged and proposed; a market Signal alone never makes one eligible. context Signals are background for the agents. A Source that is not declared is `context`; a new Source must be declared `market` on purpose. See ADR 0011.
 _Avoid_: category
 
 **Narrative**:
-A cluster of recent Signals that share a subject and show momentum. The unit the research step produces. It has a kind: `news` (built from news and market Signals; judged, and proposed from as a Tech Proposal when it passes the buildability gate, or as a Meme Proposal when it fails the gate and passes the floors, ADR 0013) or `launchpad` (one token's creates from the launchpad stream; context and routing only, never judged or proposed, ADR 0013).
+A cluster of recent Signals that share a subject and show momentum. The unit the research step produces. It has a kind: `news` (founded by a news Signal, which a DexScreener token may later join but never founds; judged, and proposed from as a Tech Proposal when it passes the buildability gate, or as a Meme Proposal when it fails the gate and passes the floors, ADR 0013) or `launchpad` (one token's creates from the launchpad stream, or DexScreener tokens of the same name that match no news Narrative; context and routing only, never judged or proposed, ADR 0013).
 _Avoid_: Trend, topic
 
 ## Ideas

@@ -44,8 +44,10 @@ function fixture() {
   const mixed = addNarrative(store, "Mixed story", "rss:a");
   for (let i = 0; i < 16; i++) addSignal(store, mixed, "rss:b");
   addSignal(store, mixed, "pumpportal:events");
-  const market = addNarrative(store, "Market only", "dexscreener:trending");
-  return { store, news, trends, gh, mixed, market };
+  const market = addNarrative(store, "Market with a headline", "dexscreener:trending");
+  addSignal(store, market, "rss:a"); // a market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16)
+  const marketOnly = addNarrative(store, "Market only", "dexscreener:trending");
+  return { store, news, trends, gh, mixed, market, marketOnly };
 }
 
 describe("context-only Narratives are neither judged nor proposed (ticket 24)", () => {
@@ -68,7 +70,7 @@ describe("context-only Narratives are neither judged nor proposed (ticket 24)", 
 
   it("a failed world-context read does not fail the judge pass: it logs and judges without the block", async () => {
     const store = Datastore.open(":memory:");
-    addNarrative(store, "Market only", "dexscreener:trending");
+    addSignal(store, addNarrative(store, "Market with a headline", "dexscreener:trending"), "rss:a");
     vi.spyOn(store, "contextNarratives").mockImplementation(() => {
       throw new Error("db locked");
     });
@@ -87,19 +89,21 @@ describe("context-only Narratives are neither judged nor proposed (ticket 24)", 
     expect(lines.some((l) => l.includes("world context not read") && l.includes("db locked"))).toBe(true);
   });
 
-  it("a Narrative whose Signals are all context is not judged; a mixed one and a market-only one are", () => {
-    const { store, mixed, market } = fixture();
+  it("a Narrative whose Signals are all context is not judged, nor one of market Signals only; a mixed one and a market one with a headline are", () => {
+    const { store, mixed, market, marketOnly } = fixture();
+    expect(judgeIds(store)).not.toContain(marketOnly);
     expect(judgeIds(store)).toEqual([mixed, market].sort());
   });
 
   it("the default judge minimum does not bring a context-only Narrative back", () => {
-    const { store, mixed } = fixture();
-    expect(store.narrativesToJudge(CUR, SINCE, 50, Infinity, DEFAULT_JUDGE_CONFIG.minSignals).map((x) => x.id)).toEqual([mixed]);
+    const { store, mixed, market } = fixture();
+    expect(store.narrativesToJudge(CUR, SINCE, 50, Infinity, DEFAULT_JUDGE_CONFIG.minSignals).map((x) => x.id).sort()).toEqual([mixed, market].sort());
   });
 
   it("propose excludes a scored context-only Narrative and includes the mixed one; old Scores stay", () => {
-    const { store, news, mixed, market } = fixture();
+    const { store, news, mixed, market, marketOnly } = fixture();
     for (const id of [news, mixed, market]) score(store, id);
+    score(store, marketOnly);
     expect(proposeIds(store)).toEqual([mixed, market].sort());
     expect(store.latestScore(news)).toBeDefined();
   });

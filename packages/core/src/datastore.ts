@@ -229,6 +229,13 @@ export const CLEANUP_CLAIM_TTL_MS = 10 * 60_000;
  */
 const HAS_MARKET_SIGNAL = `EXISTS (SELECT 1 FROM signals sg WHERE sg.narrative_id = n.id AND sg.source_id IN (${MARKET_SOURCE_IDS.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ")}))`;
 
+/**
+ * SQL for "this Narrative holds at least one news Signal" (a Signal whose Source is not `market`; ticket 05). Judge, propose and the news
+ * meme selectors require it beside HAS_MARKET_SIGNAL: a market Signal makes a news Narrative eligible only together with a headline
+ * (ADR 0011 amendment). `n` is the Narrative alias of the query it is placed in.
+ */
+const HAS_NEWS_SIGNAL = `EXISTS (SELECT 1 FROM signals sg WHERE sg.narrative_id = n.id AND sg.source_id NOT IN (${MARKET_SOURCE_IDS.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ")}))`;
+
 export interface NewProposal {
   narrativeSummary: string;
   techOneLiner: string;
@@ -1594,6 +1601,7 @@ export class Datastore {
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
            AND n.kind = 'news' AND n.signal_count >= ?
            AND ${HAS_MARKET_SIGNAL}
+           AND ${HAS_NEWS_SIGNAL}
            AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.narrative_id = n.id AND s.changed_materially_at >= n.changed_materially_at)
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'judge' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
            AND NOT EXISTS (
@@ -1661,6 +1669,7 @@ export class Datastore {
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
            AND n.kind = 'news'
            AND ${HAS_MARKET_SIGNAL}
+           AND ${HAS_NEWS_SIGNAL}
            AND json_extract(s.scores, '$.buildability') >= ?
            AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id AND p.kind = 'narrative')
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
@@ -1693,7 +1702,6 @@ export class Datastore {
    * `onlyId` narrows it to one Narrative (the re-check when a trio is about to be stored).
    */
   narrativesToMeme(embedder: NarrativeEmbedder, since: string, gateMin: number, floors: NewsMemeFloors, limit: number, onlyId?: number): Array<{ narrative: Narrative; score: Score }> {
-    const market = MARKET_SOURCE_IDS.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ");
     const rows = this.db
       .prepare(
         `SELECT n.id AS nid, n.title, n.summary, n.signal_count AS n_signal_count, n.created_at AS n_created_at, n.last_signal_at, n.changed_materially_at AS n_changed_materially_at, s.*
@@ -1702,7 +1710,7 @@ export class Datastore {
          WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
            AND n.kind = 'news'
            AND ${HAS_MARKET_SIGNAL}
-           AND EXISTS (SELECT 1 FROM signals sg WHERE sg.narrative_id = n.id AND sg.source_id NOT IN (${market}))
+           AND ${HAS_NEWS_SIGNAL}
            AND json_extract(s.scores, '$.buildability') < ?
            AND json_extract(s.scores, '$.legitimacy') >= ?
            AND json_extract(s.scores, '$.hook') >= ?

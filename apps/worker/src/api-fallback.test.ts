@@ -44,6 +44,8 @@ async function runOnce(env: Record<string, string>, replies: FakeReply[] = []) {
   const db = join(dir, "argus.db");
   const seed = Datastore.open(db);
   for (const [i, title] of ["Tokenized stocks arrive", "Cat elected mayor", "Rockets launch daily"].entries()) {
+    // A market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16): a headline of the same title is published first and the token joins it.
+    seed.recordSignals([{ id: `a:${i}`, sourceId: "rss:wire", sourceLabel: "Wire", title, summary: `${title} summary`, url: `https://a.example/h${i}`, publishedAt: new Date(Date.now() - 60_000).toISOString() }]);
     seed.recordSignals([{ id: `s:${i}`, sourceId: "dexscreener:trending", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${i}`, publishedAt: new Date().toISOString() }]);
   }
   await clusterNewSignals(seed, new HashingEmbedder(), { config: { joinThreshold: 0.99 } });

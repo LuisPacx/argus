@@ -3,7 +3,7 @@
 
 **What to build:** `dexscreener:trending` token Signals (`Name ($TICKER)`) are embedded and clustered like headlines (`narratives.ts:208-219`), so a news Narrative can be made of token names alone: legacy rows 3881 and 4059 are exactly that. The user approved on 2026-11-15 that DexScreener tokens stop being embedded into news Narratives and are routed the way launchpad Signals are (grouped by name and ticker, or kept out of Narratives). A news Narrative must not form from token names alone. This amends ADR 0007 (clustering) and ADR 0011 (what a market Signal does).
 
-**Status:** ready (blocked by 04)
+**Status:** done
 **Blocked by:** 04
 
 Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... write dexscreener-routing follow-up ticket (build after 04)". Follows `.scratch/proposal-routing/issues/04-news-meme-proposals.md`, whose acceptance criterion "a qualifying Narrative has at least one news Signal" is the read-side half of this rule; this ticket is the write side.
@@ -66,3 +66,5 @@ Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... wr
 
 - **Written 2026-11-15** from the user's approval of the DexScreener routing follow-up (cos journal "LEGACY ROWS CHECK" and "USER: ... write dexscreener-routing follow-up ticket"). Build after 04.
 - 2026-11-15: user accepted all 7 recommended answers (journal .scratch/cos.md, "USER 05").
+- 2026-11-16: Q5 measurement: 20 of 27 not ~0; user approved proceeding 2026-11-16 (journal 'PR/05 FACTS'). Numbers, on a `sqlite3 .backup` copy of 2026-11-16 (deleted afterwards): 4,785 news Narratives; 27 judged or proposed news Narratives held a DexScreener token and no PumpPortal Signal, and 20 of those 27 had no headline (ids 1, 4, 5, 7, 8, 10, 12, 38, 128, 134, 198, 351, 503, 593, 851, 892, 2452, 2512, 3440, 3881; 216 token-without-headline news Narratives in all, judged or not). All 20 are memecoin tickers with a maximum buildability of 4 or less; the only Tech Proposals from such Narratives are 150 and 152, both memecoins dressed up as apps; since 2026-11-15 04:40Z, 2 of the 4 scored news Narratives were token-only.
+- 2026-11-16: built. `placeDexscreenerToken` (`launchpad-cluster.ts`) and one `HAS_NEWS_SIGNAL` fragment in `datastore.ts` shared by `narrativesToJudge`, `narrativesToPropose` and `narrativesToMeme`. ADR 0007 and 0011 amended; GLOSSARY and `docs/architecture.md` agree (the pipeline graph names only the market gate, so `pnpm docs:graph` was not needed). The selector fixtures in `judge-pass`, `propose-pass`, `api-fallback-pass` and `context-only` tests now add a headline to their market Signal.

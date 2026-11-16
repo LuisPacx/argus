@@ -34,11 +34,17 @@ function setup(env: Record<string, string> = {}, brainOpts: ConstructorParameter
 
 let n = 0;
 /** A one-Signal Narrative built by `embedder`, last changed at `at`. Returns its id. */
-function addNarrative(store: Datastore, title: string, opts: { embedder?: NarrativeEmbedder; at?: Date; sourceId?: string } = {}): number {
+function addNarrative(store: Datastore, title: string, opts: { embedder?: NarrativeEmbedder; at?: Date; sourceId?: string; headline?: boolean } = {}): number {
   const id = `s:${++n}`;
   store.recordSignals([{ id, sourceId: opts.sourceId ?? "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
-  return store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
+  const nid = store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
+  if (opts.sourceId === undefined && opts.headline !== false) {
+    // A market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16): a headline rides with it.
+    store.recordSignals([{ id: `${id}:h`, sourceId: "rss:wire", sourceLabel: "Wire", title: `${title} headline`, summary: "", url: `https://a.example/${id}/h`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+    store.joinNarrative(nid, store.unclusteredSignals(500).find((s) => s.id === `${id}:h`)!, [1, 0], (opts.at ?? NOW).toISOString());
+  }
+  return nid;
 }
 
 /** A one-Signal launchpad Narrative (a token create), last changed at `at`. Returns its id. */
@@ -65,8 +71,8 @@ describe("the judge pass: minimum Signals", () => {
 
   it("candidate selection leaves out a 1-Signal Narrative and takes it once it has 2", () => {
     const { store } = setup();
-    const one = addNarrative(store, "Lone story");
-    const two = addNarrative(store, "Pair story");
+    const one = addNarrative(store, "Lone story", { headline: false });
+    const two = addNarrative(store, "Pair story", { headline: false });
     addSignal(store, two, "rss:b", NOW);
     expect(ids(store, DEFAULT_JUDGE_CONFIG.minSignals)).toEqual([two]);
     addSignal(store, one, "rss:b", minutes(5));
@@ -75,7 +81,7 @@ describe("the judge pass: minimum Signals", () => {
 
   it("a 1-Signal Narrative is skipped by a default pass: no run, no failure, no cap use, then judged after a second Signal", async () => {
     const { store, lines } = setup();
-    const id = addNarrative(store, "Lone story");
+    const id = addNarrative(store, "Lone story", { headline: false });
     const defaultPass = (now: Date) => judgePendingNarratives(store, new ClaudeCodeBrain({ command: FAKE_CLAUDE, env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: "success", FAKE_CLAUDE_RESULT: ANSWER }, passEnv: ["FAKE_CLAUDE_MODE", "FAKE_CLAUDE_RESULT"] }), CUR, { now, log: (l) => lines.push(l) });
     expect(await defaultPass(NOW)).toEqual({ judged: 0, refused: 0, failed: 0 });
     expect(store.judgeRunsFor(id)).toHaveLength(0);
@@ -86,8 +92,8 @@ describe("the judge pass: minimum Signals", () => {
 
   it("skipped Narratives do not use the run cap: with cap 2, ten 1-Signal Narratives leave both runs for the 2-Signal ones", async () => {
     const { store, pass } = setup();
-    for (let i = 0; i < 10; i++) addNarrative(store, `Lone ${i}`);
-    for (let i = 0; i < 2; i++) addSignal(store, addNarrative(store, `Pair ${i}`), "rss:b", NOW);
+    for (let i = 0; i < 10; i++) addNarrative(store, `Lone ${i}`, { headline: false });
+    for (let i = 0; i < 2; i++) addSignal(store, addNarrative(store, `Pair ${i}`, { headline: false }), "rss:b", NOW);
     expect(await pass({ minSignals: 2, maxRunsPerDay: 2 })).toMatchObject({ judged: 2, failed: 0 });
     expect(await pass({ minSignals: 2, maxRunsPerDay: 2 }, { now: minutes(30) })).toEqual({ judged: 0, refused: 0, failed: 0 });
   });
@@ -137,7 +143,7 @@ describe("the judge pass", () => {
       scores: { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 },
       total: 7,
       rationale: "clear and buildable",
-      signalCount: 1,
+      signalCount: 2, // the market Signal and its headline
       changedMateriallyAt: NOW.toISOString(),
     });
   });
@@ -216,7 +222,7 @@ describe("delta only", () => {
 
   it("does not re-judge when a Signal joins without changing it materially", async () => {
     const { store, pass, calls } = setup();
-    const id = addNarrative(store, "A story");
+    const id = addNarrative(store, "A story", { headline: false });
     addSignal(store, id, "rss:b", minutes(1)); // new Source: material, before the first judge
     await pass({}, { now: minutes(5) });
     addSignal(store, id, "rss:b", minutes(10)); // same Source again: 3 Signals of 2 counted at the last change, not doubled
@@ -237,7 +243,7 @@ describe("delta only", () => {
     expect(calls()).toHaveLength(2);
     const history = store.getNarrative(id)!.scores;
     expect(history).toHaveLength(2);
-    expect(history.map((s) => s.signalCount)).toEqual([2, 1]);
+    expect(history.map((s) => s.signalCount)).toEqual([3, 2]); // the market Signal and its headline, then the new Source
     expect(history[0]!.changedMateriallyAt).toBe(minutes(10).toISOString());
     // And it settles again.
     await pass({}, { now: minutes(60) });
@@ -255,7 +261,7 @@ describe("delta only", () => {
       return out;
     }) as typeof brain.run;
     await pass({}, { now: minutes(1) });
-    expect(store.getNarrative(id)!.scores[0]!.signalCount).toBe(1);
+    expect(store.getNarrative(id)!.scores[0]!.signalCount).toBe(2);
     brain.run = run;
     await pass({}, { now: minutes(31) });
     expect(calls()).toHaveLength(2);

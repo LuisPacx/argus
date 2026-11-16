@@ -66,7 +66,11 @@ function addNarrative(store: Datastore, title: string): number {
   const id = `s:${++n}`;
   store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title, summary: `${title} summary`, url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
-  return store.createNarrative(sig, [1, 0], NOW.toISOString(), CUR);
+  const nid = store.createNarrative(sig, [1, 0], NOW.toISOString(), CUR);
+  // A market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16): a headline rides with it.
+  store.recordSignals([{ id: `${id}:h`, sourceId: "rss:wire", sourceLabel: "Wire", title: `${title} headline`, summary: "", url: `https://a.example/${id}/h`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+  store.joinNarrative(nid, store.unclusteredSignals(500).find((s) => s.id === `${id}:h`)!, [1, 0], NOW.toISOString());
+  return nid;
 }
 
 function addScored(store: Datastore, title: string): number {

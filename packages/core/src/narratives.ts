@@ -1,5 +1,5 @@
 import type { Datastore, StoredSignal } from "./datastore.ts";
-import { crossSourceTarget, placeLaunchpadSignal } from "./launchpad-cluster.ts";
+import { DEXSCREENER_SOURCE_ID, crossSourceTarget, placeDexscreenerToken, placeLaunchpadSignal } from "./launchpad-cluster.ts";
 import { LAUNCHPAD_SOURCE_ID } from "./launchpad-subject.ts";
 import { STOPWORDS } from "./stopwords.ts";
 
@@ -200,7 +200,7 @@ export async function clusterNewSignals(
     }
     const embedding = await embedder.embed(signal);
     clustered++;
-    if (standsAlone(signal)) {
+    if (standsAlone(signal) && signal.sourceId !== DEXSCREENER_SOURCE_ID) {
       store.createNarrative(signal, embedding, now.toISOString(), embedder);
       created++;
       continue;
@@ -217,6 +217,11 @@ export async function clusterNewSignals(
     const launchpad = crossSourceTarget(store, signal, since, config, embedder);
     if (launchpad !== undefined) {
       store.joinNarrative(launchpad, signal, [], now.toISOString());
+      continue;
+    }
+    if (signal.sourceId === DEXSCREENER_SOURCE_ID) {
+      // A token never founds a news Narrative (docs/adr/0011 amendment): it starts or joins a launchpad-kind one keyed by its name.
+      if (placeDexscreenerToken(store, signal, now.toISOString(), since, config, embedder)) created++;
       continue;
     }
     const id = store.createNarrative(signal, embedding, now.toISOString(), embedder);

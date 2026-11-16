@@ -56,7 +56,7 @@ async function runOnce(feeds: unknown, routes: Record<string, { status: number; 
     try {
       const narratives = store.listNarratives();
       const claudeCalls = existsSync(claudeLog) ? readFileSync(claudeLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> }) : [];
-      return { code, out, listed: store.queryNarratives({ limit: 500 }), signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
+      return { code, out, listed: store.queryNarratives({ limit: 500, kind: "news" }), signals: store.latestSignals(100), narratives, claudeCalls, scores: narratives.flatMap((n) => store.scoresFor(n.id)), proposals: store.listProposals() };
     } finally {
       store.close();
     }
@@ -148,9 +148,14 @@ it("Google Trends and DexScreener are polled on the same tick, stored, and label
 
 // The same tick, with a market Source (DexScreener) beside the context ones: only the Narratives that hold a DexScreener Signal are judged
 // (one run each, no tools, stored with the Rubric version) and then proposed. The fake answers the first MARKET_NARRATIVES calls as the judge.
-const MARKET_NARRATIVES = 2;
-it("the same one-shot tick then judges and proposes only the Narratives with a market Signal (ticket 24)", async () => {
-  const { code, out, listed, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:other", path: "/other" }], extraRoutes, extraEnv, MARKET_NARRATIVES);
+// A market Signal alone is not enough (ADR 0011 amendment of 2026-11-16, ticket 05): a headline carries the token's name, so the token
+// joins the news Narrative that headline founded. A token with no such headline starts a launchpad-kind Narrative and is never judged.
+const MARKET_NARRATIVES = 1;
+const storyFeed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Story</title><link>https://story.example.org/</link>
+<item><title>Moon Cat ($MCAT)</title><link>https://story.example.org/moon</link><description>d</description><guid>story-1</guid><pubDate>Sun, 15 Jun 2026 08:00:00 GMT</pubDate></item>
+</channel></rss>`;
+it("the same one-shot tick then judges and proposes only the Narratives with a market Signal and a news Signal (ticket 24, ticket 05)", async () => {
+  const { code, out, listed, claudeCalls, scores, proposals } = await runOnce([{ id: "rss:other", path: "/other" }, { id: "rss:story", path: "/story" }], { ...extraRoutes, "/story": { status: 200, body: storyFeed } }, extraEnv, MARKET_NARRATIVES);
   expect(code).toBe(0);
   const market = listed.filter((n) => n.sourceClass === "market");
   expect(market).toHaveLength(MARKET_NARRATIVES);

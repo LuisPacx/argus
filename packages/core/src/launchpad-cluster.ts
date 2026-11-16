@@ -2,7 +2,7 @@ import type { Datastore, StoredSignal } from "./datastore.ts";
 import { claimOrder, crossSourceForms, launchpadKeys, parseLaunchpadSignal, parseTokenTitle, type LaunchpadKeys } from "./launchpad-subject.ts";
 import type { ClusterConfig, Embedder } from "./narratives.ts";
 
-const DEXSCREENER_SOURCE_ID = "dexscreener:trending";
+export const DEXSCREENER_SOURCE_ID = "dexscreener:trending";
 
 /**
  * How launchpad Signals (token creates and bonds, Source `pumpportal:events`) are clustered (viral sources ticket 01, docs/adr/0007
@@ -83,6 +83,33 @@ export function placeLaunchpadSignal(
   if (keys.ticker !== undefined) claimed.push({ role: "ticker", key: keys.ticker });
   store.createNarrative(signal, [], now, embedder, { title: label.slice(0, 200), keys: claimed });
   return { created: true };
+}
+
+/**
+ * Puts a DexScreener token that no news Narrative and no launchpad claim took in a launchpad-kind Narrative keyed by its name and ticker
+ * (ticket 05, docs/adr/0007 amendment of 2026-11-16): a token never founds a news Narrative. A token of the same name joins the one a
+ * previous token started (by name only, like `crossSourceTarget`, and with no minimum size). A token with no usable key stands alone.
+ */
+export function placeDexscreenerToken(store: LaunchpadStore, signal: StoredSignal, now: string, since: string, config: ClusterConfig, embedder: { id: string; dimension: number }): boolean {
+  const token = parseTokenTitle(signal.title);
+  const keys = launchpadKeys(token.name, token.symbol);
+  const title = token.label.slice(0, 200);
+  if (keys.name === undefined && keys.ticker === undefined) {
+    store.createNarrative(signal, [], now, embedder, { title, keys: [] });
+    return true;
+  }
+  for (const { role, key } of claimOrder({ name: keys.name, ticker: undefined })) {
+    const claim = store.claimsForKey(key).find((c) => c.role === role && joinable(c, since, config));
+    if (claim) {
+      store.joinNarrative(claim.narrativeId, signal, [], now);
+      return false;
+    }
+  }
+  const claimed: Array<{ role: "name" | "ticker"; key: string }> = [];
+  if (keys.name !== undefined) claimed.push({ role: "name", key: keys.name });
+  if (keys.ticker !== undefined) claimed.push({ role: "ticker", key: keys.ticker });
+  store.createNarrative(signal, [], now, embedder, { title, keys: claimed });
+  return true;
 }
 
 /**

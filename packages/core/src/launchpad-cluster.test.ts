@@ -295,6 +295,39 @@ describe("no template attractor", () => {
   });
 });
 
+describe("DexScreener tokens never found a news Narrative (proposal-routing ticket 05)", () => {
+  const dex = (id: string, title: string, publishedAt = "2026-11-10T23:40:00.000Z"): Signal => ({ id: `dexscreener:trending:solana:${id}`, sourceId: "dexscreener:trending", sourceLabel: "DexScreener", title, summary: "", url: "", publishedAt });
+  const kinds = (ds: Datastore) => ds.listNarratives(100).map((n) => ds.narrativeKind(n.id));
+
+  it("a pass over several tokens and no headlines creates no news Narrative: a token that matches nothing starts a launchpad-kind one, a second token of its name joins it, a token with no usable key stands alone", async () => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals([dex("A", "Poppy ($POPPY)"), dex("B", "Poppy ($PUP)"), dex("C", "Rex ($REX)"), dex("D", "Coin ($COIN)"), dex("E", "!!!")], NOW);
+    await clusterNewSignals(ds, fakeEmbedder().embedder, { now: NOW });
+    const ids = ds.listNarratives(100).map((n) => ds.getNarrative(n.id)!.signals.map((s) => s.id).sort());
+    expect(kinds(ds).every((k) => k === "launchpad")).toBe(true);
+    expect(ids.filter((g) => g.length === 2)).toEqual([["dexscreener:trending:solana:A", "dexscreener:trending:solana:B"]]);
+    expect(ids).toHaveLength(4);
+    expect(ds.listNarratives(100).find((n) => n.title === "Poppy ($POPPY)")).toBeDefined();
+  });
+
+  it("a token near an existing news Narrative still joins it, and a later token of the same name then joins that one", async () => {
+    const ds = Datastore.open(":memory:");
+    const headline: Signal = { id: "rss:test:poppy", sourceId: "rss:test", sourceLabel: "Test", title: "Poppy ($POPPY)", summary: "", url: "", publishedAt: "2026-11-10T20:00:00.000Z" };
+    ds.recordSignals([headline, dex("A", "Poppy ($POPPY)")], NOW);
+    await clusterNewSignals(ds, fakeEmbedder().embedder, { now: NOW });
+    expect(narrativesOf(ds)).toEqual([["dexscreener:trending:solana:A", "rss:test:poppy"]]);
+    expect(kinds(ds)).toEqual(["news"]);
+  });
+
+  it("leaves the Meta reader alone: every token is still a Signal in the store", async () => {
+    const ds = Datastore.open(":memory:");
+    ds.recordSignals([dex("A", "Poppy ($POPPY)"), dex("B", "Rex ($REX)")], NOW);
+    await clusterNewSignals(ds, fakeEmbedder().embedder, { now: NOW });
+    expect(ds.unclusteredSignals(100)).toEqual([]);
+    expect(narrativesOf(ds).flat().sort()).toEqual(["dexscreener:trending:solana:A", "dexscreener:trending:solana:B"]);
+  });
+});
+
 describe("legacy Narratives and the migration", () => {
   it("a launchpad create never joins a Narrative built before the ticket, even one its embedder would match", async () => {
     const ds = Datastore.open(":memory:");

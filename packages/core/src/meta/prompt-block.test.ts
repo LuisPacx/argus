@@ -248,7 +248,10 @@ describe("the judge pass reads the Metas", () => {
     });
     store.recordSignals([{ id: "s:1", sourceId: "pumpportal:events", sourceLabel: "PumpPortal", title: "New token on the launchpad: Ni Hao Noon ($NIHAONOON)", summary: "", url: "https://pump.fun/coin/x", publishedAt: NOW.toISOString() }], NOW);
     const first = store.unclusteredSignals(10)[0]!;
-    store.createNarrative(first, [1, 0], NOW.toISOString(), CUR);
+    const nid = store.createNarrative(first, [1, 0], NOW.toISOString(), CUR);
+    // A market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16): a headline rides with it.
+    store.recordSignals([{ id: "s:2", sourceId: "rss:wire", sourceLabel: "Wire", title: "A quiet day on the wire", summary: "", url: "https://wire.example/2", publishedAt: NOW.toISOString() }], NOW);
+    store.joinNarrative(nid, store.unclusteredSignals(10)[0]!, [1, 0], NOW.toISOString());
     const prompts: string[] = [];
     const brain = {
       routeFor: () => ({ backend: "claude-code" as const, model: "m" }),

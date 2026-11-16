@@ -102,11 +102,17 @@ describe("createResearchProposal", () => {
 
 describe("narrativesToPropose", () => {
   const since = hours(-72).toISOString();
+  /** A news Narrative that a selector may return: a market Signal and a headline (ticket 05). */
+  const addNews = (store: Datastore, opts: { at?: Date; embedder?: NarrativeEmbedder } = {}): number => {
+    const id = addNarrative(store, opts);
+    addHeadline(store, id, opts.at ?? NOW);
+    return id;
+  };
 
   it("offers a scored Narrative that passes the buildability gate, best total first, with its latest Score", () => {
     const store = Datastore.open(":memory:");
-    const a = addNarrative(store);
-    const b = addNarrative(store);
+    const a = addNews(store);
+    const b = addNews(store);
     score(store, a, { momentum: 5 });
     const sb = score(store, b, { momentum: 10 });
     const out = store.narrativesToPropose(CUR, since, 5, 10);
@@ -116,7 +122,7 @@ describe("narrativesToPropose", () => {
 
   it("never offers a launchpad Narrative, even with a market Signal and a Score at or above the gate; a news one still qualifies", () => {
     const store = Datastore.open(":memory:");
-    const news = addNarrative(store);
+    const news = addNews(store);
     score(store, news, { buildability: 9 });
     const id = `s:${++n}`;
     store.recordSignals([{ id, sourceId: "pumpportal:events", sourceLabel: "Feed", title: "Token", summary: "", url: `https://a.example/${id}`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
@@ -130,8 +136,8 @@ describe("narrativesToPropose", () => {
 
   it("applies the gate to buildability only: at the minimum passes, below it never", () => {
     const store = Datastore.open(":memory:");
-    const atGate = addNarrative(store);
-    const below = addNarrative(store);
+    const atGate = addNews(store);
+    const below = addNews(store);
     score(store, atGate, { buildability: 5 });
     score(store, below, { buildability: 4.9, momentum: 10, novelty: 10, hook: 10, legitimacy: 10 });
     expect(store.narrativesToPropose(CUR, since, 5, 10).map((c) => c.narrative.id)).toEqual([atGate]);
@@ -139,7 +145,7 @@ describe("narrativesToPropose", () => {
 
   it("judges the gate on the latest Score: a re-score below the gate withdraws the Narrative", () => {
     const store = Datastore.open(":memory:");
-    const a = addNarrative(store);
+    const a = addNews(store);
     score(store, a, { buildability: 9 });
     score(store, a, { buildability: 2 }, hours(1));
     expect(store.narrativesToPropose(CUR, since, 5, 10)).toEqual([]);
@@ -147,22 +153,22 @@ describe("narrativesToPropose", () => {
 
   it("leaves out unscored Narratives, proposed ones, other embedders, and Narratives outside the window", () => {
     const store = Datastore.open(":memory:");
-    addNarrative(store); // unscored
-    const proposed = addNarrative(store);
+    addNews(store); // unscored
+    const proposed = addNews(store);
     store.createResearchProposal(research(proposed, score(store, proposed)), { now: NOW });
-    const other = addNarrative(store, { embedder: { id: "hashing-v1", dimension: 2 } });
+    const other = addNews(store, { embedder: { id: "hashing-v1", dimension: 2 } });
     score(store, other);
-    const old = addNarrative(store, { at: hours(-100) });
+    const old = addNews(store, { at: hours(-100) });
     score(store, old);
     expect(store.narrativesToPropose(CUR, since, 5, 10)).toEqual([]);
   });
 
   it("parks a Narrative whose propose run was refused or over budget until it is scored again; other failures stay eligible", () => {
     const store = Datastore.open(":memory:");
-    const refused = addNarrative(store);
-    const dear = addNarrative(store);
-    const flaky = addNarrative(store);
-    const inFlight = addNarrative(store);
+    const refused = addNews(store);
+    const dear = addNews(store);
+    const flaky = addNews(store);
+    const inFlight = addNews(store);
     for (const id of [refused, dear, flaky, inFlight]) score(store, id);
     const run = (narrativeId: number, status?: string) => {
       const r = store.startBrainRun({ proposalId: 0, narrativeId, task: "propose", backend: "claude-code", model: "sonnet" }, hours(1));
@@ -180,10 +186,30 @@ describe("narrativesToPropose", () => {
   it("returns at most `limit`", () => {
     const store = Datastore.open(":memory:");
     for (let i = 0; i < 4; i++) {
-      const id = addNarrative(store);
+      const id = addNews(store);
       score(store, id);
     }
     expect(store.narrativesToPropose(CUR, since, 5, 2)).toHaveLength(2);
+  });
+
+  it("needs a news Signal beside the market one (ticket 05): a token-only news Narrative (the legacy shape) is returned by no selector, and with one headline added it is returned by each", () => {
+    const store = Datastore.open(":memory:");
+    const unscored = addNarrative(store); // one market Signal, kind news
+    const forPropose = addNarrative(store);
+    score(store, forPropose); // buildability 8: over the gate
+    const forMeme = addNarrative(store);
+    score(store, forMeme, { buildability: 3, legitimacy: 6, hook: 8, momentum: 9 });
+    expect(store.narrativeKind(unscored)).toBe("news");
+    const judge = () => store.narrativesToJudge(CUR, since, 10).map((c) => c.id);
+    const propose = () => store.narrativesToPropose(CUR, since, 5, 10).map((c) => c.narrative.id);
+    const meme = () => store.narrativesToMeme(CUR, since, 5, NEWS_MEME_FLOORS, 10).map((c) => c.narrative.id);
+    expect(judge()).toEqual([]);
+    expect(propose()).toEqual([]);
+    expect(meme()).toEqual([]);
+    for (const id of [unscored, forPropose, forMeme]) addHeadline(store, id);
+    expect(judge()).toContain(unscored);
+    expect(propose()).toEqual([forPropose]);
+    expect(meme()).toEqual([forMeme]);
   });
 });
 

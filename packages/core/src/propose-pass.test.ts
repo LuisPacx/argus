@@ -69,6 +69,9 @@ function addScored(store: Datastore, title: string, opts: { scores?: Partial<Dim
   ]);
   const sig = store.unclusteredSignals(500).find((s) => s.id === id)!;
   const nid = store.createNarrative(sig, [1, 0], (opts.at ?? NOW).toISOString(), opts.embedder ?? CUR);
+  // A market Signal alone is not eligible (ADR 0011 amendment of 2026-11-16): a headline rides with it.
+  store.recordSignals([{ id: `${id}:h`, sourceId: "rss:wire", sourceLabel: "Wire", title: `${title} headline`, summary: "", url: `https://a.example/${id}/h`, publishedAt: "2026-06-14T09:00:00.000Z" }]);
+  store.joinNarrative(nid, store.unclusteredSignals(500).find((s) => s.id === `${id}:h`)!, [1, 0], (opts.at ?? NOW).toISOString());
   rescore(store, nid, opts.scores, opts.scoredAt ?? NOW);
   return nid;
 }
