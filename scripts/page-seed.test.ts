@@ -46,6 +46,11 @@ describe("the seed fixture", () => {
       ["seed-lobster", true],
     ]);
     expect(current.watching).toHaveLength(2);
+    // merged themes (ticket 07), read back through the Datastore: 3 with a long and a markup label, 7, and none
+    expect(current.metas[0]!.themes!.map((t: { label: string }) => t.label)).toEqual(["SEED Empty Chair", `SEED${"Z".repeat(116)}`, "<b>SEED</b> <img src=x onerror=alert(1)> chair"]);
+    expect(current.metas[1]!.themes).toHaveLength(7);
+    expect(current.metas[0]!.namedBy).toBe("ai");
+    expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
     expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 7 });

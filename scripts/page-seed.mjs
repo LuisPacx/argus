@@ -58,8 +58,12 @@ export async function seedDatastore(store, now) {
   const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0 };
 
   // The Metas (one holding its place, one cooling), two Watching subjects, and the New Meta event for the first.
-  const chair = aMeta('seed-chair', { label: 'SEED Empty Chair', leaderName: 'SEED Chair coin', leaderSymbol: 'SEEDCHAIR', cap: 2_400_000, creators: 14, enteredAt: at(180) });
-  const lobster = aMeta('seed-lobster', { label: 'SEED Lobster Hat', leaderName: 'SEED Lobster coin', leaderSymbol: 'SEEDLOB', cap: 1_100_000, creators: 9, holding: true, enteredAt: at(20 * 60) });
+  // Merged launch themes (ticket 07): three for the chair (one long unbroken label, one with markup), seven for the lobster (so "+2 more" shows), none for the others.
+  const theme = (key, label, tokens, creators) => ({ key, label, tokens, creators });
+  const chairThemes = [theme('chair', 'SEED Empty Chair', 40, 14), theme('chair-long', `SEED${'Z'.repeat(116)}`, 12, 6), theme('chair-markup', `<b>SEED</b> <img src=x onerror=alert(1)> chair`, 5, 3)];
+  const lobsterThemes = ['Lobster Hat', 'Lobster Cap', 'Hat Lobster', 'Red Claw Hat', 'Claw Hat', 'Shell Hat', 'Crab Hat'].map((l, i) => theme(`lobster-${i}`, `SEED ${l}`, 30 - i * 3, 12 - i));
+  const chair = aMeta('seed-chair', { label: 'SEED Empty Chair', leaderName: 'SEED Chair coin', leaderSymbol: 'SEEDCHAIR', cap: 2_400_000, creators: 14, enteredAt: at(180), namedBy: 'ai', themes: chairThemes });
+  const lobster = aMeta('seed-lobster', { label: 'SEED Lobster Hat', leaderName: 'SEED Lobster coin', leaderSymbol: 'SEEDLOB', cap: 1_100_000, creators: 9, holding: true, enteredAt: at(20 * 60), namedBy: 'ai', themes: lobsterThemes });
   const cloud = aMeta('seed-cloud', { label: 'SEED Cloud Cat', leaderName: 'SEED Cloud coin', leaderSymbol: 'SEEDCLD', cap: 380_000, creators: 6, enteredAt: at(120) });
   const moon = aMeta('seed-moon', { label: 'SEED Moon Dog', leaderName: 'SEED Moon coin', leaderSymbol: 'SEEDMOON', cap: 240_000, creators: 4, enteredAt: at(90) });
   const computedAt = at(5);

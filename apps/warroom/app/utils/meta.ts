@@ -247,10 +247,18 @@ export interface CurrentMetaPayloadRow {
   summarySource?: string;
   newMeta?: { reason: string; raisedAt: string };
   ideas?: MetaIdeaPayload[];
+  /** The launch themes merged under the name (meta redesign ticket 07); absent from an older payload. */
+  themes?: { label: string; tokens: number; creators: number }[];
 }
 
 export interface CurrentMetaRowView {
   label: string;
+  /** The merged launch themes shown (at most 5), one line each: "Lucia From GTA 6 - 270 tokens, 156 creators". */
+  themes: { text: string }[];
+  /** How many more themes there are than the ones shown. */
+  moreThemes: number;
+  /** True when the list is worth showing: two or more themes, or one that is not just the name again. */
+  grouped: boolean;
   /** The leader as text: "Jensen Huang ($JENSEN)". */
   leader: string;
   /** "$2.4M", with "cap as of the last answer" in `capNote` when the figure was not read this run. */
@@ -289,6 +297,23 @@ export interface CurrentMetaView {
 
 const COOLING_WHY = "Cooling: its leading token is below the market cap that makes a Meta, but still above the one that keeps it.";
 const SHOWN = 3;
+const THEMES_SHOWN = 5;
+const THEME_LABEL_CHARS = 60;
+const sameName = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, " ") === b.toLowerCase().replace(/\s+/g, " ");
+
+/** The merged themes of a subject as text lines; a theme with no readable label is dropped, and a lone theme that is the name again is no list. */
+function themeViews(themes: CurrentMetaPayloadRow["themes"], title: string): Pick<CurrentMetaRowView, "themes" | "moreThemes" | "grouped"> {
+  const all = (Array.isArray(themes) ? themes : []).flatMap((t) => {
+    const label = clampText(t?.label, THEME_LABEL_CHARS);
+    if (label === "") return [];
+    const n = (x: unknown) => (finite(x) && x > 0 ? Math.round(x) : 0);
+    return [{ label, text: `${label} - ${plural(n(t?.tokens), "token")}, ${plural(n(t?.creators), "creator")}` }];
+  });
+  const first = all[0];
+  const grouped = all.length >= 2 || (first !== undefined && !sameName(first.label, title));
+  if (!grouped) return { themes: [], moreThemes: 0, grouped: false };
+  return { themes: all.slice(0, THEMES_SHOWN).map((t) => ({ text: t.text })), moreThemes: Math.max(0, all.length - THEMES_SHOWN), grouped: true };
+}
 
 function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean): CurrentMetaRowView {
   const name = clampText(m?.leader?.name, TOKEN_NAME_CHARS);
@@ -301,9 +326,11 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
   const newReason = clampText(m?.newMeta?.reason, NEW_META_REASON_CHARS);
   const ideas = isMeta ? ideaViews(m?.ideas, nowMs) : [];
   const cooling = isMeta && m?.holding === true;
+  const label = clampText(m?.label, LABEL_CHARS);
   return {
     ...(ideas.length > 0 ? { ideas } : {}),
-    label: clampText(m?.label, LABEL_CHARS),
+    label,
+    ...themeViews(m?.themes, label),
     leader,
     cap: finite(m?.leader?.marketCapUsd) ? fmtUsd(m.leader.marketCapUsd) : "",
     capNote: m?.leader?.stale === true ? "cap as of the last answer" : null,

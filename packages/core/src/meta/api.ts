@@ -123,11 +123,25 @@ export interface CurrentLeaderApi {
   url?: string;
 }
 
+/** One launch theme merged under a Meta's name (meta redesign ticket 07). */
+export interface CurrentThemeApi {
+  label: string;
+  tokens: number;
+  creators: number;
+}
+
+/** At most this many merged themes are sent per subject. */
+export const CURRENT_THEMES_SHOWN = 12;
+
 /** One Meta or Watching subject (ADR 0014) in the shape the War Room renders. */
 export interface CurrentMetaApiRow {
   /** The launch-theme group key: what its summary and meme ideas are stored under. */
   key: string;
   label: string;
+  /** How the name was made. */
+  namedBy: "ai" | "rules";
+  /** The launch themes merged under the name, in stored order, at most 12. Creator-written labels: untrusted text. The theme key is not sent. */
+  themes: CurrentThemeApi[];
   leader: CurrentLeaderApi;
   /** A Meta whose leader is between the stay and the enter market cap (cooling). Always false for Watching. */
   holding: boolean;
@@ -165,6 +179,8 @@ export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummar
   return {
     key: m.key,
     label: m.label,
+    namedBy: m.namedBy === "ai" ? "ai" : "rules",
+    themes: (m.themes ?? []).slice(0, CURRENT_THEMES_SHOWN).map((t) => ({ label: t.label, tokens: t.tokens, creators: t.creators })),
     leader: { mint: l.mint, name: l.name, symbol: l.symbol, marketCapUsd: l.marketCapUsd, stale: l.stale, ...(BASE58_ADDRESS.test(l.mint) ? { url: `https://dexscreener.com/solana/${l.mint}` } : {}) },
     holding: m.holding,
     enteredAt: m.enteredAt,

@@ -37,6 +37,13 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
           <span class="tabular-nums"> {{ m.cap }}</span>
           <span v-if="m.capNote" class="faint" data-test="current-cap-note"> ({{ m.capNote }})</span>
         </p>
+        <div v-if="m.grouped" class="grid min-w-0 gap-0.5 text-xs" data-test="current-themes-block">
+          <p class="faint font-medium" data-test="current-themes-title">Includes</p>
+          <ul class="muted grid min-w-0 gap-0.5" data-test="current-themes">
+            <li v-for="(t, i) in m.themes" :key="i" class="min-w-0 break-words" data-test="current-theme">{{ t.text }}</li>
+            <li v-if="m.moreThemes > 0" class="faint" data-test="current-themes-more">+{{ m.moreThemes }} more</li>
+          </ul>
+        </div>
         <p v-if="m.cooling" class="faint text-xs" data-test="current-cooling-why">{{ m.coolingWhy }}</p>
         <p v-if="m.summary" class="muted min-w-0 break-words leading-relaxed" data-test="current-summary">{{ m.summary }}</p>
         <p class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="current-copies">
@@ -83,6 +90,13 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
             <span class="tabular-nums"> {{ w.cap }}</span>
             <span v-if="w.capNote" class="faint" data-test="current-cap-note"> ({{ w.capNote }})</span>
           </p>
+          <div v-if="w.grouped" class="grid min-w-0 gap-0.5 text-xs" data-test="current-themes-block">
+            <p class="faint font-medium" data-test="current-themes-title">Includes</p>
+            <ul class="muted grid min-w-0 gap-0.5" data-test="current-themes">
+              <li v-for="(t, i) in w.themes" :key="i" class="min-w-0 break-words" data-test="current-theme">{{ t.text }}</li>
+              <li v-if="w.moreThemes > 0" class="faint" data-test="current-themes-more">+{{ w.moreThemes }} more</li>
+            </ul>
+          </div>
           <p v-if="w.summary" class="muted min-w-0 break-words text-xs leading-relaxed" data-test="current-summary">{{ w.summary }}</p>
           <p class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="current-copies">
             <span>{{ w.copies }}</span>

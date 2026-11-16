@@ -3,7 +3,7 @@
 
 **What to build:** a Meta card on `/` and `/meta` shows the subject's name as its title (for example `GTA 6`) and, under it, the launch themes that were merged into it (for example `Lucia From GTA 6 - 270 tokens, 156 creators`, `GTA VI`, `Vice City`), so the reader sees why one Meta stands for several spellings and can spot a bad merge. Watching rows show the same. Decided by the user on 2026-11-16 (`.scratch/cos.md`: "USER: all as recommended" Q11, "MR ... 07 War Room name+merged themes"; the stored shape and the reasons are in `docs/adr/0015-metas-are-found-top-down.md`, decision 4, "a bad merge is visible", and in ticket 06).
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** 06 (it stores `themes` and `named_by` on each `meta_current` row and returns them from `Datastore.currentMetas()`). Do not start before 06 is merged: the field does not exist before then.
 
@@ -46,5 +46,7 @@
 3. **The word.** The card says `Includes` over the themes and the title is the subject's name; the user's word is narrative, GLOSSARY keeps Narrative for another thing (ticket 06 question 4).
 
 ## Comments
+
+- **Built 2026-11-16** with the defaults (5 themes then `+N more`, no `namedBy` marker, the word `Includes`). `CurrentMetaApiRow` gains `namedBy` and `themes` (label, tokens, creators; max 12; no key); the view gains `themes`, `moreThemes`, `grouped`; the card shows the list for Metas and Watching. Seed: Empty Chair 3 themes (a 120-character label and a markup one), Lobster Hat 7, the Watching rows none. The seeded `page:check --seed --all` run (and `--seed /meta` with the details keyboard check) exited 0 with no console, page or request errors and no overflow at 390 px; the 390 px screenshot showed the three Empty Chair themes (the long label wrapped) and five Lobster Hat themes with `+2 more`. Screenshots deleted. The live read box is still open (needs the worker to have run ticket 06). Boxes left unticked for review.
 
 - **Written 2026-11-16** from the user's decisions in `.scratch/cos.md`. Code read: `meta/api.ts` (`CurrentMetaApiRow`), `apps/warroom/app/components/CurrentMeta.vue`, `apps/warroom/app/utils/meta.ts` (`currentMetaView`), `scripts/page-seed.mjs`, `packages/core/src/testing/meta-current.ts`, ticket 02 (the pattern and the page:check recipe).

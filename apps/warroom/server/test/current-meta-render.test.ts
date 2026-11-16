@@ -14,6 +14,8 @@ const counts = (tokens: number, creators: number) => ({ "6h": { tokens: Math.flo
 const subject = (label: string, symbol: string, cap: number, over: Partial<CurrentMetaApiRow> = {}): CurrentMetaApiRow => ({
   key: label.toLowerCase(),
   label,
+  namedBy: "rules",
+  themes: [],
   leader: { mint: "M1", name: label, symbol, marketCapUsd: cap, stale: false, url: `https://dexscreener.com/solana/${symbol}` },
   holding: false,
   enteredAt: ago(3 * 60),
@@ -140,6 +142,38 @@ it("hostile labels, ticker, leader name, summary and URLs are cut and shown as t
   expect(html).toContain("…");
   expect(html.length).toBeLessThan(12_000);
   expect(html).not.toContain("A".repeat(300)); // every field is cut (the longest, an idea's angle, at 300)
+});
+
+it("a Meta shows its name as the title and its merged themes under it (5 and '+N more'); Watching the same; a Meta that merged nothing shows no list", async () => {
+  const th = (label: string, tokens = 10, creators = 4) => ({ label, tokens, creators });
+  const merged = subject("GTA 6", "GTA", 3_000_000, { namedBy: "ai", themes: [th("Lucia From GTA 6", 270, 156), th("GTA VI"), th("Vice City")] });
+  const seven = subject("Seven", "SEV", 90_000, { namedBy: "ai", themes: ["a", "b", "c", "d", "e", "f", "g"].map((l) => th(`Part ${l}`)) });
+  const html = await draw(response([merged], [seven]));
+  const meta = html.slice(0, html.indexOf('data-test="watching"'));
+  expect(meta).toContain('data-test="current-themes"');
+  expect(meta).toContain('data-test="current-themes-title">Includes<');
+  expect(meta.match(/data-test="current-theme"/g)).toHaveLength(3);
+  expect(meta).toContain("Lucia From GTA 6 - 270 tokens, 156 creators");
+  expect(meta).not.toContain("current-themes-more");
+  expect(meta).toContain('data-test="current-label">GTA 6<');
+  const watching = html.slice(html.indexOf('data-test="watching"'));
+  expect(watching.match(/data-test="current-theme"/g)).toHaveLength(5);
+  expect(watching.match(/data-test="current-themes-more">\+2 more</g)).toHaveLength(1);
+  const plain = await draw(response([JENSEN, subject("Same", "S", 3_000_000, { themes: [th("same")] })], [W1]));
+  expect(plain).not.toContain("current-theme");
+  expect(plain).not.toContain("Includes");
+});
+
+it("a theme label with markup is shown escaped, a very long one is cut, and no theme is a link", async () => {
+  const evil = `<img src=x onerror=alert(1)>\n<script>alert(1)</script> ${"Q".repeat(100_000)}`;
+  const html = await draw(response([subject("Evil", "EV", 3_000_000, { themes: [{ label: evil, tokens: 1, creators: 1 }, { label: "javascript:alert(1)", tokens: 2, creators: 2 }] })], []));
+  expect(html).not.toContain("<img");
+  expect(html).not.toContain("<script");
+  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+  expect(html).not.toContain("Q".repeat(100));
+  expect(html).toContain("javascript:alert(1) - 2 tokens, 2 creators");
+  const block = html.slice(html.indexOf('data-test="current-themes-block"'), html.indexOf('data-test="current-copies"'));
+  expect(block).not.toMatch(/<a[\s>]|href=/);
 });
 
 it("the template has no raw HTML directive and no raw anchor; every external link is UrlLink", () => {

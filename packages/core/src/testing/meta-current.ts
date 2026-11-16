@@ -1,7 +1,7 @@
 import type { Datastore } from "../datastore.ts";
 import { META_RULE } from "../meta/config.ts";
 import type { MetaCoverage } from "../meta/coverage.ts";
-import type { CurrentMeta, MetaCounts, NewMetaRow } from "../meta/store.ts";
+import type { CurrentMeta, CurrentTheme, MetaCounts, NewMetaRow } from "../meta/store.ts";
 
 /**
  * Fixtures for tests of what reads the market-led Metas (ADR 0014): a Meta or Watching subject with a leader token and a stored run that
@@ -23,6 +23,9 @@ export interface AMetaOptions {
   enteredAt?: string;
   holding?: boolean;
   topTokens?: CurrentMeta["topTokens"];
+  /** The merged launch themes (ticket 06); none by default, a subject named by rules. */
+  themes?: CurrentTheme[];
+  namedBy?: "ai" | "rules";
 }
 
 /** A Meta (or Watching subject) with a leader token; the numbers are plausible and the strings are what a creator might write. */
@@ -34,6 +37,8 @@ export function aMeta(key: string, o: AMetaOptions = {}): CurrentMeta {
   return {
     key,
     label: o.label ?? key,
+    ...(o.namedBy !== undefined ? { namedBy: o.namedBy } : {}),
+    ...(o.themes !== undefined ? { themes: o.themes } : {}),
     leader: { mint, name: o.leaderName ?? `${key} leader`, symbol, marketCapUsd: o.cap ?? 2_400_000, source: "trending", stale: false, freshAt: "2026-11-15T12:00:00.000Z" },
     holding: o.holding ?? false,
     enteredAt: o.enteredAt ?? "2026-11-15T10:00:00.000Z",

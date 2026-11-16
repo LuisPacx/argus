@@ -127,6 +127,28 @@ it("a Meta carries its live meme ideas; a Watching subject with the same key doe
   expect(r.watching[0]).not.toHaveProperty("ideas");
 });
 
+it("a Meta carries its merged themes (label, tokens, creators) in stored order and how it was named; the theme key is not sent", () => {
+  const themes = [{ key: "gta6", label: "GTA 6", tokens: 197, creators: 110 }, { key: "lucia", label: "Lucia From GTA 6", tokens: 270, creators: 156 }, { key: "vice", label: "Vice City", tokens: 30, creators: 20 }];
+  save([subject("a", 3_000_000, { namedBy: "ai", themes }), subject("b", 3_000_000)], [subject("w", 80_000, { namedBy: "ai", themes: themes.slice(0, 2) })]);
+  const r = currentMeta();
+  expect(r.metas[0]!.themes).toEqual([{ label: "GTA 6", tokens: 197, creators: 110 }, { label: "Lucia From GTA 6", tokens: 270, creators: 156 }, { label: "Vice City", tokens: 30, creators: 20 }]);
+  expect(r.metas[0]!.namedBy).toBe("ai");
+  expect(JSON.stringify(r)).not.toContain('"key":"gta6"');
+  expect(r.watching[0]!.themes).toHaveLength(2);
+  expect(r.metas[1]).toMatchObject({ namedBy: "rules", themes: [] }); // named by rules: nothing merged
+});
+
+it("12 stored themes return 12, a hand-written row with 20 returns at most 12, and a row from before the themes returns []", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ key: `t${i}`, label: `Theme ${i}`, tokens: i, creators: i }));
+  save([subject("a", 3_000_000, { themes: many(12) }), subject("b", 3_000_000, { themes: many(20) }), subject("c", 3_000_000)], []);
+  const r = currentMeta();
+  expect(r.metas.map((m) => m.themes.length)).toEqual([12, 12, 0]);
+  expect(r.metas[1]!.themes[11]).toEqual({ label: "Theme 11", tokens: 11, creators: 11 });
+  const raw = { ...store.currentMetas()!.metas[0]!, themes: undefined, namedBy: undefined } as CurrentMeta;
+  save([raw], [], ago(2));
+  expect(currentMeta().metas[0]).toMatchObject({ themes: [], namedBy: "rules" });
+});
+
 it("is read-only: the route takes no query and writes nothing", () => {
   save([subject("a", 3_000_000)], []);
   const before = store.currentMetas();

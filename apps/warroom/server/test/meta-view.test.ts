@@ -112,6 +112,25 @@ it("currentMetaView: a Meta carries its New Meta text while the event is live, c
   expect(odd.metas[0]!.newMeta!.length).toBeLessThan(140);
 });
 
+it("currentMetaView: themes are listed 5 at most as '<label> - N tokens, M creators', with the rest counted; hostile labels are cut and flattened", () => {
+  const cur = (label: string, themes?: unknown) => ({ key: "k", label, leader: { name: "L", symbol: "L", marketCapUsd: 2_400_000 }, enteredAt: ago(120), counts: { "6h": { tokens: 1, creators: 1, migrations: 0 }, "24h": { tokens: 9, creators: 5, migrations: 0 } }, topTokens: [], summary: "", ...(themes ? { themes } : {}) });
+  const t = (label: string, tokens = 3, creators = 2) => ({ label, tokens, creators });
+  const seven = ["a", "b", "c", "d", "e", "f", "g"].map((l) => t(`Theme ${l}`, 270, 1));
+  const v = currentMetaView({ computedAt: ago(1), metas: [cur("GTA 6", [t("Lucia From GTA 6", 270, 156), t("GTA VI"), t("Vice City")]), cur("Seven", seven), cur("None")], watching: [cur("W", seven), cur("GTA 6", [t("  gta   6 ")]), cur("Other", [t("Another name")])] } as never, NOW);
+  const bad = currentMetaView({ computedAt: ago(1), metas: [cur("Evil", [t("x".repeat(100_000)), t("<img src=x onerror=1>\nnext\tline")])], watching: [] } as never, NOW);
+  expect(v.metas[0]).toMatchObject({ grouped: true, moreThemes: 0 });
+  expect(v.metas[0]!.themes.map((x) => x.text)).toEqual(["Lucia From GTA 6 - 270 tokens, 156 creators", "GTA VI - 3 tokens, 2 creators", "Vice City - 3 tokens, 2 creators"]);
+  expect(v.metas[1]!.themes).toHaveLength(5);
+  expect(v.metas[1]!.moreThemes).toBe(2);
+  expect(v.watching[0]).toMatchObject({ grouped: true, moreThemes: 2 });
+  expect(v.metas[2]).toMatchObject({ grouped: false, themes: [], moreThemes: 0 }); // no themes
+  expect(v.watching[1]).toMatchObject({ grouped: false, themes: [] }); // only itself again, after case and spaces
+  expect(v.watching[2]).toMatchObject({ grouped: true }); // one theme under another name is still a merge worth showing
+  const evil = bad.metas[0]!.themes.map((x) => x.text);
+  expect(evil[0]).toBe(`${"x".repeat(60)}… - 3 tokens, 2 creators`);
+  expect(evil[1]).toBe("<img src=x onerror=1> next line - 3 tokens, 2 creators");
+});
+
 it("metaView: absent or broken fields are left out, never shown as undefined or NaN", () => {
   const broken = {
     rank: 2,
