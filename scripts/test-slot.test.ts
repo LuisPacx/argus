@@ -88,9 +88,10 @@ describe("tryAcquire", () => {
   });
 
   it("racing reclaimers of one stale slot cannot both win", async () => {
+    const dead = deadPid(); // one spawn, not one per round: 20 sync node spawns took ~1.8 s idle and blew the 5 s timeout under load
     for (let round = 0; round < 20; round++) {
       const dir = fresh();
-      plant(dir, 0, { pid: deadPid(), startTime: "1" });
+      plant(dir, 0, { pid: dead, startTime: "1" });
       plant(dir, 1, liveHolder());
       const results = await Promise.all([0, 1, 2].map(async () => tryAcquire({ dir, ...me })));
       expect(results.filter(Boolean)).toHaveLength(1);

@@ -42,6 +42,15 @@ beforeAll(async () => {
 });
 afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
+/** Ask the OS for a free port (listen on 0), then release it for the child to take. */
+async function freePort(): Promise<number> {
+  const s = http.createServer();
+  await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", resolve));
+  const p = (s.address() as { port: number }).port;
+  await new Promise<void>((resolve) => s.close(() => resolve()));
+  return p;
+}
+
 function run(args: string[]): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
     execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), ...args], { timeout: 50000 }, (err, stdout, stderr) => {
@@ -85,12 +94,13 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
 
   it("--seed starts a private War Room on sample data, checks a page, and leaves no dir, process group or port behind", { timeout: 240000 }, async () => {
     const out = tempDir("page-check-out-");
+    const seedPort = await freePort(); // a fixed port collided whenever two checks ran at once
     const r = await new Promise<{ code: number; stdout: string }>((resolve) => {
-      execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), "--seed", "/proposals/{hostile}", "--port", "3291", "--out", out], { timeout: 220000 }, (err, stdout, stderr) => {
+      execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), "--seed", "/proposals/{hostile}", "--port", String(seedPort), "--out", out], { timeout: 220000 }, (err, stdout, stderr) => {
         resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout + stderr });
       });
     });
-    expect(r.stdout).toContain("seed cleanup: port 3291 free, dir removed");
+    expect(r.stdout).toContain(`seed cleanup: port ${seedPort} free, dir removed`);
     expect(r.code).toBe(0);
     const line = r.stdout.split("\n").find((l) => l.startsWith("seed: "))!;
     const dir = /dir (\S+)/.exec(line)![1]!;
