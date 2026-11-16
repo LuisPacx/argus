@@ -5,7 +5,9 @@
 // Enforced: every request that is not GET or HEAD, or is not to localhost on the chosen port, is aborted and counted as a
 // failed request (exit 1). Enter and Space still activate the focused element, so the caller picks focus/open/close targets;
 // a state-changing POST/PUT/DELETE it would trigger is blocked, not sent. Service workers are blocked; WebSockets are not intercepted.
-// Ticket: .scratch/warroom-redesign/issues/11-headless-page-check.md
+// `--seed (--all | <path>...)` instead starts a private War Room on a throwaway DB filled with sample rows (scripts/page-seed.mjs,
+// scripts/page-check-server.mjs), checks every path the same way, then stops it and deletes the DB. The JSON says `"seeded": true`.
+// Ticket: .scratch/warroom-redesign/issues/11-headless-page-check.md, 14-page-check-seed-option.md
 // Never uses the user's Chrome, the Argus Chrome profile, a `channel` or the 1194 browser build.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,6 +15,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { OVERFLOW_FAILS } from './warroom-pages.mjs';
+import { SEED_DEFAULT_PORT, portBusy, seedPortProblem, startSeededServer, stopAllSeeded } from './page-check-server.mjs';
+import { STANDARD_PATHS, expandTokens, pathProblem } from './page-seed.mjs';
 
 export const DEFAULT_PORT = 3100; // scripts/dev-server.mjs PORT (not exported there)
 export const WIDTHS = [
@@ -61,8 +65,9 @@ export function outDirProblem(dir, home = os.homedir()) {
   return hit ? `--out must not be inside ${hit} (a browser or Argus profile)` : null;
 }
 
-export function slugFor(pagePath) {
-  const clean = pagePath.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
+// `withQuery`: keep the query and fragment in the name (seeded runs check `/` and `/?kind=meme` side by side).
+export function slugFor(pagePath, withQuery = false) {
+  const clean = (withQuery ? pagePath : pagePath.split(/[?#]/)[0]).replace(/^\/+|\/+$/g, '');
   const slug = clean.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return slug === '' ? 'home' : slug.slice(0, 80);
 }
@@ -128,15 +133,20 @@ export function decide(result, { failOnOverflow = false } = {}) {
 }
 
 export function parseArgs(argv) {
-  const opts = { path: '/', port: DEFAULT_PORT, out: null, browser: null, keys: '', watch: [] };
+  const opts = { path: '/', paths: [], port: DEFAULT_PORT, out: null, browser: null, keys: '', watch: [], seed: false, all: false };
   const positional = [];
+  let portGiven = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const value = () => {
       if (i + 1 >= argv.length) throw new Error(`${a} needs a value`);
       return argv[++i];
     };
-    if (a === '--port') opts.port = Number(value());
+    if (a === '--port') {
+      opts.port = Number(value());
+      portGiven = true;
+    } else if (a === '--seed') opts.seed = true;
+    else if (a === '--all') opts.all = true;
     else if (a === '--out') opts.out = value();
     else if (a === '--browser') opts.browser = value();
     else if (a === '--keys') opts.keys = value();
@@ -144,8 +154,20 @@ export function parseArgs(argv) {
     else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
     else positional.push(a);
   }
+  if (opts.seed) {
+    if (opts.all && positional.length > 0) throw new Error('--all checks the standard set; give --all or paths, not both');
+    if (!opts.all && positional.length === 0) throw new Error('--seed needs one or more paths, or --all');
+    if (!portGiven) opts.port = SEED_DEFAULT_PORT;
+    const portProblem = seedPortProblem(opts.port);
+    if (portProblem) throw new Error(portProblem);
+    opts.paths = opts.all ? [...STANDARD_PATHS] : positional;
+    opts.path = opts.paths[0];
+    return opts;
+  }
+  if (opts.all) throw new Error('--all needs --seed');
   if (positional.length > 1) throw new Error(`one path only, got ${positional.length}`);
   if (positional.length === 1) opts.path = positional[0];
+  opts.paths = [opts.path];
   return opts;
 }
 
@@ -175,19 +197,27 @@ async function runKeys(page, steps, watch) {
   return log;
 }
 
+const USAGE = 'usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...\n       pnpm page:check --seed (--all | <path>...) [--port N] [--out DIR]   (private War Room on sample data; paths may use {tech} {metaMeme} {newsMeme} {hostile})';
+
 export async function main(argv) {
   let opts;
   let steps;
-  let url;
   try {
     opts = parseArgs(argv);
-    url = buildUrl(opts.port, opts.path);
+    // Seeded paths may hold {tokens}; check the shape with a stand-in id now, fill the real ids once the fixture exists.
+    for (const p of opts.paths) {
+      if (opts.seed) {
+        const problem = pathProblem(p);
+        if (problem) throw new Error(problem);
+        buildUrl(opts.port, expandTokens(p));
+      } else buildUrl(opts.port, p);
+    }
     steps = parseKeys(opts.keys);
     const outProblem = outDirProblem(opts.out ?? defaultOut());
     if (outProblem) throw new Error(outProblem);
   } catch (err) {
     console.error(`page:check: ${err.message}`);
-    console.error('usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...');
+    console.error(USAGE);
     return 2;
   }
   const outDir = path.resolve(opts.out ?? defaultOut());
@@ -214,26 +244,66 @@ export async function main(argv) {
   fs.mkdirSync(outDir, { recursive: true });
   process.env.TMPDIR ||= '/var/tmp'; // Playwright's throwaway profile goes under TMPDIR, never /tmp
   const { chromium } = await import('playwright-core');
-  const names = fileNames(slugFor(opts.path));
-  const result = { url, status: null, widths: [], consoleErrors: [], pageErrors: [], failedRequests: [], browser: null, keys: {}, exit: 0 };
-  const notes = [];
-  const blocked = new Set();
-  let browser;
-  let exiting = false;
+  const state = { browser: null, signalled: false };
   const onSignal = (code) => async () => {
-    if (exiting) return;
-    exiting = true;
+    if (state.signalled) return;
+    state.signalled = true;
     try {
-      await browser?.close();
+      await state.browser?.close();
     } finally {
-      process.exit(code);
+      try {
+        await stopAllSeeded(); // the private server, its process group and its DB dir
+      } finally {
+        process.exit(code);
+      }
     }
   };
   process.on('SIGINT', onSignal(130));
   process.on('SIGTERM', onSignal(143));
 
+  let server = null;
+  let exit = 0;
+  try {
+    let pagePaths = opts.paths;
+    let seed = null;
+    if (opts.seed) {
+      try {
+        server = await startSeededServer({ port: opts.port, now: new Date() });
+      } catch (err) {
+        console.error(`page:check: ${err.message}`);
+        return err.refusal ? 2 : 1;
+      }
+      seed = { dir: server.dir, port: server.port, pgid: server.pgid, counts: server.counts };
+      console.log(`seed: dir ${seed.dir}  port ${seed.port}  pgid ${seed.pgid}  rows written ${Object.entries(seed.counts).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+      pagePaths = opts.paths.map((p) => expandTokens(p, server.ids));
+    }
+    for (const pagePath of pagePaths) {
+      exit = Math.max(exit, await checkOne({ opts, pagePath, seed, browserPath, revision, outDir, steps, chromium, state }));
+    }
+  } finally {
+    if (server) {
+      await server.stop();
+      const busy = await portBusy(server.port);
+      const left = fs.existsSync(server.dir);
+      console.log(`seed cleanup: port ${server.port} ${busy ? 'STILL IN USE' : 'free'}, dir ${left ? 'STILL THERE' : 'removed'}`);
+      if (busy || left) exit = 1;
+    }
+  }
+  return exit;
+}
+
+// One page at both widths in one browser. Returns the exit code (0 or 1) and writes the screenshots and the JSON.
+async function checkOne({ opts, pagePath, seed, browserPath, revision, outDir, steps, chromium, state }) {
+  const url = buildUrl(opts.port, pagePath);
+  const names = fileNames(slugFor(pagePath, opts.seed));
+  const result = { url, ...(seed ? { seeded: true, seed } : {}), status: null, widths: [], consoleErrors: [], pageErrors: [], failedRequests: [], browser: null, keys: {}, exit: 0 };
+  const notes = [];
+  const blocked = new Set();
+  let browser;
+
   try {
     browser = await chromium.launch({ executablePath: browserPath, headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+    state.browser = browser;
     result.browser = `chromium headless shell ${browser.version()} (revision ${revision}) at ${browserPath}`;
     console.log(`browser: ${result.browser}`);
     for (const vp of WIDTHS) {
@@ -289,19 +359,19 @@ export async function main(argv) {
   } catch (err) {
     result.pageErrors.push(`page:check could not finish: ${String(err.message).split('\n')[0]}`);
   } finally {
-    exiting = true;
     await browser?.close().catch(() => {});
+    state.browser = null;
   }
 
   result.notes = notes;
-  const verdict = decide(result, { failOnOverflow: OVERFLOW_FAILS.includes(opts.path) });
+  const verdict = decide(result, { failOnOverflow: OVERFLOW_FAILS.includes(pagePath) || (Boolean(seed) && pagePath.split(/[?#]/)[0] !== '/pipeline') }); // the seed holds a hostile card: overflow there is a bug, except /pipeline, which scrolls sideways on purpose
   result.warnings = verdict.warnings;
   result.reasons = verdict.reasons;
   result.exit = verdict.exit;
   delete result.notes;
   fs.writeFileSync(path.join(outDir, names.json), JSON.stringify(result, null, 2) + '\n');
 
-  console.log(`url: ${url}  status: ${result.widths.map((w) => `${w.width}px=${w.status}`).join(' ')}`);
+  console.log(`url: ${url}${seed ? '  (seeded)' : ''}  status: ${result.widths.map((w) => `${w.width}px=${w.status}`).join(' ')}`);
   console.log(`console errors: ${result.consoleErrors.length}  page errors: ${result.pageErrors.length}  failed requests: ${result.failedRequests.length}`);
   for (const r of verdict.reasons) console.log(`FAIL ${r}`);
   for (const w of verdict.warnings) console.log(`WARN ${w}`);

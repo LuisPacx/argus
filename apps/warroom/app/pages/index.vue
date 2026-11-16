@@ -260,7 +260,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
                 <h3 class="text-lg font-semibold leading-tight tracking-tight">
                   <NuxtLink :to="`/proposals/${p.id}`" class="row-link">{{ p.name }}</NuxtLink>
                 </h3>
-                <span class="faint text-xs font-medium uppercase tracking-wide">{{ p.ticker }}</span>
+                <span class="faint min-w-0 max-w-full break-all text-xs font-medium uppercase tracking-wide">{{ p.ticker }}</span>
                 <StatusPill :status="p.status" />
                 <span v-if="p.kind === 'meme'" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
               </div>

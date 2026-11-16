@@ -3,7 +3,7 @@
 
 **What to build:** `pnpm page:check --seed <path>...` starts a private War Room on a throwaway DB filled with sample rows, checks the page(s) at 390 and 1240 px exactly as today, then stops the server and deletes the DB. A worker can then check a page whose cards are empty on live data without hand-seeding a `.backup` copy. Approved by the user 2026-11-16 (`.scratch/cos.md`, "yes page:check seed ticket").
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none. (Builds on 11, 12, 13; reads proposal-routing/04 and meta-redesign/02, 03 code, all merged.)
 
@@ -68,3 +68,5 @@ One commit after the full `pnpm check`. Subject `War Room ticket 14: page:check 
 ## Comments
 
 - **Written 2026-11-16** from the user's approval ("yes page:check seed ticket", `cos.md` 11-16 USER) after proposal-routing/04's page:check box stayed open on live data.
+- **2026-11-16 (decisions):** the user accepted every recommended answer to the five open questions; they are decisions: spawn the server inside `page-check`; several paths and `--all` on one server start; default port 3217, refuse 3100, busy port exits 2; `verify-boot` left alone (the spawn code is duplicated in `scripts/page-check-server.mjs`, follow-up: share it); seeded runs take no test slot.
+- **2026-11-16 (implemented):** `scripts/page-seed.mjs` (fixtures, `{tech}` `{metaMeme}` `{newsMeme}` `{hostile}` tokens, standard set), `scripts/page-check-server.mjs` (private server and cleanup), `--seed`/`--all` in `scripts/page-check.mjs`; tests in `scripts/page-seed.test.ts` (fast) and `scripts/page-check-browser.test.ts` (slow). Run `pnpm page:check --seed --all`: 8 pages at 1240 and 390 px, exit 0, 0 console/page/failed-request errors; final line `seed cleanup: port 3217 free, dir removed`; JSON has `"seeded": true`. The run found a real bug: the hostile ticker overflowed the home list and the meme Proposal page at 390 px; fixed in `index.vue`, `proposals/[id].vue` and `MemeCard.vue` (long unbroken text). In a seeded run horizontal overflow fails (exit 1) except on `/pipeline`. Known risk: relative times ("40 minutes ago") are computed from the real clock, so one run in about 20 showed a one-off "Hydration completed but contains mismatches" console error on a page whose text crossed a minute boundary between server render and hydration; a rerun passed. Acceptance boxes are left for cos; the 04 evidence is in proposal-routing/04 Comments (its box also left for cos).

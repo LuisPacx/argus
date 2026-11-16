@@ -159,11 +159,11 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
     </NuxtLink>
 
     <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <div class="grid min-w-0 gap-5">
+      <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
         <section class="surface rise" style="--i: 0">
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 class="page-title">{{ p.name }}</h2>
-            <span class="faint text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
+            <span class="faint min-w-0 max-w-full break-all text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
             <StatusPill :status="p.status" />
             <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
             <BuildBlockedMarker :view="buildNotice" />

@@ -83,6 +83,25 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
     expect(profiles()).toEqual(before);
   });
 
+  it("--seed starts a private War Room on sample data, checks a page, and leaves no dir, process group or port behind", { timeout: 240000 }, async () => {
+    const out = tempDir("page-check-out-");
+    const r = await new Promise<{ code: number; stdout: string }>((resolve) => {
+      execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), "--seed", "/proposals/{hostile}", "--port", "3291", "--out", out], { timeout: 220000 }, (err, stdout, stderr) => {
+        resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout + stderr });
+      });
+    });
+    expect(r.stdout).toContain("seed cleanup: port 3291 free, dir removed");
+    expect(r.code).toBe(0);
+    const line = r.stdout.split("\n").find((l) => l.startsWith("seed: "))!;
+    const dir = /dir (\S+)/.exec(line)![1]!;
+    const pgid = Number(/pgid (\d+)/.exec(line)![1]);
+    const json = JSON.parse(fs.readFileSync(path.join(out, "proposals-2.json"), "utf8"));
+    expect(json).toMatchObject({ seeded: true, exit: 0 });
+    expect(json.widths.every((w: { overflow: boolean }) => !w.overflow)).toBe(true);
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(() => process.kill(-pgid, 0)).toThrow(/ESRCH/);
+  });
+
   it("exits 2 for a non-local path", async () => {
     const r = await run(["//evil.example/", "--port", String(port), "--out", tempDir("page-check-out-")]);
     expect(r.code).toBe(2);

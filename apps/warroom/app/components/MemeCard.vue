@@ -12,7 +12,7 @@ defineProps<{ view: MemeView }>();
 </script>
 
 <template>
-  <div class="grid gap-5" data-test="meme-card">
+  <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5" data-test="meme-card">
     <section v-if="view.fromNews" class="surface rise" style="--i: 0" data-test="meme-from-news">
       <h3 class="section-title">From news</h3>
       <div class="mt-4 grid min-w-0 gap-2 text-sm">
@@ -28,7 +28,7 @@ defineProps<{ view: MemeView }>();
 
     <section class="surface rise" style="--i: 1" data-test="meme-idea">
       <h3 class="section-title">The idea</h3>
-      <div class="mt-4 grid gap-5">
+      <div class="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
         <div data-test="meme-angle">
           <p class="eyebrow mb-1.5">Angle: the joke and why now</p>
           <p class="min-w-0 break-words leading-relaxed">{{ view.angle }}</p>
