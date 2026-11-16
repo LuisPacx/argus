@@ -42,11 +42,12 @@ it("tells off and context-only apart in words and in class, and the Sources node
   expect(html.match(/class="pipe-node is-on"/g)).toHaveLength(12);
 });
 
-it("draws every edge as a path with an arrow, and a gate marker only on the two gated edges, with the real rule in its title", async () => {
+it("draws every edge as a path with an arrow, and a gate marker only on the three gated edges, with the real rule in its title", async () => {
   const html = await draw(real());
   const payload = real();
   for (const e of payload.edges) expect(html, e.id).toContain(`data-test="edge-${e.id}"`);
-  expect(html.match(/data-test="gate-/g)).toHaveLength(2);
+  expect(html.match(/data-test="gate-/g)).toHaveLength(3); // narratives-judge, judge-proposals and judge-meme (news memes, proposal-routing ticket 04)
+  expect(html).toContain("Legitimacy, minimum: 5");
   expect(html).toContain("<title>Needs a market Signal from: pumpportal:events, dexscreener:trending</title>");
   expect(html).toContain("<title>Buildability gate, minimum: 6 (Rubric v3)</title>");
   expect(html).not.toContain("is-dashed"); // no path of the page is "not wired yet" any more: the Meme ideas node is wired and off by its switch

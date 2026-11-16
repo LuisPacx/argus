@@ -246,6 +246,109 @@ describe("the Proposal page's meme card", () => {
   });
 });
 
+describe("a news meme (proposal-routing ticket 04)", () => {
+  const storySnap = (over: Record<string, unknown> = {}) => ({
+    version: 3,
+    kind: "narrative",
+    capturedAt: ago(0),
+    narrative: { id: 12, title: "Chipmaker beats the quarter", summary: "Revenue is up and the guidance is higher.", signalCount: 3, createdAt: ago(300), lastSignalAt: ago(30) },
+    score: { id: 40, rubricVersion: 3, total: 5.2, scores: { buildability: 3, legitimacy: 6, hook: 8, momentum: 9, novelty: 6 }, rationale: "Funny and moving, but there is no small app in it.", gateMin: 5, createdAt: ago(20) },
+    trigger: { kind: "news-meme", reason: "buildability 3 under the gate of 5; legitimacy 6, hook 8, momentum 9", at: ago(20) },
+    news: [{ title: "Chipmaker beats the quarter", sourceLabel: "Wire", url: "https://wire.example/story", publishedAt: ago(30) }],
+    ...over,
+  });
+  const newsPayload = (over: Partial<MemeProposalPayload> = {}): MemeProposalPayload =>
+    proposalPayload({
+      reason: "News meme: buildability 3 under the gate of 5; legitimacy 6, hook 8, momentum 9",
+      narrativeSummary: "From news: Chipmaker beats the quarter. Buildability 3 under the gate of 5, so no Tech.",
+      metaLabel: "Chipmaker beats the quarter",
+      narrativeId: 12,
+      evidenceLinks: ["https://wire.example/story"],
+      metaSnapshot: storySnap() as MemeProposalPayload["metaSnapshot"],
+      ...over,
+    });
+
+  it("shows the from-news line, a link to the Narrative, the failing Score with its reasons, the story's numbers and its news, under the same card", async () => {
+    const view = memeView(newsPayload(), NOW);
+    expect(view).toMatchObject({ source: "news", fromNews: { headline: "Chipmaker beats the quarter", href: "/narratives/12", linkText: "Narrative 12" } });
+    const html = await draw(renderCard, { view });
+    for (const text of [
+      "From news: Chipmaker beats the quarter",
+      "Narrative 12",
+      "Score 5.2 of 10: buildability 3 (under the gate of 5), legitimacy 6, hook 8, momentum 9, novelty 6",
+      "The judge&#39;s reasons: Funny and moving, but there is no small app in it.",
+      "The story when the idea was made",
+      "Revenue is up and the guidance is higher.",
+      "3 Signals",
+      "newest 30 minutes ago",
+      "News meme: buildability 3 under the gate of 5; legitimacy 6, hook 8, momentum 9, scored 20 minutes ago",
+      "How it differs from the tokens already riding the story",
+      "Wire, 30 minutes ago",
+    ]) expect(html, text).toContain(text);
+    expect(html).toContain('href="/narratives/12"');
+    expect(html).toContain('href="https://wire.example/story"');
+    expect(html).not.toMatch(/undefined|NaN|null|Hot now|Room left|The Meta when/);
+    expect(html).not.toContain('data-test="meme-meta-label"');
+    for (const section of ["meme-from-news", "meme-idea", "meme-meta", "meme-why", "meme-hook", "meme-news", "meme-evidence"]) expect(html, section).toContain(`data-test="${section}"`);
+  });
+
+  it("a Meta's idea (version 1 or 2) draws no from-news block and keeps its words", async () => {
+    const v1 = memeView(proposalPayload(), NOW);
+    expect(v1).toMatchObject({ source: "meta", fromNews: null });
+    const html = await draw(renderCard, { view: v1 });
+    expect(html).not.toContain("meme-from-news");
+    expect(html).toContain("The Meta when the idea was made");
+    expect(html).toContain("How it differs from the leader");
+  });
+
+  it("renders hostile text as text, links the Narrative by its numeric id only, and never links a javascript: headline URL", async () => {
+    const evil = `<img src=x onerror=alert(1)></script><script>alert(1)</script> javascript:alert(1) ${"A".repeat(10_000)}`;
+    const snap = storySnap({
+      narrative: { id: "12/../x", title: evil, summary: evil, signalCount: "many", createdAt: "nonsense", lastSignalAt: "nonsense" },
+      score: { id: 40, total: "high", scores: { buildability: "<b>3</b>", hook: 8 }, rationale: evil, gateMin: "five" },
+      trigger: { kind: "news-meme", reason: evil, at: "nonsense" },
+      news: [{ title: evil, sourceLabel: evil, url: "javascript:alert(1)", publishedAt: "nonsense" }],
+    });
+    const view = memeView(newsPayload({ narrativeId: "12/../x" as unknown as number, metaLabel: evil, reason: evil, metaSnapshot: snap as MemeProposalPayload["metaSnapshot"] }), NOW);
+    expect(view.fromNews!.href).toBeNull();
+    const html = await draw(renderCard, { view });
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>3</b>");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect([...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["https://wire.example/story"]); // only the evidence link
+    expect(html).not.toMatch(/href="(javascript|data|ftp|\/narratives)/);
+    expect(html.length).toBeLessThan(20_000);
+  });
+
+  it("the route returns the news meme with its Narrative and Score, and a Meta's idea still has none", () => {
+    store.recordSignals([{ id: "s:1", sourceId: "rss:a", sourceLabel: "Feed", title: "Story", summary: "", url: "https://a.example/1", publishedAt: new Date(NOW).toISOString() }]);
+    const narrativeId = store.createNarrative(store.unclusteredSignals(5)[0]!, [1, 0], ago(0), { id: "e", dimension: 2 });
+    const scoreId = store.recordScore({ narrativeId, rubricVersion: 1, scores: { momentum: 9, novelty: 6, buildability: 3, hook: 8, legitimacy: 6 }, total: 6.4, rationale: "r", signalCount: 1, changedMateriallyAt: ago(0), createdAt: ago(0) });
+    const tech = store.createProposal({ narrativeSummary: "n", techOneLiner: "t", whyNow: "w", name: "Cat", ticker: "CAT", description: "d", evidenceLinks: [] });
+    const made = store.createMemeProposals(
+      {
+        narrative: { id: narrativeId, scoreId },
+        metaKey: `narrative:${narrativeId}`,
+        metaLabel: "Story",
+        snapshot: storySnap({ narrative: { id: narrativeId, title: "Story", summary: "", signalCount: 1, createdAt: ago(0), lastSignalAt: ago(0) } }) as unknown as MetaSnapshot,
+        reason: "News meme: x",
+        summary: "From news: Story.",
+        evidenceLinks: ["https://wire.example/story"],
+        ideas: trio().ideas,
+      },
+      { now: new Date(NOW) },
+    );
+    const one = list({ query: { kind: "meme" } }).find((p) => p.id === made[0]!.id)!;
+    expect(one).toMatchObject({ kind: "meme", narrativeId, scoreId, metaKey: `narrative:${narrativeId}` });
+    expect(one.metaSnapshot).toMatchObject({ version: 3, kind: "narrative" });
+    const wire = JSON.parse(JSON.stringify(one)) as MemeProposalPayload;
+    expect(memeView(wire, NOW)).toMatchObject({ source: "news", fromNews: { href: `/narratives/${narrativeId}` } });
+    expect(list({ query: { kind: "narrative" } }).map((p) => p.id)).toEqual([tech.id]);
+    expect(list({ query: { kind: "meme" } }).every((p) => (p as { score: unknown }).score !== null)).toBe(true); // the page's card shows the failing Score (the list and header do not)
+  });
+});
+
 describe("the Current Meta shows a Meta's ideas", () => {
   const response = (ideas: unknown): CurrentMetaPayload =>
     ({

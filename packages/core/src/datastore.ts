@@ -12,7 +12,7 @@ import { phraseText } from "./launchpad-subject.ts";
 import { oneLine } from "./judge.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
-import { MEME_TRIO_SIZE, MEME_WINDOW_MS, type MemeFields, type MetaSnapshot, type NewMemeTrio } from "./meme/types.ts";
+import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { isMaterialJoin } from "./narratives.ts";
@@ -457,10 +457,10 @@ export function migrate(db: DatabaseSync): void {
   db.exec("CREATE TABLE IF NOT EXISTS telegram_announced (proposal_id INTEGER PRIMARY KEY, at TEXT NOT NULL)");
   if (!hadAnnounced) db.prepare("INSERT OR IGNORE INTO telegram_announced (proposal_id, at) SELECT id, ? FROM proposals").run(new Date().toISOString());
   // Proposals from the propose pass (ticket 08) name their Narrative and Score; hand-entered ones leave both null. The unique index is
-  // what makes "each Narrative at most once" true whatever the caller does.
+  // what makes "each Narrative at most once" true whatever the caller does (for a Tech Proposal: the unique index is made below, once the
+  // `kind` column exists, because it covers `kind = 'narrative'` rows only since proposal-routing ticket 04).
   ensureColumn(db, "proposals", "narrative_id", "INTEGER");
   ensureColumn(db, "proposals", "score_id", "INTEGER");
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL");
   // Collision results (ticket 09): JSON of { dex, github }, each with status, detail, source and check time; NULL means never checked.
   ensureColumn(db, "proposals", "collision_checks", "TEXT");
   // The Study (phase 3 ticket 02): additive tables for tokens seen, capture runs, gap markers and frozen Snapshots.
@@ -487,6 +487,12 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "meme_hook", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "meme_image_idea", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "meme_risk_labels", "TEXT NOT NULL DEFAULT '[]'");
+  // A news meme (proposal-routing ticket 04) sets `narrative_id` too, so a Narrative may have a trio and a Tech Proposal: the unique index is
+  // over Tech (`kind = 'narrative'`) rows only. An index made before this change has no `kind` in its definition: it is dropped and made
+  // again (idempotent; every row that has a `narrative_id` is a `narrative` row, so the new index cannot refuse existing data).
+  const narrativeIndex = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'proposals_narrative_id'").get() as { sql: string | null } | undefined;
+  if (narrativeIndex && !(narrativeIndex.sql ?? "").includes("kind = 'narrative'")) db.exec("DROP INDEX proposals_narrative_id");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_narrative_id ON proposals (narrative_id) WHERE narrative_id IS NOT NULL AND kind = 'narrative'");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS proposals_meme_live ON proposals (meta_key, meme_window, meme_slot) WHERE kind = 'meme' AND status IN ('new', 'shortlisted')");
   db.exec("CREATE INDEX IF NOT EXISTS proposals_meme_meta ON proposals (meta_key, created_at) WHERE kind = 'meme'");
   // The snapshot is written once with the Proposal: a later update of it is refused by the database itself.
@@ -558,7 +564,7 @@ function parseSnapshot(text: string | null): MetaSnapshot | null {
   try {
     const v = JSON.parse(text) as unknown;
     const version = typeof v === "object" && v !== null ? (v as { version?: unknown }).version : undefined;
-    return version === 1 || version === 2 ? (v as MetaSnapshot) : null;
+    return version === 1 || version === 2 || (version === 3 && (v as { kind?: unknown }).kind === "narrative") ? (v as MetaSnapshot) : null;
   } catch {
     return null;
   }
@@ -923,14 +929,14 @@ export class Datastore {
    * WORKER ONLY, and the one way the propose pass makes a Proposal (a notifier hooks in after it, see `proposePendingNarratives`).
    * Same row and history entry as `createProposal` (status `new`, actor `system`, `updated_at` = now, which Proposal expiry counts
    * from), linked to its Narrative and Score. The two limits are checked in the same transaction as the insert, so they hold under
-   * any caller: a Narrative gets one Proposal for good (even if it was dismissed), and at most `MAX_NEW_PROPOSALS_PER_DAY` research
+   * any caller: a Narrative gets one Tech Proposal for good (even if it was dismissed; a news meme of the same Narrative does not count), and at most `MAX_NEW_PROPOSALS_PER_DAY` research
    * Proposals are created in any rolling 24 hours. `maxPerDay` can lower that cap, never raise it. Hand-entered Proposals are not counted.
    */
   createResearchProposal(input: NewResearchProposal, opts: { now?: Date; maxPerDay?: number; attachRunId?: number | number[] } = {}): Proposal {
     const now = opts.now ?? new Date();
     const max = Math.min(MAX_NEW_PROPOSALS_PER_DAY, opts.maxPerDay ?? MAX_NEW_PROPOSALS_PER_DAY);
     return this.inTransaction(() => {
-      if (this.db.prepare("SELECT 1 FROM proposals WHERE narrative_id = ?").get(input.narrativeId)) throw new NarrativeAlreadyProposedError(input.narrativeId);
+      if (this.db.prepare("SELECT 1 FROM proposals WHERE narrative_id = ? AND kind = 'narrative'").get(input.narrativeId)) throw new NarrativeAlreadyProposedError(input.narrativeId);
       if (this.researchProposalsSince(new Date(now.getTime() - 24 * 3_600_000).toISOString()) >= max) throw new ProposalCapReachedError(max);
       const p = this.insertProposal(input, now, `Proposed from Narrative ${input.narrativeId} (Score ${input.scoreId})`, input);
       // The propose run that made it was recorded against no Proposal (it had none yet); from here its cost is the Proposal's.
@@ -984,9 +990,12 @@ export class Datastore {
   /**
    * WORKER ONLY, and the one way the meme pass makes Proposals (ADR 0013): the three ideas of one run, as `meme` Proposals in `new`
    * (system actor, `updated_at` = now; the 12 h expiry, `MEME_EXPIRY_MS`, counts from creation), in one transaction. A meme has no Narrative, no Score and no
-   * Spec; `narrative_id` stays NULL, so it is not counted in the 30 a day research cap. The Meta snapshot is stored with each and cannot
-   * change afterwards. Refused with `MemeTrioExistsError` when the Meta already got a trio in the last 6 h (any status), and the partial
-   * unique index refuses a second live trio in the same 6 h window whatever a caller does. The run that made them is attached to the first.
+   * Spec; `narrative_id` stays NULL for a Meta's trio. A news meme (proposal-routing ticket 04: `input.narrative` set, `metaKey` =
+   * `narrative:<id>`) sets `narrative_id` and `score_id`, and is not counted in the 30 a day research cap either (`researchProposalsSince`
+   * leaves `meme` rows out). The snapshot is stored with each and cannot change afterwards. Refused with `MemeTrioExistsError` when the
+   * Meta already got a trio in the last 6 h (any status), or, for a news meme, when the key has a trio at any time (one trio per Narrative
+   * ever), and the partial unique index refuses a second live trio in the same 6 h window whatever a caller does. The run that made them
+   * is attached to the first.
    */
   createMemeProposals(input: NewMemeTrio, opts: { now?: Date; attachRunId?: number | number[] } = {}): Proposal[] {
     if (input.ideas.length !== MEME_TRIO_SIZE) throw new DomainError(`A meme trio has ${MEME_TRIO_SIZE} ideas, got ${input.ideas.length}`);
@@ -995,7 +1004,7 @@ export class Datastore {
     const snapshot = JSON.stringify(input.snapshot);
     const window = Math.floor(nowDate.getTime() / MEME_WINDOW_MS);
     return this.inTransaction(() => {
-      const since = new Date(nowDate.getTime() - MEME_WINDOW_MS).toISOString();
+      const since = input.narrative ? "" : new Date(nowDate.getTime() - MEME_WINDOW_MS).toISOString();
       if (this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(input.metaKey, since)) throw new MemeTrioExistsError(input.metaKey);
       const ids = input.ideas.map((idea, i) => {
         const base = slugify(idea.name) || "meme";
@@ -1009,7 +1018,7 @@ export class Datastore {
               `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
                  narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
                  meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at)
-               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               slug,
@@ -1019,6 +1028,8 @@ export class Datastore {
               idea.ticker,
               idea.description,
               JSON.stringify(evidenceLinks),
+              input.narrative?.id ?? null,
+              input.narrative?.scoreId ?? null,
               idea.collisions ? JSON.stringify(idea.collisions) : null,
               input.reason,
               input.metaKey,
@@ -1048,9 +1059,9 @@ export class Datastore {
     });
   }
 
-  /** How many research Proposals (made from a Narrative) were created at or after `since` (ISO), whatever became of them. */
+  /** How many research Proposals (Tech Proposals made from a Narrative) were created at or after `since` (ISO), whatever became of them. A `meme` row, news memes included, is not one. */
   researchProposalsSince(since: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM proposals WHERE narrative_id IS NOT NULL AND created_at >= ?").get(since) as unknown as { n: number };
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM proposals WHERE narrative_id IS NOT NULL AND kind <> 'meme' AND created_at >= ?").get(since) as unknown as { n: number };
     return row.n;
   }
 
@@ -1062,6 +1073,11 @@ export class Datastore {
   /** Whether a `meme` Proposal for this Meta was created after `since` (ISO), whatever became of it: the "once per Meta per 6 h" check. READ ONLY. */
   hasMemeSince(metaKey: string, since: string): boolean {
     return this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(metaKey, since) !== undefined;
+  }
+
+  /** Whether any `meme` Proposal exists for this key at any time, whatever became of it: "one trio per Narrative ever" for a news meme (`narrative:<id>`). READ ONLY. */
+  hasMemeEver(metaKey: string): boolean {
+    return this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ?").get(metaKey) !== undefined;
   }
 
   /** The `meme` Proposals still live (`new` or `shortlisted`), newest first then by slot: what the Meta page shows under each Meta. READ ONLY. */
@@ -1140,7 +1156,7 @@ export class Datastore {
     const rows = this.db
       .prepare(
         `${PROPOSAL_SELECT}
-         LEFT JOIN scores s ON s.id = COALESCE((SELECT id FROM scores WHERE id = p.score_id), (SELECT MAX(id) FROM scores WHERE narrative_id = p.narrative_id))
+         LEFT JOIN scores s ON s.id = CASE WHEN p.kind = 'meme' THEN NULL ELSE COALESCE((SELECT id FROM scores WHERE id = p.score_id), (SELECT MAX(id) FROM scores WHERE narrative_id = p.narrative_id)) END
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY ${order}
          LIMIT ?`,
@@ -1477,7 +1493,7 @@ export class Datastore {
       where.push("n.kind = ?");
       params.push(q.kind);
     }
-    if (q.hasProposal !== undefined) where.push(`${q.hasProposal ? "" : "NOT "}EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)`);
+    if (q.hasProposal !== undefined) where.push(`${q.hasProposal ? "" : "NOT "}EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id AND p.kind = 'narrative')`);
     if (q.sourceId !== undefined) {
       where.push("EXISTS (SELECT 1 FROM signals g WHERE g.narrative_id = n.id AND g.source_id = ?)");
       params.push(q.sourceId);
@@ -1497,7 +1513,7 @@ export class Datastore {
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at,
                 s.total AS score_total,
-                EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id) AS has_proposal,
+                EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id AND p.kind = 'narrative') AS has_proposal,
                 ${HAS_MARKET_SIGNAL} AS has_market
          FROM narratives n
          LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
@@ -1616,8 +1632,8 @@ export class Datastore {
 
   /**
    * WORKER ONLY. The propose delta: Narratives built by `embedder` that gained a Signal at or after `since` (ISO), whose latest Score
-   * has a buildability of at least `gateMin` (the Rubric's hard gate; the caller passes the gate as it is now), that have no Proposal
-   * yet (ever, dismissed ones included), at least one market Signal (ticket 24), kind `news` (a launchpad Narrative is never proposed
+   * has a buildability of at least `gateMin` (the Rubric's hard gate; the caller passes the gate as it is now), that have no Tech
+   * Proposal yet (ever, dismissed ones included; a news meme of the Narrative does not count, ticket 04), at least one market Signal (ticket 24), kind `news` (a launchpad Narrative is never proposed
    * from, proposal-routing ticket 01) and no propose run open. Best weighted total first. A Narrative whose propose run was refused
    * or over budget since its latest Score is left out until it is scored again; any other ending (claude missing, a timeout, a rate
    * limit) leaves it eligible, bounded by the daily run and spend caps.
@@ -1634,7 +1650,7 @@ export class Datastore {
            AND n.kind = 'news'
            AND ${HAS_MARKET_SIGNAL}
            AND json_extract(s.scores, '$.buildability') >= ?
-           AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id)
+           AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id AND p.kind = 'narrative')
            AND NOT EXISTS (SELECT 1 FROM brain_runs b WHERE b.task = 'propose' AND b.narrative_id = n.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}')
            AND NOT EXISTS (
              SELECT 1 FROM brain_runs b
@@ -1648,6 +1664,43 @@ export class Datastore {
          LIMIT ?`,
       )
       .all(embedder.id, embedder.dimension, since, gateMin, n, n, n, limit) as unknown as Array<ScoreRow & { nid: number; title: string; summary: string; n_signal_count: number; n_created_at: string; last_signal_at: string; n_changed_materially_at: string }>;
+    return rows.map((r) => ({
+      narrative: toNarrative({ id: r.nid, title: r.title, summary: r.summary, signal_count: r.n_signal_count, created_at: r.n_created_at, last_signal_at: r.last_signal_at, changed_materially_at: r.n_changed_materially_at }),
+      score: toScore(r),
+    }));
+  }
+
+  /**
+   * WORKER ONLY, READ ONLY. The news meme selector (proposal-routing ticket 04): a news story that failed the buildability gate and can
+   * still be a joke. Narratives built by `embedder` that are kind `news`, have a market Signal (ADR 0011) and at least one news Signal
+   * (a Source outside `MARKET_SOURCE_IDS`: a Narrative of token-name Signals only is not a story), whose newest Signal is at or after
+   * `since` (ISO; the caller passes now minus `NEWS_MEME_LIVE_MS`), and whose latest Score has a buildability below `gateMin`, with
+   * legitimacy, hook and momentum at or above `floors`. Left out: a Narrative that ever had a `meme` Proposal with its key (one trio per
+   * Narrative ever), and a launchpad Narrative. A re-score that lifts a Narrative over the floors makes it appear. Best hook plus momentum
+   * first, then the Narrative id. The Narrative's Tech path is not looked at: a Tech Proposal is made, or not, on its own terms.
+   * `onlyId` narrows it to one Narrative (the re-check when a trio is about to be stored).
+   */
+  narrativesToMeme(embedder: NarrativeEmbedder, since: string, gateMin: number, floors: NewsMemeFloors, limit: number, onlyId?: number): Array<{ narrative: Narrative; score: Score }> {
+    const market = MARKET_SOURCE_IDS.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT n.id AS nid, n.title, n.summary, n.signal_count AS n_signal_count, n.created_at AS n_created_at, n.last_signal_at, n.changed_materially_at AS n_changed_materially_at, s.*
+         FROM narratives n
+         JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
+         WHERE n.embedder = ? AND n.dimension = ? AND n.last_signal_at >= ?
+           AND n.kind = 'news'
+           AND ${HAS_MARKET_SIGNAL}
+           AND EXISTS (SELECT 1 FROM signals sg WHERE sg.narrative_id = n.id AND sg.source_id NOT IN (${market}))
+           AND json_extract(s.scores, '$.buildability') < ?
+           AND json_extract(s.scores, '$.legitimacy') >= ?
+           AND json_extract(s.scores, '$.hook') >= ?
+           AND json_extract(s.scores, '$.momentum') >= ?
+           AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.kind = 'meme' AND p.meta_key = ('${NEWS_MEME_KEY_PREFIX}' || n.id))
+           AND (? IS NULL OR n.id = ?)
+         ORDER BY json_extract(s.scores, '$.hook') + json_extract(s.scores, '$.momentum') DESC, n.id
+         LIMIT ?`,
+      )
+      .all(embedder.id, embedder.dimension, since, gateMin, floors.legitimacy, floors.hook, floors.momentum, onlyId ?? null, onlyId ?? null, Math.max(1, Math.floor(limit))) as unknown as Array<ScoreRow & { nid: number; title: string; summary: string; n_signal_count: number; n_created_at: string; last_signal_at: string; n_changed_materially_at: string }>;
     return rows.map((r) => ({
       narrative: toNarrative({ id: r.nid, title: r.title, summary: r.summary, signal_count: r.n_signal_count, created_at: r.n_created_at, last_signal_at: r.last_signal_at, changed_materially_at: r.n_changed_materially_at }),
       score: toScore(r),

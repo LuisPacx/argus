@@ -19,6 +19,7 @@ const NEWS_SHOWN = 5;
 const EVIDENCE_SHOWN = 10;
 const REASON_CHARS = 120;
 const ROOM_LEFT_CHARS = 400;
+const REASONS_CHARS = 300;
 
 /** What the card and the list read of a Proposal (the server's `Proposal`; a field renamed there is a type error in the server test). */
 export interface MemeProposalPayload {
@@ -35,17 +36,23 @@ export interface MemeProposalPayload {
   narrativeSummary: string;
   evidenceLinks: string[];
   metaLabel?: string | null;
-  /** Both stored versions: 1 (a launch-theme row and a Hot now event, kept as it was made) and 2 (a Meta, its leader and its trigger). */
+  /** Set on a news meme (version 3 snapshot): the Narrative the story is. Null on a Meta's idea. */
+  narrativeId?: number | null;
+  /** The stored versions: 1 (a launch-theme row and a Hot now event, kept as it was made), 2 (a Meta, its leader and its trigger) and 3 (a news Narrative that failed the buildability gate, with its Score). */
   metaSnapshot?: {
     version?: number;
     capturedAt?: string;
+    /** Version 3 only. */
+    kind?: string;
+    narrative?: { id?: number; title?: string; summary?: string; signalCount?: number; createdAt?: string; lastSignalAt?: string };
+    score?: { id?: number; total?: number; scores?: Record<string, number>; rationale?: string; gateMin?: number; createdAt?: string };
     meta?: { label?: string; rank?: number; firstSeenAt?: string; counts?: { "6h"?: Counts; "24h"?: Counts }; topTokens?: Array<{ mint?: string; name?: string; symbol?: string; marketCapUsd?: number }>; summary?: string };
     run?: { computedAt?: string };
     /** Version 1 only. */
     hot?: { reason?: string; raisedAt?: string; rank?: number; creators?: number };
     /** Version 2 only: the token that leads the Meta. */
     leader?: { mint?: string; name?: string; symbol?: string; marketCapUsd?: number };
-    /** Version 2 only: what started the run. `reason` is "$JENSEN at $2.4M, 14 creators in 24 h". */
+    /** Version 2: what started the run, `reason` is "$JENSEN at $2.4M, 14 creators in 24 h". Version 3: `reason` is "buildability 4 under the gate of 5; legitimacy 6, hook 8, momentum 9". */
     trigger?: { kind?: string; reason?: string; at?: string };
     roomLeft?: { passed?: boolean; text?: string };
     news?: Array<{ title?: string; sourceLabel?: string; url?: string; publishedAt?: string }>;
@@ -66,7 +73,24 @@ export interface MemeNewsView {
   href: string | null;
 }
 
+/** A news meme's source: the story, a link to its Narrative and the Score it failed the gate with (all text cut; the link is a numeric id only). */
+export interface FromNewsView {
+  headline: string;
+  /** "/narratives/12" for a whole-number Narrative id, else null. */
+  href: string | null;
+  /** "Narrative 12". */
+  linkText: string;
+  /** "Score 5.2 of 10: buildability 3 (under the gate of 5), legitimacy 6, hook 8, momentum 9". */
+  score: string | null;
+  /** The judge's reasons for that Score, cut. */
+  reasons: string | null;
+}
+
 export interface MemeView {
+  /** `news` for an idea made from a news story (version 3 snapshot), else `meta`. */
+  source: "meta" | "news";
+  /** The "from news: <headline>" part of a news meme; null on a Meta's idea. */
+  fromNews: FromNewsView | null;
   /** The two-line card title pieces. */
   name: string;
   ticker: string;
@@ -95,6 +119,16 @@ export interface MemeView {
 }
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+/** "Score 5.2 of 10: buildability 3 (under the gate of 5), legitimacy 6, hook 8, momentum 9": the Score a news meme failed the gate with, from numbers only. */
+function scoreText(score: { total?: number; scores?: Record<string, number>; gateMin?: number } | undefined): string | null {
+  if (!score) return null;
+  const s = score.scores ?? {};
+  const dim = (key: string, note = "") => (finite(s[key]) ? [`${key} ${s[key]}${note}`] : []);
+  const parts = [...dim("buildability", finite(score.gateMin) ? ` (under the gate of ${score.gateMin})` : ""), ...dim("legitimacy"), ...dim("hook"), ...dim("momentum"), ...dim("novelty")];
+  const total = finite(score.total) ? `Score ${score.total.toFixed(1)} of 10` : "Score";
+  return parts.length > 0 ? `${total}: ${parts.join(", ")}` : finite(score.total) ? total : null;
+}
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 const present = (text: unknown, max: number): string | null => clampText(text, max) || null;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -119,11 +153,29 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   if (finite(c24?.migrations)) numbers.push(`${plural(c24.migrations, "migration")} (unfiltered)`);
   if (finite(c24?.migrationsAfter60s)) numbers.push(`${c24.migrationsAfter60s} after 60 s`);
   // What triggered it: a version 2 snapshot says "New Meta" or "Meta refresh", a version 1 snapshot (a Hot now idea) keeps its old wording.
-  const trig = snap?.version === 2 ? snap.trigger : undefined;
+  const fromStory = snap?.version === 3 && snap.kind === "narrative";
+  const trig = snap?.version === 2 || fromStory ? snap.trigger : undefined;
   const triggerAt = trig?.at ?? snap?.hot?.raisedAt;
   const triggerAge = typeof triggerAt === "string" ? ageText(triggerAt, nowMs) : null;
   const triggerReason = clampText(trig?.reason ?? snap?.hot?.reason, REASON_CHARS);
-  const triggerName = trig ? (trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
+  const triggerName = fromStory ? "News meme" : trig ? (trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
+  const triggerVerb = fromStory ? "scored" : trig?.kind === "refresh" ? "refreshed" : "raised";
+  if (fromStory) {
+    const story = snap.narrative;
+    if (finite(story?.signalCount)) numbers.push(plural(story.signalCount, "Signal"));
+    const newest = typeof story?.lastSignalAt === "string" ? ageText(story.lastSignalAt, nowMs) : null;
+    if (newest !== null) numbers.push(`newest ${newest}`);
+  }
+  const narrativeId = typeof p.narrativeId === "number" ? p.narrativeId : snap?.narrative?.id;
+  const fromNews: FromNewsView | null = fromStory
+    ? {
+        headline: clampText(snap.narrative?.title ?? p.metaLabel, HEADLINE_CHARS),
+        href: typeof narrativeId === "number" && Number.isSafeInteger(narrativeId) && narrativeId > 0 ? `/narratives/${narrativeId}` : null,
+        linkText: typeof narrativeId === "number" && Number.isSafeInteger(narrativeId) && narrativeId > 0 ? `Narrative ${narrativeId}` : "Narrative",
+        score: scoreText(snap.score),
+        reasons: present(snap.score?.rationale, REASONS_CHARS),
+      }
+    : null;
   const rankingAge = typeof snap?.run?.computedAt === "string" ? ageText(snap.run.computedAt, nowMs) : null;
   const tokens = tokenViews(
     (Array.isArray(meta?.topTokens) ? meta.topTokens : []).map((t) => ({
@@ -142,6 +194,8 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
     return [{ title, meta: [source, when].filter((s): s is string => s !== null && s !== "").join(", "), href: safeHttpUrl(n.url) }];
   });
   return {
+    source: fromStory ? "news" : "meta",
+    fromNews,
     name: clampText(p.name, NAME_CHARS),
     ticker: clampText(p.ticker, TICKER_CHARS),
     angle: clampText(p.whyNow, ANGLE_CHARS),
@@ -152,12 +206,13 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
     riskLabels: riskLabelsOf(p.meme),
     reason: present(p.reason, REASON_CHARS),
     meta: {
-      label: clampText(p.metaLabel ?? meta?.label, META_LABEL_CHARS),
+      // A story's headline is the "from news" line, so the Meta block does not repeat it.
+      label: fromStory ? "" : clampText(p.metaLabel ?? meta?.label, META_LABEL_CHARS),
       numbers,
-      trigger: triggerReason !== "" ? `${triggerName}: ${triggerReason}${triggerAge !== null ? `, ${trig?.kind === "refresh" ? "refreshed" : "raised"} ${triggerAge}` : ""}` : null,
+      trigger: triggerReason !== "" ? `${triggerName}: ${triggerReason}${triggerAge !== null ? `, ${triggerVerb} ${triggerAge}` : ""}` : null,
       ranking: rankingAge !== null ? `ranking from ${rankingAge}` : null,
       roomLeft: present(snap?.roomLeft?.text, ROOM_LEFT_CHARS),
-      summary: present(meta?.summary, 200),
+      summary: fromStory ? present(snap.narrative?.summary, 200) : present(meta?.summary, 200),
       tokens,
     },
     news,

@@ -15,6 +15,19 @@ export const MEME_WINDOW_MS = 6 * 3_600_000;
 /** A Meta that stays a Meta gets a fresh trio this long after its last try (ADR 0013, amended 2026-11-15); a new Meta does not wait for it. */
 export const MEME_REFRESH_MS = 12 * 3_600_000;
 
+/** A news-meme Narrative must have a Signal this recent (its newest Signal is under 12 h old). */
+export const NEWS_MEME_LIVE_MS = 12 * 3_600_000;
+/**
+ * The floors a news Narrative's latest Score must reach to become a news meme (proposal-routing ticket 04, Q7), besides a buildability
+ * below the gate: a story the Rubric called legitimate, with a hook, that is moving.
+ */
+export const NEWS_MEME_FLOORS = { legitimacy: 5, hook: 6, momentum: 6 } as const;
+export type NewsMemeFloors = { readonly legitimacy: number; readonly hook: number; readonly momentum: number };
+
+/** The `meta_key` of a news meme (a Proposal about a news Narrative, not a Meta): `narrative:<id>`. */
+export const NEWS_MEME_KEY_PREFIX = "narrative:";
+export const newsMemeKey = (narrativeId: number): string => `${NEWS_MEME_KEY_PREFIX}${narrativeId}`;
+
 /** The idea fields of a `meme` Proposal beyond the name, ticker and description (those use the Proposal's own columns; the angle is `whyNow`). */
 export interface MemeFields {
   /** Why the angle works and how it differs from the leader of the Meta (the leader's name is never copied). */
@@ -42,10 +55,29 @@ export interface SnapshotToken extends MetaTopToken {
 /**
  * The Meta as it was when the ideas were made, as stored. Written once with the Proposal and never changed (a trigger refuses an update), so
  * the card stays readable after the Meta moves and the outcome tracking (missed-ideas/07) has the numbers at creation. All text in it is
- * untrusted. Two versions exist and both stay readable: version 1 (a launch-theme row and the Hot now event, up to Meta redesign ticket 03)
- * and version 2 (a Meta, its leader token and what triggered the run). Readers branch on `version`.
+ * untrusted. Three versions exist and all stay readable: version 1 (a launch-theme row and the Hot now event, up to Meta redesign ticket 03),
+ * version 2 (a Meta, its leader token and what triggered the run) and version 3 (a news Narrative that failed the buildability gate, with its
+ * Score and news; proposal-routing ticket 04). Readers branch on `version`.
  */
-export type MetaSnapshot = MetaSnapshotV1 | MetaSnapshotV2;
+export type MetaSnapshot = MetaSnapshotV1 | MetaSnapshotV2 | NarrativeSnapshotV3;
+
+/**
+ * A news Narrative as the ideas saw it (proposal-routing ticket 04, version 3): a news story that failed the buildability gate and passed
+ * the floors, with the failing Score and the news Signals as they were. Text is untrusted (headlines, the Narrative's summary and the
+ * judge's reasons are written from third-party text).
+ */
+export interface NarrativeSnapshotV3 {
+  version: 3;
+  kind: "narrative";
+  capturedAt: string;
+  narrative: { id: number; title: string; summary: string; signalCount: number; createdAt: string; lastSignalAt: string };
+  /** The Score the Narrative had when the ideas were made (the latest), its buildability below `gateMin`. */
+  score: { id: number; rubricVersion: number; total: number; scores: Record<string, number>; rationale: string; gateMin: number; createdAt: string };
+  /** Code-written: `reason` is "buildability 4 under the gate of 5; legitimacy 6, hook 8, momentum 9" and `at` is when that Score was made. */
+  trigger: { kind: "news-meme"; reason: string; at: string };
+  /** The news Signals of the Narrative (not market ones), newest first. */
+  news: SnapshotNews[];
+}
 
 /** What started a version 2 run: a subject became a Meta, or it stayed one for `MEME_REFRESH_MS` since the last try. */
 export type MemeTriggerKind = "new-meta" | "refresh";
@@ -128,6 +160,8 @@ export interface NewMemeIdea extends MemeFields {
 }
 
 export interface NewMemeTrio {
+  /** Set for a news meme: the Narrative and the Score the trio was made from. They are stored on each Proposal (`narrative_id`, `score_id`), and `metaKey` is `narrative:<id>`. */
+  narrative?: { id: number; scoreId: number };
   metaKey: string;
   metaLabel: string;
   snapshot: MetaSnapshot;

@@ -2,21 +2,22 @@ import type { ExistingToken } from "../beta/distinct-name.ts";
 import { rankRoomLeft } from "../beta/room-left.ts";
 import { BrainError, type Brain, type BrainRun } from "../brain.ts";
 import type { CollisionChecker, CollisionResult } from "../collision.ts";
-import { MemeTrioExistsError, type Datastore, type Proposal } from "../datastore.ts";
+import { MemeTrioExistsError, type Datastore, type NarrativeEmbedder, type Narrative, type Proposal, type Score } from "../datastore.ts";
 import { InvalidEvidenceLinkError, normalizeEvidenceLinks } from "../evidence-links.ts";
 import { META_RULE, type MetaConfig } from "../meta/config.ts";
 import { groupTokens } from "../meta/group.ts";
-import { newsForKeys } from "../meta/news.ts";
+import { headlineNamesKey, newsForKeys } from "../meta/news.ts";
 import { leaderTag } from "../meta/new-meta.ts";
 import type { CurrentMeta, MetaNewEvent, MetaRun } from "../meta/store.ts";
 import { currentSummaryFresh, metaMoney } from "../meta/summary.ts";
 import { mergeThemes } from "../meta/theme.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
+import { sourceClass } from "../sources/source-class.ts";
 import type { LaunchedToken } from "../study/store.ts";
-import { avoidLabels, cleanLine, copiedNames, memeIdeasPromptFor, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
+import { avoidLabels, cleanLine, copiedNames, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
 import type { MemeAttempt, MemeOutcome } from "./store.ts";
-import { MEME_REFRESH_MS, MEME_WINDOW_MS, type MemeTriggerKind, type MetaSnapshotV2, type NewMemeIdea, type SnapshotNews } from "./types.ts";
+import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews } from "./types.ts";
 
 /**
  * The meme ideas pass (ADR 0013, amended by meta redesign ticket 03): for each current Meta (ADR 0014; a Watching subject never), one
@@ -31,6 +32,9 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, type MemeTriggerKind, type MetaSnapsho
  * - the answer is untrusted: it must fit `parseMemeOutput` exactly, and no name may copy a token of the Meta's group or one DexScreener
  *   lists (the distinct-name rule); a copy goes back once with the copied names listed, then fails closed with nothing stored;
  * - a rate limit, a budget stop or a shutdown ends the pass at once; three transient failures in a row end it too.
+ * After the Metas the same pass serves news stories (proposal-routing ticket 04, ADR 0013 amendment): a news Narrative that failed the
+ * buildability gate and passed the floors (`narrativesToMeme`) gets one trio too, from the same `meme-ideas` task, the same 8 a day and the
+ * same research budget, Metas first. A story that names a current Meta or Watching subject is left to that Meta; a story has one trio ever.
  * Nothing here launches, signs or spends anything (ADR 0002), and nothing makes a Narrative, a Score or a Spec.
  */
 
@@ -86,6 +90,8 @@ export interface MemeResult {
   failed: number;
   /** Due Metas passed over because the Meta already had a trio in the last 6 h (the trio guard). */
   skipped: number;
+  /** News stories whose answer was dropped because the Narrative stopped being eligible before the trio was stored. */
+  withdrawn: number;
   stoppedBy?: "off" | "api-hold" | "daily-cap" | "research-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
 }
 
@@ -105,6 +111,8 @@ export interface MemeOptions {
   dex?: MemeDexClient;
   /** The collision checks of each idea's name and ticker, stored with the Proposal (see collision.ts); without one nothing is checked. */
   collisions?: CollisionChecker;
+  /** The Narrative embedder of the news stories (the one the judge uses). Without one the news path is off and only Metas are served. */
+  embedder?: NarrativeEmbedder;
 }
 
 /** The tokens of the Meta's group as of the run: the same grouping and theme merge the ranking used, so the group is the one the row counted. Empty for a Meta that outlived its launch wave. */
@@ -257,10 +265,74 @@ export function metaFacts(m: Pick<CurrentMeta, "leader" | "counts">): string {
   return `${leaderTag(m.leader)} at ${metaMoney(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
 }
 
+/** A news story the pass has decided to try. */
+export interface NewsMemeDue {
+  narrative: Narrative;
+  /** The Score the story was selected on (its latest). */
+  score: Score;
+  /** The slot this try fills, the key of its cap refusal: when that Score was made, so a re-score is a new slot. */
+  eventAt: string;
+}
+
+/**
+ * Which selected stories are due (pure over what it reads), in the order given: a story never tried, or re-scored since its last try
+ * (a re-score that lifts it over the floors is a new reason to try), or whose last try failed (not refused) `failedRetryMinutes` ago. A story
+ * whose last try was refused, copied a name twice or was withdrawn waits for its next Score. A cap refusal is not a try.
+ */
+export function dueNewsMemes(candidates: ReadonlyArray<{ narrative: Narrative; score: Score }>, lastTry: (key: string) => Pick<MemeAttempt, "at" | "outcome"> | undefined, now: Date, config: Pick<MemeConfig, "failedRetryMinutes">): NewsMemeDue[] {
+  const due: NewsMemeDue[] = [];
+  for (const c of candidates) {
+    const last = lastTry(newsMemeKey(c.narrative.id));
+    const retry = last?.outcome === "failed" && now.getTime() - Date.parse(last.at) >= config.failedRetryMinutes * 60_000;
+    if (!last || last.at < c.score.createdAt || retry) due.push({ narrative: c.narrative, score: c.score, eventAt: c.score.createdAt });
+  }
+  return due;
+}
+
+/** The most stories read from the selector in one pass (they are tried at most `maxPerPass` at a time, best first). */
+const NEWS_MEME_SELECT_LIMIT = 20;
+
+/**
+ * The stories due now: the selector's, less those that name a current Meta or Watching subject (`subjectKeys`; the headline match of
+ * `meta/news.ts`, no RegExp), then `dueNewsMemes`. A skipped story starts no run and stores nothing.
+ */
+function newsDueOf(store: Datastore, embedder: NarrativeEmbedder, gateMin: number, subjectKeys: readonly string[], now: Date, config: Pick<MemeConfig, "failedRetryMinutes">): NewsMemeDue[] {
+  const since = new Date(now.getTime() - NEWS_MEME_LIVE_MS).toISOString();
+  const own = store.narrativesToMeme(embedder, since, gateMin, NEWS_MEME_FLOORS, NEWS_MEME_SELECT_LIMIT).filter((c) => !subjectKeys.some((key) => headlineNamesKey(c.narrative.title, key)));
+  return dueNewsMemes(own, (key) => store.meme.lastTry(key), now, config);
+}
+
+/** "buildability 4 under the gate of 5; legitimacy 6, hook 8, momentum 9": why a story became a news meme, from the Score's numbers only. */
+export function newsMemeReason(score: Pick<Score, "scores">, gateMin: number): string {
+  const s = score.scores;
+  return `buildability ${s.buildability} under the gate of ${gateMin}; legitimacy ${s.legitimacy}, hook ${s.hook}, momentum ${s.momentum}`;
+}
+
+/** What a news Narrative is tried as, beside a Meta (`Job`): the same loop serves both. */
+interface Job {
+  key: string;
+  label: string;
+  eventAt: string;
+  /** True when this subject already has a trio that bars another one now. */
+  guarded(now: Date): boolean;
+  /** The context of one try, read once. */
+  prepare(now: Date): Prepared;
+}
+
+interface Prepared {
+  /** Tokens the ideas must not copy (a Meta's group; none for a story: DexScreener's list is the check). */
+  existing: ExistingToken[];
+  promptFor(retryCopies?: readonly string[]): string;
+  /** Stores the trio, or "withdrawn" when the subject stopped being eligible. Throws `MemeTrioExistsError`. */
+  create(ideas: NewMemeIdea[], now: Date, runIds: number[]): Proposal[] | "withdrawn";
+  /** The log line of a stored trio. */
+  doneLine(made: Proposal[]): string;
+}
+
 type Asked = { kind: "ok"; runId: number; result: BrainRun<string> } | { kind: "stop"; stoppedBy: NonNullable<MemeResult["stoppedBy"]> } | { kind: "failed"; budget: boolean };
 
 export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: MemeOptions = {}): Promise<MemeResult> {
-  const out: MemeResult = { called: 0, stored: 0, refused: 0, failed: 0, skipped: 0 };
+  const out: MemeResult = { called: 0, stored: 0, refused: 0, failed: 0, skipped: 0, withdrawn: 0 };
   // The switch: off, nothing below runs, so nothing is read, called or stored.
   if (opts.enabled !== true) return { ...out, stoppedBy: "off" };
   const config = { ...DEFAULT_MEME_CONFIG, ...opts.config };
@@ -276,33 +348,41 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
 
   // The Metas as of the newest run (ADR 0014). A run older than the carried state's limit no longer describes the market: nothing is due.
   const current = store.currentMetas();
-  if (!current) return out;
   const startedAt = clock();
-  const runAge = startedAt.getTime() - Date.parse(current.computedAt);
-  if (!Number.isFinite(runAge) || runAge > metaConfig.stateMaxMinutes * 60_000) return out;
-  // The live New Meta events, newest per Meta. An event is live for `newMetaLiveHours`; its Meta must still be a Meta in the newest run.
-  const events = new Map<string, MetaNewEvent>();
-  for (const e of store.newMetaEvents(new Date(startedAt.getTime() - metaConfig.newMetaLiveHours * HOUR_MS).toISOString())) if (!events.has(e.key)) events.set(e.key, e);
-  const queue = dueMetas(current.metas, events, (key) => store.meme.lastTry(key), startedAt, config);
-  if (queue.length === 0) return out;
+  let metaQueue: MemeDue[] = [];
+  if (current) {
+    const runAge = startedAt.getTime() - Date.parse(current.computedAt);
+    if (Number.isFinite(runAge) && runAge <= metaConfig.stateMaxMinutes * 60_000) {
+      // The live New Meta events, newest per Meta. An event is live for `newMetaLiveHours`; its Meta must still be a Meta in the newest run.
+      const events = new Map<string, MetaNewEvent>();
+      for (const e of store.newMetaEvents(new Date(startedAt.getTime() - metaConfig.newMetaLiveHours * HOUR_MS).toISOString())) if (!events.has(e.key)) events.set(e.key, e);
+      metaQueue = dueMetas(current.metas, events, (key) => store.meme.lastTry(key), startedAt, config);
+    }
+  }
+  // The news stories (ticket 04), after the Metas. A story that names a current Meta or Watching subject is left to that Meta (its trio wins);
+  // the subjects are read from the newest run whatever its age, so a stale run skips more, never fewer.
+  const gateMin = store.getRubric().gateMinScore;
+  const newsQueue = opts.embedder ? newsDueOf(store, opts.embedder, gateMin, [...(current?.metas ?? []), ...(current?.watching ?? [])].map((m) => m.key), startedAt, config) : [];
+  if (metaQueue.length === 0 && newsQueue.length === 0) return out;
   // The launch-theme run only feeds the room-left ranking (an input to the prompt, never a gate).
-  const launchRun = store.latestMetas("24h", 200);
+  const launchRun = metaQueue.length > 0 ? store.latestMetas("24h", 200) : undefined;
+  const embedder = opts.embedder;
 
   let transientInARow = 0;
   let tried = 0;
 
   /** Whether another meme-ideas run may start: the daily cap and the research budget. A refusal is recorded with its reason once per slot. */
-  const mayRun = (due: MemeDue): { ok: true } | { ok: false; stoppedBy: "daily-cap" | "research-cap"; detail: string } => {
+  const mayRun = (due: Pick<Job, "key" | "eventAt">): { ok: true } | { ok: false; stoppedBy: "daily-cap" | "research-cap"; detail: string } => {
     const spent = store.memeIdeasSpendSince(new Date(clock().getTime() - DAY_MS).toISOString(), caps);
     if (spent.runs >= maxRunsPerDay) {
       const detail = `daily cap of ${maxRunsPerDay} meme-ideas runs reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
-      store.meme.record({ key: due.meta.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "daily-cap", detail, runs: 0 });
+      store.meme.record({ key: due.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "daily-cap", detail, runs: 0 });
       return { ok: false, stoppedBy: "daily-cap", detail };
     }
     const usage = researchUsage(store, clock(), research, caps);
     if (usage.exhausted) {
       const detail = `research budget reached ($${usage.usedUsd.toFixed(4)} of $${usage.budgetUsd.toFixed(2)} in 24 h, judge, propose, summaries and meme ideas together)`;
-      store.meme.record({ key: due.meta.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "research-cap", detail, runs: 0 });
+      store.meme.record({ key: due.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "research-cap", detail, runs: 0 });
       return { ok: false, stoppedBy: "research-cap", detail };
     }
     return { ok: true };
@@ -340,43 +420,131 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
   const finish = (a: { runId: number; result: BrainRun<string> }, ok: boolean) =>
     store.finishBrainRun(a.runId, { sessionId: a.result.sessionId ?? null, totalCostUsd: a.result.totalCostUsd, exitStatus: ok ? "success" : "invalid-output", backend: a.result.backend, model: a.result.model });
 
-  for (const [index, due] of queue.entries()) {
+  /** A Meta as a job: its context is the group, tokens, matching news and room-left of the newest run. */
+  const metaJob = (due: MemeDue, run: { runId: number; computedAt: string }): Job => ({
+    key: due.meta.key,
+    label: due.meta.label,
+    eventAt: due.eventAt,
+    guarded: (now) => store.hasMemeSince(due.meta.key, new Date(now.getTime() - MEME_WINDOW_MS).toISOString()),
+    prepare: (now): Prepared => {
+      const meta = due.meta;
+      const group = groupOf(store, meta.key, run.computedAt, metaConfig);
+      const tokens = shownTokens(store, meta, group);
+      const existing: ExistingToken[] = [
+        { name: meta.leader.name, symbol: meta.leader.symbol },
+        ...(group.length > 0 ? group.map((t) => ({ name: t.name, symbol: t.symbol })) : meta.topTokens.map((t) => ({ name: t.name, symbol: t.symbol }))),
+      ];
+      const news: SnapshotNews[] = (newsForKeys(store, [meta.key], now, metaConfig).get(meta.key) ?? []).map((n) => ({ title: n.title, sourceLabel: n.sourceLabel, url: n.url, publishedAt: n.publishedAt }));
+      const roomLeft = launchRun ? roomLeftOf(launchRun, meta.key) : { passed: false, text: "no room-left verdict for this Meta" };
+      const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
+      const facts = metaFacts(meta);
+      const trigger = { kind: due.kind, reason: facts, at: due.eventAt };
+      return {
+        existing,
+        promptFor: (retryCopies) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(retryCopies ? { retryCopies } : {}) }),
+        create: (ideas, at, runIds) => {
+          const stored = store.meta.summaries([meta.key]).get(meta.key);
+          const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
+          return store.createMemeProposals(
+            {
+              metaKey: meta.key,
+              metaLabel: meta.label,
+              snapshot,
+              reason: `${due.kind === "new-meta" ? "New Meta" : "Meta refresh"}: ${facts}`,
+              summary: summaryLine(meta, due.kind),
+              evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
+              ideas,
+            },
+            { now: at, attachRunId: runIds },
+          );
+        },
+        doneLine: (made) => `${made.length} ideas for "${cleanLine(meta.label, 60)}" (${due.kind === "new-meta" ? "new Meta" : "refresh"}; proposals ${made.map((p) => p.id).join(", ")})`,
+      };
+    },
+  });
+
+  /** A news story as a job: the story, its Signals and its Score are the subject; the trio is stored only if it is still eligible then. */
+  const newsJob = (due: NewsMemeDue): Job => {
+    const key = newsMemeKey(due.narrative.id);
+    const label = cleanLine(due.narrative.title, 160);
+    const liveSince = (at: Date) => new Date(at.getTime() - NEWS_MEME_LIVE_MS).toISOString();
+    return {
+      key,
+      label,
+      eventAt: due.eventAt,
+      guarded: () => store.hasMemeEver(key),
+      prepare: (): Prepared => {
+        const detail = store.getNarrative(due.narrative.id);
+        const signals = detail?.signals ?? [];
+        const news: SnapshotNews[] = signals.filter((s) => sourceClass(s.sourceId) !== "market").slice(0, MEME_PROMPT_NEWS).map((s) => ({ title: s.title, sourceLabel: s.sourceLabel, url: s.url, publishedAt: s.publishedAt }));
+        const market = signals.filter((s) => sourceClass(s.sourceId) === "market").slice(0, MEME_PROMPT_MARKET_SIGNALS).map((s) => ({ title: s.title, sourceLabel: s.sourceLabel, publishedAt: s.publishedAt }));
+        const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
+        const n = due.narrative;
+        return {
+          existing: [],
+          promptFor: (retryCopies) => newsMemePromptFor({ title: n.title, summary: n.summary, signalCount: n.signalCount, lastSignalAt: n.lastSignalAt, news, market, score: { total: due.score.total, scores: due.score.scores, rationale: due.score.rationale, gateMin }, legitimacy, ...(retryCopies ? { retryCopies } : {}) }),
+          create: (ideas, at, runIds) => {
+            // The story may have been scored again, or stopped moving, while the model ran: it is judged on the same terms as the selector's, now.
+            const again = embedder ? store.narrativesToMeme(embedder, liveSince(at), store.getRubric().gateMinScore, NEWS_MEME_FLOORS, 1, n.id)[0] : undefined;
+            if (!again) return "withdrawn";
+            const reason = newsMemeReason(again.score, store.getRubric().gateMinScore);
+            const snapshot: NarrativeSnapshotV3 = {
+              version: 3,
+              kind: "narrative",
+              capturedAt: at.toISOString(),
+              narrative: { id: n.id, title: n.title, summary: n.summary, signalCount: again.narrative.signalCount, createdAt: n.createdAt, lastSignalAt: again.narrative.lastSignalAt },
+              score: { id: again.score.id, rubricVersion: again.score.rubricVersion, total: again.score.total, scores: { ...again.score.scores }, rationale: again.score.rationale, gateMin: store.getRubric().gateMinScore, createdAt: again.score.createdAt },
+              trigger: { kind: "news-meme", reason, at: again.score.createdAt },
+              news,
+            };
+            return store.createMemeProposals(
+              {
+                narrative: { id: n.id, scoreId: again.score.id },
+                metaKey: key,
+                metaLabel: label,
+                snapshot,
+                reason: `News meme: ${reason}`,
+                summary: `From news: ${cleanLine(n.title, 120)}. Buildability ${again.score.scores.buildability} under the gate of ${store.getRubric().gateMinScore}, so no Tech.`,
+                evidenceLinks: evidenceFor([], news),
+                ideas,
+              },
+              { now: at, attachRunId: runIds },
+            );
+          },
+          doneLine: (made) => `${made.length} ideas for the news story "${cleanLine(n.title, 60)}" (proposals ${made.map((p) => p.id).join(", ")})`,
+        };
+      },
+    };
+  };
+
+  // Metas first, then the stories (Q8): a story is tried only when the Metas left room in this pass.
+  const jobs: Job[] = [...(current ? metaQueue.map((d) => metaJob(d, current)) : []), ...newsQueue.map(newsJob)];
+
+  for (const [index, job] of jobs.entries()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
-    const meta = due.meta;
     const now = clock();
-    // The trio guard (ADR 0013): a Meta that got a trio in the last 6 h gets none, whatever the trigger (an event too).
-    if (store.hasMemeSince(meta.key, new Date(now.getTime() - MEME_WINDOW_MS).toISOString())) {
+    // The trio guard (ADR 0013): a Meta that got a trio in the last 6 h gets none, whatever the trigger (an event too); a story has one ever.
+    if (job.guarded(now)) {
       out.skipped++;
       continue;
     }
     if (tried >= config.maxPerPass) break;
 
-    const gate = mayRun(due);
+    const gate = mayRun(job);
     if (!gate.ok) {
-      const waiting = queue.slice(index + 1).filter((d) => !store.hasMemeSince(d.meta.key, new Date(now.getTime() - MEME_WINDOW_MS).toISOString()));
-      log(`[worker] meme ideas: ${gate.detail}; "${cleanLine(meta.label, 60)}" waits${waiting.length > 0 ? `, and so ${waiting.length === 1 ? "does" : "do"} ${waiting.map((d) => `"${cleanLine(d.meta.label, 60)}"`).join(", ")}` : ""}`);
+      const waiting = jobs.slice(index + 1).filter((j) => !j.guarded(now));
+      log(`[worker] meme ideas: ${gate.detail}; "${cleanLine(job.label, 60)}" waits${waiting.length > 0 ? `, and so ${waiting.length === 1 ? "does" : "do"} ${waiting.map((j) => `"${cleanLine(j.label, 60)}"`).join(", ")}` : ""}`);
       return { ...out, stoppedBy: gate.stoppedBy };
     }
     tried++;
 
-    // The Meta's context, read once per try.
-    const group = groupOf(store, meta.key, current.computedAt, metaConfig);
-    const tokens = shownTokens(store, meta, group);
-    const existing: ExistingToken[] = [
-      { name: meta.leader.name, symbol: meta.leader.symbol },
-      ...(group.length > 0 ? group.map((t) => ({ name: t.name, symbol: t.symbol })) : meta.topTokens.map((t) => ({ name: t.name, symbol: t.symbol }))),
-    ];
-    const news: SnapshotNews[] = (newsForKeys(store, [meta.key], now, metaConfig).get(meta.key) ?? []).map((n) => ({ title: n.title, sourceLabel: n.sourceLabel, url: n.url, publishedAt: n.publishedAt }));
-    const roomLeft = launchRun ? roomLeftOf(launchRun, meta.key) : { passed: false, text: "no room-left verdict for this Meta" };
-    const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
-    const facts = metaFacts(meta);
-    const trigger = { kind: due.kind, reason: facts, at: due.eventAt };
-    const promptFor = (retryCopies?: readonly string[]) =>
-      memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(retryCopies ? { retryCopies } : {}) });
+    // The subject's context, read once per try.
+    const prepared = job.prepare(now);
+    const { existing, promptFor } = prepared;
 
-    const record = (outcome: MemeOutcome, detail: string, runs: number) => store.meme.record({ key: meta.key, eventAt: due.eventAt, at: clock().toISOString(), outcome, detail, runs });
+    const record = (outcome: MemeOutcome, detail: string, runs: number) => store.meme.record({ key: job.key, eventAt: job.eventAt, at: clock().toISOString(), outcome, detail, runs });
 
-    /** The answer's check: the schema and the Meta's own tokens (`parseMemeOutput`), then DexScreener's. */
+    /** The answer's check: the schema and the subject's own tokens (`parseMemeOutput`), then DexScreener's. */
     const check = async (output: string): Promise<MemeParse> => {
       const parsed = parseMemeOutput(output, existing);
       if (!parsed.ok) return parsed;
@@ -384,7 +552,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       return listed.length > 0 ? { ok: false, problem: "a name or ticker copies a token DexScreener lists", copies: listed } : parsed;
     };
 
-    const first = await ask(promptFor(), meta.label);
+    const first = await ask(promptFor(), job.label);
     if (first.kind === "stop") return { ...out, stoppedBy: first.stoppedBy };
     if (first.kind === "failed") {
       out.failed++;
@@ -401,15 +569,15 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     let parsed = await check(first.result.output);
     finish(first, parsed.ok);
     const runIds = [first.runId];
-    if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(meta.label, 60)}" refused: ${parsed.problem}. Output not stored: ${JSON.stringify(first.result.output.trim().slice(0, 200))}`);
+    if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" refused: ${parsed.problem}. Output not stored: ${JSON.stringify(first.result.output.trim().slice(0, 200))}`);
 
     // A copied name goes back exactly once, with the copied names listed; the retry is one more run under the same caps.
     if (!parsed.ok && parsed.copies !== undefined) {
-      const retryGate = mayRun(due);
+      const retryGate = mayRun(job);
       if (!retryGate.ok) {
-        log(`[worker] meme ideas: "${cleanLine(meta.label, 60)}" copies existing names but ${retryGate.detail}; nothing stored`);
+        log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" copies existing names but ${retryGate.detail}; nothing stored`);
       } else {
-        const second = await ask(promptFor(parsed.copies), meta.label);
+        const second = await ask(promptFor(parsed.copies), job.label);
         if (second.kind === "stop") {
           record("name-copy", "interrupted before the retry", runIds.length);
           return { ...out, stoppedBy: second.stoppedBy };
@@ -418,7 +586,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
           runIds.push(second.runId);
           parsed = await check(second.result.output);
           finish(second, parsed.ok);
-          if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(meta.label, 60)}" retry refused: ${parsed.problem}. Output not stored: ${JSON.stringify(second.result.output.trim().slice(0, 200))}`);
+          if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" retry refused: ${parsed.problem}. Output not stored: ${JSON.stringify(second.result.output.trim().slice(0, 200))}`);
         }
       }
     }
@@ -434,37 +602,30 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       const collisions = await collisionsOf(idea, opts.collisions, log);
       ideas.push({ ...idea, ...(collisions ? { collisions } : {}) });
     }
-    const stored = store.meta.summaries([meta.key]).get(meta.key);
-    const snapshot = buildSnapshot({ now, meta, run: { id: current.runId, computedAt: current.computedAt }, trigger, ...(currentSummaryFresh(stored, now.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
-    let made: Proposal[];
+    let made: Proposal[] | "withdrawn";
     try {
-      made = store.createMemeProposals(
-        {
-          metaKey: meta.key,
-          metaLabel: meta.label,
-          snapshot,
-          reason: `${due.kind === "new-meta" ? "New Meta" : "Meta refresh"}: ${facts}`,
-          summary: summaryLine(meta, due.kind),
-          evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
-          ideas,
-        },
-        { now, attachRunId: runIds },
-      );
+      made = prepared.create(ideas, now, runIds);
     } catch (e) {
       if (e instanceof MemeTrioExistsError) {
-        record("exists", "the Meta already had a trio in the last 6 h", runIds.length);
-        log(`[worker] meme ideas: "${cleanLine(meta.label, 60)}" already has a trio; answer dropped`);
+        record("exists", "the subject already had a trio", runIds.length);
+        log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" already has a trio; answer dropped`);
         continue;
       }
       out.failed++;
       record("failed", "the ideas could not be stored", runIds.length);
-      log(`[worker] meme ideas: "${cleanLine(meta.label, 60)}" not stored: ${e instanceof Error ? e.message : String(e)}`);
+      log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" not stored: ${e instanceof Error ? e.message : String(e)}`);
       if (++transientInARow >= config.maxConsecutiveFailures) return { ...out, stoppedBy: "backoff" };
+      continue;
+    }
+    if (made === "withdrawn") {
+      out.withdrawn++;
+      record("withdrawn", "the story stopped being eligible before the ideas were stored", runIds.length);
+      log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" is no longer eligible; answer dropped`);
       continue;
     }
     out.stored++;
     record("stored", `${made.length} ideas`, runIds.length);
-    log(`[worker] meme ideas: ${made.length} ideas for "${cleanLine(meta.label, 60)}" (${due.kind === "new-meta" ? "new Meta" : "refresh"}; proposals ${made.map((p) => p.id).join(", ")})`);
+    log(`[worker] meme ideas: ${prepared.doneLine(made)}`);
   }
   return out;
 }

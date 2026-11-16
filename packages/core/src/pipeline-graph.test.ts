@@ -7,7 +7,7 @@ import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
-import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
+import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -100,6 +100,8 @@ function realRegistry(): PipelineRegistry {
       MEME_TRIO_SIZE,
       MEME_WINDOW_MS,
       MEME_REFRESH_MS,
+      ...flatten("NEWS_MEME_FLOORS", NEWS_MEME_FLOORS),
+      NEWS_MEME_LIVE_MS,
       ...routingBudgets(),
       DEFAULT_META_INTERVAL_MINUTES,
       ...flatten("META_RULE", META_RULE),
@@ -144,6 +146,9 @@ describe("the pipeline graph is in sync with the code", () => {
     // The new edges: a new Meta (then every 12 h) goes in, three meme Proposals come out (counted by their own metric).
     expect(PIPELINE.edges.find((e) => e.id === "meta-meme")).toMatchObject({ from: "meta", to: "meme" });
     expect(PIPELINE.edges.find((e) => e.id === "meme-proposals")).toMatchObject({ from: "meme", to: "proposals", metric: "memes_created" });
+    // A news story that fails the buildability gate is the other way in (proposal-routing ticket 04).
+    expect(PIPELINE.edges.find((e) => e.id === "judge-meme")).toMatchObject({ from: "judge", to: "meme" });
+    expect(PIPELINE.edges.find((e) => e.id === "judge-meme")!.gates!.map((g) => g.key)).toEqual(["NEWS_MEME_FLOORS.legitimacy", "NEWS_MEME_FLOORS.hook", "NEWS_MEME_FLOORS.momentum"]);
     const chips = Object.fromEntries(byId.get("sources")!.sources!.map((c) => [c.id, c.status]));
     expect(chips).toEqual({ "rss:": "context-only", "trends:google": "context-only", "github:trending": "context-only", "pumpportal:events": "on", "dexscreener:trending": "on" });
     for (const id of ["sources", "signals", "narratives", "judge", "proposals", "shortlist", "spec", "approve", "build", "preview", "meta", "study"]) expect(byId.get(id)!.status, id).toBe("on");

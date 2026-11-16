@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The body of a meme Proposal's page (ADR 0013): the idea (angle, how it differs, the short description, the X first post, the image idea as
 // text, the risk labels), the Meta as it was when the idea was made (from the stored snapshot, so it stays readable after the Meta moves),
-// and why it was made with its evidence links. A meme has no Tech, no Spec and no Score, so none of those is drawn here.
+// and why it was made with its evidence links. A meme has no Tech, no Spec and no Score of its own, so none of those is drawn here. An idea
+// made from a news story (proposal-routing ticket 04) shows the story where the Meta would be, a "from news" block with a link to its
+// Narrative and the Score that failed the buildability gate.
 // Everything in `view` is untrusted text (the idea is model-written, the tokens' names creator-written, the headlines third-party):
 // interpolated as text only (no raw-HTML directive), clamped by `memeView`, and a link exists only where `memeView` produced an http(s)
 // href, drawn by UrlLink. Template-only on purpose: server/test/meme-render.test.ts renders it.
@@ -11,6 +13,19 @@ defineProps<{ view: MemeView }>();
 
 <template>
   <div class="grid gap-5" data-test="meme-card">
+    <section v-if="view.fromNews" class="surface rise" style="--i: 0" data-test="meme-from-news">
+      <h3 class="section-title">From news</h3>
+      <div class="mt-4 grid min-w-0 gap-2 text-sm">
+        <p class="min-w-0 break-words font-semibold" data-test="meme-from-news-headline">From news: {{ view.fromNews.headline }}</p>
+        <p class="text-xs" data-test="meme-from-news-link">
+          <NuxtLink v-if="view.fromNews.href" :to="view.fromNews.href" class="link font-medium">{{ view.fromNews.linkText }}</NuxtLink>
+          <span v-else class="faint">{{ view.fromNews.linkText }}</span>
+        </p>
+        <p v-if="view.fromNews.score" class="min-w-0 break-words text-xs tabular-nums" data-test="meme-from-news-score">{{ view.fromNews.score }}</p>
+        <p v-if="view.fromNews.reasons" class="muted min-w-0 break-words text-xs leading-relaxed" data-test="meme-from-news-reasons">The judge's reasons: {{ view.fromNews.reasons }}</p>
+      </div>
+    </section>
+
     <section class="surface rise" style="--i: 1" data-test="meme-idea">
       <h3 class="section-title">The idea</h3>
       <div class="mt-4 grid gap-5">
@@ -19,7 +34,7 @@ defineProps<{ view: MemeView }>();
           <p class="min-w-0 break-words leading-relaxed">{{ view.angle }}</p>
         </div>
         <div v-if="view.difference" data-test="meme-difference">
-          <p class="eyebrow mb-1.5">How it differs from the leader</p>
+          <p class="eyebrow mb-1.5">{{ view.source === "news" ? "How it differs from the tokens already riding the story" : "How it differs from the leader" }}</p>
           <p class="min-w-0 break-words leading-relaxed">{{ view.difference }}</p>
         </div>
         <div v-if="view.description" data-test="meme-description">
@@ -45,7 +60,7 @@ defineProps<{ view: MemeView }>();
     </section>
 
     <section class="surface rise" style="--i: 2" data-test="meme-meta">
-      <h3 class="section-title">The Meta when the idea was made</h3>
+      <h3 class="section-title">{{ view.source === "news" ? "The story when the idea was made" : "The Meta when the idea was made" }}</h3>
       <div class="mt-4 grid min-w-0 gap-2 text-sm">
         <p v-if="view.meta.label" class="min-w-0 break-words font-semibold" data-test="meme-meta-label">{{ view.meta.label }}</p>
         <p v-if="view.meta.summary" class="muted min-w-0 break-words leading-relaxed" data-test="meme-meta-summary">{{ view.meta.summary }}</p>

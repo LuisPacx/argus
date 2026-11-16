@@ -13,7 +13,7 @@ import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
-import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS } from "./meme/types.ts";
+import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_SUMMARY_CONFIG, metaSummaryConfigFromEnv } from "./meta/summary-pass.ts";
 import { META_SUMMARY_FRESH } from "./meta/summary.ts";
@@ -117,6 +117,7 @@ const CONTEXT_TICKET = ".scratch/phase-3-feedback/issues/24-context-sources-neve
 const META_TICKET = ".scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md";
 const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
 const MEME_TICKET = ".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md";
+const NEWS_MEME_TICKET = ".scratch/proposal-routing/issues/04-news-meme-proposals.md";
 const LAUNCHPAD_CLUSTER_TICKET = ".scratch/viral-sources/issues/01-launchpad-signals-cluster-by-theme.md";
 
 export const PIPELINE: PipelineGraph = {
@@ -370,7 +371,7 @@ export const PIPELINE: PipelineGraph = {
       status: "off",
       statusNote: "Off until the Operator sets ARGUS_MEME_IDEAS=1 in the worker's environment (the switch defaults to off). The 2026-11-18 backtest re-run is an input to turning it on.",
       diagramNote: "New Meta, then every 12 h, one sonnet run, 3 ideas",
-      what: "When a subject becomes a Meta, and again every 12 hours while it stays one, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). They become meme Proposals: no Spec, no Build, no Score, and they close after 12 hours unless shortlisted. The room-left ranking is an input to the prompt, and a name that copies a token of the Meta is refused. Watching subjects get no ideas.",
+      what: "When a subject becomes a Meta, and again every 12 hours while it stays one, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). After the Metas, a news story that failed the buildability gate (so it has no Tech) but passes the legitimacy, hook and momentum floors gets one trio too, from the same task and the same daily cap. They become meme Proposals: no Spec, no Build, no Score of their own, and they close after 12 hours unless shortlisted. The room-left ranking is an input to a Meta's prompt, and a name that copies a token of the Meta is refused. Watching subjects get no ideas, and a story that names a Meta or a Watching subject is left to it.",
       rules: [
         { label: "Ideas per run", key: "MEME_TRIO_SIZE", ref: () => MEME_TRIO_SIZE, unit: "count" },
         { label: "A Meta gets ideas again every", key: "MEME_REFRESH_MS", ref: () => MEME_REFRESH_MS, unit: "ms", diagram: true },
@@ -381,9 +382,10 @@ export const PIPELINE: PipelineGraph = {
         { label: "Wall clock per run", key: "DEFAULT_ROUTING.meme-ideas.timeoutMs", ref: () => DEFAULT_ROUTING["meme-ideas"].timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING["meme-ideas"].model, unit: "text" },
         { label: "Closed as stale after (new)", key: "MEME_EXPIRY_MS.new", ref: () => MEME_EXPIRY_MS.new ?? "never", unit: "ms" },
+        { label: "A news story needs a Signal newer than", key: "NEWS_MEME_LIVE_MS", ref: () => NEWS_MEME_LIVE_MS, unit: "ms" },
       ],
       adrs: ["0013-a-proposal-has-a-kind-narrative-or-meme.md", "0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
-      tickets: [MEME_TICKET, BETA_TICKET],
+      tickets: [MEME_TICKET, BETA_TICKET, NEWS_MEME_TICKET],
       files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
       worker: "memeIdeasTick",
       brainTask: "meme-ideas",
@@ -415,6 +417,17 @@ export const PIPELINE: PipelineGraph = {
       label: "Score passes the buildability gate",
       metric: "proposals_created",
       gates: [{ label: "Buildability gate, minimum", key: "SEED_GATE_MIN_SCORE", ref: () => SEED_GATE_MIN_SCORE, unit: "score", liveFrom: "rubric" }],
+    },
+    {
+      id: "judge-meme",
+      from: "judge",
+      to: "meme",
+      label: "news story fails the buildability gate, passes the floors",
+      gates: [
+        { label: "Legitimacy, minimum", key: "NEWS_MEME_FLOORS.legitimacy", ref: () => NEWS_MEME_FLOORS.legitimacy, unit: "score" },
+        { label: "Hook, minimum", key: "NEWS_MEME_FLOORS.hook", ref: () => NEWS_MEME_FLOORS.hook, unit: "score" },
+        { label: "Momentum, minimum", key: "NEWS_MEME_FLOORS.momentum", ref: () => NEWS_MEME_FLOORS.momentum, unit: "score" },
+      ],
     },
     { id: "proposals-shortlist", from: "proposals", to: "shortlist", label: "Operator shortlists", metric: "shortlisted" },
     { id: "shortlist-spec", from: "shortlist", to: "spec", label: "Spec drafted on shortlist", metric: "spec_drafted" },

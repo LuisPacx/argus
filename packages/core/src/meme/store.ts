@@ -9,9 +9,10 @@ import type { DatabaseSync } from "node:sqlite";
 /**
  * What became of a try. `stored`: three Proposals were made. `refused`: the answer did not fit the schema. `name-copy`: it copied an
  * existing token twice (fails closed). `exists`: the Meta already had a trio. `failed`: the run failed (a transient error or a budget stop).
- * `daily-cap` and `research-cap`: no run was started because a cap was reached; the reason is the `detail`.
+ * `daily-cap` and `research-cap`: no run was started because a cap was reached; the reason is the `detail`. `withdrawn`: a news story
+ * stopped being eligible before its ideas were stored (proposal-routing ticket 04). A news story's `key` is `narrative:<id>`.
  */
-export type MemeOutcome = "stored" | "refused" | "name-copy" | "exists" | "failed" | "daily-cap" | "research-cap";
+export type MemeOutcome = "stored" | "refused" | "name-copy" | "exists" | "failed" | "daily-cap" | "research-cap" | "withdrawn";
 
 /** The outcomes of a try that did not start a run: they are recorded for the reason and never hold a Meta back. */
 export const MEME_CAP_OUTCOMES: readonly MemeOutcome[] = ["daily-cap", "research-cap"];

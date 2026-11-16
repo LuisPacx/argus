@@ -358,7 +358,8 @@ const metaSummaryTick = reentrant(
   () => {}, // the previous pass is still waiting on claude: the next refresh picks up what is left
 );
 // Meme ideas (missed ideas ticket 06, ADR 0013, amended by meta redesign ticket 03): for each current Meta when it becomes one and again every
-// 12 h while it stays one, one sonnet run that returns three ideas, stored as `meme` Proposals. OFF unless ARGUS_MEME_IDEAS=1 (the Operator
+// 12 h while it stays one, one sonnet run that returns three ideas, stored as `meme` Proposals. After the Metas, a news Narrative that failed
+// the buildability gate gets one trio too (proposal-routing ticket 04; the judge's embedder picks its Narratives). OFF unless ARGUS_MEME_IDEAS=1 (the Operator
 // turns it on after the backtest re-run); off, the pass reads and calls nothing. ARGUS_MEME_MAX_PER_DAY runs a day (8 by default, 40 at most),
 // taken from the research budget. A dry run never calls the
 // Brain: the pass is skipped. DexScreener (the name check) and the collision checks use the same declared client and the test override.
@@ -367,8 +368,8 @@ const memeDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_S
 const memeIdeasTick = reentrant(
   async () => {
     if (!memeSettings.enabled || dryRun) return;
-    const r = await generateMemeIdeas(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker });
-    if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme ideas: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed, ${r.skipped} skipped${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+    const r = await generateMemeIdeas(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker, embedder: judgeEmbedder });
+    if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme ideas: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed, ${r.skipped} skipped${r.withdrawn ? `, ${r.withdrawn} withdrawn` : ""}${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
   },
   () => {}, // the previous pass is still waiting on claude: the next ranking picks up what is left
 );

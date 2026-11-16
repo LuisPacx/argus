@@ -15,7 +15,7 @@ Whether a Source is `market` or `context`. A market Source (PumpPortal, DexScree
 _Avoid_: category
 
 **Narrative**:
-A cluster of recent Signals that share a subject and show momentum. The unit the research step produces. It has a kind: `news` (built from news and market Signals; judged and proposed from) or `launchpad` (one token's creates from the launchpad stream; context and routing only, never judged or proposed, ADR 0013).
+A cluster of recent Signals that share a subject and show momentum. The unit the research step produces. It has a kind: `news` (built from news and market Signals; judged, and proposed from as a Tech Proposal when it passes the buildability gate, or as a Meme Proposal when it fails the gate and passes the floors, ADR 0013) or `launchpad` (one token's creates from the launchpad stream; context and routing only, never judged or proposed, ADR 0013).
 _Avoid_: Trend, topic
 
 ## Ideas
@@ -24,11 +24,11 @@ _Avoid_: Trend, topic
 The new technology (product) that could be built to ride a Narrative. For example, the "tokenized stocks" Narrative yields the Tech "a launchpad that pairs each token with a stock". A Tech is a concept until a Build exists.
 
 **Proposal**:
-A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for a `meme` Proposal, a Meta paired with a token idea. It has a kind, `narrative` or `meme` (ADR 0013); older Proposals are `narrative`, and a `narrative` Proposal comes only from a `news` Narrative. It is the unit shown in the War Room and decided on by the Operator, and a `narrative` Proposal carries a Spec once one is drafted.
+A Narrative paired with a Tech and a token angle (name, ticker, pitch), or, for a `meme` Proposal, a Meta (or a news story that failed the buildability gate) paired with a token idea. It has a kind, `narrative` or `meme` (ADR 0013); older Proposals are `narrative`, and a `narrative` Proposal comes only from a `news` Narrative. It is the unit shown in the War Room and decided on by the Operator, and a `narrative` Proposal carries a Spec once one is drafted.
 _Avoid_: Idea (as a bare noun for a Proposal), candidate
 
 **Meme Proposal**:
-A Proposal of kind `meme`: a token idea that rides a live Meta (made when a subject becomes a Meta and again every 12 hours while it stays one), generated from the Meta and not from a Narrative. It has a name, ticker, angle, how it differs from the Meta's leader (name copies are rejected), a short description, an X first-post hook, an image idea as text, risk labels and evidence links. It has no Tech, no Spec, no Build and no Rubric score of its own; the Operator can shortlist it or dismiss it with a reason, and it expires after 12 hours in new (the refresh interval; it was 6) unless shortlisted. Legitimacy follows the Rubric (impersonation, fraud, and hate or harassment; satire is not penalised). See ADR 0013.
+A Proposal of kind `meme`: a token idea that rides a live Meta (made when a subject becomes a Meta and again every 12 hours while it stays one), generated from the Meta, or, as its one other source, a token idea that rides a news story: a `news` Narrative that failed the buildability gate (so it has no Tech) but passes the legitimacy, hook and momentum floors, one trio per Narrative ever (it links the Narrative and the Score it failed with, and a later Tech Proposal for the same Narrative is still possible). It has a name, ticker, angle, how it differs from the Meta's leader (name copies are rejected), a short description, an X first-post hook, an image idea as text, risk labels and evidence links. It has no Tech, no Spec, no Build and no Rubric score of its own; the Operator can shortlist it or dismiss it with a reason, and it expires after 12 hours in new (the refresh interval; it was 6) unless shortlisted. Legitimacy follows the Rubric (impersonation, fraud, and hate or harassment; satire is not penalised). See ADR 0013.
 _Avoid_: Beta Proposal (the kind that was planned under that name is `meme`)
 
 **Spec**:

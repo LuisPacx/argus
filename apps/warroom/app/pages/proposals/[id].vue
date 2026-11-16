@@ -165,12 +165,12 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <h2 class="page-title">{{ p.name }}</h2>
             <span class="faint text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
             <StatusPill :status="p.status" />
-            <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta: no Spec, no Build, no Score">meme</span>
+            <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
             <BuildBlockedMarker :view="buildNotice" />
-            <span v-if="p.score" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums" title="The Score this Proposal was created from">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
+            <span v-if="p.score && !isMeme" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums" title="The Score this Proposal was created from">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
           </div>
-          <ScoreNow v-if="p.score" class="mt-2 text-right" :created="p.score" :latest="p.latestScore" />
-          <p v-if="isMeme" class="muted mt-3 min-w-0 break-words text-sm" data-test="meme-meta-line">{{ meme?.meta.label ? `An idea for the Meta ${meme.meta.label}.` : "An idea for a Meta." }} No Spec, no Build and no Score: shortlist it, dismiss it with a reason, or let it expire.</p>
+          <ScoreNow v-if="p.score && !isMeme" class="mt-2 text-right" :created="p.score" :latest="p.latestScore" />
+          <p v-if="isMeme" class="muted mt-3 min-w-0 break-words text-sm" data-test="meme-meta-line">{{ meme?.fromNews ? `An idea for a news story: ${meme.fromNews.headline}.` : meme?.meta.label ? `An idea for the Meta ${meme.meta.label}.` : "An idea for a Meta." }} No Spec, no Build and no Score of its own: shortlist it, dismiss it with a reason, or let it expire.</p>
           <div v-if="!isMeme" class="mt-6 grid gap-5">
             <div><p class="eyebrow mb-1.5">Narrative summary</p><p class="min-w-0 whitespace-pre-line [overflow-wrap:anywhere] leading-relaxed">{{ p.narrativeSummary }}</p></div>
             <div><p class="eyebrow mb-1.5">Tech one-liner</p><p class="leading-relaxed">{{ p.techOneLiner }}</p></div>
@@ -179,7 +179,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
           </div>
         </section>
 
-        <section v-if="p.narrativeId !== null" class="surface rise" style="--i: 1">
+        <section v-if="p.narrativeId !== null && !isMeme" class="surface rise" style="--i: 1">
           <h3 class="section-title">Narrative</h3>
           <p class="mt-3 text-sm">
             <NuxtLink :to="`/narratives/${p.narrativeId}`" class="link font-medium">Narrative {{ p.narrativeId }}</NuxtLink>
