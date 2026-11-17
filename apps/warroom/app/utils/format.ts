@@ -1,12 +1,12 @@
 // Date text shared by the pages. Fixed locale and options so the server render and the browser agree.
-const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+const WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
-const WHEN_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const WHEN_YEAR = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
-/** "6 Nov, 23:49" in the viewer's time zone; "6 Nov 2025, 23:49" when the year is not the current one. */
+/** "6 Nov 23:49 UTC"; "6 Nov 2025 23:49 UTC" when the year is not the current one. UTC, so the server and any browser zone agree. */
 export const fmtWhen = (iso: string): string => {
   const d = new Date(iso);
-  return (d.getFullYear() === new Date().getFullYear() ? WHEN : WHEN_YEAR).format(d);
+  return `${(d.getUTCFullYear() === new Date().getUTCFullYear() ? WHEN : WHEN_YEAR).format(d).replace(",", "")} UTC`;
 };
 
 const UTC_WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
