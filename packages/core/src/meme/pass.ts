@@ -38,7 +38,7 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
  * same research budget, Metas first. A story that names a current Meta or Watching subject is left to that Meta; a story has one trio ever.
  * A third kind of job, the Operator's angle (meta redesign ticket 11, `runMemeAngles`): a pending `meme_angle_requests` row is run through this
  * same loop (the same `mayRun`, `ask`, `check`, collision checks and `createMemeProposals`), with the angle as a fenced block of the prompt. It is
- * counted in the daily meme cap and the research budget like any run (`dailyMemeRunLimit` is the one place that says how), and ends its request
+ * counted in its own daily allowance (ticket 12: 5 angle runs, apart from the 8; `dailyMemeRunLimit`) and in the research budget, and ends its request
  * `done`, `refused`, `failed` or `capped` (never left pending by a cap); a rate limit, a shutdown or a dry run leaves it pending.
  * Nothing here launches, signs or spends anything (ADR 0002), and nothing makes a Narrative, a Score or a Spec.
  */
@@ -46,17 +46,13 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
 /** The most meme-ideas runs started in any rolling 24 hours, whatever is configured: the hard ceiling, which configuration cannot pass. */
 export const MAX_MEME_RUNS_PER_DAY = 40;
 
-/**
- * THE one place that says how the Operator's angle runs are held to the daily meme cap (ticket 11, Decision 3): today they share it with the
- * automatic runs, so this is 0. To give angle runs an allowance of their own, set this to the number of extra runs a day they may take above
- * the cap (an angle run may then start while fewer than `maxRunsPerDay + extra` runs were started in 24 h; automatic runs still stop at
- * `maxRunsPerDay`). The 5 requests a day (`DEFAULT_MEME_ANGLE_PER_DAY`) and the shared research budget are not touched by it.
- */
-export const ANGLE_EXTRA_DAILY_MEME_RUNS = 0;
+/** The Operator's angle runs have a daily allowance of their own (ticket 12, from ticket 11's grilling): 5 runs in any rolling 24 hours (the retry for a copied name is a run), never more than the ceiling. The regular cap does not count them and they do not count against it. */
+export const DEFAULT_ANGLE_DAILY_MEME_RUNS = 5;
+export const MAX_ANGLE_DAILY_MEME_RUNS = 10;
 
-/** How many meme-ideas runs started in the last 24 h stop another run of this kind: `maxRunsPerDay`, plus `ANGLE_EXTRA_DAILY_MEME_RUNS` for an angle run, never past the hard ceiling. */
-export function dailyMemeRunLimit(kind: "automatic" | "angle", maxRunsPerDay: number, angleExtra: number = ANGLE_EXTRA_DAILY_MEME_RUNS): number {
-  return Math.min(MAX_MEME_RUNS_PER_DAY, kind === "angle" ? maxRunsPerDay + angleExtra : maxRunsPerDay);
+/** THE one place that says how many meme-ideas runs started in the last 24 h stop another run of this kind (only runs of the same kind are counted): `maxRunsPerDay` for an automatic run, the angle allowance for an angle run. */
+export function dailyMemeRunLimit(kind: "automatic" | "angle", maxRunsPerDay: number, angleAllowance: number = DEFAULT_ANGLE_DAILY_MEME_RUNS): number {
+  return kind === "angle" ? Math.min(MAX_ANGLE_DAILY_MEME_RUNS, angleAllowance) : Math.min(MAX_MEME_RUNS_PER_DAY, maxRunsPerDay);
 }
 
 export interface MemeConfig {
@@ -407,10 +403,16 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
 
   /** Whether another meme-ideas run may start: the daily cap and the research budget. A refusal is recorded with its reason once per slot. */
   const mayRun = (due: Pick<Job, "key" | "eventAt" | "angle">): { ok: true } | { ok: false; stoppedBy: "daily-cap" | "research-cap"; detail: string } => {
-    const spent = store.memeIdeasSpendSince(new Date(clock().getTime() - DAY_MS).toISOString(), caps);
+    const since = new Date(clock().getTime() - DAY_MS).toISOString();
+    const spent = store.memeIdeasSpendSince(since, caps);
+    const runs = store.memeRunsSince(since);
     const dailyLimit = dailyMemeRunLimit(due.angle ? "angle" : "automatic", maxRunsPerDay);
-    if (spent.runs >= dailyLimit) {
-      const detail = `daily cap of ${dailyLimit} meme-ideas runs reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
+    const used = due.angle ? runs.angle : runs.regular;
+    if (used >= dailyLimit) {
+      // The two caps are told apart in the words: the regular cap and the angle allowance.
+      const detail = due.angle
+        ? `angle allowance of ${dailyLimit} meme-ideas runs a day reached (${used} angle runs in 24 h; the regular cap is separate)`
+        : `daily cap of ${dailyLimit} meme-ideas runs reached (${used} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
       store.meme.record({ key: due.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "daily-cap", detail, runs: 0 });
       return { ok: false, stoppedBy: "daily-cap", detail };
     }
@@ -424,8 +426,8 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
   };
 
   /** One meme-ideas run: an in-flight row first, the cost recorded the moment it returns. */
-  const ask = async (prompt: string, label: string): Promise<Asked> => {
-    const runId = store.startBrainRun({ proposalId: 0, task: "meme-ideas", ...brain.routeFor("meme-ideas") }, clock());
+  const ask = async (prompt: string, label: string, angle: boolean): Promise<Asked> => {
+    const runId = store.startBrainRun({ proposalId: 0, task: "meme-ideas", angle, ...brain.routeFor("meme-ideas") }, clock());
     out.called++;
     let result;
     try {
@@ -667,7 +669,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       return listed.length > 0 ? { ok: false, problem: "a name or ticker copies a token DexScreener lists", copies: listed } : parsed;
     };
 
-    const first = await ask(promptFor(), job.label);
+    const first = await ask(promptFor(), job.label, job.angle !== undefined);
     if (first.kind === "stop") return stopPass(first.stoppedBy);
     if (first.kind === "failed") {
       out.failed++;
@@ -693,7 +695,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       if (!retryGate.ok) {
         log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" copies existing names but ${retryGate.detail}; nothing stored`);
       } else {
-        const second = await ask(promptFor(parsed.copies), job.label);
+        const second = await ask(promptFor(parsed.copies), job.label, job.angle !== undefined);
         if (second.kind === "stop") {
           record("name-copy", "interrupted before the retry", runIds.length);
           return stopPass(second.stoppedBy);

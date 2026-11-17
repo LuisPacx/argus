@@ -491,6 +491,8 @@ export function migrate(db: DatabaseSync): void {
   // names the immutable Rubric version it was computed with; `changed_materially_at` is the Narrative's value when the judge read it
   // (the delta compares against it). A judge run has no Proposal: its brain_runs row has proposal_id 0 and this column.
   ensureColumn(db, "brain_runs", "narrative_id", "INTEGER");
+  // 1 for a meme-ideas run made for an Operator angle (ticket 12): angle runs have their own daily allowance, so they are counted apart.
+  ensureColumn(db, "brain_runs", "angle", "INTEGER NOT NULL DEFAULT 0");
   db.exec(`CREATE TABLE IF NOT EXISTS scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     narrative_id INTEGER NOT NULL,
@@ -2148,14 +2150,20 @@ export class Datastore {
    * WORKER ONLY. Opens a brain run before the child is spawned, so a crash leaves a row behind instead of
    * unrecorded spend. Returns its id; close it with finishBrainRun (or discardBrainRun for a dry run).
    */
-  startBrainRun(run: Pick<NewBrainRun, "proposalId" | "task" | "backend" | "model"> & { narrativeId?: number }, now: Date = new Date()): number {
+  startBrainRun(run: Pick<NewBrainRun, "proposalId" | "task" | "backend" | "model"> & { narrativeId?: number; angle?: boolean }, now: Date = new Date()): number {
     const res = this.db
       .prepare(
-        `INSERT INTO brain_runs (proposal_id, narrative_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?)`,
+        `INSERT INTO brain_runs (proposal_id, narrative_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at, angle)
+         VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?)`,
       )
-      .run(run.proposalId, run.narrativeId ?? null, run.task, run.backend, run.model, BRAIN_RUN_IN_FLIGHT, now.toISOString());
+      .run(run.proposalId, run.narrativeId ?? null, run.task, run.backend, run.model, BRAIN_RUN_IN_FLIGHT, now.toISOString(), run.angle ? 1 : 0);
     return Number(res.lastInsertRowid);
+  }
+
+  /** The meme-ideas runs started since `since` (ISO), split into the regular ones and those made for an Operator angle (each has its own daily cap). */
+  memeRunsSince(since: string): { regular: number; angle: number } {
+    const row = this.db.prepare("SELECT COALESCE(SUM(angle = 0), 0) AS regular, COALESCE(SUM(angle = 1), 0) AS angle FROM brain_runs WHERE task = 'meme-ideas' AND created_at >= ?").get(since) as unknown as { regular: number; angle: number };
+    return { regular: row.regular, angle: row.angle };
   }
 
   /**

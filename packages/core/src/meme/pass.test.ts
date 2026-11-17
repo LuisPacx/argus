@@ -11,7 +11,7 @@ import type { DexPair } from "../sources/dexscreener.ts";
 import { aMeta, saveCurrentRun } from "../testing/meta-current.ts";
 import { tempDir } from "../testing/temp.ts";
 import { parseAngle } from "./angle.ts";
-import { ANGLE_EXTRA_DAILY_MEME_RUNS, buildSnapshot, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
+import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
 import { MEME_REFRESH_MS } from "./types.ts";
 
 const NOW = Date.parse("2026-11-12T20:00:00.000Z");
@@ -1157,26 +1157,60 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(researchUsage(store, at(1), DEFAULT_RESEARCH_BUDGET_CONFIG).usedUsd).toBeCloseTo(0.12);
   });
 
-  it("at the daily meme cap the request ends capped with the reason, and no Brain call is made", async () => {
+  /** Runs as the worker records them: `angle` marks an angle run. */
+  const seedRuns = (store: Datastore, n: number, angle: boolean) => {
+    for (let i = 0; i < n; i++) {
+      const id = store.startBrainRun({ proposalId: 0, task: "meme-ideas", backend: "claude-code", model: "sonnet", angle }, at(-30 - i));
+      store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.01, exitStatus: "success" });
+    }
+  };
+
+  it("with the regular 8 runs used up an angle request still runs, on its own allowance", async () => {
     const { store, meta } = await noEvent();
     const req = request(store, meta.key);
-    seedCostly(store, 8, "meme-ideas", 0.01);
+    seedRuns(store, 8, false);
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
-    const lines: string[] = [];
-    expect(await anglePass(store, brain, { lines })).toMatchObject({ called: 0, stored: 0, stoppedBy: "daily-cap" });
+    expect(await anglePass(store, brain)).toMatchObject({ called: 1, stored: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
+    // the run is marked as an angle run, so it is counted apart from the regular 8
+    expect(store.memeRunsSince(at(-60).toISOString())).toEqual({ regular: 8, angle: 1 });
+  });
+
+  it("at the angle allowance the request ends capped with the angle message, and no Brain call is made", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    seedRuns(store, DEFAULT_ANGLE_DAILY_MEME_RUNS, true);
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 0, stored: 0, stoppedBy: "daily-cap" });
     expect(prompts).toHaveLength(0);
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "capped", proposalIds: [] });
-    expect(store.getAngleRequest(req.id)!.detail).toMatch(/daily cap of 8 meme-ideas runs reached/);
+    expect(store.getAngleRequest(req.id)!.detail).toMatch(/angle allowance of 5 meme-ideas runs a day reached/);
+    expect(store.getAngleRequest(req.id)!.detail).not.toMatch(/daily cap of/);
     expect(memes(store)).toHaveLength(0);
   });
 
-  it("the angle runs' share of that daily cap is one named function: with extra runs for angles the same request runs", async () => {
-    expect(ANGLE_EXTRA_DAILY_MEME_RUNS).toBe(0); // today angle runs have no allowance of their own
+  it("regular runs cannot use the angle allowance, and angle runs do not count against the regular cap", async () => {
+    const { store } = await seedJensen();
+    seedRuns(store, DEFAULT_ANGLE_DAILY_MEME_RUNS, true);
+    const { brain } = fakeBrain([JENSEN_ANSWER]);
+    expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // 5 angle runs do not stop an automatic run
+    // 8 regular runs stop an automatic one with the regular message, whatever the angle allowance has left
+    const second = await seedJensen();
+    seedRuns(second.store, 8, false);
+    const lines: string[] = [];
+    expect(await pass(second.store, fakeBrain([JENSEN_ANSWER]).brain, { lines })).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
+    expect(lines.join("\n")).toMatch(/daily cap of 8 meme-ideas runs reached/);
+  });
+
+  it("the limits are one named function: 5 angle runs a day, never past 10, the regular cap untouched", () => {
+    expect(DEFAULT_ANGLE_DAILY_MEME_RUNS).toBe(5);
+    expect(MAX_ANGLE_DAILY_MEME_RUNS).toBe(10);
     expect(dailyMemeRunLimit("automatic", 8)).toBe(8);
-    expect(dailyMemeRunLimit("angle", 8)).toBe(8);
-    expect(dailyMemeRunLimit("angle", 8, 4)).toBe(12);
-    expect(dailyMemeRunLimit("automatic", 8, 4)).toBe(8);
-    expect(dailyMemeRunLimit("angle", 38, 4)).toBe(MAX_MEME_RUNS_PER_DAY); // never past the hard ceiling
+    expect(dailyMemeRunLimit("angle", 8)).toBe(5);
+    expect(dailyMemeRunLimit("angle", 8, 99)).toBe(10); // never past the ceiling
+    expect(dailyMemeRunLimit("automatic", 38)).toBe(38);
+    expect(dailyMemeRunLimit("automatic", 99)).toBe(MAX_MEME_RUNS_PER_DAY);
   });
 
   it("at the research budget the request ends capped with the reason, and no Brain call is made", async () => {

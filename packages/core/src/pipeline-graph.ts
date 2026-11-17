@@ -13,7 +13,7 @@ import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, memeAngleConfigFromEnv } from "./meme/angle.ts";
-import { ANGLE_EXTRA_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
+import { DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_GROUP_CONFIG, metaGroupConfigFromEnv } from "./meta/group-pass.ts";
@@ -397,7 +397,8 @@ export const PIPELINE: PipelineGraph = {
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
         { label: "Operator angle requests per day (they share the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
         { label: "Operator angle requests per day, hard cap", key: "MAX_MEME_ANGLE_PER_DAY", ref: () => MAX_MEME_ANGLE_PER_DAY, unit: "count" },
-        { label: "Extra runs per day for angle runs, above the runs per day", key: "ANGLE_EXTRA_DAILY_MEME_RUNS", ref: () => ANGLE_EXTRA_DAILY_MEME_RUNS, unit: "count" },
+        { label: "Angle runs per day, their own allowance apart from the runs above", key: "DEFAULT_ANGLE_DAILY_MEME_RUNS", ref: () => DEFAULT_ANGLE_DAILY_MEME_RUNS, unit: "count" },
+        { label: "Angle runs per day, hard cap", key: "MAX_ANGLE_DAILY_MEME_RUNS", ref: () => MAX_ANGLE_DAILY_MEME_RUNS, unit: "count" },
         { label: "Spend per run", key: "DEFAULT_ROUTING.meme-ideas.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd, unit: "usd" },
         { label: "Wall clock per run", key: "DEFAULT_ROUTING.meme-ideas.timeoutMs", ref: () => DEFAULT_ROUTING["meme-ideas"].timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING["meme-ideas"].model, unit: "text" },
