@@ -558,7 +558,7 @@ describe("single writer", () => {
     walk(root);
     expect(files.length).toBeGreaterThan(0);
     const forbidden =
-      /\b(transition|resolveCommand|applyCommand|applyPendingCommands|approve)\s*\(|UPDATE\s+(proposals|commands)\b|INSERT\s+INTO\s+status_history/i;
+      /\b(transition|resolveCommand|applyCommand|applyPendingCommands|approve|createMemeProposals|claimAngleRequest|resolveAngleRequest|releaseAngleRequest|requeueRunningAngleRequests)\s*\(|UPDATE\s+(proposals|commands|meme_angle_requests)\b|INSERT\s+INTO\s+status_history/i;
     for (const f of files) expect(readFileSync(f, "utf8"), f).not.toMatch(forbidden);
   });
 });

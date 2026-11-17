@@ -3,7 +3,8 @@
 // (subjects that are up but are not a Meta). With no Meta the note "No Meta right now" stays and Watching still shows. Used on the home
 // page (`home`: links to /meta) and on /meta. Everything in `view` is untrusted text (token names by token creators, summaries and ideas by
 // a model): interpolated as text only (no raw-HTML directive), clamped by `currentMetaView`, and a link exists only where it produced an
-// http(s) href, drawn by UrlLink; the only other links are internal ones, drawn by NuxtLink. Template-only on purpose:
+// http(s) href, drawn by UrlLink; the only other links are internal ones, drawn by NuxtLink. On /meta each Meta and each Watching subject carries
+// the "Add an angle" form (AngleForm, ticket 11); the home strip has only a link to it. Template-only on purpose:
 // server/test/current-meta-render.test.ts renders it.
 import type { CurrentMetaView } from "../utils/meta.ts";
 defineProps<{ view: CurrentMetaView; home?: boolean }>();
@@ -65,6 +66,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
                 <NuxtLink :to="i.href" class="min-w-0 break-words font-semibold hover:underline" data-test="idea-name">{{ i.name }}</NuxtLink>
                 <span class="faint text-xs font-medium uppercase tracking-wide">{{ i.ticker }}</span>
                 <span class="pill shrink-0" :class="i.status === 'shortlisted' ? 'pill-accent' : ''" data-test="idea-status">{{ i.status }}</span>
+                <span v-if="i.fromAngle" class="pill pill-outline shrink-0" title="Made from an angle the Operator typed" data-test="idea-angle-pill">Angle</span>
                 <span v-for="(l, k) in i.riskLabels" :key="k" class="pill pill-amber min-w-0 max-w-full whitespace-normal break-words" data-test="idea-risk">{{ l }}</span>
                 <span v-if="i.expires" class="faint text-xs" data-test="idea-expires">{{ i.expires }}</span>
               </div>
@@ -72,6 +74,8 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
             </li>
           </ul>
         </div>
+        <AngleForm v-if="!home && m.key" :meta-key="m.key" :status="m.angle" />
+        <NuxtLink v-else-if="home && m.key" to="/meta" class="min-h-11 content-center border-t border-[var(--wr-line)] pt-2 text-xs font-semibold text-[var(--wr-accent-strong)] hover:underline" data-test="angle-link">Add an angle on the Meta page →</NuxtLink>
       </li>
     </ol>
 
@@ -102,6 +106,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
             <span>{{ w.copies }}</span>
             <span v-if="w.since">{{ w.since }}</span>
           </p>
+          <AngleForm v-if="!home && w.key" :meta-key="w.key" :status="w.angle" />
         </li>
       </ul>
     </div>

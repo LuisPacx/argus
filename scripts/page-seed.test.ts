@@ -9,7 +9,7 @@ import { main, parseArgs, slugFor } from "./page-check.mjs";
 // @ts-expect-error plain .mjs script, no types
 import { LIVE_PORT, SEED_DEFAULT_PORT, seedBase, seedDbProblem, seedPortProblem, seedProbePath, startSeededServer } from "./page-check-server.mjs";
 // @ts-expect-error plain .mjs script, no types
-import { HOSTILE_NAME, STANDARD_PATHS, expandTokens, pathProblem, seedDatastore } from "./page-seed.mjs";
+import { HOSTILE_ANGLE, HOSTILE_NAME, HOSTILE_SOURCE, STANDARD_PATHS, expandTokens, pathProblem, seedDatastore } from "./page-seed.mjs";
 
 const NOW = new Date("2026-11-16T12:00:00.000Z");
 const fresh = () => Datastore.open(path.join(tempDir("page-seed-"), "argus.db"));
@@ -18,7 +18,7 @@ describe("the seed fixture", () => {
   it("writes a row of each kind through the Datastore and returns the Proposal ids", async () => {
     const store = fresh();
     const { ids, counts } = await seedDatastore(store, NOW);
-    expect(new Set(Object.values(ids)).size).toBe(4);
+    expect(new Set(Object.values(ids)).size).toBe(5);
 
     const tech = store.getProposal(ids.tech)!;
     expect(tech).toMatchObject({ kind: "narrative", status: "new", name: "SEED Invoice Tool" });
@@ -40,7 +40,16 @@ describe("the seed fixture", () => {
     expect(hostile.ticker.length).toBeGreaterThan(100);
     expect(hostile.ticker).not.toMatch(/\s/);
 
-    expect(store.liveMemeProposals()).toHaveLength(6);
+    // The Operator's angle (ticket 11): a trio with a hostile angle and a source that is not a link, and a request each of done, capped and pending.
+    const angle = store.getProposal(ids.angle)!;
+    expect(angle).toMatchObject({ kind: "meme", metaKey: "seed-chair", operatorAngle: { requestId: 1, sourceUrl: HOSTILE_SOURCE, urlDropped: false } });
+    expect(angle.operatorAngle!.angle).toBe(HOSTILE_ANGLE);
+    expect(angle.operatorAngle!.angle).toContain("<img");
+    expect(angle.metaSnapshot).toMatchObject({ version: 2, trigger: { kind: "operator-angle" } });
+    expect(store.memeAngleRequests().map((r) => [r.metaKey, r.status])).toEqual([["seed-cloud", "pending"], ["seed-lobster", "capped"], ["seed-chair", "done"]]);
+    expect(store.memeAngleRequests()[2]!.proposalIds).toHaveLength(3);
+
+    expect(store.liveMemeProposals()).toHaveLength(9);
     const current = store.currentMetas(NOW.toISOString())!;
     expect(current.metas.map((m: { key: string; holding: boolean }) => [m.key, m.holding])).toEqual([
       ["seed-chair", false],
@@ -54,7 +63,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 7, brain_runs: 5 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3 });
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
     expect(store.getProposal(ids.tech)).toMatchObject({ agentCostKind: "unknown" });
@@ -82,7 +91,8 @@ describe("the seed fixture", () => {
 
 describe("seed paths and arguments", () => {
   it("expands {tokens} from the fixture and refuses unknown ones", () => {
-    const ids = { tech: 1, metaMeme: 2, newsMeme: 5, hostile: 3 };
+    const ids = { tech: 1, metaMeme: 2, newsMeme: 5, hostile: 3, angle: 7 };
+    expect(expandTokens("/proposals/{angle}", ids)).toBe("/proposals/7");
     expect(expandTokens("/proposals/{newsMeme}", ids)).toBe("/proposals/5");
     expect(expandTokens("/proposals/{tech}?x={hostile}", ids)).toBe("/proposals/1?x=3");
     expect(expandTokens("/meta", ids)).toBe("/meta");

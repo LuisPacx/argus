@@ -1,4 +1,5 @@
 import type { CollisionResult } from "../collision.ts";
+import type { OperatorAngle } from "./angle.ts";
 import type { MetaWindow } from "../meta/config.ts";
 import type { MetaCoverage } from "../meta/coverage.ts";
 import type { MetaCounts, MetaTopToken } from "../meta/store.ts";
@@ -81,6 +82,8 @@ export interface NarrativeSnapshotV3 {
 
 /** What started a version 2 run: a subject became a Meta, or it stayed one for `MEME_REFRESH_MS` since the last try. */
 export type MemeTriggerKind = "new-meta" | "refresh";
+/** What a stored version 2 snapshot says started the run: the two above, or the Operator's angle (ticket 11). */
+export type MemeSnapshotTriggerKind = MemeTriggerKind | "operator-angle";
 
 /** A Meta as the ideas saw it (meta redesign ticket 03): the Meta, its leader token and cap, what triggered the run, the matching news. */
 export interface MetaSnapshotV2 {
@@ -101,7 +104,7 @@ export interface MetaSnapshotV2 {
   /** The token that leads the Meta, with its market cap when the ideas were made. */
   leader: { mint: string; name: string; symbol: string; marketCapUsd: number };
   /** Code-written: `reason` is "$JENSEN at $2.4M, 14 creators in 24 h" and `at` is the event time (new Meta) or the start of the refresh slot. */
-  trigger: { kind: MemeTriggerKind; reason: string; at: string };
+  trigger: { kind: MemeSnapshotTriggerKind; reason: string; at: string };
   run: { id: number; computedAt: string };
   /** The room-left ranking's verdict for the Meta at that run, as numbers-only text. An input to the prompt, never a gate. */
   roomLeft: { passed: boolean; text: string };
@@ -147,6 +150,8 @@ export interface MemeIdeaRef {
   createdAt: string;
   /** When it closes if nobody acts (ISO); null only for a status that never expires. */
   expiresAt: string | null;
+  /** Present, and true, only for an idea made from the Operator's angle (ticket 11): the list draws an "Angle" pill. */
+  fromAngle?: true;
 }
 
 /** One idea to store. The Proposal's name, ticker and description are the idea's; the angle is stored as `whyNow`. */
@@ -172,4 +177,9 @@ export interface NewMemeTrio {
   /** Code-built evidence links: the Meta's top tokens and the matching news. */
   evidenceLinks: string[];
   ideas: NewMemeIdea[];
+  /**
+   * Set for a trio made from the Operator's angle (ticket 11): stored on each Proposal. Such a trio is keyed by its request, not by the Meta's
+   * 6 h window (`meme_window` is the request id, negated), so it neither blocks nor is blocked by the Meta's automatic trio.
+   */
+  operatorAngle?: OperatorAngle;
 }

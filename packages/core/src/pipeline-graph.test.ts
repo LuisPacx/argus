@@ -6,7 +6,8 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
-import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
+import { DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY } from "./meme/angle.ts";
+import { ANGLE_EXTRA_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
 import { DEFAULT_META_GROUP_CONFIG } from "./meta/group-pass.ts";
@@ -101,6 +102,9 @@ function realRegistry(): PipelineRegistry {
       ...flatten("DEFAULT_MEME_CONFIG", DEFAULT_MEME_CONFIG),
       ...flatten("MEME_EXPIRY_MS", MEME_EXPIRY_MS),
       MAX_MEME_RUNS_PER_DAY,
+      DEFAULT_MEME_ANGLE_PER_DAY,
+      MAX_MEME_ANGLE_PER_DAY,
+      ANGLE_EXTRA_DAILY_MEME_RUNS,
       MEME_TRIO_SIZE,
       MEME_WINDOW_MS,
       MEME_REFRESH_MS,
@@ -130,7 +134,7 @@ describe("the pipeline graph is in sync with the code", () => {
 
   it("the registry really finds what it claims to (so an empty gap list means something)", () => {
     const r = realRegistry();
-    expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "proposeTick", "studyTick", "tick"]);
+    expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "proposeTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
     expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "build"]);
@@ -145,7 +149,8 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(byId.get("meme")!.status).toBe("off");
     expect(byId.get("meme")!.statusNote).toMatch(/ARGUS_MEME_IDEAS=1/);
     expect(byId.get("meme")!.brainTask).toBe("meme-ideas");
-    expect(byId.get("meme")!.worker).toBe("memeIdeasTick");
+    expect(byId.get("meme")!.worker).toEqual(["memeIdeasTick", "memeAngleTick"]); // the Operator's angle (ticket 11) runs on its own fast tick
+    expect(byId.get("meme")!.rules.map((r) => r.key)).toEqual(expect.arrayContaining(["DEFAULT_MEME_ANGLE_PER_DAY", "MAX_MEME_ANGLE_PER_DAY", "ANGLE_EXTRA_DAILY_MEME_RUNS"]));
     expect(byId.get("meme")!.tickets).toContain(".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md");
     // The new edges: a new Meta (then every 12 h) goes in, three meme Proposals come out (counted by their own metric).
     expect(PIPELINE.edges.find((e) => e.id === "meta-meme")).toMatchObject({ from: "meta", to: "meme" });

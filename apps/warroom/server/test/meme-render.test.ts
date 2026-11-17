@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Datastore, META_RULE, recomputeMetas as recomputeWithRule, type MetaSnapshot, type MetasResponse, type NewMemeTrio, type Proposal } from "@argus/core";
+import { Datastore, memeIdeasByKey, META_RULE, recomputeMetas as recomputeWithRule, type MetaSnapshot, type MetasResponse, type NewMemeTrio, type Proposal } from "@argus/core";
 import { createSSRApp, h } from "vue";
 import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
@@ -432,11 +432,114 @@ describe("the Proposals list and page sources", () => {
     expect(page).not.toMatch(/v-html/);
   });
 
+  it("the list and the Proposal page draw an Angle pill for an Operator-angle idea, and the page reads the angle from the Proposal", () => {
+    const home = read("pages/index.vue");
+    expect(home).toContain("memeRowView(p).fromOperatorAngle");
+    expect(home).toContain('data-test="angle-pill"');
+    const page = read("pages/proposals/[id].vue");
+    expect(page).toContain("meme?.operatorAngle");
+    expect(page).toContain('data-test="angle-pill"');
+    expect(page).not.toMatch(/v-html/);
+    expect(home).not.toMatch(/v-html/);
+  });
+
   it("the list row view cuts and flattens what it shows", () => {
     const row = memeRowView(proposalPayload({ whyNow: "line one\nline two ".repeat(100), narrativeSummary: "x".repeat(1000), meme: { riskLabels: ["a", "b", "c", "d", "e", "f", "g"] } }));
     expect(row.angle.length).toBeLessThanOrEqual(301);
     expect(row.angle).not.toContain("\n");
     expect(row.metaLine.length).toBeLessThanOrEqual(201);
     expect(row.riskLabels).toHaveLength(5);
+  });
+});
+
+describe("an idea made from the Operator's angle (meta redesign ticket 11)", () => {
+  const v2 = (kind = "operator-angle"): MemeProposalPayload["metaSnapshot"] => ({
+    version: 2,
+    capturedAt: ago(0),
+    meta: { label: "GTA 6", counts: { "24h": { tokens: 25, creators: 14, migrations: 2, migrationsAfter60s: 1 } }, topTokens: [] },
+    leader: { mint: "KMint", name: "Lucia", symbol: "LUCIA", marketCapUsd: 2_400_000 },
+    trigger: { kind, reason: "$LUCIA at $2.4M, 14 creators in 24 h", at: ago(3) },
+    run: { computedAt: ago(5) },
+    roomLeft: { passed: true, text: "still has room" },
+    news: [],
+  });
+  const angled = (over: NonNullable<MemeProposalPayload["operatorAngle"]> = {}, more: Partial<MemeProposalPayload> = {}) =>
+    proposalPayload({ reason: "Operator angle: GTA 6 iguana", metaSnapshot: v2(), operatorAngle: { requestId: 4, angle: "GTA 6 iguana: screenshot on rockstargames.com shows an iguana", sourceUrl: "https://www.rockstargames.com/VI/only-in-leonida", urlDropped: false, ...over }, ...more });
+
+  it("the Proposal page shows an Operator angle card first: the angle as text, the source as a link for an http(s) address, and the trigger named", async () => {
+    const html = await draw(renderCard, { view: memeView(angled(), NOW) });
+    expect(html).toContain('data-test="meme-operator-angle"');
+    expect(html.indexOf('data-test="meme-operator-angle"')).toBeLessThan(html.indexOf('data-test="meme-idea"'));
+    expect(html).toContain('data-test="meme-operator-angle-text">GTA 6 iguana: screenshot on rockstargames.com shows an iguana<');
+    expect(html).toContain('href="https://www.rockstargames.com/VI/only-in-leonida"');
+    expect(html).toContain("rockstargames.com/VI/only-in-leonida");
+    expect(html).toContain("Operator angle: $LUCIA at $2.4M, 14 creators in 24 h, asked 3 minutes ago");
+    expect(html).not.toMatch(/undefined|NaN|null/);
+  });
+
+  it("the source is plain text when it is not an http(s) address, and a note when the link was dropped; the text is one line of escaped text", async () => {
+    const evil = "<img src=x onerror=1>\nline two\r\nline three";
+    const html = await draw(renderCard, { view: memeView(angled({ angle: evil, sourceUrl: "javascript:alert(1)" }), NOW) });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img src=x onerror=1&gt; line two line three");
+    expect(html).not.toMatch(/href="javascript:/);
+    expect(html).toContain('data-test="meme-operator-angle-source"');
+    expect(html.slice(html.indexOf('data-test="meme-operator-angle-source"'), html.indexOf('data-test="meme-idea"'))).toContain("javascript:alert(1)");
+    const dropped = await draw(renderCard, { view: memeView(angled({ sourceUrl: null, urlDropped: true }), NOW) });
+    expect(dropped).toContain('data-test="meme-operator-angle-dropped"');
+    expect(dropped).not.toContain('data-test="meme-operator-angle-source"');
+    const none = await draw(renderCard, { view: memeView(angled({ sourceUrl: null }), NOW) });
+    expect(none).not.toContain("meme-operator-angle-source");
+    expect(none).not.toContain("meme-operator-angle-dropped");
+  });
+
+  it("a very long angle and a credentialled link are cut and never linked", async () => {
+    const html = await draw(renderCard, { view: memeView(angled({ angle: "Z".repeat(100_000), sourceUrl: "https://user:pw@evil.example/x" }), NOW) });
+    expect(html).not.toContain("Z".repeat(700));
+    expect(html).toContain("…");
+    expect(html).not.toContain('href="https://user');
+    expect(html.length).toBeLessThan(20_000);
+  });
+
+  it("an idea with no angle renders exactly as before: no card, and the view says null", async () => {
+    const plain = proposalPayload();
+    expect(memeView(plain, NOW).operatorAngle).toBeNull();
+    expect(memeView({ ...plain, operatorAngle: null }, NOW).operatorAngle).toBeNull();
+    expect(memeView({ ...plain, operatorAngle: { angle: "   " } }, NOW).operatorAngle).toBeNull();
+    const html = await draw(renderCard, { view: memeView(plain, NOW) });
+    expect(html).not.toContain("meme-operator-angle");
+    expect(html).not.toContain("Operator angle");
+    expect(memeRowView(plain).fromOperatorAngle).toBe(false);
+    expect(memeRowView(angled()).fromOperatorAngle).toBe(true);
+  });
+
+  it("the routes carry the angle: a stored angle trio's Proposals have operatorAngle, an automatic one has null, and the list sees the same", () => {
+    const [auto] = store.createMemeProposals(trio("jensen"), { now: new Date(NOW) });
+    const [mine] = store.createMemeProposals(trio("jensen", { operatorAngle: { requestId: 3, angle: "an angle", sourceUrl: "https://example.com/a", urlDropped: false } }), { now: new Date(NOW + 60_000) });
+    expect(one({ params: { id: String(auto!.id) } }).operatorAngle).toBeNull();
+    expect(one({ params: { id: String(mine!.id) } }).operatorAngle).toEqual({ requestId: 3, angle: "an angle", sourceUrl: "https://example.com/a", urlDropped: false });
+    expect(list({ query: { kind: "meme" } }).filter((p) => p.operatorAngle !== null)).toHaveLength(3);
+  });
+
+  it("ideas under a Meta carry the Angle flag only for the angle's trio", () => {
+    store.createMemeProposals(trio("jensen"), { now: new Date(NOW) });
+    store.createMemeProposals(trio("jensen", { operatorAngle: { requestId: 3, angle: "an angle", sourceUrl: null, urlDropped: false } }), { now: new Date(NOW + 60_000) });
+    const refs = memeIdeasByKey(store.liveMemeProposals()).get("jensen")!;
+    expect(refs).toHaveLength(6);
+    expect(refs.filter((r) => r.fromAngle === true)).toHaveLength(3);
+    const views = ideaViews(refs, NOW);
+    expect(views.filter((x) => x.fromAngle)).toHaveLength(3);
+    expect(views).toHaveLength(6);
+  });
+
+  it("UrlLink opens external links in a new tab with rel noopener noreferrer nofollow", () => {
+    const src = readFileSync(new URL("../../app/components/UrlLink.vue", import.meta.url), "utf8");
+    expect(src).toContain('target="_blank" rel="noopener noreferrer nofollow"');
+  });
+
+  it("no new component or view uses a raw HTML directive", () => {
+    for (const file of ["components/MemeCard.vue", "components/AngleForm.vue", "components/CurrentMeta.vue", "pages/meta.vue", "pages/index.vue", "pages/proposals/[id].vue"]) {
+      expect(readFileSync(new URL(`../../app/${file}`, import.meta.url), "utf8"), file).not.toContain("v-html");
+    }
   });
 });

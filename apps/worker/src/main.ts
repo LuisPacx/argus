@@ -12,6 +12,7 @@ import {
   createGroupStep,
   createTopDownReader,
   generateMemeIdeas,
+  runMemeAngles,
   memeConfigFromEnv,
   metaConfigFromEnv,
   metaGroupConfigFromEnv,
@@ -385,13 +386,41 @@ const metaSummaryTick = reentrant(
 // Brain: the pass is skipped. DexScreener (the name check) and the collision checks use the same declared client and the test override.
 const memeSettings = memeConfigFromEnv(process.env);
 const memeDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });
+// One meme pass at a time, automatic or an Operator's angle: they share the caps and the claude process, so they never overlap (the one that
+// finds the other running returns; the next tick or the next Meta pass picks up what is left).
+let memePassRunning = false;
 const memeIdeasTick = reentrant(
   async () => {
-    if (!memeSettings.enabled || dryRun) return;
-    const r = await generateMemeIdeas(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker, embedder: judgeEmbedder });
-    if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme ideas: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed, ${r.skipped} skipped${r.withdrawn ? `, ${r.withdrawn} withdrawn` : ""}${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+    if (!memeSettings.enabled || dryRun || memePassRunning) return;
+    memePassRunning = true;
+    try {
+      const r = await generateMemeIdeas(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker, embedder: judgeEmbedder });
+      if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme ideas: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed, ${r.skipped} skipped${r.withdrawn ? `, ${r.withdrawn} withdrawn` : ""}${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+    } finally {
+      memePassRunning = false;
+    }
   },
   () => {}, // the previous pass is still waiting on claude: the next ranking picks up what is left
+);
+// The Operator's angle on a Meta (meta redesign ticket 11): a request the War Room wrote is run through the same meme pass (same switch, same
+// caps, same research budget) on the fast tick, so it does not wait up to 15 minutes for the next Meta pass. With nothing waiting it reads one
+// table and returns. Off with the meme ideas (ARGUS_MEME_IDEAS), where a request waits. A pass that stopped for a reason that is not the
+// request's own (a rate limit, three failures, the API hold, a shutdown) is not tried again until the next Meta pass is due, so the fast tick
+// does not probe a limit every 30 s.
+let memeAngleHoldUntil = 0;
+const memeAngleTick = reentrant(
+  async () => {
+    if (!memeSettings.enabled || dryRun || memePassRunning || Date.now() < memeAngleHoldUntil || !store.hasOpenAngleRequests()) return;
+    memePassRunning = true;
+    try {
+      const r = await runMemeAngles(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker });
+      if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme angles: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+      if (r.stoppedBy === "rate-limited" || r.stoppedBy === "backoff" || r.stoppedBy === "api-hold" || r.stoppedBy === "interrupted") memeAngleHoldUntil = Date.now() + META_TICK_MS;
+    } finally {
+      memePassRunning = false;
+    }
+  },
+  () => {}, // the previous pass is still waiting on claude: the next tick picks up what is left
 );
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
@@ -423,6 +452,7 @@ const runProposeTick = () => track(proposeTick, "propose tick");
 const runStudyTick = () => track(studyTick, "study tick");
 const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
 const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
+const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
 const runMetaTick = () =>
   track(async () => {
     await metaTick();
@@ -488,8 +518,10 @@ if (once) {
   void runBuildTick();
   void runIngestTick();
   void runResearchTick();
+  void runMemeAngleTick();
   timer = setInterval(() => {
     void runTick();
+    void runMemeAngleTick();
     void runBuildTick();
   }, TICK_MS);
   // Commands are also applied on their own timer: the tick above waits for a Spec run (up to the brain timeout), and an Undo shortlist

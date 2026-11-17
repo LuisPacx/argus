@@ -58,6 +58,8 @@ export interface MemeProposalPayload {
     news?: Array<{ title?: string; sourceLabel?: string; url?: string; publishedAt?: string }>;
   } | null;
   meme?: { difference?: string; hook?: string; imageIdea?: string; riskLabels?: string[] } | null;
+  /** Set on an idea made from the Operator's angle (ticket 11): the text the Operator typed, and its link when there was a plain one. Operator-typed, so untrusted. */
+  operatorAngle?: { requestId?: number; angle?: string; sourceUrl?: string | null; urlDropped?: boolean } | null;
 }
 
 interface Counts {
@@ -86,7 +88,20 @@ export interface FromNewsView {
   reasons: string | null;
 }
 
+/** The Operator's angle an idea was made for: the text as a line, and the source as a link only when `safeHttpUrl` accepts it (else plain text, or a note that it was dropped). */
+export interface OperatorAngleView {
+  text: string;
+  /** The normalised http(s) address, or null. */
+  href: string | null;
+  /** The address as shown: "www.rockstargames.com/VI/only-in-leonida" for a link; the cut text of an address that is not a plain http(s) one; null when there was none. */
+  sourceText: string | null;
+  /** True when the text had a link that was not a plain http(s) address and so was dropped when the request was stored. */
+  dropped: boolean;
+}
+
 export interface MemeView {
+  /** The Operator's angle this idea was made for (ticket 11); null on every other idea. */
+  operatorAngle: OperatorAngleView | null;
   /** `news` for an idea made from a news story (version 3 snapshot), else `meta`. */
   source: "meta" | "news";
   /** The "from news: <headline>" part of a news meme; null on a Meta's idea. */
@@ -139,6 +154,18 @@ export function riskLabelsOf(meme: MemeProposalPayload["meme"]): string[] {
   return raw.flatMap((l) => clampText(l, LABEL_CHARS) || []).slice(0, LABELS_SHOWN);
 }
 
+const ANGLE_TEXT_CHARS = 600;
+const SOURCE_TEXT_CHARS = 80;
+
+/** The Operator's angle as the card and the list draw it: text clamped to one line, the source a link only through `safeHttpUrl`. Null when the Proposal has none. */
+export function operatorAngleView(a: MemeProposalPayload["operatorAngle"]): OperatorAngleView | null {
+  if (typeof a !== "object" || a === null) return null;
+  const text = clampText(a.angle, ANGLE_TEXT_CHARS);
+  if (text === "") return null;
+  const href = safeHttpUrl(a.sourceUrl);
+  return { text, href, sourceText: href !== null ? bareUrl(href) : typeof a.sourceUrl === "string" && a.sourceUrl !== "" ? clampText(a.sourceUrl, SOURCE_TEXT_CHARS) : null, dropped: a.urlDropped === true };
+}
+
 /** The whole card of a meme Proposal. Everything is optional in the payload and a missing piece is simply absent. */
 export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   const snap = p.metaSnapshot ?? null;
@@ -158,8 +185,8 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   const triggerAt = trig?.at ?? snap?.hot?.raisedAt;
   const triggerAge = typeof triggerAt === "string" ? ageText(triggerAt, nowMs) : null;
   const triggerReason = clampText(trig?.reason ?? snap?.hot?.reason, REASON_CHARS);
-  const triggerName = fromStory ? "News meme" : trig ? (trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
-  const triggerVerb = fromStory ? "scored" : trig?.kind === "refresh" ? "refreshed" : "raised";
+  const triggerName = fromStory ? "News meme" : trig ? (trig.kind === "operator-angle" ? "Operator angle" : trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
+  const triggerVerb = fromStory ? "scored" : trig?.kind === "operator-angle" ? "asked" : trig?.kind === "refresh" ? "refreshed" : "raised";
   if (fromStory) {
     const story = snap.narrative;
     if (finite(story?.signalCount)) numbers.push(plural(story.signalCount, "Signal"));
@@ -194,6 +221,7 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
     return [{ title, meta: [source, when].filter((s): s is string => s !== null && s !== "").join(", "), href: safeHttpUrl(n.url) }];
   });
   return {
+    operatorAngle: operatorAngleView(p.operatorAngle),
     source: fromStory ? "news" : "meta",
     fromNews,
     name: clampText(p.name, NAME_CHARS),
@@ -228,10 +256,12 @@ export interface MemeRowView {
   metaLine: string;
   angle: string;
   riskLabels: string[];
+  /** True for an idea made from the Operator's angle (the list row's "Angle" pill; ticket 11). */
+  fromOperatorAngle: boolean;
 }
 
 export function memeRowView(p: MemeProposalPayload): MemeRowView {
-  return { metaLine: clampText(p.narrativeSummary, 200), angle: clampText(p.whyNow, ANGLE_CHARS), riskLabels: riskLabelsOf(p.meme) };
+  return { metaLine: clampText(p.narrativeSummary, 200), angle: clampText(p.whyNow, ANGLE_CHARS), riskLabels: riskLabelsOf(p.meme), fromOperatorAngle: operatorAngleView(p.operatorAngle) !== null };
 }
 
 /** An idea under a Meta on /meta (the API's `ideas`): a link to its card by its numeric id only, never by anything written by the model. */
@@ -243,10 +273,14 @@ export interface MetaIdeaPayload {
   status: string;
   riskLabels: string[];
   expiresAt: string | null;
+  /** True for an idea made from the Operator's angle (ticket 11). */
+  fromAngle?: boolean;
 }
 
 export interface MetaIdeaView {
   id: number;
+  /** True for an idea made from the Operator's angle: the "Angle" pill. */
+  fromAngle: boolean;
   href: string;
   name: string;
   ticker: string;
@@ -257,9 +291,9 @@ export interface MetaIdeaView {
   expires: string | null;
 }
 
-/** The ideas shown under one Meta: only those with a whole-number id and a name, at most three (a trio). */
+/** The ideas shown under one Meta: only those with a whole-number id and a name, at most four trios (the automatic one or two, and the Operator's angles). */
 export function ideaViews(ideas: readonly MetaIdeaPayload[] | undefined, nowMs: number): MetaIdeaView[] {
-  return (Array.isArray(ideas) ? ideas : []).slice(0, 6).flatMap((i): MetaIdeaView[] => {
+  return (Array.isArray(ideas) ? ideas : []).slice(0, 12).flatMap((i): MetaIdeaView[] => {
     if (!Number.isSafeInteger(i?.id) || i.id <= 0) return [];
     const name = clampText(i.name, NAME_CHARS);
     if (name === "") return [];
@@ -271,6 +305,6 @@ export function ideaViews(ideas: readonly MetaIdeaPayload[] | undefined, nowMs: 
         : left <= 0 ? "closes on the next worker tick"
         : left < 60 ? `closes in ${left} min`
         : `closes in ${Math.floor(left / 60)} h`;
-    return [{ id: i.id, href: `/proposals/${i.id}`, name, ticker: clampText(i.ticker, TICKER_CHARS), status: clampText(i.status, 20), angle: clampText(i.angle, ANGLE_CHARS), riskLabels: riskLabelsOf({ riskLabels: i.riskLabels }), expires }];
+    return [{ id: i.id, fromAngle: i.fromAngle === true, href: `/proposals/${i.id}`, name, ticker: clampText(i.ticker, TICKER_CHARS), status: clampText(i.status, 20), angle: clampText(i.angle, ANGLE_CHARS), riskLabels: riskLabelsOf({ riskLabels: i.riskLabels }), expires }];
   });
 }

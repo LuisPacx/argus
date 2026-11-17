@@ -160,7 +160,7 @@ it("the sources: the home page has the Current Meta and no launch-theme list; /m
   expect(home).toContain('useFetch("/api/current-meta"');
   expect(home).toContain("setInterval(() => void refreshMetas(), META_POLL_MS)");
   expect(home).not.toMatch(/refreshMetas\(\)[^;]*\], 3000/); // not part of the 3 s poll
-  expect(page).toContain("setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS)");
+  expect(page).toContain("setInterval(() => void Promise.all([refreshMetas(), refreshCurrent(), refreshAngles()]), META_POLL_MS)"); // the angle requests ride the same 60 s poll (ticket 11)
   expect(page).toContain('"/api/metas"');
   expect(page).toContain('"/api/current-meta"');
   expect(page).toContain("<MetaList");
@@ -170,7 +170,7 @@ it("the sources: the home page has the Current Meta and no launch-theme list; /m
   expect(page.indexOf("<details")).toBeLessThan(page.indexOf("<SegmentedLinks")); // the window toggle sits inside the list
   expect(read("app.vue")).toContain('{ to: "/meta", label: "Meta" }');
   expect(META_POLL_MS).toBe(60_000);
-  for (const file of ["components/MetaList.vue", "components/CurrentMeta.vue", "pages/meta.vue"]) {
+  for (const file of ["components/MetaList.vue", "components/CurrentMeta.vue", "components/AngleForm.vue", "pages/meta.vue"]) {
     const src = read(file);
     expect(src, file).not.toContain("v-html");
     expect(src, file).not.toMatch(/<a[\s>]|\shref=/); // an external link is UrlLink, an internal one NuxtLink

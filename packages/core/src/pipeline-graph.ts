@@ -12,7 +12,8 @@ import { BUILD_TICK_MS } from "./build-refusal.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
-import { DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
+import { DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, memeAngleConfigFromEnv } from "./meme/angle.ts";
+import { ANGLE_EXTRA_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_GROUP_CONFIG, metaGroupConfigFromEnv } from "./meta/group-pass.ts";
@@ -121,6 +122,7 @@ const META_TICKET = ".scratch/viral-sources/issues/03-meta-ranking-from-launchpa
 const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
 const MEME_TICKET = ".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md";
 const NEWS_MEME_TICKET = ".scratch/proposal-routing/issues/04-news-meme-proposals.md";
+const ANGLE_TICKET = ".scratch/meta-redesign/issues/11-operator-angle-for-meme-ideas.md";
 const LAUNCHPAD_CLUSTER_TICKET = ".scratch/viral-sources/issues/01-launchpad-signals-cluster-by-theme.md";
 
 export const PIPELINE: PipelineGraph = {
@@ -393,6 +395,9 @@ export const PIPELINE: PipelineGraph = {
         { label: "A new trio is refused within (of the last one)", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms" },
         { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
+        { label: "Operator angle requests per day (they share the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
+        { label: "Operator angle requests per day, hard cap", key: "MAX_MEME_ANGLE_PER_DAY", ref: () => MAX_MEME_ANGLE_PER_DAY, unit: "count" },
+        { label: "Extra runs per day for angle runs, above the runs per day", key: "ANGLE_EXTRA_DAILY_MEME_RUNS", ref: () => ANGLE_EXTRA_DAILY_MEME_RUNS, unit: "count" },
         { label: "Spend per run", key: "DEFAULT_ROUTING.meme-ideas.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd, unit: "usd" },
         { label: "Wall clock per run", key: "DEFAULT_ROUTING.meme-ideas.timeoutMs", ref: () => DEFAULT_ROUTING["meme-ideas"].timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING["meme-ideas"].model, unit: "text" },
@@ -400,9 +405,9 @@ export const PIPELINE: PipelineGraph = {
         { label: "A news story needs a Signal newer than", key: "NEWS_MEME_LIVE_MS", ref: () => NEWS_MEME_LIVE_MS, unit: "ms" },
       ],
       adrs: ["0013-a-proposal-has-a-kind-narrative-or-meme.md", "0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
-      tickets: [MEME_TICKET, BETA_TICKET, NEWS_MEME_TICKET],
-      files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
-      worker: "memeIdeasTick",
+      tickets: [MEME_TICKET, BETA_TICKET, NEWS_MEME_TICKET, ANGLE_TICKET],
+      files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/meme/angle.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
+      worker: ["memeIdeasTick", "memeAngleTick"],
       brainTask: "meme-ideas",
     },
     // Nodes the generated diagrams need but the page does not draw.

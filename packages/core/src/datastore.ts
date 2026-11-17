@@ -15,6 +15,7 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RATE, type CostSource } from "./run-cost.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
+import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_WINDOW_MS, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
@@ -57,6 +58,8 @@ export interface Proposal {
   metaSnapshot: MetaSnapshot | null;
   /** The idea's own fields (the angle is `whyNow`, the short description `description`); null for a `narrative` Proposal. */
   meme: MemeFields | null;
+  /** The Operator's angle the idea was made for (ticket 11; operator-typed text, untrusted); null on every other Proposal. */
+  operatorAngle: OperatorAngle | null;
   status: ProposalStatus;
   narrativeSummary: string;
   techOneLiner: string;
@@ -329,6 +332,16 @@ export class MemeTrioExistsError extends DomainError {
   }
 }
 
+/** Why an angle request was not stored (ticket 11). The War Room maps the code to a status: `unknown-meta` and `invalid` 400, `duplicate` 409, `daily-cap` and `pending` 429. */
+export class MemeAngleRefusedError extends DomainError {
+  readonly code: "unknown-meta" | "invalid" | "duplicate" | "daily-cap" | "pending";
+  constructor(code: MemeAngleRefusedError["code"], message: string) {
+    super(message);
+    this.name = "MemeAngleRefusedError";
+    this.code = code;
+  }
+}
+
 /** Non-domain failures tolerated per command before it is marked `failed`. */
 export const MAX_COMMAND_ATTEMPTS = 5;
 
@@ -564,6 +577,9 @@ export function migrate(db: DatabaseSync): void {
     WHEN OLD.meta_snapshot IS NOT NULL AND NEW.meta_snapshot IS NOT OLD.meta_snapshot
     BEGIN SELECT RAISE(ABORT, 'meta_snapshot is immutable'); END`);
   migrateMeme(db);
+  // The Operator's angle (meta redesign ticket 11): one request table and one nullable Proposal column, both additive.
+  migrateAngles(db);
+  ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The worker heartbeat and the ledger of its stops (meta redesign ticket 10): additive tables.
   migrateWorkerGaps(db);
 }
@@ -586,6 +602,7 @@ interface Row {
   meme_hook: string;
   meme_image_idea: string;
   meme_risk_labels: string;
+  operator_angle: string | null;
   status: ProposalStatus;
   narrative_summary: string;
   tech_one_liner: string;
@@ -646,6 +663,18 @@ function parseRiskLabels(text: string): string[] {
   }
 }
 
+/** The stored Operator angle of a Proposal, or null when there is none or it cannot be read (never throws). */
+function parseOperatorAngle(text: string | null | undefined): OperatorAngle | null {
+  if (text === null || text === undefined) return null;
+  try {
+    const v = JSON.parse(text) as Partial<OperatorAngle> | null;
+    if (typeof v !== "object" || v === null || !Number.isSafeInteger(v.requestId) || typeof v.angle !== "string") return null;
+    return { requestId: v.requestId as number, angle: v.angle, sourceUrl: typeof v.sourceUrl === "string" ? v.sourceUrl : null, urlDropped: v.urlDropped === true };
+  } catch {
+    return null;
+  }
+}
+
 function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
   return {
     id: r.id,
@@ -655,6 +684,7 @@ function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
     metaLabel: r.meta_label ?? null,
     metaSnapshot: parseSnapshot(r.meta_snapshot ?? null),
     meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels) } : null,
+    operatorAngle: parseOperatorAngle(r.operator_angle),
     status: r.status,
     narrativeSummary: r.narrative_summary,
     techOneLiner: r.tech_one_liner,
@@ -707,6 +737,8 @@ export type WarRoomStore = Pick<
   | "queryProposals"
   | "liveMemeProposals"
   | "memeIdeasSpendSince"
+  | "requestMemeAngle"
+  | "memeAngleRequests"
   | "getCommand"
   | "listCommands"
   | "pendingCommands"
@@ -1074,10 +1106,18 @@ export class Datastore {
     const nowDate = opts.now ?? new Date();
     const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const snapshot = JSON.stringify(input.snapshot);
-    const window = Math.floor(nowDate.getTime() / MEME_WINDOW_MS);
+    const angle = input.operatorAngle;
+    const operatorAngle = angle ? JSON.stringify({ requestId: angle.requestId, angle: angle.angle, sourceUrl: angle.sourceUrl, urlDropped: angle.urlDropped }) : null;
+    // An angle trio lives in its own "window", the request's id negated (real windows are positive), so the unique index of live trios
+    // neither blocks nor is blocked by the Meta's automatic trio; one trio per request, whatever the clock says.
+    const window = angle ? -angle.requestId : Math.floor(nowDate.getTime() / MEME_WINDOW_MS);
     return this.inTransaction(() => {
       const since = input.narrative ? "" : new Date(nowDate.getTime() - MEME_WINDOW_MS).toISOString();
-      if (this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(input.metaKey, since)) throw new MemeTrioExistsError(input.metaKey);
+      // The automatic guard is unchanged (an angle trio is not one of "the Meta's trio in the last 6 h"); an angle trio is guarded per request.
+      const exists = angle
+        ? this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND meme_window = ?").get(input.metaKey, window)
+        : this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ? AND operator_angle IS NULL").get(input.metaKey, since);
+      if (exists) throw new MemeTrioExistsError(input.metaKey);
       const ids = input.ideas.map((idea, i) => {
         const base = slugify(idea.name) || "meme";
         let slug = base;
@@ -1089,8 +1129,8 @@ export class Datastore {
             .prepare(
               `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
                  narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
-                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at)
-               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle)
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               slug,
@@ -1115,6 +1155,7 @@ export class Datastore {
               JSON.stringify(idea.riskLabels),
               now,
               now,
+              operatorAngle,
             );
         } catch (e) {
           if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) throw new MemeTrioExistsError(input.metaKey);
@@ -1162,9 +1203,88 @@ export class Datastore {
     return gapMsHeld(readWorkerGaps(this.db), since, ttlMs);
   }
 
-  /** Whether a `meme` Proposal for this Meta was created after `since` (ISO), whatever became of it: the "once per Meta per 6 h" check. READ ONLY. */
+  /** Whether an automatic `meme` Proposal for this Meta was created after `since` (ISO), whatever became of it: the "once per Meta per 6 h" check. An Operator's angle trio (ticket 11) is not one. READ ONLY. */
   hasMemeSince(metaKey: string, since: string): boolean {
-    return this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ?").get(metaKey, since) !== undefined;
+    return this.db.prepare("SELECT 1 FROM proposals WHERE kind = 'meme' AND meta_key = ? AND created_at > ? AND operator_angle IS NULL").get(metaKey, since) !== undefined;
+  }
+
+  /**
+   * The War Room's one write for an angle (ticket 11, insert only like `enqueueCommand`): a `pending` row the worker takes. The checks are
+   * here, so no caller skips them: the angle is cleaned text (1 to 600 characters, one line), the key is a Meta or Watching subject of
+   * the newest run, the same cleaned angle for the same Meta is not asked twice in 24 h, at most `maxPerDay` requests (default 5, never
+   * over 10) in a rolling 24 h whatever became of them, and one request waits at a time. Refused with `MemeAngleRefusedError`.
+   */
+  requestMemeAngle(input: { metaKey: string; angle: string; sourceUrl?: string | null; urlDropped?: boolean }, opts: { now?: Date; maxPerDay?: number } = {}): AngleRequest {
+    const now = opts.now ?? new Date();
+    const max = Math.min(MAX_MEME_ANGLE_PER_DAY, opts.maxPerDay ?? DEFAULT_MEME_ANGLE_PER_DAY);
+    const angle = input.angle;
+    if (typeof angle !== "string" || angle.trim() === "" || angle !== angle.trim() || [...angle].length > ANGLE_MAX_CHARS || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(angle)) {
+      throw new MemeAngleRefusedError("invalid", `The angle must be 1 to ${ANGLE_MAX_CHARS} characters of plain text on one line`);
+    }
+    return this.inTransaction(() => {
+      const current = this.currentMetas();
+      const subject = [...(current?.metas ?? []), ...(current?.watching ?? [])].find((m) => m.key === input.metaKey);
+      if (!subject) throw new MemeAngleRefusedError("unknown-meta", "That subject is not a current Meta or Watching subject in the newest run");
+      // One window serves both rules (`ANGLE_WINDOW_MS` and `ANGLE_DUPLICATE_MS` are both 24 h).
+      const recent = this.db.prepare("SELECT meta_key, angle FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { meta_key: string; angle: string }[];
+      if (recent.some((r) => r.meta_key === input.metaKey && angleKey(r.angle) === angleKey(angle))) throw new MemeAngleRefusedError("duplicate", "You already asked this angle for this Meta in the last 24 hours");
+      if (recent.length >= max) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours is the most (${max}); try again later`);
+      if (this.db.prepare("SELECT 1 FROM meme_angle_requests WHERE status IN ('pending', 'running')").get()) throw new MemeAngleRefusedError("pending", "One request is waiting for the worker; wait until it is done");
+      const res = this.db
+        .prepare("INSERT INTO meme_angle_requests (meta_key, meta_label, angle, source_url, url_dropped, status, detail, created_at, proposal_ids) VALUES (?, ?, ?, ?, ?, 'pending', '', ?, '[]')")
+        .run(subject.key, subject.label, angle, input.sourceUrl ?? null, input.urlDropped === true ? 1 : 0, now.toISOString());
+      return this.getAngleRequest(Number(res.lastInsertRowid))!;
+    });
+  }
+
+  /** The last `ANGLE_LIST_LIMIT` angle requests, newest first, with their status and Proposal ids: no angle text, no link. READ ONLY. */
+  memeAngleRequests(): AngleRequestRow[] {
+    return (this.db.prepare("SELECT * FROM meme_angle_requests ORDER BY id DESC LIMIT ?").all(ANGLE_LIST_LIMIT) as Record<string, string | number | null>[]).map((r) => toAngleRow(toAngleRequest(r)));
+  }
+
+  /** One angle request, or undefined. READ ONLY. */
+  getAngleRequest(id: number): AngleRequest | undefined {
+    const r = this.db.prepare("SELECT * FROM meme_angle_requests WHERE id = ?").get(id) as Record<string, string | number | null> | undefined;
+    return r && toAngleRequest(r);
+  }
+
+  /** Whether any angle request is waiting or running: the worker's fast tick reads this and does nothing more when it is false. READ ONLY. */
+  hasOpenAngleRequests(): boolean {
+    return this.db.prepare("SELECT 1 FROM meme_angle_requests WHERE status IN ('pending', 'running') LIMIT 1").get() !== undefined;
+  }
+
+  /** The requests waiting for the worker, oldest first. READ ONLY. */
+  pendingAngleRequests(): AngleRequest[] {
+    return (this.db.prepare("SELECT * FROM meme_angle_requests WHERE status = 'pending' ORDER BY id").all() as Record<string, string | number | null>[]).map(toAngleRequest);
+  }
+
+  /** WORKER ONLY. Takes a pending request (`running`); undefined when it is not pending any more. */
+  claimAngleRequest(id: number): AngleRequest | undefined {
+    const res = this.db.prepare("UPDATE meme_angle_requests SET status = 'running' WHERE id = ? AND status = 'pending'").run(id);
+    return res.changes === 1 ? this.getAngleRequest(id) : undefined;
+  }
+
+  /** WORKER ONLY. Ends a request that is waiting or running with its status, reason and the Proposals it filed; one already ended is left as it is. */
+  resolveAngleRequest(id: number, done: { status: Exclude<AngleStatus, "pending" | "running">; detail: string; proposalIds?: number[] }, now: Date = new Date()): void {
+    this.db
+      .prepare("UPDATE meme_angle_requests SET status = ?, detail = ?, done_at = ?, proposal_ids = ? WHERE id = ? AND status IN ('pending', 'running')")
+      .run(done.status, done.detail.slice(0, 300), now.toISOString(), JSON.stringify(done.proposalIds ?? []), id);
+  }
+
+  /** The Proposals an angle request already made, in slot order (empty when none): "no trio already stored for this request id". READ ONLY. */
+  angleTrioProposalIds(requestId: number): number[] {
+    const rows = this.db.prepare("SELECT id FROM proposals WHERE kind = 'meme' AND operator_angle IS NOT NULL AND meme_window = ? ORDER BY meme_slot").all(-requestId) as unknown as { id: number }[];
+    return rows.map((r) => r.id);
+  }
+
+  /** WORKER ONLY. Gives a `running` request back to `pending` (a rate limit, a shutdown or a dry run stopped it before it ended). */
+  releaseAngleRequest(id: number): void {
+    this.db.prepare("UPDATE meme_angle_requests SET status = 'pending' WHERE id = ? AND status = 'running'").run(id);
+  }
+
+  /** WORKER ONLY. Puts requests a dead worker left `running` back to `pending`; returns how many. */
+  requeueRunningAngleRequests(): number {
+    return Number(this.db.prepare("UPDATE meme_angle_requests SET status = 'pending' WHERE status = 'running'").run().changes);
   }
 
   /** Whether any `meme` Proposal exists for this key at any time, whatever became of it: "one trio per Narrative ever" for a news meme (`narrative:<id>`). READ ONLY. */

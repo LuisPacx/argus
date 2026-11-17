@@ -168,6 +168,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <span class="faint min-w-0 max-w-full break-all text-sm font-medium uppercase tracking-wide">{{ p.ticker }}</span>
             <StatusPill :status="p.status" />
             <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
+            <span v-if="meme?.operatorAngle" class="pill pill-outline" data-test="angle-pill" title="Made from an angle the Operator typed on the Meta page">Angle</span>
             <BuildBlockedMarker :view="buildNotice" />
             <span v-if="p.score && !isMeme" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums" title="The Score this Proposal was created from">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
           </div>

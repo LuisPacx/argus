@@ -4,6 +4,7 @@
 import { fmtUtc } from "./format.ts";
 import { safeHttpUrl } from "./safe-link.ts";
 import { ideaViews, type MetaIdeaPayload, type MetaIdeaView } from "./meme.ts";
+import { angleStatusFor, type AngleRequestPayload, type AngleStatusView } from "./angle.ts";
 
 /** The page refreshes the ranking this often (the worker computes it every 15 minutes at most), not with the 3-second list poll. */
 export const META_POLL_MS = 60_000;
@@ -252,6 +253,10 @@ export interface CurrentMetaPayloadRow {
 }
 
 export interface CurrentMetaRowView {
+  /** The subject's key, for the angle form (ticket 11): sent back to the server, which checks it against the newest run; never shown as text. Absent from an older payload. */
+  key: string | null;
+  /** The status of the Operator's newest angle request for this subject; null when it has none. */
+  angle: AngleStatusView | null;
   label: string;
   /** The merged launch themes shown (at most 5), one line each: "Lucia From GTA 6 - 270 tokens, 156 creators". */
   themes: { text: string }[];
@@ -315,7 +320,7 @@ function themeViews(themes: CurrentMetaPayloadRow["themes"], title: string): Pic
   return { themes: all.slice(0, THEMES_SHOWN).map((t) => ({ text: t.text })), moreThemes: Math.max(0, all.length - THEMES_SHOWN), grouped: true };
 }
 
-function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean): CurrentMetaRowView {
+function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean, angles?: readonly AngleRequestPayload[] | null): CurrentMetaRowView {
   const name = clampText(m?.leader?.name, TOKEN_NAME_CHARS);
   const symbol = clampText(m?.leader?.symbol, TICKER_CHARS);
   const leader = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "unknown token";
@@ -327,8 +332,11 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
   const ideas = isMeta ? ideaViews(m?.ideas, nowMs) : [];
   const cooling = isMeta && m?.holding === true;
   const label = clampText(m?.label, LABEL_CHARS);
+  const key = typeof m?.key === "string" && m.key !== "" ? m.key : null;
   return {
     ...(ideas.length > 0 ? { ideas } : {}),
+    key,
+    angle: angleStatusFor(angles, key ?? undefined, nowMs),
     label,
     ...themeViews(m?.themes, label),
     leader,
@@ -347,13 +355,13 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
 }
 
 /** What the Current Meta section renders, from the API payload (null when it has not loaded) and the clock. */
-export function currentMetaView(payload: CurrentMetaPayload | null | undefined, nowMs: number): CurrentMetaView {
+export function currentMetaView(payload: CurrentMetaPayload | null | undefined, nowMs: number, angles?: readonly AngleRequestPayload[] | null): CurrentMetaView {
   const computedAt = payload?.computedAt;
   if (!payload || typeof computedAt !== "string") return { state: "waiting", metas: [], watching: [], emptyNote: null, note: "No Meta run yet. The worker computes it every 15 minutes.", footer: null, coverageNote: null };
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "computed just now" : `computed ${age}`;
-  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true));
-  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false));
+  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true, angles));
+  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false, angles));
   const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const emptyNote = metas.length === 0 ? "No Meta right now" : null;
   const computedMs = Date.parse(computedAt);

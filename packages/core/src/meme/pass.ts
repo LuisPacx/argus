@@ -2,7 +2,7 @@ import type { ExistingToken } from "../beta/distinct-name.ts";
 import { rankRoomLeft } from "../beta/room-left.ts";
 import { BrainError, type Brain, type BrainRun } from "../brain.ts";
 import type { CollisionChecker, CollisionResult } from "../collision.ts";
-import { MemeTrioExistsError, type Datastore, type NarrativeEmbedder, type Narrative, type Proposal, type Score } from "../datastore.ts";
+import { MAX_NEW_PROPOSALS_PER_DAY, MemeTrioExistsError, type Datastore, type NarrativeEmbedder, type Narrative, type Proposal, type Score } from "../datastore.ts";
 import { InvalidEvidenceLinkError, normalizeEvidenceLinks } from "../evidence-links.ts";
 import { META_RULE, type MetaConfig } from "../meta/config.ts";
 import { groupTokens } from "../meta/group.ts";
@@ -17,7 +17,8 @@ import { sourceClass } from "../sources/source-class.ts";
 import type { LaunchedToken } from "../study/store.ts";
 import { avoidLabels, cleanLine, copiedNames, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
 import type { MemeAttempt, MemeOutcome } from "./store.ts";
-import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews } from "./types.ts";
+import type { AngleRequest } from "./angle.ts";
+import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeSnapshotTriggerKind, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews } from "./types.ts";
 
 /**
  * The meme ideas pass (ADR 0013, amended by meta redesign ticket 03): for each current Meta (ADR 0014; a Watching subject never), one
@@ -35,11 +36,28 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
  * After the Metas the same pass serves news stories (proposal-routing ticket 04, ADR 0013 amendment): a news Narrative that failed the
  * buildability gate and passed the floors (`narrativesToMeme`) gets one trio too, from the same `meme-ideas` task, the same 8 a day and the
  * same research budget, Metas first. A story that names a current Meta or Watching subject is left to that Meta; a story has one trio ever.
+ * A third kind of job, the Operator's angle (meta redesign ticket 11, `runMemeAngles`): a pending `meme_angle_requests` row is run through this
+ * same loop (the same `mayRun`, `ask`, `check`, collision checks and `createMemeProposals`), with the angle as a fenced block of the prompt. It is
+ * counted in the daily meme cap and the research budget like any run (`dailyMemeRunLimit` is the one place that says how), and ends its request
+ * `done`, `refused`, `failed` or `capped` (never left pending by a cap); a rate limit, a shutdown or a dry run leaves it pending.
  * Nothing here launches, signs or spends anything (ADR 0002), and nothing makes a Narrative, a Score or a Spec.
  */
 
 /** The most meme-ideas runs started in any rolling 24 hours, whatever is configured: the hard ceiling, which configuration cannot pass. */
 export const MAX_MEME_RUNS_PER_DAY = 40;
+
+/**
+ * THE one place that says how the Operator's angle runs are held to the daily meme cap (ticket 11, Decision 3): today they share it with the
+ * automatic runs, so this is 0. To give angle runs an allowance of their own, set this to the number of extra runs a day they may take above
+ * the cap (an angle run may then start while fewer than `maxRunsPerDay + extra` runs were started in 24 h; automatic runs still stop at
+ * `maxRunsPerDay`). The 5 requests a day (`DEFAULT_MEME_ANGLE_PER_DAY`) and the shared research budget are not touched by it.
+ */
+export const ANGLE_EXTRA_DAILY_MEME_RUNS = 0;
+
+/** How many meme-ideas runs started in the last 24 h stop another run of this kind: `maxRunsPerDay`, plus `ANGLE_EXTRA_DAILY_MEME_RUNS` for an angle run, never past the hard ceiling. */
+export function dailyMemeRunLimit(kind: "automatic" | "angle", maxRunsPerDay: number, angleExtra: number = ANGLE_EXTRA_DAILY_MEME_RUNS): number {
+  return Math.min(MAX_MEME_RUNS_PER_DAY, kind === "angle" ? maxRunsPerDay + angleExtra : maxRunsPerDay);
+}
 
 export interface MemeConfig {
   /** Most meme-ideas runs started in any rolling 24 hours (the retry for a copied name included); at most `MAX_MEME_RUNS_PER_DAY`. */
@@ -92,7 +110,7 @@ export interface MemeResult {
   skipped: number;
   /** News stories whose answer was dropped because the Narrative stopped being eligible before the trio was stored. */
   withdrawn: number;
-  stoppedBy?: "off" | "api-hold" | "daily-cap" | "research-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
+  stoppedBy?: "off" | "api-hold" | "daily-cap" | "research-cap" | "proposal-cap" | "rate-limited" | "interrupted" | "dry-run" | "backoff";
 }
 
 const HOUR_MS = 3_600_000;
@@ -113,6 +131,8 @@ export interface MemeOptions {
   collisions?: CollisionChecker;
   /** The Narrative embedder of the news stories (the one the judge uses). Without one the news path is off and only Metas are served. */
   embedder?: NarrativeEmbedder;
+  /** What the pass serves: the automatic jobs (Metas, then news stories; the default) or only the Operator's pending angle requests (ticket 11). */
+  jobs?: "automatic" | "angles";
 }
 
 /** The tokens of the Meta's group as of the run: the same grouping and theme merge the ranking used, so the group is the one the row counted. Empty for a Meta that outlived its launch wave. */
@@ -176,7 +196,7 @@ export function buildSnapshot(args: {
   now: Date;
   meta: CurrentMeta;
   run: { id: number; computedAt: string };
-  trigger: { kind: MemeTriggerKind; reason: string; at: string };
+  trigger: { kind: MemeSnapshotTriggerKind; reason: string; at: string };
   summary?: string;
   roomLeft: { passed: boolean; text: string };
   tokens: readonly MemePromptToken[];
@@ -319,6 +339,12 @@ interface Job {
   guarded(now: Date): boolean;
   /** The context of one try, read once. */
   prepare(now: Date): Prepared;
+  /** Set for the Operator's angle (ticket 11): the request this job runs. The request ends with the job's outcome. */
+  angle?: { requestId: number };
+  /** A reason the job cannot run at all now (the Meta is no longer current): the request ends `refused` before any cap or run. */
+  refusal?(now: Date): string | undefined;
+  /** A cap that holds the job now beyond the shared ones (the 30 a day new Proposals): the request ends `capped`. */
+  capReason?(now: Date): string | undefined;
 }
 
 interface Prepared {
@@ -348,11 +374,15 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
   // The API fallback is holding the research tasks on the API: spawning claude here would probe the rate limit and extend the hold.
   if (brain.routeFor("judge").backend === "api") return { ...out, stoppedBy: "api-hold" };
 
+  const anglesOnly = opts.jobs === "angles";
+  // A request a dead worker left `running` is waiting again (the pass is re-entrancy guarded, so none is running now).
+  if (anglesOnly) store.requeueRunningAngleRequests();
+
   // The Metas as of the newest run (ADR 0014). A run older than the carried state's limit no longer describes the market: nothing is due.
   const current = store.currentMetas();
   const startedAt = clock();
   let metaQueue: MemeDue[] = [];
-  if (current) {
+  if (current && !anglesOnly) {
     const runAge = startedAt.getTime() - Date.parse(current.computedAt);
     if (Number.isFinite(runAge) && runAge <= metaConfig.stateMaxMinutes * 60_000) {
       // The live New Meta events, newest per Meta. An event is live for `newMetaLiveHours`; its Meta must still be a Meta in the newest run.
@@ -364,20 +394,23 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
   // The news stories (ticket 04), after the Metas. A story that names a current Meta or Watching subject is left to that Meta (its trio wins);
   // the subjects are read from the newest run whatever its age, so a stale run skips more, never fewer.
   const gateMin = store.getRubric().gateMinScore;
-  const newsQueue = opts.embedder ? newsDueOf(store, opts.embedder, gateMin, [...(current?.metas ?? []), ...(current?.watching ?? [])].map((m) => m.key), startedAt, config) : [];
-  if (metaQueue.length === 0 && newsQueue.length === 0) return out;
+  const newsQueue = opts.embedder && !anglesOnly ? newsDueOf(store, opts.embedder, gateMin, [...(current?.metas ?? []), ...(current?.watching ?? [])].map((m) => m.key), startedAt, config) : [];
+  // The Operator's angles (ticket 11), oldest first; only the angle pass reads them.
+  const angleQueue = anglesOnly ? store.pendingAngleRequests() : [];
+  if (metaQueue.length === 0 && newsQueue.length === 0 && angleQueue.length === 0) return out;
   // The launch-theme run only feeds the room-left ranking (an input to the prompt, never a gate).
-  const launchRun = metaQueue.length > 0 ? store.latestMetas("24h", 200) : undefined;
+  const launchRun = metaQueue.length > 0 || angleQueue.length > 0 ? store.latestMetas("24h", 200) : undefined;
   const embedder = opts.embedder;
 
   let transientInARow = 0;
   let tried = 0;
 
   /** Whether another meme-ideas run may start: the daily cap and the research budget. A refusal is recorded with its reason once per slot. */
-  const mayRun = (due: Pick<Job, "key" | "eventAt">): { ok: true } | { ok: false; stoppedBy: "daily-cap" | "research-cap"; detail: string } => {
+  const mayRun = (due: Pick<Job, "key" | "eventAt" | "angle">): { ok: true } | { ok: false; stoppedBy: "daily-cap" | "research-cap"; detail: string } => {
     const spent = store.memeIdeasSpendSince(new Date(clock().getTime() - DAY_MS).toISOString(), caps);
-    if (spent.runs >= maxRunsPerDay) {
-      const detail = `daily cap of ${maxRunsPerDay} meme-ideas runs reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
+    const dailyLimit = dailyMemeRunLimit(due.angle ? "angle" : "automatic", maxRunsPerDay);
+    if (spent.runs >= dailyLimit) {
+      const detail = `daily cap of ${dailyLimit} meme-ideas runs reached (${spent.runs} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
       store.meme.record({ key: due.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "daily-cap", detail, runs: 0 });
       return { ok: false, stoppedBy: "daily-cap", detail };
     }
@@ -422,6 +455,20 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
   const finish = (a: { runId: number; result: BrainRun<string> }, ok: boolean) =>
     store.finishBrainRun(a.runId, { sessionId: a.result.sessionId ?? null, totalCostUsd: a.result.totalCostUsd, exitStatus: ok ? "success" : "invalid-output", backend: a.result.backend, model: a.result.model });
 
+  /** What a try on a Meta or Watching subject reads, once: its group, shown tokens, matching news, room-left and the Rubric's legitimacy text. Shared by an automatic try and an Operator's angle. */
+  const subjectContext = (meta: CurrentMeta, run: { runId: number; computedAt: string }, now: Date) => {
+    const group = groupOf(store, meta.key, run.computedAt, metaConfig);
+    const tokens = shownTokens(store, meta, group);
+    const existing: ExistingToken[] = [
+      { name: meta.leader.name, symbol: meta.leader.symbol },
+      ...(group.length > 0 ? group.map((t) => ({ name: t.name, symbol: t.symbol })) : meta.topTokens.map((t) => ({ name: t.name, symbol: t.symbol }))),
+    ];
+    const news: SnapshotNews[] = (newsForKeys(store, [meta.key], now, metaConfig).get(meta.key) ?? []).map((n) => ({ title: n.title, sourceLabel: n.sourceLabel, url: n.url, publishedAt: n.publishedAt }));
+    const roomLeft = launchRun ? roomLeftOf(launchRun, meta.key) : { passed: false, text: "no room-left verdict for this Meta" };
+    const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
+    return { tokens, existing, news, roomLeft, legitimacy, facts: metaFacts(meta) };
+  };
+
   /** A Meta as a job: its context is the group, tokens, matching news and room-left of the newest run. */
   const metaJob = (due: MemeDue, run: { runId: number; computedAt: string }): Job => ({
     key: due.meta.key,
@@ -430,16 +477,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     guarded: (now) => store.hasMemeSince(due.meta.key, new Date(now.getTime() - MEME_WINDOW_MS).toISOString()),
     prepare: (now): Prepared => {
       const meta = due.meta;
-      const group = groupOf(store, meta.key, run.computedAt, metaConfig);
-      const tokens = shownTokens(store, meta, group);
-      const existing: ExistingToken[] = [
-        { name: meta.leader.name, symbol: meta.leader.symbol },
-        ...(group.length > 0 ? group.map((t) => ({ name: t.name, symbol: t.symbol })) : meta.topTokens.map((t) => ({ name: t.name, symbol: t.symbol }))),
-      ];
-      const news: SnapshotNews[] = (newsForKeys(store, [meta.key], now, metaConfig).get(meta.key) ?? []).map((n) => ({ title: n.title, sourceLabel: n.sourceLabel, url: n.url, publishedAt: n.publishedAt }));
-      const roomLeft = launchRun ? roomLeftOf(launchRun, meta.key) : { passed: false, text: "no room-left verdict for this Meta" };
-      const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
-      const facts = metaFacts(meta);
+      const { tokens, existing, news, roomLeft, legitimacy, facts } = subjectContext(meta, run, now);
       const trigger = { kind: due.kind, reason: facts, at: due.eventAt };
       return {
         existing,
@@ -519,25 +557,100 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     };
   };
 
-  // Metas first, then the stories (Q8): a story is tried only when the Metas left room in this pass.
-  const jobs: Job[] = [...(current ? metaQueue.map((d) => metaJob(d, current)) : []), ...newsQueue.map(newsJob)];
+  /**
+   * The Operator's angle on a Meta or Watching subject as a job (ticket 11): the subject's context as an automatic try reads it, with the angle in
+   * its own fenced block. The Meta trio guard does not apply (an angle is the point of asking again); the request is guarded by its own id.
+   */
+  const angleJob = (req: AngleRequest): Job => {
+    const subject = [...(current?.metas ?? []), ...(current?.watching ?? [])].find((m) => m.key === req.metaKey);
+    const run = { runId: current?.runId ?? 0, computedAt: current?.computedAt ?? "" };
+    return {
+      key: `angle:${req.id}`,
+      label: req.metaLabel,
+      eventAt: req.createdAt,
+      angle: { requestId: req.id },
+      guarded: () => store.angleTrioProposalIds(req.id).length > 0,
+      refusal: () => (subject ? undefined : "no longer a Meta"),
+      capReason: (now) => (store.researchProposalsSince(new Date(now.getTime() - DAY_MS).toISOString()) >= MAX_NEW_PROPOSALS_PER_DAY ? `daily cap of ${MAX_NEW_PROPOSALS_PER_DAY} new Proposals reached` : undefined),
+      prepare: (now): Prepared => {
+        const meta = subject as CurrentMeta; // `refusal` ended the request before this runs when the subject is gone
+        const { tokens, existing, news, roomLeft, legitimacy, facts } = subjectContext(meta, run, now);
+        const trigger = { kind: "operator-angle" as const, reason: facts, at: req.createdAt };
+        return {
+          existing,
+          promptFor: (retryCopies) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, angle: req.angle, ...(retryCopies ? { retryCopies } : {}) }),
+          create: (ideas, at, runIds) => {
+            const stored = store.meta.summaries([meta.key]).get(meta.key);
+            const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
+            return store.createMemeProposals(
+              {
+                metaKey: meta.key,
+                metaLabel: meta.label,
+                snapshot,
+                reason: `Operator angle: ${cleanLine(req.angle, 160)}`,
+                summary: `Operator angle on ${cleanLine(meta.label, 60)}: ${cleanLine(req.angle, 160)}`,
+                evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
+                ideas,
+                operatorAngle: { requestId: req.id, angle: req.angle, sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
+              },
+              { now: at, attachRunId: runIds },
+            );
+          },
+          doneLine: (made) => `${made.length} ideas for the Operator's angle on "${cleanLine(meta.label, 60)}" (request ${req.id}; proposals ${made.map((p) => p.id).join(", ")})`,
+        };
+      },
+    };
+  };
+
+  // Metas first, then the stories (Q8): a story is tried only when the Metas left room in this pass. The angle pass has only the Operator's requests.
+  const jobs: Job[] = anglesOnly ? angleQueue.map(angleJob) : [...(current ? metaQueue.map((d) => metaJob(d, current)) : []), ...newsQueue.map(newsJob)];
 
   for (const [index, job] of jobs.entries()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const now = clock();
+    /** An Operator's angle request ends with its job's outcome; any other job has no request. */
+    const endRequest = (status: "done" | "refused" | "failed" | "capped", detail: string, proposalIds?: number[]) => {
+      if (job.angle) store.resolveAngleRequest(job.angle.requestId, { status, detail, ...(proposalIds ? { proposalIds } : {}) }, clock());
+    };
+    /** A rate limit, a shutdown or a dry run ends the pass and leaves an Operator's request waiting for the next one. */
+    const stopPass = (stoppedBy: NonNullable<MemeResult["stoppedBy"]>): MemeResult => {
+      if (job.angle) store.releaseAngleRequest(job.angle.requestId);
+      return { ...out, stoppedBy };
+    };
     // The trio guard (ADR 0013): a Meta that got a trio in the last 6 h gets none, whatever the trigger (an event too); a story has one ever.
+    // An angle request is guarded by its own id: a trio it already made (the worker stopped before the request was ended) ends it done.
     if (job.guarded(now)) {
       out.skipped++;
+      if (job.angle) {
+        const ids = store.angleTrioProposalIds(job.angle.requestId);
+        endRequest("done", `${ids.length} ideas`, ids);
+      }
+      continue;
+    }
+    const refusal = job.refusal?.(now);
+    if (refusal !== undefined) {
+      out.refused++;
+      log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" refused: ${refusal}`);
+      endRequest("refused", refusal);
       continue;
     }
     if (tried >= config.maxPerPass) break;
 
+    const capReason = job.capReason?.(now);
+    if (capReason !== undefined) {
+      log(`[worker] meme ideas: ${capReason}; "${cleanLine(job.label, 60)}" is capped`);
+      endRequest("capped", capReason);
+      return { ...out, stoppedBy: "proposal-cap" };
+    }
     const gate = mayRun(job);
     if (!gate.ok) {
       const waiting = jobs.slice(index + 1).filter((j) => !j.guarded(now));
       log(`[worker] meme ideas: ${gate.detail}; "${cleanLine(job.label, 60)}" waits${waiting.length > 0 ? `, and so ${waiting.length === 1 ? "does" : "do"} ${waiting.map((j) => `"${cleanLine(j.label, 60)}"`).join(", ")}` : ""}`);
+      // A request is answered, not left waiting: it ends capped with the reason, and the Operator asks again when the cap has room.
+      endRequest("capped", gate.detail);
       return { ...out, stoppedBy: gate.stoppedBy };
     }
+    if (job.angle && store.claimAngleRequest(job.angle.requestId) === undefined) continue; // taken or ended by someone else
     tried++;
 
     // The subject's context, read once per try.
@@ -555,9 +668,10 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     };
 
     const first = await ask(promptFor(), job.label);
-    if (first.kind === "stop") return { ...out, stoppedBy: first.stoppedBy };
+    if (first.kind === "stop") return stopPass(first.stoppedBy);
     if (first.kind === "failed") {
       out.failed++;
+      endRequest(first.budget ? "refused" : "failed", first.budget ? "the run went over its budget" : "the run failed");
       // A run that was too dear is not a sign of an outage and is not tried again at once: it waits for the next refresh like a refusal.
       record(first.budget ? "refused" : "failed", first.budget ? "the run went over its budget" : "the run failed", 1);
       if (first.budget) transientInARow = 0;
@@ -582,7 +696,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const second = await ask(promptFor(parsed.copies), job.label);
         if (second.kind === "stop") {
           record("name-copy", "interrupted before the retry", runIds.length);
-          return { ...out, stoppedBy: second.stoppedBy };
+          return stopPass(second.stoppedBy);
         }
         if (second.kind === "ok") {
           runIds.push(second.runId);
@@ -595,6 +709,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     if (!parsed.ok) {
       out.refused++;
       record(parsed.copies !== undefined ? "name-copy" : "refused", parsed.problem, runIds.length);
+      endRequest("refused", parsed.problem);
       continue;
     }
 
@@ -611,10 +726,12 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       if (e instanceof MemeTrioExistsError) {
         record("exists", "the subject already had a trio", runIds.length);
         log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" already has a trio; answer dropped`);
+        endRequest("refused", "the ideas for this request already exist");
         continue;
       }
       out.failed++;
       record("failed", "the ideas could not be stored", runIds.length);
+      endRequest("failed", "the ideas could not be stored");
       log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" not stored: ${e instanceof Error ? e.message : String(e)}`);
       if (++transientInARow >= config.maxConsecutiveFailures) return { ...out, stoppedBy: "backoff" };
       continue;
@@ -627,9 +744,19 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     }
     out.stored++;
     record("stored", `${made.length} ideas`, runIds.length);
+    endRequest("done", `${made.length} ideas`, made.map((p) => p.id));
     log(`[worker] meme ideas: ${prepared.doneLine(made)}`);
   }
   return out;
+}
+
+/**
+ * The Operator's angle step (ticket 11): runs the pending angle requests through `generateMemeIdeas`'s own loop (the same switch, caps, name
+ * checks, collision checks and storage) and nothing else. The worker calls it after the meme pass and on its own fast tick, so a request
+ * does not wait for the next Meta ranking.
+ */
+export function runMemeAngles(store: Datastore, brain: Brain, opts: MemeOptions = {}): Promise<MemeResult> {
+  return generateMemeIdeas(store, brain, { ...opts, jobs: "angles" });
 }
 
 /** The list line of an idea: the Meta, its leader and cap, and what triggered the run, written by code from the stored Meta (text still creator-derived: cleaned and cut). */

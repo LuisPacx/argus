@@ -13,6 +13,20 @@ defineProps<{ view: MemeView }>();
 
 <template>
   <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5" data-test="meme-card">
+    <section v-if="view.operatorAngle" class="surface rise" style="--i: 0" data-test="meme-operator-angle">
+      <h3 class="section-title">Operator angle</h3>
+      <div class="mt-4 grid min-w-0 gap-2 text-sm">
+        <p class="faint text-xs">The angle you typed on the Meta page. The ideas below are about it.</p>
+        <p class="min-w-0 break-words font-semibold leading-relaxed" data-test="meme-operator-angle-text">{{ view.operatorAngle.text }}</p>
+        <p v-if="view.operatorAngle.sourceText" class="min-w-0 break-words text-xs" data-test="meme-operator-angle-source">
+          Source:
+          <UrlLink v-if="view.operatorAngle.href" :href="view.operatorAngle.href" :label="view.operatorAngle.sourceText" />
+          <span v-else>{{ view.operatorAngle.sourceText }}</span>
+        </p>
+        <p v-else-if="view.operatorAngle.dropped" class="faint text-xs" data-test="meme-operator-angle-dropped">The link in the text was dropped: it was not a plain http or https address.</p>
+      </div>
+    </section>
+
     <section v-if="view.fromNews" class="surface rise" style="--i: 0" data-test="meme-from-news">
       <h3 class="section-title">From news</h3>
       <div class="mt-4 grid min-w-0 gap-2 text-sm">
@@ -83,8 +97,8 @@ defineProps<{ view: MemeView }>();
 
     <section class="surface rise" style="--i: 3" data-test="meme-why">
       <h3 class="section-title">Why this idea</h3>
-      <div class="mt-4 grid gap-5">
-        <div data-test="meme-reason">
+      <div class="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
+        <div class="min-w-0" data-test="meme-reason">
           <p class="eyebrow mb-1.5">Trigger</p>
           <p v-if="view.reason" class="min-w-0 break-words leading-relaxed">{{ view.reason }}</p>
           <p v-else class="faint text-sm" data-test="absent">Not recorded for this idea.</p>

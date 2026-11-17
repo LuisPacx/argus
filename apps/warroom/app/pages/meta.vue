@@ -9,6 +9,8 @@ const route = useRoute();
 const window = computed<"6h" | "24h">(() => (route.query.window === "6h" ? "6h" : "24h"));
 const { data: metas, refresh: refreshMetas } = await useFetch("/api/metas", { query: { window, limit: 50 }, default: () => null });
 const { data: current, refresh: refreshCurrent } = await useFetch("/api/current-meta", { default: () => null });
+// The Operator's angle requests (ticket 11): the status line under each Meta's "Add an angle" form. Its key lets the form refresh it after a send.
+const { data: angles, refresh: refreshAngles } = await useFetch("/api/meme-angle", { key: "meme-angle", default: () => null });
 
 const { data: newMetas, refresh: refreshNewMeta } = await useFetch("/api/new-metas", { default: () => null });
 
@@ -31,7 +33,7 @@ const openForHash = () => {
   }
 };
 onMounted(() => {
-  metaTimer = setInterval(() => void Promise.all([refreshMetas(), refreshCurrent()]), META_POLL_MS);
+  metaTimer = setInterval(() => void Promise.all([refreshMetas(), refreshCurrent(), refreshAngles()]), META_POLL_MS);
   newMetaTimer = setInterval(() => void refreshNewMeta(), NEW_META_POLL_MS);
   openForHash();
 });
@@ -42,7 +44,7 @@ onBeforeUnmount(() => {
 });
 
 const view = computed(() => metaView(metas.value, nowMs.value, { rows: 50, window: window.value }));
-const currentSection = computed(() => currentMetaView(current.value, nowMs.value));
+const currentSection = computed(() => currentMetaView(current.value, nowMs.value, angles.value));
 const newMetaSection = computed(() => newMetaView(newMetas.value, nowMs.value));
 const windows = computed(() => [
   { label: "Last 24 h", to: { path: "/meta", query: {}, hash: "#all-launch-themes" }, active: window.value === "24h" },

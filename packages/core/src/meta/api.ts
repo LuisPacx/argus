@@ -105,7 +105,7 @@ export function memeIdeasByKey(live: readonly Proposal[]): Map<string, MemeIdeaR
   for (const p of live) {
     if (p.kind !== "meme" || p.metaKey === null || (p.status !== "new" && p.status !== "shortlisted")) continue;
     const list = out.get(p.metaKey) ?? [];
-    list.push({ id: p.id, name: p.name, ticker: p.ticker, angle: p.whyNow, status: p.status, riskLabels: p.meme?.riskLabels ?? [], createdAt: p.createdAt, expiresAt: p.expiresAt });
+    list.push({ id: p.id, name: p.name, ticker: p.ticker, angle: p.whyNow, status: p.status, riskLabels: p.meme?.riskLabels ?? [], createdAt: p.createdAt, expiresAt: p.expiresAt, ...(p.operatorAngle !== null ? { fromAngle: true as const } : {}) });
     out.set(p.metaKey, list);
   }
   return out;
