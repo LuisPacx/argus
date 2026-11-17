@@ -19,7 +19,7 @@ case "$cwd" in
     hits=$(jq -r --arg wt "$cwd" '
       (.background_tasks // [])[]
       | select(.status == "running" and (.type == "shell" or .type == "monitor"))
-      | select((.command // "") | contains($wt))
+      | select((.command // "") | split($wt) | .[1:] | any(.[0:1] | test("^[A-Za-z0-9_.-]$") | not))
       | "  \(.id): \(.command // .description)"' <<<"$in")
     ;;
 esac
