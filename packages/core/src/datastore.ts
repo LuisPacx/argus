@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { BuildRefusal, BuildRefusalCode, PreflightRefusal } from "./build-refusal.ts";
 import type { CollisionResult, CollisionStatus } from "./collision.ts";
 import { expiresAtFor } from "./expiry.ts";
+import { gapMsHeld, migrateWorkerGaps, readWorkerGaps, recordWorkerAlive, type WorkerGap } from "./worker-gaps.ts";
 import { normalizeEvidenceLinks } from "./evidence-links.ts";
 import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
@@ -522,6 +523,8 @@ export function migrate(db: DatabaseSync): void {
     WHEN OLD.meta_snapshot IS NOT NULL AND NEW.meta_snapshot IS NOT OLD.meta_snapshot
     BEGIN SELECT RAISE(ABORT, 'meta_snapshot is immutable'); END`);
   migrateMeme(db);
+  // The worker heartbeat and the ledger of its stops (meta redesign ticket 10): additive tables.
+  migrateWorkerGaps(db);
 }
 
 export function slugify(text: string): string {
@@ -601,7 +604,7 @@ function parseRiskLabels(text: string): string[] {
   }
 }
 
-function toProposal(r: Row): Proposal {
+function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
   return {
     id: r.id,
     slug: r.slug,
@@ -638,7 +641,8 @@ function toProposal(r: Row): Proposal {
     buildCleaned: r.build_cleaned === 1,
     // `new` counts from creation: Undo shortlist returns a Proposal to `new` and must not restart its 48 h. `shortlisted` counts from
     // the latest shortlist (a re-shortlist after an undo is a new decision and gets its own 7 days).
-    expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at), r.kind ?? "narrative"),
+    // A meme idea's 12 h counts running time only: the worker's recorded stops after `since` push it out (narrative lives stay wall-clock).
+    expiresAt: expiresAtFor(r.status, r.status === "new" ? r.created_at : (r.status_since ?? r.updated_at), r.kind ?? "narrative", gaps),
     narrativeId: r.narrative_id,
     scoreId: r.score_id,
     narrativeCreatedAt: r.narrative_created_at,
@@ -1089,7 +1093,27 @@ export class Datastore {
 
   getProposal(id: number): Proposal | undefined {
     const row = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(id) as unknown as Row | undefined;
-    return row && toProposal(row);
+    return row && toProposal(row, readWorkerGaps(this.db));
+  }
+
+  private toProposals(rows: Row[]): Proposal[] {
+    const gaps = readWorkerGaps(this.db);
+    return rows.map((r) => toProposal(r, gaps));
+  }
+
+  /** WORKER ONLY. Writes the heartbeat (each tick and at boot) and records a gap when the last one is over `WORKER_GAP_MS` old. */
+  recordWorkerAlive(now: Date = new Date()): WorkerGap | null {
+    return this.inTransaction(() => recordWorkerAlive(this.db, now));
+  }
+
+  /** The recorded stops of the worker, oldest first. READ ONLY. */
+  workerGaps(): WorkerGap[] {
+    return readWorkerGaps(this.db);
+  }
+
+  /** How much recorded downtime pushes out a life of `ttlMs` that began at `since` (ISO), in ms (see `gapMsHeld`). READ ONLY. */
+  workerGapMsHeld(since: string, ttlMs: number): number {
+    return gapMsHeld(readWorkerGaps(this.db), since, ttlMs);
   }
 
   /** Whether a `meme` Proposal for this Meta was created after `since` (ISO), whatever became of it: the "once per Meta per 6 h" check. READ ONLY. */
@@ -1105,7 +1129,7 @@ export class Datastore {
   /** The `meme` Proposals still live (`new` or `shortlisted`), newest first then by slot: what the Meta page shows under each Meta. READ ONLY. */
   liveMemeProposals(): Proposal[] {
     const rows = this.db.prepare(`${PROPOSAL_SELECT} WHERE p.kind = 'meme' AND p.status IN ('new', 'shortlisted') ORDER BY p.created_at DESC, p.meme_slot, p.id`).all() as unknown as Row[];
-    return rows.map(toProposal);
+    return this.toProposals(rows);
   }
 
   /**
@@ -1131,7 +1155,7 @@ export class Datastore {
       // A `meme` Proposal is not announced (ADR 0013: the Telegram notice is not part of that decision, and its card has no Tech to show).
       .prepare(`${PROPOSAL_SELECT} WHERE p.status = 'new' AND p.kind = 'narrative' AND p.id NOT IN (SELECT proposal_id FROM telegram_announced) ORDER BY p.id`)
       .all() as unknown as Row[];
-    return rows.map(toProposal);
+    return this.toProposals(rows);
   }
 
   markAnnounced(proposalId: number): void {
@@ -1140,7 +1164,7 @@ export class Datastore {
 
   listProposals(): Proposal[] {
     const rows = this.db.prepare(`${PROPOSAL_SELECT} ORDER BY p.id DESC`).all() as unknown as Row[];
-    return rows.map(toProposal);
+    return this.toProposals(rows);
   }
 
   /**
@@ -1184,7 +1208,7 @@ export class Datastore {
          LIMIT ?`,
       )
       .all(...params, limit) as unknown as Row[];
-    return rows.map(toProposal);
+    return this.toProposals(rows);
   }
 
   /** Stores Signals the datastore has not seen (by id); returns how many were new. The first observation of an item is kept. */

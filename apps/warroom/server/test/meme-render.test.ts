@@ -393,6 +393,20 @@ describe("the Current Meta shows a Meta's ideas", () => {
     expect(ideaViews([idea(1, { status: "new", expiresAt: new Date(NOW - 1000).toISOString() })], NOW)[0]!.expires).toBe("closes on the next worker tick");
     expect(ideaViews([idea(1, { status: "shortlisted" })], NOW)[0]!.expires).toBe("shortlisted");
   });
+
+  it("an idea made before a worker stop shows the later close time through the unchanged view (meta redesign ticket 10)", () => {
+    store.recordWorkerAlive(new Date(NOW - 11 * 3_600_000));
+    store.createMemeProposals(
+      { metaKey: "jensen", metaLabel: "Jensen", snapshot: snapshot("Jensen"), reason: "Hot now", summary: "s", evidenceLinks: [], ideas: [1, 2, 3].map((n) => ({ name: `Idea ${["Alpha", "Bravo", "Charlie"][n - 1]}`, ticker: `TK${["A", "B", "C"][n - 1]}`, angle: "a", difference: "d", description: "p", hook: "gm", imageIdea: "i", riskLabels: [] })) },
+      { now: new Date(NOW - 11 * 3_600_000) },
+    );
+    const payload = (): Array<{ id: number; name: string; ticker: string; angle: string; status: string; riskLabels: string[]; expiresAt: string | null }> =>
+      store.liveMemeProposals().map((p) => ({ id: p.id, name: p.name, ticker: p.ticker, angle: p.angle ?? "", status: p.status, riskLabels: p.riskLabels ?? [], expiresAt: p.expiresAt }));
+    expect(ideaViews(payload(), NOW)[0]!.expires).toBe("closes in 1 h"); // made 11 h ago, no stop recorded
+    for (let m = 5; m <= 60; m += 5) store.recordWorkerAlive(new Date(NOW - 11 * 3_600_000 + m * 60_000)); // alive 1 h after the idea, then stopped
+    store.recordWorkerAlive(new Date(NOW - 2 * 3_600_000)); // 8 h stop
+    expect(ideaViews(payload(), NOW)[0]!.expires).toBe("closes in 9 h");
+  });
 });
 
 describe("the Proposals list and page sources", () => {

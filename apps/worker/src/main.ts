@@ -187,9 +187,17 @@ const applyCleanups = async () => {
   });
   if (n > 0) console.log(`[worker] resolved ${n} clean-up command(s)`);
 };
+const recordAlive = () => {
+  const gap = store.recordWorkerAlive(new Date());
+  if (gap) console.log(`[worker] was stopped from ${gap.start} to ${gap.end}; meme ideas and refreshes do not count that time`);
+};
+// At boot too, so a stop is recorded even when the first tick is late.
+if (!dryRun) recordAlive();
 const tick = reentrant(
   async () => {
     console.log(`[worker] tick ${new Date().toISOString()}`);
+    // The heartbeat first: a stop since the last one is recorded before expiry reads it (meme ideas count running time only).
+    if (!dryRun) recordAlive();
     applyCommands();
     await applyCleanups();
     sweepStaleRuns();

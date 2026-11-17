@@ -1,7 +1,7 @@
 # 10: A meme Proposal's 12 h life does not run while the worker is stopped
 **Model:** sonnet / effort: medium. One new stored fact (when the worker was last alive), one change to a pure function and its caller, tests on a fake clock. Medium because the expiry date is also shown on cards and the clock-skew and boundary cases need care.
 
-**Status:** open
+**Status:** done
 
 ## Problem
 
@@ -29,17 +29,17 @@ Option (a): a one-row heartbeat plus a small gap ledger, and `expiresAtFor` take
 
 ## Acceptance criteria
 
-- [ ] A heartbeat is stored: the worker writes `worker_alive_at` (additive table, `CREATE TABLE IF NOT EXISTS`, idempotent, no migration of old data) every tick and at boot, and a gap `[alive_at, now]` is recorded when the previous heartbeat is more than a named constant (`WORKER_GAP_MS`, 10 min) older. A fresh database with no heartbeat records no gap (first boot).
-- [ ] `expiresAtFor` (or its caller in `datastore.ts:641`) pushes a meme Proposal's expiry out by the total length of recorded gaps that fall after its `since` (a gap that started before `since` counts only from `since`). Narrative Proposals are unchanged (decision 1). The extension has no cap (decision 2).
-- [ ] The 12 h refresh is held by the same gaps (decision 3): a Meta's refresh is due at its last started try plus `MEME_REFRESH_MS` plus the recorded gaps after that try. Test, fake clock: a Meta tried at T, worker stopped T+1 h to T+14 h, first tick after restart at T+14 h starts no refresh run and makes no second trio; the refresh is due at T+25 h. A New Meta event after the restart still runs (events bypass the gap, as before, under the 6 h trio guard).
-- [ ] Test, fake clock (beside `expiry.test.ts`): a meme Proposal created at T, the worker stopped from T+1 h to T+14 h (a 13 h gap), restart at T+14 h: the first tick after restart closes none; it is live until T+25 h (12 h of running time), and closes at the first tick at or after T+25 h. A second stop adds a second gap.
-- [ ] Test: a meme Proposal created before a stop, with 12 h of running time already spent at the stop, is closed on the first tick after restart, with reason `stale` (the downtime does not keep one alive that had already expired).
-- [ ] Test: a short gap below `WORKER_GAP_MS` (a slow tick, a `--once` run beside the daemon) records nothing and changes no expiry; two workers writing the heartbeat (daemon plus `--once`) never record a gap that spans a time one of them was alive.
-- [ ] Test: a clock that goes backwards (heartbeat in the future) records no gap and does not throw; an unreadable `worker_alive_at` is treated as no heartbeat.
-- [ ] `expiresAt` on the Proposal card and the "closes in ..." text (`apps/warroom/app/utils/meme.ts`) show the extended time with no page change; a render test with a gap shows the later time. No War Room page code needs a change otherwise (the page computes nothing).
-- [ ] The restart case that happened is reproduced as a test with the same shape: six live meme Proposals made 11 h before a 12 h stop are all live after the first tick and close about 1 h of running time later.
-- [ ] GLOSSARY (Meme Proposal, Proposal status: "expires after 12 hours" becomes "12 hours the worker is running") and ADR 0013 get an amendment line; `docs/architecture.md` through `pnpm docs:graph` if a stored fact appears in the graph.
-- [ ] Type-check and the full `pnpm check` pass, run once before the commit.
+- [x] A heartbeat is stored: the worker writes `worker_alive_at` (additive table, `CREATE TABLE IF NOT EXISTS`, idempotent, no migration of old data) every tick and at boot, and a gap `[alive_at, now]` is recorded when the previous heartbeat is more than a named constant (`WORKER_GAP_MS`, 10 min) older. A fresh database with no heartbeat records no gap (first boot).
+- [x] `expiresAtFor` (or its caller in `datastore.ts:641`) pushes a meme Proposal's expiry out by the total length of recorded gaps that fall after its `since` (a gap that started before `since` counts only from `since`). Narrative Proposals are unchanged (decision 1). The extension has no cap (decision 2).
+- [x] The 12 h refresh is held by the same gaps (decision 3): a Meta's refresh is due at its last started try plus `MEME_REFRESH_MS` plus the recorded gaps after that try. Test, fake clock: a Meta tried at T, worker stopped T+1 h to T+14 h, first tick after restart at T+14 h starts no refresh run and makes no second trio; the refresh is due at T+25 h. A New Meta event after the restart still runs (events bypass the gap, as before, under the 6 h trio guard).
+- [x] Test, fake clock (beside `expiry.test.ts`): a meme Proposal created at T, the worker stopped from T+1 h to T+14 h (a 13 h gap), restart at T+14 h: the first tick after restart closes none; it is live until T+25 h (12 h of running time), and closes at the first tick at or after T+25 h. A second stop adds a second gap.
+- [x] Test: a meme Proposal created before a stop, with 12 h of running time already spent at the stop, is closed on the first tick after restart, with reason `stale` (the downtime does not keep one alive that had already expired).
+- [x] Test: a short gap below `WORKER_GAP_MS` (a slow tick, a `--once` run beside the daemon) records nothing and changes no expiry; two workers writing the heartbeat (daemon plus `--once`) never record a gap that spans a time one of them was alive.
+- [x] Test: a clock that goes backwards (heartbeat in the future) records no gap and does not throw; an unreadable `worker_alive_at` is treated as no heartbeat.
+- [x] `expiresAt` on the Proposal card and the "closes in ..." text (`apps/warroom/app/utils/meme.ts`) show the extended time with no page change; a render test with a gap shows the later time. No War Room page code needs a change otherwise (the page computes nothing).
+- [x] The restart case that happened is reproduced as a test with the same shape: six live meme Proposals made 11 h before a 12 h stop are all live after the first tick and close about 1 h of running time later.
+- [x] GLOSSARY (Meme Proposal, Proposal status: "expires after 12 hours" becomes "12 hours the worker is running") and ADR 0013 get an amendment line; `docs/architecture.md` through `pnpm docs:graph` if a stored fact appears in the graph.
+- [x] Type-check and the full `pnpm check` pass, run once before the commit.
 
 ## Decisions (user, 2026-11-17)
 

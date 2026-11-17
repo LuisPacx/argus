@@ -1,5 +1,6 @@
 import type { Datastore, ProposalKind } from "./datastore.ts";
 import type { ProposalStatus } from "./lifecycle.ts";
+import { gapMsHeld, type WorkerGap } from "./worker-gaps.ts";
 
 const HOUR_MS = 3_600_000;
 
@@ -16,9 +17,13 @@ export const EXPIRY_MS: Partial<Record<ProposalStatus, number>> = {
 export const MEME_EXPIRY_MS: Partial<Record<ProposalStatus, number>> = { new: 12 * HOUR_MS };
 
 /** When a Proposal that entered `status` at `since` (ISO, the `status_history.at` of that transition) goes stale, as an ISO time; null for a state that never expires. */
-export function expiresAtFor(status: ProposalStatus, since: string, kind: ProposalKind = "narrative"): string | null {
-  const ttl = (kind === "meme" ? MEME_EXPIRY_MS[status] : undefined) ?? EXPIRY_MS[status];
-  return ttl === undefined ? null : new Date(new Date(since).getTime() + ttl).toISOString();
+export function expiresAtFor(status: ProposalStatus, since: string, kind: ProposalKind = "narrative", gaps: readonly WorkerGap[] = []): string | null {
+  const memeTtl = kind === "meme" ? MEME_EXPIRY_MS[status] : undefined;
+  const ttl = memeTtl ?? EXPIRY_MS[status];
+  if (ttl === undefined) return null;
+  // Only the meme 12 h counts running time: the worker's recorded stops after `since` push it out, with no cap. Narrative lives stay wall-clock.
+  const held = memeTtl === undefined ? 0 : gapMsHeld(gaps, since, ttl);
+  return new Date(new Date(since).getTime() + ttl + held).toISOString();
 }
 
 /**

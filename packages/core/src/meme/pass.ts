@@ -239,7 +239,7 @@ export interface MemeDue {
  * is due again after `failedRetryMinutes`; else a Meta never tried, or last tried `MEME_REFRESH_MS` ago, is due for a refresh. Watching
  * subjects are not in `metas`, so they are never due.
  */
-export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<string, Pick<MetaNewEvent, "raisedAt">>, lastTry: (key: string) => Pick<MemeAttempt, "at" | "outcome" | "eventAt"> | undefined, now: Date, config: Pick<MemeConfig, "failedRetryMinutes">): MemeDue[] {
+export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<string, Pick<MetaNewEvent, "raisedAt">>, lastTry: (key: string) => Pick<MemeAttempt, "at" | "outcome" | "eventAt"> | undefined, now: Date, config: Pick<MemeConfig, "failedRetryMinutes">, heldMs: (since: string, ttlMs: number) => number = () => 0): MemeDue[] {
   const due: MemeDue[] = [];
   for (const meta of metas) {
     const last = lastTry(meta.key);
@@ -251,8 +251,10 @@ export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<stri
       due.push({ meta, kind: event?.raisedAt === last.eventAt ? "new-meta" : "refresh", eventAt: last.eventAt, since: last.eventAt });
     } else if (!last) {
       due.push({ meta, kind: "refresh", eventAt: meta.enteredAt, since: meta.enteredAt });
-    } else if (now.getTime() - Date.parse(last.at) >= MEME_REFRESH_MS) {
-      due.push({ meta, kind: "refresh", eventAt: new Date(Date.parse(last.at) + MEME_REFRESH_MS).toISOString(), since: last.at });
+    } else {
+      // The 12 h counts running time: recorded worker downtime after the last try holds the refresh (ticket 10).
+      const slot = Date.parse(last.at) + MEME_REFRESH_MS + heldMs(last.at, MEME_REFRESH_MS);
+      if (now.getTime() >= slot) due.push({ meta, kind: "refresh", eventAt: new Date(slot).toISOString(), since: last.at });
     }
   }
   const rank = (d: MemeDue) => (d.kind === "new-meta" ? 0 : 1);
@@ -356,7 +358,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       // The live New Meta events, newest per Meta. An event is live for `newMetaLiveHours`; its Meta must still be a Meta in the newest run.
       const events = new Map<string, MetaNewEvent>();
       for (const e of store.newMetaEvents(new Date(startedAt.getTime() - metaConfig.newMetaLiveHours * HOUR_MS).toISOString())) if (!events.has(e.key)) events.set(e.key, e);
-      metaQueue = dueMetas(current.metas, events, (key) => store.meme.lastTry(key), startedAt, config);
+      metaQueue = dueMetas(current.metas, events, (key) => store.meme.lastTry(key), startedAt, config, (since, ttl) => store.workerGapMsHeld(since, ttl));
     }
   }
   // The news stories (ticket 04), after the Metas. A story that names a current Meta or Watching subject is left to that Meta (its trio wins);
