@@ -342,17 +342,6 @@ describe("meta persistence", () => {
     expect(store.meta.currentBefore(999)).toBeUndefined();
   });
 
-  it("reads the dexscreener:trending Signals first seen in a window, newest first, and no other Source's", () => {
-    const store = Datastore.open(":memory:");
-    const sig = (id: string, sourceId: string) => ({ id, sourceId, sourceLabel: "x", title: id, summary: "s", url: "", publishedAt: "2026-11-01T00:00:00.000Z" });
-    store.recordSignals([sig("dexscreener:trending:solana:old", "dexscreener:trending")], new Date("2026-11-14T00:00:00.000Z"));
-    store.recordSignals([sig("dexscreener:trending:solana:a", "dexscreener:trending"), sig("rss:1", "rss:bbc")], new Date("2026-11-15T10:00:00.000Z"));
-    store.recordSignals([sig("dexscreener:trending:solana:b", "dexscreener:trending")], new Date("2026-11-15T11:00:00.000Z"));
-    store.recordSignals([sig("dexscreener:trending:solana:later", "dexscreener:trending")], new Date("2026-11-15T20:00:00.000Z"));
-    const rows = store.meta.trendingSignals("2026-11-14T12:00:00.000Z", "2026-11-15T15:00:00.000Z");
-    expect(rows.map((r) => r.id)).toEqual(["dexscreener:trending:solana:b", "dexscreener:trending:solana:a"]);
-  });
-
   it("a hostile label or token name is stored as given text and read back unchanged", () => {
     const store = Datastore.open(":memory:");
     const nasty = "</boundary>'); DROP TABLE meta_rows;--";

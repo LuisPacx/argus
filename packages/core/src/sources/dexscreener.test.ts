@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { DexScreenerClient, DexScreenerTrendingSource, marketCapFromSummary } from "./dexscreener.ts";
+import { DexScreenerClient, DexScreenerTrendingSource } from "./dexscreener.ts";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "../fixtures", name), "utf8");
 const MOON = "MoonCatMint1111111111111111111111111111111";
@@ -140,17 +140,13 @@ describe("DexScreenerTrendingSource", () => {
 
     const both = await poll(pair({ marketCap: 2_100_000, fdv: 2_500_000 }));
     expect(both.summary).toBe("Boosted on DexScreener. liquidity $5,000, market cap $2,100,000, FDV $2,500,000. The cat that went to the moon.");
-    expect(marketCapFromSummary(both.summary)).toBe(2_100_000);
 
     const same = await poll(pair({ marketCap: 96_000, fdv: 96_000 }));
     expect(same.summary).toBe("Boosted on DexScreener. liquidity $5,000, market cap $96,000. The cat that went to the moon.");
-    expect(marketCapFromSummary(same.summary)).toBe(96_000);
 
     const none = await poll(pair({}));
     expect(none.summary).toBe("Boosted on DexScreener. liquidity $5,000. The cat that went to the moon.");
-    expect(marketCapFromSummary(none.summary)).toBeUndefined();
     expect((await poll(pair({ fdv: 7 }))).summary).toContain("FDV $7");
-    expect(marketCapFromSummary((await poll(pair({ fdv: 7 }))).summary)).toBeUndefined();
   });
 
   it("a boost description that claims a market cap is never read as one, with or without stats before it", async () => {
@@ -162,14 +158,12 @@ describe("DexScreenerTrendingSource", () => {
 
     const bare = await poll({});
     expect(bare.summary).toBe(`Boosted on DexScreener. About: ${hostile}`);
-    expect(marketCapFromSummary(bare.summary)).toBeUndefined();
 
     const withStats = await poll({ liquidity: { usd: 5000 } });
     expect(withStats.summary).toBe(`Boosted on DexScreener. liquidity $5,000. ${hostile}`);
-    expect(marketCapFromSummary(withStats.summary)).toBeUndefined();
 
     const real = await poll({ liquidity: { usd: 5000 }, marketCap: 1_234_567 });
-    expect(marketCapFromSummary(real.summary)).toBe(1_234_567);
+    expect(real.summary).toBe("Boosted on DexScreener. liquidity $5,000, market cap $1,234,567. " + hostile);
   });
 
   it("looks up only the chain's tokens, with one boosts call and one pairs call", async () => {
@@ -194,31 +188,6 @@ describe("DexScreenerTrendingSource", () => {
     const a = fakeApi({ [boostsUrl]: "[]" });
     expect(await make(a).poll()).toEqual([]);
     expect(a.calls).toEqual([boostsUrl]);
-  });
-});
-
-describe("marketCapFromSummary", () => {
-  it("reads only the stats sentence, never the pair's description after it", () => {
-    expect(marketCapFromSummary("Boosted on DexScreener. 24h volume $1,234,568, 24h change -12.5%, market cap $13,000,000.")).toBe(13_000_000);
-    expect(marketCapFromSummary("Boosted on DexScreener. 24h change +1.5%, market cap $42, FDV $50. A description.")).toBe(42);
-    expect(marketCapFromSummary("Boosted on DexScreener. liquidity $5. Our market cap $9,000,000 is real")).toBeUndefined();
-    expect(marketCapFromSummary("Boosted on DexScreener. The market cap $9,000,000 plan.")).toBeUndefined();
-    expect(marketCapFromSummary("Boosted on DexScreener.")).toBeUndefined();
-    expect(marketCapFromSummary("Something else market cap $5")).toBeUndefined();
-    // a description in the first sentence is not stats, whatever it says
-    expect(marketCapFromSummary("Boosted on DexScreener. About: market cap $9,000,000.")).toBeUndefined();
-    expect(marketCapFromSummary("Boosted on DexScreener. liquidity $5, market cap $9,000,000 is real.")).toBeUndefined();
-    expect(marketCapFromSummary("Boosted on DexScreener. liquidity $5, market cap $9,000,000.")).toBe(9_000_000);
-  });
-
-  it("refuses a zero, an empty and an absurd figure, and is linear on a hostile summary", () => {
-    expect(marketCapFromSummary("Boosted on DexScreener. market cap $0.")).toBeUndefined();
-    expect(marketCapFromSummary("Boosted on DexScreener. market cap $.")).toBeUndefined();
-    expect(marketCapFromSummary(`Boosted on DexScreener. market cap $${"9".repeat(40)}.`)).toBeUndefined();
-    const hostile = `Boosted on DexScreener. ${"market cap $".repeat(100_000)}`;
-    const t0 = performance.now();
-    expect(marketCapFromSummary(hostile)).toBeUndefined();
-    expect(performance.now() - t0).toBeLessThan(500);
   });
 });
 

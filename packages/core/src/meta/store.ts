@@ -2,7 +2,6 @@ import type { DatabaseSync } from "node:sqlite";
 import { META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow } from "./config.ts";
 import { MARKET_SOURCE_IDS } from "../sources/source-class.ts";
 import type { MetaCoverage } from "./coverage.ts";
-import { TRENDING_SOURCE_ID, type TrendingSignalRow } from "./candidates.ts";
 import type { StoredGroupAnswer } from "./grouping.ts";
 
 /**
@@ -611,18 +610,6 @@ export class MetaStore {
       .prepare(`SELECT source_id, source_label, title, url, published_at FROM signals WHERE published_at >= ? AND published_at <= ? AND source_id NOT IN (${marks}) ORDER BY published_at DESC, id LIMIT ?`)
       .all(since, until, ...MARKET_SOURCE_IDS, n) as Row[];
     return rows.map((r) => ({ sourceId: r.source_id as string, sourceLabel: r.source_label as string, title: r.title as string, url: r.url as string, publishedAt: r.published_at as string }));
-  }
-
-  /**
-   * `dexscreener:trending` Signals first seen in [`since`, `until`] (ISO), newest first, at most `limit` (capped at 2,000): the candidate
-   * list of the market-led Meta rule. Uses the (source_id, ingested_at) index. READ ONLY.
-   */
-  trendingSignals(since: string, until: string, limit = 2_000): TrendingSignalRow[] {
-    const n = Math.max(0, Math.min(2_000, Math.floor(limit)));
-    const rows = this.db
-      .prepare("SELECT id, title, summary, published_at FROM signals WHERE source_id = ? AND ingested_at >= ? AND ingested_at <= ? ORDER BY ingested_at DESC, id LIMIT ?")
-      .all(TRENDING_SOURCE_ID, since, until, n) as Row[];
-    return rows.map((r) => ({ id: r.id as string, title: r.title as string, summary: r.summary as string, publishedAt: r.published_at as string }));
   }
 
   /**

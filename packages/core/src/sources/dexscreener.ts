@@ -219,7 +219,7 @@ function summarize(pair: DexPair, description: string): string {
   if (pair.volume24hUsd > 0) stats.push(`24h volume ${usd(pair.volume24hUsd)}`);
   if (pair.priceChange24hPct !== 0) stats.push(`24h change ${pair.priceChange24hPct > 0 ? "+" : ""}${Math.round(pair.priceChange24hPct * 10) / 10}%`);
   if (pair.liquidityUsd > 0) stats.push(`liquidity ${usd(pair.liquidityUsd)}`);
-  // Meta redesign ticket 01: the figure the Meta tick reads back as a lookup hint (`marketCapFromSummary`). Never 0 or negative.
+  // The market cap stays in the summary text (a reader sees it). Never 0 or negative.
   if (pair.marketCapUsd !== undefined && pair.marketCapUsd > 0) stats.push(`market cap ${usd(pair.marketCapUsd)}`);
   if (pair.fdvUsd !== undefined && pair.fdvUsd > 0 && Math.round(pair.fdvUsd) !== Math.round(pair.marketCapUsd ?? 0)) stats.push(`FDV ${usd(pair.fdvUsd)}`);
   // With no stats the description would be the first sentence, where a reader cannot tell it from ours: it is labelled instead.
@@ -228,37 +228,3 @@ function summarize(pair: DexPair, description: string): string {
 }
 
 const ABOUT_MARK = "About: ";
-const STAT_PREFIXES = ["24h volume $", "24h change ", "liquidity $", "market cap $", "FDV $"] as const;
-
-const MARKET_CAP_MARK = "market cap $";
-const MAX_CAP_DIGITS = 15;
-
-/**
- * The market cap `summarize` wrote into a `dexscreener:trending` Signal summary, or undefined when it holds none. Read only from the stats
- * sentence (the text after "Boosted on DexScreener." up to its closing period), never from the pair's description after it, which is
- * remote text. A hint for ordering lookups, not a price: the Signal is stored once, so the figure is the one seen first. String search
- * and a digit scan, no pattern built from the text.
- */
-export function marketCapFromSummary(summary: string): number | undefined {
-  const prefix = "Boosted on DexScreener. ";
-  if (!summary.startsWith(prefix)) return undefined;
-  const rest = summary.slice(prefix.length);
-  let end = rest.indexOf(". ");
-  if (end < 0) end = rest.endsWith(".") ? rest.length - 1 : rest.length;
-  // The first sentence is ours only when every item in it is a stat `summarize` writes; a description (labelled "About: " when it comes
-  // first) or anything else fails that test, so a hostile "market cap $N" in the boost description is never read.
-  const items = rest.slice(0, end).split(", ");
-  if (!items.every((item) => STAT_PREFIXES.some((p) => item.startsWith(p)))) return undefined;
-  const item = items.find((i) => i.startsWith(MARKET_CAP_MARK));
-  if (item === undefined) return undefined;
-  let digits = "";
-  const figure = item.slice(MARKET_CAP_MARK.length);
-  if (figure.length > 40) return undefined;
-  for (const ch of figure) {
-    if (ch >= "0" && ch <= "9") digits += ch;
-    else if (ch !== ",") return undefined; // the figure is digits and commas only
-    if (digits.length > MAX_CAP_DIGITS) return undefined;
-  }
-  const n = digits === "" ? Number.NaN : Number(digits);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
-}
