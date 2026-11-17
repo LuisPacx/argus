@@ -15,7 +15,7 @@
 - [x] A test per refusal path in `startSeededServer` (live port, bad port, a DB path that `isLiveDb` says is live, a busy port) asserts it rejects with `refusal: true` and leaves nothing behind: the scratch base dir is not even created (`scripts/page-seed.test.ts`, "startSeededServer refusals write nothing").
 - [x] The seed dir is a fresh `fs.mkdtemp` under the same `~/.cache/argus-scratch` parent (not `/tmp`), named `page-seed-XXXXXX`; refusal checks run before anything is created.
 - [x] Normal runs still remove the dir: the slow-tier `--seed` test asserts the dir name matches `page-seed-<6 chars>`, the dir is gone, the process group is gone and the port is free.
-- [ ] Type-check, `pnpm lint` and the full `pnpm check` pass once on the committed tree; `pnpm page:check --seed --all` is clean.
+- [x] Type-check, `pnpm lint` and the full `pnpm check` pass once on the committed tree; `pnpm page:check --seed --all` is clean.
 
 ## Comments
 
