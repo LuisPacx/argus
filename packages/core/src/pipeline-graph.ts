@@ -395,7 +395,7 @@ export const PIPELINE: PipelineGraph = {
         { label: "A new trio is refused within (of the last one)", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms" },
         { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
-        { label: "Operator angle requests per day (they share the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
+        { label: "Operator angle requests per day (own allowance of 5 angle runs a day, apart from the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
         { label: "Operator angle requests per day, hard cap", key: "MAX_MEME_ANGLE_PER_DAY", ref: () => MAX_MEME_ANGLE_PER_DAY, unit: "count" },
         { label: "Angle runs per day, their own allowance apart from the runs above", key: "DEFAULT_ANGLE_DAILY_MEME_RUNS", ref: () => DEFAULT_ANGLE_DAILY_MEME_RUNS, unit: "count" },
         { label: "Angle runs per day, hard cap", key: "MAX_ANGLE_DAILY_MEME_RUNS", ref: () => MAX_ANGLE_DAILY_MEME_RUNS, unit: "count" },

@@ -1192,9 +1192,9 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
 
   it("regular runs cannot use the angle allowance, and angle runs do not count against the regular cap", async () => {
     const { store } = await seedJensen();
-    seedRuns(store, DEFAULT_ANGLE_DAILY_MEME_RUNS, true);
+    seedRuns(store, 8, true);
     const { brain } = fakeBrain([JENSEN_ANSWER]);
-    expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // 5 angle runs do not stop an automatic run
+    expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // 8 angle runs (the size of the regular cap) do not stop an automatic run
     // 8 regular runs stop an automatic one with the regular message, whatever the angle allowance has left
     const second = await seedJensen();
     seedRuns(second.store, 8, false);

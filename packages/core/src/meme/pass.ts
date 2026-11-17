@@ -27,8 +27,8 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
  *   or its last started try is `MEME_REFRESH_MS` (12 h) old, or it was never tried; a failed try is due again after `failedRetryMinutes`.
  *   An event bypasses the 12 h gap but not the 6 h trio guard (`MEME_WINDOW_MS`), so a Meta that leaves and comes back is not run twice;
  * - the order spends the cap well: New Meta events first (oldest first), then refreshes by oldest last try;
- * - its own cap of `maxRunsPerDay` runs (8) in any rolling 24 hours (refused and failed ones included, the retry included), taken from the
- *   shared research budget: a reached cap is recorded once per slot with its reason, logs what waits, and ends the pass without error;
+ * - its own cap of `maxRunsPerDay` runs (8) in any rolling 24 hours (refused and failed ones included, the retry included), counting only
+ *   automatic runs (the Operator's angle runs have a separate allowance of 5, below), taken from the shared research budget: a reached cap is recorded once per slot with its reason, logs what waits, and ends the pass without error;
  * - an `in-flight` brain_runs row exists before the child is spawned and the run's cost is recorded the moment it returns;
  * - the answer is untrusted: it must fit `parseMemeOutput` exactly, and no name may copy a token of the Meta's group or one DexScreener
  *   lists (the distinct-name rule); a copy goes back once with the copied names listed, then fails closed with nothing stored;
