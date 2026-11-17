@@ -19,5 +19,5 @@ Rules for agents that change this repo. Briefs point here.
 - Signal tests target the node process (or its process group), never the pnpm wrapper, which does not forward signals.
 - Your shell's cwd does not persist between calls; name the worktree in every command (`pnpm --dir <wt>`, `git -C <wt>`).
 - A PreToolUse hook (`.claude/hooks/bash-guard.sh`) enforces two of these rules: it denies in-place `sed -i` and `cd <dir>` chained with `&&` or `;`.
-- Before you report, stop every background task you started (test runs, `pnpm check`, monitors, dev servers, loops). A finished worker must hold no test slot and leave no process running.
+- Before you report, stop every background task you started (test runs, `pnpm check`, monitors, dev servers, loops). A finished worker must hold no test slot and leave no process running. A SubagentStop hook checks this; it will send you back to stop leftovers.
 - `pnpm check` takes about 6 minutes alone and can pass the Bash tool's 10-minute foreground limit when other checks run, so run it with `run_in_background: true` and wait for its completion notification; do not report, and do not start another check, while it runs. Run other commands expected to take over 2 minutes with `timeout` set to 600000. Never start monitors, watchers, `tail -f` or `sleep`/`pgrep` loops to wait for a check.

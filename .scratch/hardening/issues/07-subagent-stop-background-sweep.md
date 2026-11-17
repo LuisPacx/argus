@@ -61,3 +61,12 @@ Because the hook cannot see the subagent's processes and the task list is sessio
 6. Which Claude Code version first has `background_tasks` on `SubagentStop`? Record the version used for the manual run.
 
 ## Comments
+
+2026-11-17 (build, Claude Code 2.1.326). Manual run: I added a logging SubagentStop hook to this worktree's `.claude/settings.json` mid-session and spawned two real throwaway `general-purpose` subagents that left `sleep 600` in the background (both ended with SubagentHandback). The hook never fired for either, and no payload was captured (the subagents' sleeps were still alive; I stopped them by PID). Most likely the settings edit is not picked up by a running session; a nested `claude -p` run to test it fresh was refused by the auto-mode classifier, so it was not done. Answers:
+1. Unanswered (no payload seen). The harness does know: it printed "stopped with background work of its own still running" for both subagents, so the parent side has the information (supports alternative E as a backstop).
+2. Unanswered; documented fields only. The build ties a task to a worktree only through its `command` containing the subagent's `cwd` (a `.claude/worktrees/<name>` path).
+3. Unanswered, including the SubagentHandback interaction.
+4. Unanswered; bash-guard's PreToolUse already fires in worktrees, so likely yes.
+5. Not tried; no automatic kill is built.
+6. 2.1.326 is the version of the (non-firing) run.
+Decision: built the main approach, because it is safe whatever the answers are: it never signals anything, exits 2 only when a running shell/monitor task's command names the subagent's own worktree, and exits 0 when `stop_hook_active` is true. It logs `tasks=<n> matched=<n>` per event to `~/.local/state/argus/subagent-stop.log`, so the first real session shows whether Q1 holds (tasks=0 for subagents that left work running means the list lacks subagent tasks; then use E or B/C). Files: `.claude/hooks/subagent-stop-sweep.sh`, `.test.sh`; worker-rules line 19 updated. Acceptance criteria are met by the hook tests; the live behaviour (Q1, Q3) is still to be confirmed from the log.
