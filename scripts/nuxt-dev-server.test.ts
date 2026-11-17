@@ -2,18 +2,38 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
 import { groupAlive, httpGet, logTail, stopGroup, waitForNuxtReady } from "./nuxt-dev-server.mjs";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function startGroup(source: string): number {
-  const child = spawn(process.execPath, ["-e", source], { detached: true, stdio: "ignore" });
+const started: number[] = [];
+
+// Starts `body` in its own process group and resolves once the child has printed "ready" (its signal handlers are then installed).
+async function startGroup(body: string): Promise<number> {
+  const child = spawn(process.execPath, ["-e", `${body}; console.log('ready'); setInterval(() => {}, 1000)`], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
   child.unref();
-  return child.pid!;
+  const pgid = child.pid!;
+  started.push(pgid);
+  await new Promise<void>((resolve, reject) => {
+    child.once("exit", () => reject(new Error("child exited before ready")));
+    child.stdout!.once("data", () => resolve());
+  });
+  child.stdout!.destroy();
+  return pgid;
 }
+
+afterEach(() => {
+  for (const pgid of started.splice(0)) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // ESRCH: already gone.
+    }
+  }
+});
 
 describe("shared Nuxt dev server helpers (verify-boot step 4 and page:check --seed)", () => {
   it("httpGet returns status and body, and status 0 when nothing answers", async () => {
@@ -26,15 +46,14 @@ describe("shared Nuxt dev server helpers (verify-boot step 4 and page:check --se
   });
 
   it("stopGroup ends a SIGTERM-able group without SIGKILL", async () => {
-    const pgid = startGroup("setInterval(() => {}, 1000)");
+    const pgid = await startGroup("process.on('SIGTERM', () => process.exit(0))");
     expect(groupAlive(pgid)).toBe(true);
     expect(await stopGroup(pgid, 5000, 20)).toBe(false);
     expect(groupAlive(pgid)).toBe(false);
   });
 
   it("stopGroup SIGKILLs a group that ignores SIGTERM and says so", async () => {
-    const pgid = startGroup("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)");
-    await sleep(1500); // let node start and install the handler, also under load
+    const pgid = await startGroup("process.on('SIGTERM', () => {})");
     expect(await stopGroup(pgid, 300, 20)).toBe(true);
     const deadline = Date.now() + 3000;
     while (groupAlive(pgid) && Date.now() < deadline) await sleep(20);
