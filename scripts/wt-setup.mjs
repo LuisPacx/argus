@@ -15,8 +15,9 @@ function ownRepoRoot() {
   return at < 0 ? real : real.slice(0, at);
 }
 
-// The worktree root containing dir, or null when no install is needed. Only real directories directly under
-// <repoRoot>/.claude/worktrees count: symlinks, `..` escapes and other repos' worktrees are never installed into.
+// The worktree root containing dir, or null when no install is needed. The path is resolved through symlinks
+// and must land under <repoRoot>/.claude/worktrees (an alias symlink to a sibling worktree resolves to that sibling);
+// `..` escapes, other repos' worktrees and links pointing elsewhere are never installed into.
 export function worktreeToInstall(dir, repoRoot = ownRepoRoot()) {
   let base;
   let real;
@@ -29,11 +30,6 @@ export function worktreeToInstall(dir, repoRoot = ownRepoRoot()) {
   if (!real.startsWith(base + path.sep)) return null;
   const name = real.slice(base.length + 1).split(path.sep)[0];
   const root = path.join(base, name);
-  try {
-    if (fs.lstatSync(root).isSymbolicLink()) return null;
-  } catch {
-    return null;
-  }
   if (!fs.existsSync(path.join(root, 'package.json'))) return null;
   if (fs.existsSync(path.join(root, 'node_modules'))) return null;
   return root;

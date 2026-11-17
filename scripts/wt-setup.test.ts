@@ -1,22 +1,11 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { tempDir } from "../packages/core/src/testing/temp";
 // @ts-expect-error plain .mjs script, no types
 import { setup, worktreeToInstall } from "./wt-setup.mjs";
 
-// Scratch dirs live on the home disk (not the temp dir) and are removed when the file finishes.
-const scratchRoot = path.join(os.homedir(), ".cache", "argus-scratch");
-const made: string[] = [];
-afterAll(() => {
-  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
-function scratch(prefix: string): string {
-  fs.mkdirSync(scratchRoot, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(scratchRoot, prefix));
-  made.push(dir);
-  return dir;
-}
+const scratch = tempDir;
 
 function repo(withModules: boolean): { main: string; wt: string } {
   const main = scratch("wt-setup-");
@@ -57,6 +46,13 @@ describe("worktreeToInstall", () => {
     const link = path.join(main, ".claude", "worktrees", "linked");
     fs.symlinkSync(elsewhere, link);
     expect(worktreeToInstall(link, main)).toBeNull();
+  });
+
+  it("resolves an alias symlink to a real sibling worktree to that sibling", () => {
+    const { main, wt } = repo(false);
+    const alias = path.join(main, ".claude", "worktrees", "alias");
+    fs.symlinkSync(wt, alias);
+    expect(worktreeToInstall(alias, main)).toBe(fs.realpathSync(wt));
   });
 
   it("is null for a path that climbs out with ..", () => {
