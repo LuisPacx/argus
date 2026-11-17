@@ -9,9 +9,6 @@ import { useId } from "vue";
 import { submitVerdict, verdictBody, verdictFormView, type VerdictPayload } from "../utils/verdict.ts";
 
 const props = defineProps<{ narrativeId: number; history: VerdictPayload[] }>();
-// Nuxt's typed routes cannot tell `/api/narratives/<id>/verdict` apart from the verdicts export, so the call is typed by hand.
-type Post = (url: string, opts: { method: "POST"; body: unknown }) => Promise<unknown>;
-const post: unknown = $fetch;
 const nowMs = useNowMs();
 const choice = ref<string | null>(null);
 const tags = ref<string[]>([]);
@@ -39,7 +36,7 @@ async function submit() {
   if (!view.value.canSubmit) return;
   busy.value = true;
   error.value = null;
-  const r = await submitVerdict((body) => (post as Post)(`/api/narratives/${props.narrativeId}/verdict`, { method: "POST", body }), verdictBody({ choice: choice.value, tags: tags.value, dimensions: dimensions.value, draft: draft.value }));
+  const r = await submitVerdict((body) => $fetch<unknown>(`/api/narratives/${props.narrativeId}/verdict`, { method: "POST", body }), verdictBody({ choice: choice.value, tags: tags.value, dimensions: dimensions.value, draft: draft.value }));
   busy.value = false;
   if (r.ok) {
     choice.value = null;

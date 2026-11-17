@@ -3,7 +3,7 @@ import { Datastore } from "@argus/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * POST /api/narratives/:id/verdict, GET /api/narratives/verdicts and the detail the page renders (War Room ticket 19): the real route handlers
+ * POST /api/narratives/:id/verdict, GET /api/narrative-verdicts and the detail the page renders (War Room ticket 19): the real route handlers
  * over an in-memory store, called with the exact body the form sends. Only Nitro's auto-imported globals are stubbed. The War Room writes the
  * verdict row and nothing else.
  */
@@ -18,7 +18,7 @@ vi.stubGlobal("useStore", () => store);
 
 const post = (await import("../api/narratives/[id]/verdict.post.ts")).default as unknown as (e: Ev) => Promise<Record<string, unknown>>;
 const listGet = (await import("../api/narratives/index.get.ts")).default;
-const exportGet = (await import("../api/narratives/verdicts.get.ts")).default as unknown as () => Array<Record<string, unknown>>;
+const exportGet = (await import("../api/narrative-verdicts.get.ts")).default as unknown as () => Array<Record<string, unknown>>;
 const detail = (await import("../api/narratives/[id].get.ts")).default as unknown as (e: Ev) => { verdicts: Array<Record<string, unknown>>; proposals: Array<Record<string, unknown>> };
 
 const DIMS = { momentum: 7, novelty: 6, buildability: 8, hook: 5, legitimacy: 9 };
@@ -105,7 +105,7 @@ describe("POST /api/narratives/:id/verdict", () => {
   });
 });
 
-describe("GET /api/narratives/verdicts", () => {
+describe("GET /api/narrative-verdicts", () => {
   it("is an empty array with no verdicts", () => {
     expect(exportGet()).toEqual([]);
   });
@@ -122,9 +122,9 @@ describe("GET /api/narratives/verdicts", () => {
   });
 
   it("is a GET-only file, so a POST to it is 405 (Nitro answers 405 for a route with no handler for the method)", () => {
-    const dir = new URL("../api/narratives/", import.meta.url);
-    expect(existsSync(new URL("verdicts.get.ts", dir))).toBe(true);
-    for (const other of ["verdicts.post.ts", "verdicts.put.ts", "verdicts.delete.ts", "verdicts.ts"]) expect(existsSync(new URL(other, dir)), other).toBe(false);
+    const dir = new URL("../api/", import.meta.url);
+    expect(existsSync(new URL("narrative-verdicts.get.ts", dir))).toBe(true);
+    for (const other of ["narrative-verdicts.post.ts", "narrative-verdicts.put.ts", "narrative-verdicts.delete.ts", "narrative-verdicts.ts"]) expect(existsSync(new URL(other, dir)), other).toBe(false);
   });
 });
 

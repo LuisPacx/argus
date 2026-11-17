@@ -88,7 +88,9 @@ describe("the seed fixture", () => {
     const ra = await seedDatastore(a, NOW);
     const rb = await seedDatastore(b, NOW);
     expect(ra).toEqual(rb);
-    for (const id of Object.values(ra.ids) as number[]) expect(a.getProposal(id)).toEqual(b.getProposal(id));
+    const { narrative, ...proposalIds } = ra.ids;
+    expect(a.getNarrative(narrative)).toEqual(b.getNarrative(narrative));
+    for (const id of Object.values(proposalIds) as number[]) expect(a.getProposal(id)).toEqual(b.getProposal(id));
     a.close();
     b.close();
   });

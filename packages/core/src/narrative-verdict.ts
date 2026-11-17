@@ -50,7 +50,7 @@ export interface VerdictScore {
   rationale: string;
 }
 
-/** One row of GET /api/narratives/verdicts. */
+/** One row of GET /api/narrative-verdicts. */
 export interface VerdictExportRow {
   id: number;
   narrativeId: number;

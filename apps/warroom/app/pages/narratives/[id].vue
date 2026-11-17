@@ -2,8 +2,7 @@
 const route = useRoute();
 // The key lets the verdict form reload this page's data after a save.
 const { data } = await useFetch(`/api/narratives/${route.params.id}`, { key: `narrative-${route.params.id}` });
-// Typed routes also match `/api/narratives/verdicts` (a list) for this URL; the Narrative is the one that is not an array.
-const n = computed(() => (Array.isArray(data.value) ? null : data.value));
+const n = data;
 // 0 until mounted: UTC text on the server and first client render, the viewer's zone after (ticket 16, like ticket 15).
 const nowMs = useNowMs();
 const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
