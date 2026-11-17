@@ -131,9 +131,12 @@ const notifier = createNotifier({
   log: console.log,
   baseUrl: process.env.ARGUS_TELEGRAM_URL || undefined,
 });
+// Judge and propose share one rolling-24 h research budget (about 30% of the assumed daily quota, research-budget.ts), checked before every
+// run. The Build Runner reads the same parsed config: its daily quota gates the start of a Build.
+const researchBudget = researchConfigFromEnv(process.env);
 const buildOptions: BuildRunnerOptions = {
   notifier,
-  research: researchConfigFromEnv(process.env), // the same quota the research budget reads
+  research: researchBudget,
   buildRoot,
   templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
   dataDir,
@@ -298,8 +301,6 @@ const ingestTick = reentrant(
 // The judge pass scores new or materially changed Narratives of the current embedder (docs/architecture.md section 7), every 30 minutes.
 // Its caps (per pass, per rolling day) come from ARGUS_JUDGE_* (judgeConfigFromEnv). A dry run logs the command and spawns nothing.
 const judgeConfig = judgeConfigFromEnv(process.env);
-// Judge and propose share one rolling-24 h research budget (about 30% of the assumed daily quota, research-budget.ts), checked before every run.
-const researchBudget = researchConfigFromEnv(process.env);
 const judgeEmbedder = embedderChoice === "hashing" ? new HashingEmbedder() : { id: embedderIdOf(SEMANTIC_MODEL), dimension: SEMANTIC_MODEL.dimension };
 const judgeTick = reentrant(
   async () => {
