@@ -267,6 +267,11 @@ describe("Build Runner: spend is recorded on every path", { timeout: 60_000 }, (
 
   it("a Proposal dismissed during the run keeps its dismissal; the spend is still recorded", async () => {
     const h = makeHarness({ claudeEnv: { FAKE_CLAUDE_EFFECT: "wait-release,commit" } });
+    // The dismissal poll (every 2 s by default) kills a claude that is still running, and a killed run prints no result, so its spend
+    // is unknown ($0). Whether the poll lands before the fake claude has printed is a race against load. This test is about claude
+    // finishing first (the spend is kept, then the guard after the run sees the dismissal), so the poll is parked; the poll's own
+    // path is in build-runner-dismiss.test.ts.
+    h.options.dismissPollMs = 3_600_000;
     const p = h.seedApproved("Cat Coin");
     const running = runNextBuild(h.store, h.brain, h.options);
     await untilExists(h.started);
