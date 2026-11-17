@@ -62,6 +62,7 @@ import {
   runPendingCleanups,
   runPendingBuilds,
   startupConfigLine,
+  startWorkerHeartbeat,
   STUDY_CAPTURE_RULE,
   sweepDismissedHomes,
   sweepStaleSeals,
@@ -436,6 +437,7 @@ const runResearchTick = async () => {
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let commandTimer: ReturnType<typeof setInterval> | undefined;
+let stopHeartbeat: (() => void) | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let studyTimer: ReturnType<typeof setInterval> | undefined;
@@ -446,6 +448,7 @@ const stop = async () => {
   stopping = true;
   clearInterval(timer);
   clearInterval(commandTimer);
+  stopHeartbeat?.();
   clearInterval(ingestTimer);
   if (studyTimer) console.log("[worker] Study stopped");
   clearInterval(studyTimer);
@@ -499,6 +502,15 @@ if (once) {
       console.error("[worker] command pass failed", e);
     }
   }, TICK_MS);
+  // The heartbeat has its own timer: a tick that waits on a Spec run can pass WORKER_GAP_MS and must not look like a stop (not on a dry run).
+  if (!dryRun) {
+    stopHeartbeat = startWorkerHeartbeat(
+      store,
+      TICK_MS,
+      (gap) => console.log(`[worker] was stopped from ${gap.start} to ${gap.end}; meme ideas and refreshes do not count that time`),
+      (e) => console.error("[worker] heartbeat write failed", e),
+    );
+  }
   ingestTimer = setInterval(() => void runIngestTick(), INGEST_TICK_MS);
   if (studyOn) {
     studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);

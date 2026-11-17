@@ -4,6 +4,7 @@ export * from "./evidence-links.ts";
 export * from "./lifecycle.ts";
 export * from "./rubric.ts";
 export * from "./expiry.ts";
+export { startWorkerHeartbeat, WORKER_GAP_MS } from "./worker-gaps.ts";
 export * from "./github-repo.ts";
 export * from "./brain.ts";
 export * from "./api-brain.ts";

@@ -36,6 +36,35 @@ export function recordWorkerAlive(db: DatabaseSync, now: Date): WorkerGap | null
   return gap;
 }
 
+/** The timer functions and clock the heartbeat uses, so a test drives them without real time. */
+export interface HeartbeatDeps {
+  setInterval: (fn: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+  now: () => Date;
+}
+
+/**
+ * Writes the heartbeat every `everyMs` from a timer of its own, so a tick that waits on a slow Spec run (up to the brain timeout, as long
+ * as `WORKER_GAP_MS`) never looks like a stop. Returns the function that stops it. A failed write is passed to `onError`, never thrown.
+ */
+export function startWorkerHeartbeat(
+  store: { recordWorkerAlive(now: Date): WorkerGap | null },
+  everyMs: number,
+  onGap: (gap: WorkerGap) => void,
+  onError: (e: unknown) => void,
+  deps: HeartbeatDeps = { setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>), now: () => new Date() },
+): () => void {
+  const handle = deps.setInterval(() => {
+    try {
+      const gap = store.recordWorkerAlive(deps.now());
+      if (gap) onGap(gap);
+    } catch (e) {
+      onError(e);
+    }
+  }, everyMs);
+  return () => deps.clearInterval(handle);
+}
+
 export function readWorkerGaps(db: DatabaseSync): WorkerGap[] {
   return (db.prepare("SELECT start_at, end_at FROM worker_gaps ORDER BY start_at").all() as Array<{ start_at: string; end_at: string }>).map((r) => ({ start: r.start_at, end: r.end_at }));
 }

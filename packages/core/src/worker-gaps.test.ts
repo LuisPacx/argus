@@ -5,7 +5,7 @@ import { expireStaleProposals, expiresAtFor } from "./expiry.ts";
 import { dueMetas } from "./meme/pass.ts";
 import type { MetaSnapshot, NewMemeIdea, NewMemeTrio } from "./meme/types.ts";
 import { aMeta } from "./testing/meta-current.ts";
-import { gapMsHeld, migrateWorkerGaps, recordWorkerAlive, WORKER_GAP_MS } from "./worker-gaps.ts";
+import { gapMsHeld, migrateWorkerGaps, recordWorkerAlive, startWorkerHeartbeat, WORKER_GAP_MS } from "./worker-gaps.ts";
 
 const HOUR = 3_600_000;
 const MIN = 60_000;
@@ -164,5 +164,69 @@ describe("the 12 h meme refresh is held by recorded downtime", () => {
 
   it("without gaps the refresh is due at 12 h as before", () => {
     expect(dueMetas([meta], new Map(), () => last, at(12 * HOUR), config)).toHaveLength(1);
+  });
+});
+
+describe("the heartbeat timer", () => {
+  /** A fake clock and a fake setInterval: `advance(ms)` moves time and fires the timers due, so no real time passes. */
+  const fakeTime = () => {
+    let now = T0;
+    const timers: Array<{ fn: () => void; every: number; next: number; live: boolean }> = [];
+    return {
+      deps: {
+        now: () => new Date(now),
+        setInterval: (fn: () => void, every: number) => {
+          const t = { fn, every, next: now + every, live: true };
+          timers.push(t);
+          return t;
+        },
+        clearInterval: (h: unknown) => {
+          (h as { live: boolean }).live = false;
+        },
+      },
+      advance: (ms: number) => {
+        const end = now + ms;
+        for (;;) {
+          const due = timers.filter((t) => t.live && t.next <= end).sort((a, b) => a.next - b.next)[0];
+          if (!due) break;
+          now = due.next;
+          due.next += due.every;
+          due.fn();
+        }
+        now = end;
+      },
+      at: () => new Date(now),
+    };
+  };
+
+  it("a tick that runs longer than WORKER_GAP_MS records no gap while the heartbeat timer runs", () => {
+    const store = Datastore.open(":memory:");
+    const time = fakeTime();
+    store.recordWorkerAlive(time.at()); // boot
+    const stop = startWorkerHeartbeat(store, 30_000, () => {}, () => {}, time.deps);
+    time.advance(WORKER_GAP_MS + 5 * MIN); // one tick waiting 15 min on a Spec run
+    store.recordWorkerAlive(time.at()); // the next tick's own write
+    expect(store.workerGaps()).toEqual([]);
+    stop();
+  });
+
+  it("without the timer the same long tick is a gap, and a stopped timer writes nothing", () => {
+    const store = Datastore.open(":memory:");
+    const time = fakeTime();
+    store.recordWorkerAlive(time.at());
+    time.advance(WORKER_GAP_MS + 5 * MIN);
+    expect(store.recordWorkerAlive(time.at())).not.toBeNull();
+    const stop = startWorkerHeartbeat(store, 30_000, () => {}, () => {}, time.deps);
+    stop();
+    time.advance(HOUR);
+    expect(store.workerGaps()).toHaveLength(1); // only the one above
+  });
+
+  it("a failed write goes to onError and does not throw", () => {
+    const time = fakeTime();
+    const errors: unknown[] = [];
+    startWorkerHeartbeat({ recordWorkerAlive: () => { throw new Error("locked"); } }, 1000, () => {}, (e) => errors.push(e), time.deps);
+    expect(() => time.advance(3000)).not.toThrow();
+    expect(errors).toHaveLength(3);
   });
 });
