@@ -18,6 +18,7 @@ export const BUILD_REFUSAL_CODES = [
   "token-unreadable",
   "cloudflare-creds-missing",
   "dry-run",
+  "daily-budget",
 ] as const;
 
 export type BuildRefusalCode = (typeof BUILD_REFUSAL_CODES)[number];

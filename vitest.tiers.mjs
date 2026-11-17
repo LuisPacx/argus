@@ -19,6 +19,7 @@ export const SLOW_TESTS = [
   "packages/core/src/build-runner-bundle-real.test.ts", // real wrangler --dry-run
   "packages/core/src/build-runner-bundle-real-txt-html.test.ts", // real wrangler --dry-run
   "packages/core/src/build-runner-bundle-real-bin-wasm.test.ts", // real wrangler --dry-run
+  "packages/core/src/build-runner-budget-gate.test.ts", // fake claude, gh, wrangler, podman: whole Builds
   "packages/core/src/build-runner-dismiss.test.ts", // fake claude, gh, wrangler, podman: whole Builds
   "packages/core/src/build-runner-hardening.test.ts",
   "packages/core/src/build-runner-notify.test.ts",

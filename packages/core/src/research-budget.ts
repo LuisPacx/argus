@@ -107,6 +107,25 @@ export interface ResearchUsage {
   exhausted: boolean;
 }
 
+/**
+ * Whether a new Build may start (hardening ticket 11): not once `dailyUsedUsd` has reached the daily quota. Only the start is gated; a
+ * running Build's retry is under its own $25 cap. When closed, `freeAt` is the first moment the rolling 24 h window is under the quota
+ * again (the oldest runs aged out), assuming nothing else starts meanwhile; null if that cannot be found.
+ */
+export type BuildGate = { open: true } | { open: false; usedUsd: number; quotaUsd: number; freeAt: Date | null };
+
+export function buildGate(store: Pick<Datastore, "dailySpendSince" | "dailyRunStartsSince">, now: Date, config: ResearchBudgetConfig, caps: RunCaps = DEFAULT_RESEARCH_RUN_CAPS): BuildGate {
+  const windowMs = 24 * 3_600_000;
+  const used = store.dailySpendSince(new Date(now.getTime() - windowMs).toISOString(), caps).chargedUsd;
+  if (used < config.dailyQuotaUsd) return { open: true };
+  // The window frees up when a run's 24 h are over: after run `s` ages out, the runs started after it remain.
+  for (const start of store.dailyRunStartsSince(new Date(now.getTime() - windowMs).toISOString())) {
+    const left = store.dailySpendSince(new Date(Date.parse(start) + 1).toISOString(), caps).chargedUsd;
+    if (left < config.dailyQuotaUsd) return { open: false, usedUsd: used, quotaUsd: config.dailyQuotaUsd, freeAt: new Date(Date.parse(start) + windowMs) };
+  }
+  return { open: false, usedUsd: used, quotaUsd: config.dailyQuotaUsd, freeAt: null };
+}
+
 export function researchUsage(
   store: Pick<Datastore, "researchSpendSince" | "dailySpendSince">,
   now: Date,

@@ -9,6 +9,7 @@ import { parseGithubRepo } from "./cleanup-build.ts";
 import type { Datastore, Proposal } from "./datastore.ts";
 import { checkDisclosure } from "./disclosure.ts";
 import { markClosed, signalGroup } from "./process-group.ts";
+import { buildGate, DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, type ResearchBudgetConfig } from "./research-budget.ts";
 import { needsHumanSpecReason } from "./spec-drafting.ts";
 import { buildDoneText, buildFailedText, buildStartText, type Notifier } from "./telegram.ts";
 import { ownerState, type ReadProcStat, type SandboxJob, type SandboxRunner } from "./sandbox.ts";
@@ -47,6 +48,10 @@ export interface BuildRunnerOptions {
   previewDelayMs?: number;
   /** How often the Build's run row is touched to show the worker is alive (the stale sweep counts from it). Default 60 s. */
   heartbeatMs?: number;
+  /** The daily quota that gates the start of a Build (`ARGUS_DAILY_QUOTA_USD`); defaults to `DEFAULT_RESEARCH_BUDGET_CONFIG`. */
+  research?: ResearchBudgetConfig;
+  /** The clock the daily-budget gate reads (tests inject one); defaults to the system clock. Separate from `now`, which times a killed run. */
+  budgetNow?: () => Date;
   /** The clock the elapsed-time estimate of a killed run is measured with (tests inject one); defaults to the system clock. */
   now?: () => Date;
   /** Per git, gh and wrangler command. Default 10 minutes. */
@@ -374,6 +379,18 @@ export async function runNextBuild(
     if (lastRefusal.get(o) !== refusal) {
       lastRefusal.set(o, refusal);
       (o.log ?? console.log)(`[worker] Build for proposal ${proposal.id} not started: ${refusal}. It stays approved and is retried on the next tick.`);
+    }
+    return undefined;
+  }
+  // The daily budget gates the start of a Build only (hardening ticket 11): a used-up one makes it wait, not fail. A retry never comes here.
+  const gate = buildGate(store, o.budgetNow?.() ?? new Date(), o.research ?? DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps(brain));
+  if (!gate.open) {
+    const when = gate.freeAt ? `, expected to start about ${gate.freeAt.toISOString().slice(0, 16).replace("T", " ")} UTC` : "";
+    const message = `the daily budget is used up ($${gate.usedUsd.toFixed(2)} of $${gate.quotaUsd.toFixed(2)} in the last 24 h); the Build waits and starts by itself when the window has room${when}`;
+    store.recordBuildRefusal({ code: "daily-budget", message });
+    if (lastRefusal.get(o) !== message) {
+      lastRefusal.set(o, message);
+      (o.log ?? console.log)(`[worker] Build for proposal ${proposal.id} not started: ${message}.`);
     }
     return undefined;
   }

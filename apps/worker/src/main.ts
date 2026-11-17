@@ -133,6 +133,7 @@ const notifier = createNotifier({
 });
 const buildOptions: BuildRunnerOptions = {
   notifier,
+  research: researchConfigFromEnv(process.env), // the same quota the research budget reads
   buildRoot,
   templateRepo: process.env.ARGUS_TEMPLATE_REPO || join(buildRoot, "argus-build-template"),
   dataDir,

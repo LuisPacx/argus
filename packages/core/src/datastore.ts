@@ -2102,6 +2102,14 @@ export class Datastore {
     return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "spec", "spec-revise", "build"], since, caps);
   }
 
+  /** The start times (ISO, oldest first) of the runs `dailySpendSince` counts, so the moment the rolling window frees up can be found. */
+  dailyRunStartsSince(since: string): string[] {
+    const rows = this.db
+      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
+      .all(since) as { created_at: string }[];
+    return rows.map((r) => r.created_at);
+  }
+
   /**
    * `costUsd` is the sum of the costs runs reported. A run that ended without printing a result (killed by its wall-clock cap, by a
    * shutdown, or left in flight by a worker that died) reports $0 although it may have spent up to its `--max-budget-usd`, so for

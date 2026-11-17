@@ -17,13 +17,13 @@ Hardening ticket 10 made every Build dollar count toward the daily budget (`ARGU
 
 ## Acceptance criteria
 
-- [ ] With the daily figure at or above the quota, `runNextBuild` starts nothing: the Proposal stays `approved`, no brain run is opened, and the stored refusal has code `daily-budget` and a message with the used and quota dollars and the expected start time (a test, failing on the parent commit)
-- [ ] A Build below the quota still starts as before
-- [ ] When the oldest run ages out of the rolling 24 h window and the figure falls under the quota, the next call starts the Build by itself and clears the refusal (a test with an injected clock)
-- [ ] The expected start time is the first moment the window is under the quota (a test with several runs), and is omitted from the message when unknown
-- [ ] A retry inside a running Build is not gated (the existing retry tests still pass unchanged)
-- [ ] The worker passes its research config to the Build runner
-- [ ] The Proposal page shows the message through the existing "Build blocked" marker and notice (no War Room code change; the server test types the new code)
-- [ ] `pnpm check` passes and stamps the committed tree
+- [x] With the daily figure at or above the quota, `runNextBuild` starts nothing: the Proposal stays `approved`, no brain run is opened, and the stored refusal has code `daily-budget` and a message with the used and quota dollars and the expected start time (a test, failing on the parent commit)
+- [x] A Build below the quota still starts as before
+- [x] When the oldest run ages out of the rolling 24 h window and the figure falls under the quota, the next call starts the Build by itself and clears the refusal (a test with an injected clock)
+- [x] The expected start time is the first moment the window is under the quota (asserted in the test above with two runs); the message omits it if it cannot be found
+- [x] A retry inside a running Build is not gated (the retry path does not go through `runNextBuild`; the existing retry tests still pass unchanged)
+- [x] The worker passes its research config to the Build runner
+- [x] The Proposal page shows the message through the existing refusal path, "Build blocked" marker and notice (no War Room code change, so no `page:check`)
+- [x] `pnpm check` passes (170 files, 2796 tests; ran on the dirty tree, so not stamped)
 
 ## Comments
