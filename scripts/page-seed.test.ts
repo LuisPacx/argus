@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Datastore } from "../packages/core/src/index.ts";
@@ -6,7 +7,7 @@ import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
 import { main, parseArgs, slugFor } from "./page-check.mjs";
 // @ts-expect-error plain .mjs script, no types
-import { LIVE_PORT, SEED_DEFAULT_PORT, seedBase, seedDbProblem, seedDirFor, seedPortProblem } from "./page-check-server.mjs";
+import { LIVE_PORT, SEED_DEFAULT_PORT, seedBase, seedDbProblem, seedPortProblem, seedProbePath, startSeededServer } from "./page-check-server.mjs";
 // @ts-expect-error plain .mjs script, no types
 import { HOSTILE_NAME, STANDARD_PATHS, expandTokens, pathProblem, seedDatastore } from "./page-seed.mjs";
 
@@ -109,12 +110,43 @@ describe("seed paths and arguments", () => {
   });
 });
 
+describe("startSeededServer refusals write nothing", () => {
+  // A base that does not exist yet: any dir, file or DB a refusal left behind would make it exist.
+  const freshBase = () => path.join(tempDir("page-seed-base-"), "scratch");
+  const refused = async (opts: Record<string, unknown>) => {
+    const base = (opts.base as string | undefined) ?? freshBase();
+    await expect(startSeededServer({ now: NOW, liveDbs: [], ...opts, base })).rejects.toMatchObject({ refusal: true });
+    expect(fs.existsSync(base)).toBe(false);
+    expect(fs.readdirSync(path.dirname(base))).toEqual([]);
+  };
+
+  it("refuses the live port", async () => {
+    await refused({ port: LIVE_PORT });
+  });
+  it("refuses a bad port", async () => {
+    await refused({ port: 0 });
+  });
+  it("refuses a seed DB path that is the live DB", async () => {
+    const base = freshBase();
+    await refused({ base, liveDbs: [seedProbePath(base)] });
+  });
+  it("refuses a busy port", async () => {
+    const server = net.createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      await refused({ port: (server.address() as net.AddressInfo).port });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
 describe("refusals", () => {
-  const dir = seedDirFor(seedBase());
+  const dir = seedBase();
   it("refuses the live port, a live or non-scratch DB path", () => {
     expect(seedPortProblem(LIVE_PORT)).toContain("live");
     expect(seedPortProblem(SEED_DEFAULT_PORT)).toBeNull();
-    const db = path.join(dir, "argus.db");
+    const db = path.join(dir, "page-seed-x", "argus.db");
     expect(seedDbProblem(db, [], seedBase())).toBeNull();
     expect(seedDbProblem(db, [db], seedBase())).toContain("live");
     expect(seedDbProblem(`${db}-wal`, [db], seedBase())).toContain("live");
@@ -137,6 +169,5 @@ describe("refusals", () => {
       error.mockRestore();
     }
     expect(fs.readdirSync(out)).toEqual([]);
-    expect(fs.existsSync(dir)).toBe(false);
   });
 });

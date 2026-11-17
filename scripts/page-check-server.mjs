@@ -22,7 +22,10 @@ const POLL_MS = 100;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const seedBase = (home = os.homedir()) => path.join(home, '.cache', 'argus-scratch');
-export const seedDirFor = (base, pid = process.pid) => path.join(base, `page-seed-${pid}`);
+export const SEED_PREFIX = 'page-seed-';
+// Where a refusal check looks before anything is created; the real dir is a fresh fs.mkdtemp under `base` (a reused pid after a
+// SIGKILL can never pick up a stale dir).
+export const seedProbePath = (base) => path.join(base, `${SEED_PREFIX}probe`, 'argus.db');
 
 // Returns a problem string when a seeded run must not use `port`, else null.
 export function seedPortProblem(port) {
@@ -90,13 +93,18 @@ export async function startSeededServer({ port = SEED_DEFAULT_PORT, now, base = 
   const refuse = (message) => Object.assign(new Error(message), { refusal: true });
   const portProblem = seedPortProblem(port);
   if (portProblem) throw refuse(portProblem);
-  const dir = seedDirFor(base);
-  const dbPath = path.join(dir, 'argus.db');
-  const dbProblem = seedDbProblem(dbPath, liveDbs, base);
-  if (dbProblem) throw refuse(dbProblem);
+  const probeProblem = seedDbProblem(seedProbePath(base), liveDbs, base);
+  if (probeProblem) throw refuse(probeProblem);
   if (await portBusy(port)) throw refuse(`port ${port} is already in use; pass --port with a free port`);
 
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(base, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(base, SEED_PREFIX));
+  const dbPath = path.join(dir, 'argus.db');
+  const dbProblem = seedDbProblem(dbPath, liveDbs, base);
+  if (dbProblem) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw refuse(dbProblem);
+  }
   let pgid = null;
   let stopped = false;
   const stop = async () => {

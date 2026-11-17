@@ -108,6 +108,7 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
     const json = JSON.parse(fs.readFileSync(path.join(out, "proposals-2.json"), "utf8"));
     expect(json).toMatchObject({ seeded: true, exit: 0 });
     expect(json.widths.every((w: { overflow: boolean }) => !w.overflow)).toBe(true);
+    expect(path.basename(dir)).toMatch(/^page-seed-[A-Za-z0-9]{6}$/); // fs.mkdtemp, never a pid-named dir a later run could find stale
     expect(fs.existsSync(dir)).toBe(false);
     expect(() => process.kill(-pgid, 0)).toThrow(/ESRCH/);
   });
