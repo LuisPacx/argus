@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { VERDICT_FILTER } from "../../utils/verdict.ts";
+
 const route = useRoute();
 
 // Sort and filters live in the URL query (and are applied by the API, so a cap cuts after sorting). Defaults are left out of the URL.
@@ -34,12 +36,13 @@ const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
   const v = typeof raw === "string" ? raw : "";
   return allowed.some((o) => o.value === v) ? v : "";
 };
-type Current = { sort: string; kind: string; scored: string; proposal: string; active: string; source: string };
+type Current = { sort: string; kind: string; scored: string; proposal: string; verdict: string; active: string; source: string };
 const current = computed<Current>(() => ({
   sort: pick(route.query.sort, SORTS) || "score",
   kind: pick(route.query.kind, KINDS) || "news",
   scored: pick(route.query.scored, SCORED),
   proposal: pick(route.query.proposal, PROPOSAL),
+  verdict: pick(route.query.verdict, VERDICT_FILTER),
   active: pick(route.query.active, ACTIVE),
   // An unknown Source in the URL falls back to all Sources, like the other controls.
   source: typeof route.query.source === "string" && sources.value.some((s) => s.sourceId === route.query.source) ? route.query.source : "",
@@ -48,14 +51,14 @@ const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
   if (c.sort !== "score") q.sort = c.sort;
   if (c.kind !== "news") q.kind = c.kind;
-  for (const k of ["scored", "proposal", "active", "source"] as const) if (c[k]) q[k] = c[k];
+  for (const k of ["scored", "proposal", "verdict", "active", "source"] as const) if (c[k]) q[k] = c[k];
   return q;
 };
 const to = (patch: Partial<Current>) => ({ path: "/narratives", query: withDefaults({ ...current.value, ...patch }) });
 const opts = (list: Array<{ value: string; label: string }>, key: keyof Current) =>
   list.map((o) => ({ label: o.label, to: to({ [key]: o.value }), active: current.value[key] === o.value }));
-const filtered = computed(() => !!(current.value.scored || current.value.proposal || current.value.active || current.value.source));
-const clearTo = computed(() => to({ scored: "", proposal: "", active: "", source: "" }));
+const filtered = computed(() => !!(current.value.scored || current.value.proposal || current.value.verdict || current.value.active || current.value.source));
+const clearTo = computed(() => to({ scored: "", proposal: "", verdict: "", active: "", source: "" }));
 
 const { data: narratives, refresh } = await useFetch("/api/narratives", { query: computed(() => withDefaults(current.value)), default: () => [] });
 const LIMIT = 100;
@@ -83,6 +86,7 @@ const groups = computed(() => [
   { kind: "seg" as const, key: "kind", title: "Kind", label: "Kind filter", options: opts(KINDS, "kind") },
   { kind: "seg" as const, key: "scored", title: "Score", label: "Scored filter", options: opts(SCORED, "scored") },
   { kind: "seg" as const, key: "proposal", title: "Proposal", label: "Proposal filter", options: opts(PROPOSAL, "proposal") },
+  { kind: "seg" as const, key: "verdict", title: "Verdict", label: "Verdict filter", options: opts(VERDICT_FILTER, "verdict") },
   { kind: "select" as const, key: "active", title: "Active", id: "narrative-active", value: current.value.active, options: ACTIVE },
   {
     kind: "select" as const,
@@ -105,16 +109,17 @@ const groups = computed(() => [
     <p v-if="!narratives.length && filtered" class="surface muted text-sm">No Narratives match these filters.</p>
     <p v-else-if="!narratives.length" class="surface muted text-sm">No Narratives yet. The worker clusters new Signals after each ingest tick.</p>
     <TransitionGroup v-else tag="div" name="row" :appear="animate" class="relative grid grid-cols-[minmax(0,1fr)] gap-3">
-      <article v-for="(n, i) in narratives" :key="n.id" class="row flex items-center gap-4 py-5" :style="{ '--i': i }">
-        <div class="min-w-0 grow">
+      <article v-for="(n, i) in narratives" :key="n.id" class="row flex flex-wrap items-center gap-x-4 gap-y-3 py-5" :style="{ '--i': i }">
+        <div class="min-w-0 grow basis-48">
           <h3 class="truncate font-semibold tracking-tight">
             <NuxtLink :to="`/narratives/${n.id}`" class="row-link">{{ n.title }}</NuxtLink>
           </h3>
           <p v-if="n.summary" class="muted mt-1 line-clamp-1 text-sm">{{ n.summary }}</p>
         </div>
-        <div class="flex shrink-0 items-center gap-3 text-sm">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <span v-if="n.sourceClass === 'context'" class="pill pill-ink" data-test="source-class" title="No market Signal: shown for context, never judged or proposed">context</span>
           <span v-if="n.hasProposal" class="pill pill-green" data-test="has-proposal">Proposal</span>
+          <VerdictPill :verdict="n.verdict" />
           <span v-if="n.score !== null" class="pill pill-accent tabular-nums" data-test="score">{{ n.score.toFixed(1) }}<span class="opacity-70">/10</span></span>
           <span class="pill pill-ink" data-test="signal-count">{{ signalsLabel(n.signalCount) }}</span>
           <span class="faint hidden w-24 text-right sm:inline" data-test="age">age {{ age(n.createdAt) }}</span>

@@ -6,10 +6,11 @@
 // The core fixtures are imported inside seedDatastore, so a plain `page:check` (no --seed) does not load the Datastore.
 
 // The `{token}` names an explicit --seed path can use, each replaced by that Proposal's id.
-export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle'];
+// `narrative` is the id of the Tech Proposal's Narrative (its verdict history and Proposal link), not a Proposal id.
+export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
@@ -58,7 +59,7 @@ function idea(name, ticker, angle) {
 export async function seedDatastore(store, now) {
   const { aMeta, saveCurrentRun } = await import('../packages/core/src/testing/meta-current.ts');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * MIN).toISOString();
-  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0, angle_requests: 0 };
+  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0, angle_requests: 0, verdicts: 0 };
 
   // The Metas (one holding its place, one cooling), two Watching subjects, and the New Meta event for the first.
   // Merged launch themes (ticket 07): three for the chair (one long unbroken label, one with markup), seven for the lobster (so "+2 more" shows), none for the others.
@@ -220,5 +221,13 @@ export async function seedDatastore(store, now) {
   );
   counts.proposals += newsTrio.length;
 
-  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id }, counts };
+  // The Operator's verdicts (War Room ticket 19), through the production write path: the Tech Narrative has an earlier bad verdict with a
+  // score tag, replaced by a good one whose note is hostile markup; the news Narrative has a bad one. Both were made against their Score.
+  const verdict = (narrativeId, v, minutesAgo, over = {}) => store.addNarrativeVerdict({ narrativeId, verdict: v, tags: [], dimensions: [], note: '', ...over }, { now: new Date(now.getTime() - minutesAgo * MIN) });
+  verdict(techNarrative, 'bad', 40, { tags: ['score-too-high'], dimensions: ['hook', 'momentum'], note: 'SEED sample: too hopeful for one headline' });
+  verdict(techNarrative, 'good', 10, { tags: ['score-too-low'], dimensions: ['buildability'], note: `SEED <img src=x onerror=alert(1)> ${'V'.repeat(140)}` });
+  verdict(newsNarrative, 'bad', 8, { tags: ['wrong-cluster', 'duplicate'] });
+  counts.verdicts += 3;
+
+  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative }, counts };
 }

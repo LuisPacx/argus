@@ -1,6 +1,9 @@
 <script setup lang="ts">
 const route = useRoute();
-const { data: n } = await useFetch(`/api/narratives/${route.params.id}`);
+// The key lets the verdict form reload this page's data after a save.
+const { data } = await useFetch(`/api/narratives/${route.params.id}`, { key: `narrative-${route.params.id}` });
+// Typed routes also match `/api/narratives/verdicts` (a list) for this URL; the Narrative is the one that is not an array.
+const n = computed(() => (Array.isArray(data.value) ? null : data.value));
 // 0 until mounted: UTC text on the server and first client render, the viewer's zone after (ticket 16, like ticket 15).
 const nowMs = useNowMs();
 const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
@@ -19,6 +22,11 @@ const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
         {{ signalsLabel(n.signalCount) }} · started <time :datetime="n.createdAt" :title="n.createdAt">{{ fmtWhen(n.createdAt, nowMs) }}</time> · last Signal <time :datetime="n.lastSignalAt" :title="n.lastSignalAt">{{ fmtWhen(n.lastSignalAt, nowMs) }}</time> · last material change
         <time :datetime="n.changedMateriallyAt" :title="n.changedMateriallyAt">{{ fmtWhen(n.changedMateriallyAt, nowMs) }}</time>
       </p>
+    </div>
+
+    <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <VerdictForm :narrative-id="n.id" :history="n.verdicts" />
+      <NarrativeProposals :proposals="n.proposals" />
     </div>
 
     <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">

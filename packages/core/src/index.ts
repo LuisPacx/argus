@@ -1,6 +1,7 @@
 export const ARGUS = "argus";
 export * from "./datastore.ts";
 export * from "./evidence-links.ts";
+export * from "./narrative-verdict.ts";
 export * from "./lifecycle.ts";
 export * from "./rubric.ts";
 export * from "./expiry.ts";

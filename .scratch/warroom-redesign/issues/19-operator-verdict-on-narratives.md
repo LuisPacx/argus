@@ -1,7 +1,7 @@
 # 19: The Operator records a verdict on a Narrative in the War Room
 **Model:** sonnet / effort: medium. One additive table, one POST, one GET export, a form and a pill on two pages, a link block; the pattern is the Proposal command route and `meme-angle`. No judge, prompt or Rubric change.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none.
 
@@ -38,7 +38,7 @@ The Operator can decide on Proposals (`apps/warroom/server/api/proposals/[id]/co
 
 ## Open questions for the user
 
-Defaults above stand unless changed.
+Defaults above stand unless changed. Decided by user 11-17: all defaults accepted (questions 1 to 7 as written). He also confirmed that a launchpad Narrative (never judged) may get a verdict, with null score id and Rubric version.
 
 1. Verdict is good or bad with the four tags, score-tag dimensions, and an optional 500-character note?
 2. A new verdict replaces the old one for display, history kept, stored with the Score id and Rubric version current at the time?

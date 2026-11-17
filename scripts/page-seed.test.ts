@@ -18,7 +18,12 @@ describe("the seed fixture", () => {
   it("writes a row of each kind through the Datastore and returns the Proposal ids", async () => {
     const store = fresh();
     const { ids, counts } = await seedDatastore(store, NOW);
-    expect(new Set(Object.values(ids)).size).toBe(5);
+    const { narrative, ...proposalIds } = ids;
+    expect(new Set(Object.values(proposalIds)).size).toBe(5);
+    // The Operator's verdicts (ticket 19): a history on the Tech Narrative (the newest, good, is the current one), one on the news Narrative.
+    expect(store.verdictsFor(narrative).map((v: { verdict: string; scoreId: number | null }) => [v.verdict, v.scoreId !== null])).toEqual([["good", true], ["bad", true]]);
+    expect(store.queryNarratives({ verdict: "bad" })).toHaveLength(1);
+    expect(store.getProposal(ids.tech)!.narrativeId).toBe(narrative);
 
     const tech = store.getProposal(ids.tech)!;
     expect(tech).toMatchObject({ kind: "narrative", status: "new", name: "SEED Invoice Tool" });
@@ -63,7 +68,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3 });
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
     expect(store.getProposal(ids.tech)).toMatchObject({ agentCostKind: "unknown" });

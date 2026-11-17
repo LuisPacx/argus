@@ -15,6 +15,7 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RATE, type CostSource } from "./run-cost.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
+import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_WINDOW_MS, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -582,6 +583,8 @@ export function migrate(db: DatabaseSync): void {
   // The Operator's angle (meta redesign ticket 11): one request table and one nullable Proposal column, both additive.
   migrateAngles(db);
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
+  // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
+  migrateVerdicts(db);
   // The worker heartbeat and the ledger of its stops (meta redesign ticket 10): additive tables.
   migrateWorkerGaps(db);
 }
@@ -746,6 +749,9 @@ export type WarRoomStore = Pick<
   | "pendingCommands"
   | "historyFor"
   | "enqueueCommand"
+  | "addNarrativeVerdict"
+  | "verdictsFor"
+  | "verdictExport"
   | "createProposal"
   | "saveSpec"
   | "getRubric"
@@ -805,6 +811,8 @@ export interface NarrativeQuery {
   /** Only Narratives of this kind. Unset: both (the War Room API defaults to news). */
   kind?: "news" | "launchpad";
   sourceId?: string;
+  /** The current Verdict: `good`, `bad`, or `none` (no Verdict yet). */
+  verdict?: Verdict | "none";
   /** ISO time: only Narratives that gained a Signal at or after it. */
   activeSince?: string;
   limit?: number;
@@ -814,6 +822,8 @@ export interface NarrativeQuery {
 export interface NarrativeListItem extends Narrative {
   score: number | null;
   hasProposal: boolean;
+  /** The Operator's current Verdict (the newest), or null. */
+  verdict: Verdict | null;
   /** `market` when the Narrative holds at least one market Signal (it can be judged and proposed), else `context` (ticket 24). */
   sourceClass: SourceClass;
 }
@@ -1717,6 +1727,13 @@ export class Datastore {
       where.push("EXISTS (SELECT 1 FROM signals g WHERE g.narrative_id = n.id AND g.source_id = ?)");
       params.push(q.sourceId);
     }
+    if (q.verdict !== undefined) {
+      if (q.verdict === "none") where.push("v.id IS NULL");
+      else {
+        where.push("v.verdict = ?");
+        params.push(q.verdict);
+      }
+    }
     if (q.activeSince !== undefined) {
       where.push("n.last_signal_at >= ?");
       params.push(q.activeSince);
@@ -1731,17 +1748,18 @@ export class Datastore {
     const rows = this.db
       .prepare(
         `SELECT n.id, n.title, n.summary, n.signal_count, n.created_at, n.last_signal_at, n.changed_materially_at,
-                s.total AS score_total,
+                s.total AS score_total, v.verdict AS verdict,
                 EXISTS (SELECT 1 FROM proposals p WHERE p.narrative_id = n.id AND p.kind = 'narrative') AS has_proposal,
                 ${HAS_MARKET_SIGNAL} AS has_market
          FROM narratives n
          LEFT JOIN scores s ON s.id = (SELECT MAX(id) FROM scores WHERE narrative_id = n.id)
+         LEFT JOIN narrative_verdicts v ON v.id = (SELECT MAX(id) FROM narrative_verdicts WHERE narrative_id = n.id)
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY ${order}
          LIMIT ?`,
       )
-      .all(...params, limit) as unknown as Array<NarrativeRow & { score_total: number | null; has_proposal: number; has_market: number }>;
-    return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, hasProposal: r.has_proposal === 1, sourceClass: r.has_market === 1 ? "market" : "context" }));
+      .all(...params, limit) as unknown as Array<NarrativeRow & { score_total: number | null; verdict: Verdict | null; has_proposal: number; has_market: number }>;
+    return rows.map((r) => ({ ...toNarrative(r), score: r.score_total, verdict: r.verdict, hasProposal: r.has_proposal === 1, sourceClass: r.has_market === 1 ? "market" : "context" }));
   }
 
   /** A Narrative's kind (`news` or `launchpad`), or undefined when it does not exist. */
@@ -1944,6 +1962,42 @@ export class Datastore {
       .prepare("INSERT INTO commands (proposal_id, type, reason, created_at) VALUES (?, ?, ?, ?)")
       .run(proposalId, type, reason, new Date().toISOString());
     return this.getCommand(Number(res.lastInsertRowid))!;
+  }
+
+  /**
+   * War Room entry point (ticket 19, insert only like `enqueueCommand`): records the Operator's Verdict on a Narrative, with the id and
+   * Rubric version of the Narrative's latest Score read here, never taken from the caller (null when it has none). The verdicts are a
+   * history: the newest is the current one. Writes no Proposal or Narrative state. The route checks the values; an unknown Narrative throws.
+   */
+  addNarrativeVerdict(input: NewNarrativeVerdict, opts: { now?: Date } = {}): NarrativeVerdict {
+    return this.inTransaction(() => {
+      if (!this.db.prepare("SELECT 1 FROM narratives WHERE id = ?").get(input.narrativeId)) throw new Error(`Narrative ${input.narrativeId} does not exist`);
+      const latest = this.latestScore(input.narrativeId);
+      const res = this.db
+        .prepare("INSERT INTO narrative_verdicts (narrative_id, verdict, tags, dimensions, note, score_id, rubric_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(input.narrativeId, input.verdict, JSON.stringify(input.tags), JSON.stringify(input.dimensions), input.note, latest?.id ?? null, latest?.rubricVersion ?? null, (opts.now ?? new Date()).toISOString());
+      return toNarrativeVerdict(this.db.prepare("SELECT * FROM narrative_verdicts WHERE id = ?").get(Number(res.lastInsertRowid)) as Record<string, string | number | null>);
+    });
+  }
+
+  /** A Narrative's verdicts, newest (the current one) first. */
+  verdictsFor(narrativeId: number): NarrativeVerdict[] {
+    const rows = this.db.prepare("SELECT * FROM narrative_verdicts WHERE narrative_id = ? ORDER BY id DESC").all(narrativeId) as Record<string, string | number | null>[];
+    return rows.map(toNarrativeVerdict);
+  }
+
+  /** Every verdict, oldest first, with the Score it was made against and the Narrative's latest Score now (the dataset to check the judge against). */
+  verdictExport(): VerdictExportRow[] {
+    const rows = this.db
+      .prepare("SELECT v.*, n.title AS title FROM narrative_verdicts v JOIN narratives n ON n.id = v.narrative_id ORDER BY v.id")
+      .all() as Array<Record<string, string | number | null>>;
+    const shown = (s: Score | undefined): VerdictScore | null => (s ? { id: s.id, rubricVersion: s.rubricVersion, scores: s.scores, total: s.total, rationale: s.rationale } : null);
+    return rows.map((r) => {
+      const v = toNarrativeVerdict(r);
+      const score = shown(this.getScore(v.scoreId));
+      const latestScore = shown(this.latestScore(v.narrativeId));
+      return { id: v.id, narrativeId: v.narrativeId, title: r.title as string, verdict: v.verdict, tags: v.tags, dimensions: v.dimensions, note: v.note, createdAt: v.createdAt, score, latestScore, scoreChanged: (latestScore?.id ?? null) !== (score?.id ?? null) };
+    });
   }
 
   getCommand(id: number): Command | undefined {

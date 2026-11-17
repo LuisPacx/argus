@@ -31,6 +31,11 @@ export default defineEventHandler((event) => {
   query.kind = kind;
   const hasProposal = yesNo(q.proposal, "proposal filter");
   if (hasProposal !== undefined) query.hasProposal = hasProposal;
+  const verdict = one(q.verdict);
+  if (verdict !== undefined) {
+    if (verdict !== "good" && verdict !== "bad" && verdict !== "none") throw bad("verdict filter");
+    query.verdict = verdict;
+  }
   const source = one(q.source);
   if (source !== undefined) query.sourceId = source;
   const active = one(q.active);
