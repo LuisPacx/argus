@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isClosed, killGroup, markClosed } from "./process-group.ts";
+import { streamSpendOf, type CostSource, type StreamSpendTotal } from "./run-cost.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
 export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas";
@@ -24,6 +25,8 @@ export interface BrainRun<T> {
   /** claude-code only; enables resume. */
   sessionId?: string;
   totalCostUsd: number;
+  /** `exact` for a claude run's own result; absent for the API backend, whose figure is its reported usage priced. */
+  costSource?: CostSource;
   backend: BrainBackend;
   model: string;
   /** Set when `--dry-run` logged the command and spawned nothing; `output` is then meaningless. */
@@ -180,6 +183,10 @@ export class BrainError extends Error {
   readonly kind: BrainFailureKind;
   readonly sessionId?: string;
   readonly totalCostUsd: number;
+  /** What stands behind `totalCostUsd`: the result's own (`exact`), the priced stream of a killed run (`estimated`), or nothing (`unknown`, 0). */
+  readonly costSource: CostSource;
+  /** True when a child process ran (and was then killed, crashed or failed); false when nothing was spawned, so there is nothing to charge for. */
+  readonly ran: boolean;
   readonly backend: BrainBackend;
   readonly model: string;
   /** For `rate-limited`: when claude said the window resets, if it said. Untrusted until the reader clamps it. */
@@ -187,7 +194,7 @@ export class BrainError extends Error {
   constructor(
     kind: BrainFailureKind,
     message: string,
-    info: { sessionId?: string; totalCostUsd?: number; backend: BrainBackend; model: string; resetsAt?: Date },
+    info: { sessionId?: string; totalCostUsd?: number; costSource?: CostSource; ran?: boolean; backend: BrainBackend; model: string; resetsAt?: Date },
   ) {
     super(message);
     this.name = "BrainError";
@@ -195,6 +202,8 @@ export class BrainError extends Error {
     this.resetsAt = info.resetsAt;
     this.sessionId = info.sessionId;
     this.totalCostUsd = info.totalCostUsd ?? 0;
+    this.costSource = info.costSource ?? ((info.totalCostUsd ?? 0) > 0 ? "exact" : "unknown");
+    this.ran = info.ran ?? false;
     this.backend = info.backend;
     this.model = info.model;
   }
@@ -465,8 +474,25 @@ export class ClaudeCodeBrain implements Brain {
     const { stdout, stderr, code, signal, timedOut, interrupted } = out;
     const messages = parseMessages(stdout);
     const msg = messages.filter((m) => m.type === "result").at(-1);
-    // A killed run prints no result (spend unknown, so $0), but a stream's earlier messages carry the session: the work can still be resumed.
-    const base = { sessionId: sessionIdOf(messages), totalCostUsd: msg?.total_cost_usd ?? 0, ...info };
+    // A killed run prints no result, but a stream's earlier messages carry the session (the work can still be resumed) and each turn's
+    // usage: priced, that is an estimate of what it spent (see run-cost.ts). With neither, the cost is unknown and recorded as 0, and
+    // `ran` tells the caller a child did run, so it may charge for the time it took (the Build runner does).
+    let streamed: StreamSpendTotal | undefined;
+    if (!msg) {
+      try {
+        streamed = streamSpendOf(stdout);
+      } catch (e) {
+        (this.opts.log ?? console.log)(`[brain] could not price the usage of a run without a result: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const reported = typeof msg?.total_cost_usd === "number";
+    const base = {
+      sessionId: sessionIdOf(messages),
+      totalCostUsd: reported ? msg!.total_cost_usd! : (streamed?.usd ?? 0),
+      costSource: (reported ? "exact" : streamed ? "estimated" : "unknown") as CostSource,
+      ran: true,
+      ...info,
+    };
     // A complete successful result is the run's outcome even if our own kill (cap or shutdown) landed after it was printed.
     const killedByUs = timedOut || interrupted;
     const succeeded = msg?.subtype === "success" && !msg.is_error && (code === 0 || killedByUs);
@@ -492,7 +518,7 @@ export class ClaudeCodeBrain implements Brain {
       const limited = (msg.is_error || code !== 0) && isRateLimited(messages, text);
       throw new BrainError(limited ? "rate-limited" : "failed", text.slice(0, 500), { ...base, resetsAt: limited ? rateLimitResetOf(messages, text) : undefined });
     }
-    return { output: (msg.result ?? "") as T, ...base };
+    return { output: (msg.result ?? "") as T, sessionId: base.sessionId, totalCostUsd: base.totalCostUsd, costSource: base.costSource, ...info };
   }
 }
 

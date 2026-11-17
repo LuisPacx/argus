@@ -52,8 +52,12 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
  */
 export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor">): RunCaps {
   // The subscription's caps, even while the API fallback is serving: Est. usage is charged at the subscription's per-run cap.
-  const route = (task: "judge" | "propose" | "meta-summary" | "meta-group" | "meme-ideas") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
+  const route = (task: "judge" | "propose" | "meta-summary" | "meta-group" | "meme-ideas" | "spec") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
   return {
+    // Spec drafts and revisions are no research (the research budget sums the five tasks below only) but count in the daily total, where
+    // a draft that ended with no cost (the shutdown, a cancel) is charged at its cap (hardening ticket 10).
+    spec: route("spec").maxBudgetUsd ?? DEFAULT_ROUTING.spec.maxBudgetUsd,
+    "spec-revise": route("spec").maxBudgetUsd ?? DEFAULT_ROUTING.spec.maxBudgetUsd,
     judge: route("judge").maxBudgetUsd ?? DEFAULT_ROUTING.judge.maxBudgetUsd,
     propose: route("propose").maxBudgetUsd ?? DEFAULT_ROUTING.propose.maxBudgetUsd,
     // The Meta summary line counts in the research share too (viral sources ticket 03, slice 5).
@@ -66,6 +70,8 @@ export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor
 }
 
 export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = {
+  spec: DEFAULT_ROUTING.spec.maxBudgetUsd,
+  "spec-revise": DEFAULT_ROUTING.spec.maxBudgetUsd,
   judge: DEFAULT_ROUTING.judge.maxBudgetUsd,
   propose: DEFAULT_ROUTING.propose.maxBudgetUsd,
   "meta-summary": DEFAULT_ROUTING["meta-summary"].maxBudgetUsd,
@@ -82,6 +88,15 @@ export interface ResearchUsage {
   usedUsd: number;
   /** The Est. usage the runs actually reported, without those charges. */
   reportedUsd: number;
+  /** What the cap charges added to `reportedUsd` (`usedUsd - reportedUsd`): estimated, not reported, and shown as such in the War Room. */
+  estimatedUsd: number;
+  /**
+   * Everything the subscription ran in the same 24 hours counted toward the daily quota, not only the research share: research and Spec
+   * runs as charged above, and every Build dollar (exact, or the estimate of a killed run; every attempt). Est. usage, not a charge.
+   */
+  dailyUsedUsd: number;
+  /** `dailyUsedUsd` as a fraction of `quotaUsd`. */
+  dailyUsedShareOfQuota: number;
   runs: number;
   budgetUsd: number;
   quotaUsd: number;
@@ -93,16 +108,21 @@ export interface ResearchUsage {
 }
 
 export function researchUsage(
-  store: Pick<Datastore, "researchSpendSince">,
+  store: Pick<Datastore, "researchSpendSince" | "dailySpendSince">,
   now: Date,
   config: ResearchBudgetConfig,
   caps: RunCaps = DEFAULT_RESEARCH_RUN_CAPS,
 ): ResearchUsage {
-  const spent = store.researchSpendSince(new Date(now.getTime() - 24 * 3_600_000).toISOString(), caps);
+  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+  const spent = store.researchSpendSince(since, caps);
+  const daily = store.dailySpendSince(since, caps);
   const budgetUsd = researchBudgetUsd(config);
   return {
     usedUsd: spent.chargedUsd,
     reportedUsd: spent.costUsd,
+    estimatedUsd: Math.max(0, spent.chargedUsd - spent.costUsd),
+    dailyUsedUsd: daily.chargedUsd,
+    dailyUsedShareOfQuota: daily.chargedUsd / config.dailyQuotaUsd,
     runs: spent.runs,
     budgetUsd,
     quotaUsd: config.dailyQuotaUsd,

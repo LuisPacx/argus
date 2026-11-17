@@ -315,7 +315,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
           <h3 class="section-title mb-2">Details</h3>
           <dl class="kv">
             <div><dt>Slug</dt><dd class="font-mono text-[0.8rem]">{{ p.slug }}</dd></div>
-            <div><dt title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt><dd>${{ p.agentCostUsd.toFixed(2) }}</dd></div>
+            <div><dt title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt><dd data-test="agent-cost" :data-cost-kind="p.agentCostKind"><span :title="costKindTitle(p.agentCostKind)">${{ p.agentCostUsd.toFixed(2) }}{{ p.agentCostKind === "estimated" ? " est." : p.agentCostKind === "unknown" ? " + unknown" : "" }}</span></dd></div>
             <div v-if="p.apiCostUsd > 0"><dt title="Real money billed by the Anthropic API for this Proposal's fallback runs. Not part of Est. usage.">API spend (real $)</dt><dd data-test="api-cost">${{ p.apiCostUsd.toFixed(4) }}</dd></div>
             <div><dt>Created</dt><dd :title="p.createdAt">{{ fmtWhen(p.createdAt, nowMs) }}</dd></div>
             <div><dt>Updated</dt><dd :title="p.updatedAt">{{ fmtWhen(p.updatedAt, nowMs) }}</dd></div>
@@ -333,7 +333,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
                 <span class="pill pill-outline">{{ r.model }}</span>
                 <span class="pill" :class="r.exitStatus === 'success' ? 'pill-green' : r.exitStatus === 'in-flight' ? 'pill-accent' : r.exitStatus === 'cancelled' || r.exitStatus === 'aborted' ? '' : 'pill-red'">{{ r.exitStatus }}</span>
               </div>
-              <span class="muted text-xs">{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</span>
+              <span class="muted text-xs" data-test="run-cost" :data-cost-source="r.costSource" :title="r.backend === 'api' ? '' : costKindTitle(r.costSource)">{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : r.costSource === "exact" ? `$${r.totalCostUsd.toFixed(2)} reported` : r.costSource === "estimated" ? `$${r.totalCostUsd.toFixed(2)} est.` : `$${r.totalCostUsd.toFixed(2)} unknown` }}</span>
             </li>
           </ul>
         </section>

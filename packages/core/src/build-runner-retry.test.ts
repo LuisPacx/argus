@@ -111,7 +111,9 @@ describe("Build Runner: one automatic retry", { timeout: 90_000 }, () => {
     const r = await build(h);
 
     expect(r.after).toMatchObject({ status: "build-failed", buildSessionId: SESSION, brainRunInFlightSince: null });
-    expect(r.runs).toMatchObject([{ exitStatus: "timed-out", totalCostUsd: 0 }, { exitStatus: "timed-out", totalCostUsd: 0 }]);
+    // No usage was streamed (only init): each attempt is charged a minute at the default rate, an estimate, not $0 (build-runner-spend.test.ts).
+    expect(r.runs).toMatchObject([{ exitStatus: "timed-out", costSource: "estimated" }, { exitStatus: "timed-out", costSource: "estimated" }]);
+    for (const run of r.runs) expect(run.totalCostUsd).toBeGreaterThan(0);
     expect(r.history.at(-1)!.reason).toContain("timed-out");
     expect(h.containers()).toEqual([]);
   });

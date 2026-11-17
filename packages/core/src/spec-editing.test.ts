@@ -192,6 +192,17 @@ describe("revise", () => {
     expect(store.brainRunsFor(id).at(-1)).toMatchObject({ exitStatus: "budget-exceeded", totalCostUsd: 2.01 });
   });
 
+  it("a revision that hits its wall-clock cap prints no result: it is recorded at the Spec route's $2 cap (an estimate), counted in the daily figure, and the Spec is unchanged", async () => {
+    const { store, dir, id } = await drafted();
+    revise(store, id);
+    const stalled = new ClaudeCodeBrain({ routing: resolveRouting({ spec: { timeoutMs: 400 } }), killGraceMs: 200, command: FAKE_CLAUDE, log: () => {}, env: { PATH: process.env.PATH, FAKE_CLAUDE_MODE: "hang" }, passEnv: ["FAKE_CLAUDE_MODE"] });
+    const before = store.getProposal(id)!;
+    expect(await reviseSpec(store, stalled, before, dir)).toBe(false);
+    expect(store.brainRunsFor(id).at(-1)).toMatchObject({ task: "spec-revise", exitStatus: "timed-out", totalCostUsd: 2, costSource: "estimated" });
+    expect(readFileSync(before.specPath!, "utf8")).toBe(readFileSync(store.getProposal(id)!.specPath!, "utf8"));
+    expect(store.dailySpendSince(new Date(Date.now() - 3_600_000).toISOString(), { "spec-revise": 2, spec: 2 }).chargedUsd).toBeCloseTo(2.0123, 10); // the draft's $0.0123 and this
+  });
+
   it("dry-run spawns nothing, writes nothing and keeps the revision queued", async () => {
     const { store, dir, id } = await drafted();
     revise(store, id);

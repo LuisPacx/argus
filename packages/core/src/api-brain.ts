@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { MODEL_PRICES } from "./model-prices.ts";
 import { BrainError, type Brain, type BrainBackend, type BrainInput, type BrainRun, type BrainRunOptions, type BrainTask } from "./brain.ts";
 
 /**
@@ -48,7 +49,7 @@ export interface ModelPrice {
 
 /** Prices of the models ApiBrain may use (claude-api skill, 2026-10-06): a model not listed here cannot be configured. */
 export const API_PRICES: Readonly<Record<string, ModelPrice>> = {
-  "claude-haiku-5-5": { inputPerMTok: 0.1, outputPerMTok: 0.5, maxPromptTokens: 100_000 },
+  "claude-haiku-5-5": { inputPerMTok: MODEL_PRICES["claude-haiku-5-5"]!.inputPerMTok, outputPerMTok: MODEL_PRICES["claude-haiku-5-5"]!.outputPerMTok, maxPromptTokens: 100_000 },
 };
 
 export interface ApiUsage {

@@ -140,7 +140,7 @@ describe("Undo shortlist: a Spec run in flight", () => {
     expect(store.brainRunsFor(id)).toHaveLength(1);
   });
 
-  it("cancels a run that reported nothing as cancelled with zero spend", async () => {
+  it("cancels a run that reported nothing as cancelled, charged at the Spec route's cap (an estimate) and counted against the daily budget (hardening ticket 10)", async () => {
     const { store, dir, brain, id, started } = setup("hang", resolveRouting({ spec: { timeoutMs: 60_000 } }));
     shortlist(store, id);
     const cancels = new RunCancels();
@@ -148,8 +148,10 @@ describe("Undo shortlist: a Spec run in flight", () => {
     await untilExists(started);
     undo(store, id, { cancelRun: (pid) => cancels.cancel(pid) });
     await drafting;
-    expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "cancelled", totalCostUsd: 0 }]);
-    expect(store.getProposal(id)).toMatchObject({ status: "new", specError: "" });
+    expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "cancelled", totalCostUsd: 2, costSource: "estimated" }]);
+    expect(store.getProposal(id)).toMatchObject({ status: "new", specError: "", agentCostUsd: 2, agentCostKind: "estimated" });
+    // It spent while it ran, so it counts against the caps: the daily figure takes it.
+    expect(store.dailySpendSince(new Date(Date.now() - 3_600_000).toISOString())).toMatchObject({ runs: 1, chargedUsd: 2 });
   });
 
   it("a worker shutdown during a run is still interrupted, not cancelled", async () => {

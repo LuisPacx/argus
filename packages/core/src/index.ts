@@ -8,6 +8,8 @@ export { startWorkerHeartbeat, WORKER_GAP_MS } from "./worker-gaps.ts";
 export * from "./github-repo.ts";
 export * from "./brain.ts";
 export * from "./api-brain.ts";
+export * from "./model-prices.ts";
+export * from "./run-cost.ts";
 export * from "./api-fallback.ts";
 export * from "./spec-drafting.ts";
 export * from "./judge.ts";

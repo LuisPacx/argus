@@ -191,7 +191,8 @@ describe("Spec drafting", () => {
       expect(both.map((i) => store.brainRunsFor(i).length).sort()).toEqual([0, 1]);
       for (const i of both) {
         expect(store.getProposal(i)).toMatchObject({ status: "shortlisted", specError: "", specRetryAfter: null, brainRunInFlightSince: null });
-        for (const r of store.brainRunsFor(i)) expect(r).toMatchObject({ exitStatus: "interrupted", totalCostUsd: 0 });
+        // A Spec draft killed by the shutdown prints no result: it is recorded at its route's $2 cap, an estimate, not $0 (hardening ticket 10).
+        for (const r of store.brainRunsFor(i)) expect(r).toMatchObject({ exitStatus: "interrupted", totalCostUsd: 2, costSource: "estimated" });
       }
 
       // Next boot: both are still draftable.
@@ -209,6 +210,14 @@ describe("Spec drafting", () => {
       await drafting;
       expect(store.brainRunsFor(id)).toMatchObject([{ exitStatus: "interrupted", totalCostUsd: 0.004, sessionId: "5e55a0a0-0000-4000-8000-000000000001" }]);
       expect(store.getProposal(id)).toMatchObject({ status: "shortlisted", specError: "", agentCostUsd: 0.004 });
+    });
+
+    it("a draft that hits its wall-clock cap prints no result: it is recorded timed-out at the route's $2 cap (an estimate), on the Proposal and in the daily figure", async () => {
+      const { store, dir, brain, id } = setup("hang", resolveRouting({ spec: { timeoutMs: 400 } }));
+      expect(await draftSpec(store, brain, store.getProposal(id)!, dir)).toBe(false);
+      expect(store.brainRunsFor(id)).toMatchObject([{ task: "spec", exitStatus: "timed-out", totalCostUsd: 2, costSource: "estimated" }]);
+      expect(store.getProposal(id)).toMatchObject({ agentCostUsd: 2, agentCostKind: "estimated" });
+      expect(store.dailySpendSince(new Date(Date.now() - 3_600_000).toISOString())).toMatchObject({ runs: 1, chargedUsd: 2 });
     });
   });
 

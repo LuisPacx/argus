@@ -137,11 +137,12 @@ it("GET /api/activity/brain-runs: finished, in-flight, interrupted, pre-migratio
   expect(rows.map((r) => r.id)).toEqual([open, api, interrupted, done]);
   expect(rows[0]).toEqual({
     id: open, task: "propose", status: "in-flight", backend: "claude-code", model: "m", narrativeId: null, proposalId: 0,
-    estCostUsd: 0, costKind: "est", startedAt: expect.any(String), finishedAt: null, durationSec: null,
+    estCostUsd: 0, costKind: "est", costSource: "unknown", startedAt: expect.any(String), finishedAt: null, durationSec: null,
   });
   expect(rows[1]).toMatchObject({ id: api, backend: "api", costKind: "api", estCostUsd: 0.004, status: "success" });
-  expect(rows[2]).toMatchObject({ id: interrupted, status: "interrupted", finishedAt: expect.any(String), durationSec: expect.any(Number) });
-  expect(rows[3]).toMatchObject({ id: done, status: "success", costKind: "est", estCostUsd: 0.5, durationSec: 90 });
+  // A run that ended without a result shows the cap the research budget charges it, marked estimated, not $0 (hardening ticket 10).
+  expect(rows[2]).toMatchObject({ id: interrupted, status: "interrupted", estCostUsd: 1, costSource: "estimated", finishedAt: expect.any(String), durationSec: expect.any(Number) });
+  expect(rows[3]).toMatchObject({ id: done, status: "success", costKind: "est", costSource: "exact", estCostUsd: 0.5, durationSec: 90 });
   expect(Date.parse(rows[3]!.finishedAt as string) - Date.parse(rows[3]!.startedAt as string)).toBeGreaterThanOrEqual(90_000);
 });
 
@@ -157,7 +158,7 @@ it("GET /api/activity/brain-runs: a finished row from before the finished_at col
   raw.close();
   store = Datastore.open(path);
   expect(brainRuns()).toEqual([
-    { id, task: "judge", status: "success", backend: "claude-code", model: "m", narrativeId: null, proposalId: 0, estCostUsd: 1, costKind: "est", startedAt: expect.any(String), finishedAt: null, durationSec: null },
+    { id, task: "judge", status: "success", backend: "claude-code", model: "m", narrativeId: null, proposalId: 0, estCostUsd: 1, costKind: "est", costSource: "exact", startedAt: expect.any(String), finishedAt: null, durationSec: null },
   ]);
   store.close();
   rmSync(dir, { recursive: true, force: true });

@@ -290,7 +290,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
               <span v-if="p.kind === 'meme'">Idea age: <span data-test="idea-age">{{ narrativeAge(p.createdAt) }}</span></span>
               <span v-else>Narrative age: <span data-test="narrative-age">{{ p.narrativeCreatedAt ? narrativeAge(p.narrativeCreatedAt) : "n/a" }}</span></span>
               <span v-if="p.expiresAt" data-test="time-left">{{ timeLeft(p.expiresAt) }}</span>
-              <span><span class="above" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): ${{ p.agentCostUsd.toFixed(2) }}</span></span>
+              <span><span class="above" title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.): <span data-test="card-cost" :data-cost-kind="p.agentCostKind" :title="costKindTitle(p.agentCostKind)">${{ p.agentCostUsd.toFixed(2) }}{{ p.agentCostKind === "estimated" ? " est." : p.agentCostKind === "unknown" ? " + unknown" : "" }}</span></span></span>
             </div>
 
             <div v-if="p.status !== 'closed' && p.status !== 'dismissed'" class="above flex flex-wrap items-center gap-2 lg:justify-end">

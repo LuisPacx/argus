@@ -124,3 +124,16 @@ it("after a re-score GET /api/proposals/:id returns the Score it was proposed on
   const newer = store.recordScore({ narrativeId, rubricVersion: 1, scores: { ...SCORES, hook: 10 }, total: 8, rationale: "again", signalCount: 1, changedMateriallyAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   expect(one({ params: { id: String(p.id) } })).toMatchObject({ scoreId, score: { id: scoreId, scores: SCORES }, latestScore: { id: newer, scores: { hook: 10 } } });
 });
+
+it("GET /api/research and the Proposal route say what is estimated: a killed run's cap charge, a Build's estimate in the daily total, and the cost kind of each run", () => {
+  const killed = store.startBrainRun({ proposalId: 0, task: "judge", backend: "claude-code", model: "haiku" });
+  store.finishBrainRun(killed, { sessionId: null, totalCostUsd: 0, exitStatus: "timed-out" });
+  const { narrativeId, scoreId } = narrativeWithScore();
+  const p = store.createResearchProposal({ ...fields("Cat"), narrativeId, scoreId });
+  const build = store.startBrainRun({ proposalId: p.id, task: "build", backend: "claude-code", model: "sonnet" });
+  store.finishBrainRun(build, { sessionId: null, totalCostUsd: 3.5, exitStatus: "aborted", costSource: "estimated" });
+  const out = research();
+  expect(out).toMatchObject({ usedUsd: 0.1, reportedUsd: 0, estimatedUsd: 0.1, dailyUsedUsd: 3.6 });
+  expect(out.dailyUsedShareOfQuota).toBeCloseTo(3.6 / 20, 6);
+  expect(one({ params: { id: String(p.id) } })).toMatchObject({ agentCostUsd: 3.5, agentCostKind: "estimated", brainRuns: [{ task: "build", totalCostUsd: 3.5, costSource: "estimated" }] });
+});

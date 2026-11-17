@@ -55,7 +55,7 @@ function idea(name, ticker, angle) {
 export async function seedDatastore(store, now) {
   const { aMeta, saveCurrentRun } = await import('../packages/core/src/testing/meta-current.ts');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * MIN).toISOString();
-  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0 };
+  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0 };
 
   // The Metas (one holding its place, one cooling), two Watching subjects, and the New Meta event for the first.
   // Merged launch themes (ticket 07): three for the chair (one long unbroken label, one with markup), seven for the lobster (so "+2 more" shows), none for the others.
@@ -138,6 +138,21 @@ export async function seedDatastore(store, now) {
     { now: new Date(now.getTime() - 55 * MIN) },
   );
   counts.proposals += 1;
+
+  // Brain runs, one of each cost kind (hardening ticket 10): a Spec draft that reported its cost (exact), a Build killed by a dismissal and
+  // recorded at the estimate of its streamed usage (estimated), a Build killed with nothing recovered and nothing charged (unknown, as a
+  // row from before the cost source existed), and, on the Activity page, a judge run that reported its cost and a propose run that timed out
+  // (charged at its route's cap, estimated).
+  const ran = (proposalId, task, model, minutesAgo, totalCostUsd, exitStatus, costSource) => {
+    const id = store.startBrainRun({ proposalId, task, backend: 'claude-code', model }, new Date(now.getTime() - minutesAgo * MIN));
+    store.finishBrainRun(id, { sessionId: null, totalCostUsd, exitStatus, ...(costSource ? { costSource } : {}) });
+    counts.brain_runs += 1;
+  };
+  ran(tech.id, 'spec', 'sonnet', 54, 0.12, 'success');
+  ran(tech.id, 'build', 'sonnet', 50, 3.4, 'aborted', 'estimated');
+  ran(tech.id, 'build', 'sonnet', 45, 0, 'timed-out', 'unknown');
+  ran(0, 'judge', 'haiku', 62, 0.02, 'success');
+  ran(0, 'propose', 'sonnet', 61, 0, 'timed-out');
 
   const newsNarrative = nextNarrative([0, 1]);
   const gateMin = 5;

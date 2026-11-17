@@ -22,6 +22,7 @@ export const SLOW_TESTS = [
   "packages/core/src/build-runner-dismiss.test.ts", // fake claude, gh, wrangler, podman: whole Builds
   "packages/core/src/build-runner-hardening.test.ts",
   "packages/core/src/build-runner-notify.test.ts",
+  "packages/core/src/build-runner-spend.test.ts", // fake claude, gh, wrangler, podman: whole Builds, killed
   "packages/core/src/build-runner-retry.test.ts",
   "packages/core/src/build-runner-verify.test.ts", // spawns processes
   "packages/core/src/build-runner.test.ts",

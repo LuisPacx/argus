@@ -1,7 +1,7 @@
 # 10: Spend recorded for killed and timed-out runs
 **Model:** sonnet / effort: high — the recording change is small, but it touches every brain path, the budget SQL and the War Room card, and needs a real stream and transcript read to fix the parsing.
 
-**Status:** open (decisions recorded below; ready to work)
+**Status:** done
 
 ## Problem
 
@@ -69,24 +69,27 @@ Open detail for the worker: what "recent Builds" means (last N Builds, or last 2
 
 ## Acceptance criteria
 
-- [ ] One price module in `packages/core` next to `API_PRICES` covers every model argus uses (input, output, cache write, cache read), with a test that an unknown model is refused loudly, not priced at 0, and that summing a captured finished run's usage reproduces its `total_cost_usd` within a stated tolerance
-- [ ] Build agent killed by the dismissal poll: a test (fake claude printing stream-json turns with usage, then killed) records a nonzero estimated cost on the run row and on the Proposal's cost; the existing `build-runner-dismiss.test.ts` "while claude runs" case asserts it
-- [ ] Build agent hits its wall-clock cap: a test records a nonzero estimated cost (or the explicit cap charge if no usage was streamed) and `exit_status` `timed-out`
-- [ ] Build agent killed by shutdown (`killLiveBrainChildren`): a test records the estimate
-- [ ] Build whose claude or container crashes without a result: a test records the estimate from the stream or the explicit fallback charge
-- [ ] Build left in flight by a dead worker: startup recovery records the last streamed total or the fallback charge, not 0
-- [ ] judge, propose, meta-summary, meta-group, meme-ideas: a test per task that a timed-out and an interrupted run records a nonzero cost or an explicit `unknown` charge at its route cap, and that `researchUsage` and the per-task daily caps count it
-- [ ] spec and spec-revise: a test that a timed-out or interrupted draft records an estimate or an explicit fallback charge, and a cancelled draft (Undo shortlist) is charged and counts against caps (decision 5)
-- [ ] A Build killed with no recoverable usage (killed before the first turn finished, or no stream) is charged run minutes x the average $/min of recent Builds, marked `estimated`, never $0; a test with a seeded history of Builds checks the figure
-- [ ] The elapsed-time estimate with no recent Builds to average uses a stated default $/min (a named constant, capped at the route's `maxBudgetUsd`), is marked `estimated`, and a test covers an empty history
-- [ ] A Build's retries sum against its $25 cap: a test where attempt 1 is killed with an estimate and attempt 2 runs shows the second gets only the remaining budget (or is refused at the cap), and the Proposal's total includes both
-- [ ] Every Build dollar (exact or estimated, every attempt) counts toward the daily budget, not only the research share: a test that a Build's cost raises the `ARGUS_DAILY_QUOTA_USD` figure
-- [ ] The research routes' cap charge shows as `estimated` in the War Room (not as $0 or as exact)
-- [ ] The daily-quota and research-share figures and the $25 build cap count recorded estimates (a test that a dismissed Build's estimate raises `usedUsd` / the Proposal cost)
-- [ ] The War Room shows exact vs estimated vs unknown cost on the Proposal card and the usage view (label or marker, e.g. "$0.42 est."), checked with `pnpm page:check` at 1240 and 390 px with the screenshots and exit code cited
-- [ ] The transcript or stream reader is confirmed once against a real killed `claude -p` run (path, line shape, de-duplication), and the capture is added as a fixture
-- [ ] `pnpm check` passes and stamps the committed tree
+- [x] One price module in `packages/core` next to `API_PRICES` covers every model argus uses (input, output, cache write, cache read), with a test that an unknown model is refused loudly, not priced at 0, and that summing a captured finished run's usage reproduces its `total_cost_usd` within a stated tolerance
+- [x] Build agent killed by the dismissal poll: a test (fake claude printing stream-json turns with usage, then killed) records a nonzero estimated cost on the run row and on the Proposal's cost; the existing `build-runner-dismiss.test.ts` "while claude runs" case asserts it
+- [x] Build agent hits its wall-clock cap: a test records a nonzero estimated cost (or the explicit cap charge if no usage was streamed) and `exit_status` `timed-out`
+- [x] Build agent killed by shutdown (`killLiveBrainChildren`): a test records the estimate
+- [x] Build whose claude or container crashes without a result: a test records the estimate from the stream or the explicit fallback charge
+- [x] Build left in flight by a dead worker: startup recovery records the last streamed total or the fallback charge, not 0
+- [x] judge, propose, meta-summary, meta-group, meme-ideas: a test per task that a timed-out and an interrupted run records a nonzero cost or an explicit `unknown` charge at its route cap, and that `researchUsage` and the per-task daily caps count it
+- [x] spec and spec-revise: a test that a timed-out or interrupted draft records an estimate or an explicit fallback charge, and a cancelled draft (Undo shortlist) is charged and counts against caps (decision 5)
+- [x] A Build killed with no recoverable usage (killed before the first turn finished, or no stream) is charged run minutes x the average $/min of recent Builds, marked `estimated`, never $0; a test with a seeded history of Builds checks the figure
+- [x] The elapsed-time estimate with no recent Builds to average uses a stated default $/min (a named constant, capped at the route's `maxBudgetUsd`), is marked `estimated`, and a test covers an empty history
+- [x] A Build's retries sum against its $25 cap: a test where attempt 1 is killed with an estimate and attempt 2 runs shows the second gets only the remaining budget (or is refused at the cap), and the Proposal's total includes both
+- [x] Every Build dollar (exact or estimated, every attempt) counts toward the daily budget, not only the research share: a test that a Build's cost raises the `ARGUS_DAILY_QUOTA_USD` figure
+- [x] The research routes' cap charge shows as `estimated` in the War Room (not as $0 or as exact)
+- [x] The daily-quota and research-share figures and the $25 build cap count recorded estimates (a test that a dismissed Build's estimate raises `usedUsd` / the Proposal cost)
+- [x] The War Room shows exact vs estimated vs unknown cost on the Proposal card and the usage view (label or marker, e.g. "$0.42 est."), checked with `pnpm page:check` at 1240 and 390 px with the screenshots and exit code cited
+- [x] The transcript or stream reader is confirmed once against a real killed `claude -p` run (path, line shape, de-duplication), and the capture is added as a fixture
+- [x] `pnpm check` passes and stamps the committed tree
 
 ## Comments
+
+- 2026-11-17 (worker, done): checked against real runs (claude 2.1.326). Findings that change the Recommendation: (1) the `stream-json` `assistant` event carries `message.id`, `message.model` and `message.usage`, one event per content block (de-dup by id), but its `output_tokens` is a start-of-message stub (16 and 1 for a run that printed 161): input and cache counts are exact, output is estimated from the content size (`run-cost.ts`). (2) A SIGKILLed run's transcript (`~/.claude/projects/<cwd>/<session>.jsonl`) has no assistant or `cost-state` lines (they are written lazily), so Option B is not viable; the stream (Option A) is the source, and the elapsed-time estimate (decision 1) the fallback. A finished session's transcript does end in a `cost-state` line with per-model `modelUsage`; a fit of 1763 of them gave the price table (sonnet $2/$10, cache read $0.10, 5 min write $2.50, 1 h write $4; haiku $0.10/$0.50/$0.01/$0.125/$0.20; opus 5.5 $4/$20/$0.20/$5/$8), matching the claude-api skill's input/output rates. Fixtures: `packages/core/src/fixtures/claude-stream-json-killed.jsonl` (real, SIGKILLed after its first turn) and `-finished.jsonl` (real, with its result: priced `modelUsage` reproduces `total_cost_usd` to 1e-7; the streamed figure is within 60-102% of it).
+- Design: `model-prices.ts` (one table, loud on unknown models), `run-cost.ts` (stream pricing, elapsed estimate; default $25/240 min per minute, average of the last 10 exact Builds), `brain_runs.cost_source` (exact | estimated | unknown, migration backfills old rows; old data loads). A Build records the priced stream (also written to the row on each heartbeat, so a dead worker's sweep keeps it) or, with none, minutes (at least one) x the rate, capped at what the $25 cap still allows; the retry gets the remainder (none under $1, `MIN_RETRY_BUDGET_USD`). Research routes keep the cap charge in `spendSince` (now also for `cancelled`), shown as estimated; Spec drafts that were killed, timed out or cancelled are recorded at the route's cap. `researchUsage` gains `estimatedUsd`, `dailyUsedUsd` (every task incl. Builds). The War Room shows "est." / "+ unknown" / "reported" on the card, the Proposal's runs, Activity and the research bar; the page-check seed has one run of each kind. Not done (out of scope): the pipeline page's 24 h node figures still sum recorded cost only; Builds are counted in the daily figure but do not gate a Build's start.
 
 - 2026-11-17: written from ticket 09's finding. Read from `packages/core/src/brain.ts`, `build-runner.ts`, `datastore.ts` (`spendSince`), `research-budget.ts`, `sandbox.ts`, `api-brain.ts`. The stream and transcript facts above are from Claude Code's documented formats, not yet confirmed against a real killed run; the last two acceptance boxes exist for that.

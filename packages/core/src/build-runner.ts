@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { BrainError, type ClaudeCodeBrain } from "./brain.ts";
+import { StreamSpend, type CostSource } from "./run-cost.ts";
 import { buildHomeFor, removeTree } from "./build-home.ts";
 import { cloudflareRefusal } from "./build-refusal.ts";
 import { parseGithubRepo } from "./cleanup-build.ts";
@@ -46,6 +47,8 @@ export interface BuildRunnerOptions {
   previewDelayMs?: number;
   /** How often the Build's run row is touched to show the worker is alive (the stale sweep counts from it). Default 60 s. */
   heartbeatMs?: number;
+  /** The clock the elapsed-time estimate of a killed run is measured with (tests inject one); defaults to the system clock. */
+  now?: () => Date;
   /** Per git, gh and wrangler command. Default 10 minutes. */
   commandTimeoutMs?: number;
   /** How often a running Build looks at whether its Proposal was dismissed, to stop the agent and the container steps at once. Default 2 s. */
@@ -417,9 +420,14 @@ interface Attempts {
   setup?: { originUrl: string; branch: string; templateCommit: string; specCommit: string };
   /** Set by a failed first attempt that is to be retried: the failure report appended to the retry's prompt. */
   retryReport?: string;
+  /** What this Build's earlier attempts cost (exact or estimated): the retry gets only what is left of the route's cap. */
+  spentUsd: number;
   /** Set once this Build's `wrangler deploy` succeeded: the Worker under the slug is the Build's own, and the retry may redeploy over it. */
   deployed?: boolean;
 }
+
+/** A retry is only started with at least this much of the Build's cap left (a retry that would stop within seconds is not worth its start). */
+export const MIN_RETRY_BUDGET_USD = 1;
 
 /** Lines of the Build log, each cut short, that the retry's prompt carries. */
 const REPORT_LOG_LINES = 25;
@@ -452,7 +460,7 @@ function failureReport(logPath: string, reason: string): string {
  * deploy or preview), exactly one retry on the same repo. The Proposal stays `building` between the two.
  */
 async function build(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerOptions, p: Proposal, runId: number, signal?: AbortSignal): Promise<BuildOutcome> {
-  const state: Attempts = { attempt: 1, runId };
+  const state: Attempts = { attempt: 1, runId, spentUsd: 0 };
   const first = await attempt(store, brain, o, p, state, signal);
   if (state.retryReport === undefined) return first;
   // The retry does not go back through runNextBuild: the Spec is identical, and the pre-spawn `## Needs human` check already ran for attempt 1.
@@ -516,7 +524,16 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   // The run row (opened with the slot, by beginBuild) stays open until the Build is over: a worker that dies at any point,
   // deploy and preview checks included, leaves an open row for the sweep to find, and the Build slot is freed with it.
   // What the row closes with is fixed once claude finishes (its session, spend and exit); until then a failure closes it as such.
-  let runEnd: { sessionId: string | null; totalCostUsd: number; exitStatus: string } | undefined;
+  let runEnd: { sessionId: string | null; totalCostUsd: number; exitStatus: string; costSource: CostSource } | undefined;
+  // The route's cap is the Build's: this attempt may spend what the earlier one left of it (`--max-budget-usd` is set from it below).
+  const routeCapUsd = brain.routeFor("build").maxBudgetUsd;
+  const remainingUsd = () => Math.max(0, routeCapUsd - state.spentUsd);
+  const clock = o.now ?? (() => new Date());
+  // The usage the agent's stream has shown so far, priced (run-cost.ts). It is on the run row while the agent runs, so a worker that
+  // dies leaves a figure for the startup sweep; once claude has finished the exact cost replaces it.
+  const streamed = new StreamSpend();
+  let streaming = false;
+  let lastStreamed = 0;
   /**
    * The Proposal is no longer building (dismissed meanwhile): nothing more is done, and the run closes as `aborted`. What it cost so far
    * (the agent's spend, if it had finished) is kept. What the Build created before it stopped is left for Clean up build, which the
@@ -524,11 +541,12 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
    */
   const abandon = (): BuildOutcome => {
     note("The Proposal is no longer building (dismissed meanwhile); the Build was stopped and nothing more is done");
-    runEnd = { sessionId: runEnd?.sessionId ?? null, totalCostUsd: runEnd?.totalCostUsd ?? 0, exitStatus: "aborted" };
+    runEnd = { sessionId: runEnd?.sessionId ?? null, totalCostUsd: runEnd?.totalCostUsd ?? 0, exitStatus: "aborted", costSource: runEnd?.costSource ?? "exact" };
     return { proposalId: id, result: "abandoned" };
   };
   const closeRun = () => {
-    const done = runEnd ?? { sessionId: null, totalCostUsd: 0, exitStatus: "failed" };
+    const done = runEnd ?? { sessionId: null, totalCostUsd: 0, exitStatus: "failed", costSource: "exact" as CostSource };
+    state.spentUsd += done.totalCostUsd;
     // A failed first attempt that is to be retried hands over to a new run in the same transaction, so a `building` Proposal never lacks one.
     if (state.attempt === 1 && state.retryReport !== undefined) state.runId = store.restartBuildRun(runId, done, brain.routeFor("build"));
     else store.finishBrainRun(runId, done);
@@ -542,10 +560,13 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     // Whatever went wrong, a dismissed Proposal is not a failed Build: the Operator stopped it.
     if (store.getProposal(id)?.status === "dismissed") return abandon();
     note(`Build failed: ${reason}`);
-    runEnd ??= { sessionId: null, totalCostUsd: 0, exitStatus };
+    runEnd ??= { sessionId: null, totalCostUsd: 0, exitStatus, costSource: "exact" };
     const building = store.getProposal(id)?.status === "building";
     if (building && retryable && state.attempt === 1 && state.setup && exitStatus !== "interrupted" && !signal?.aborted) {
-      state.retryReport = failureReport(logPath, reason);
+      // The attempts sum against the route's cap: a retry gets what is left, and none when too little is.
+      const left = Math.max(0, routeCapUsd - state.spentUsd - runEnd.totalCostUsd);
+      if (left >= MIN_RETRY_BUDGET_USD) state.retryReport = failureReport(logPath, reason);
+      else store.transition(id, "build-failed", "build", `Build failed: ${reason}. Not retried: this attempt used $${(state.spentUsd + runEnd.totalCostUsd).toFixed(2)} of the Build's $${routeCapUsd} budget.`.slice(0, 500));
     } else if (building) store.transition(id, "build-failed", "build", `Build failed: ${reason}`.slice(0, 500));
     return { proposalId: id, result: "build-failed" };
   };
@@ -674,6 +695,12 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
   const heartbeat = setInterval(() => {
     try {
       store.touchBrainRun(runId);
+      // While the agent runs, what its stream has shown so far is on the row, so a worker that dies leaves a figure, not $0.
+      const total = streaming ? streamed.total() : undefined;
+      if (total && total.usd > lastStreamed) {
+        lastStreamed = total.usd;
+        store.recordBrainRunSpend(runId, { sessionId: null, totalCostUsd: Math.min(total.usd, remainingUsd()), costSource: "estimated" });
+      }
     } catch (e) {
       try {
         logSink(`[build ${id}] heartbeat failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -746,6 +773,7 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
     // be resumed), removed when it is built.
     mkdirSync(home, { recursive: true, mode: 0o700 });
     let run;
+    streaming = true;
     try {
       run = await brain.run<string>(
         "build",
@@ -753,20 +781,36 @@ async function attempt(store: Datastore, brain: ClaudeCodeBrain, o: BuildRunnerO
         {
           cwd: repo,
           signal: halt,
-          onOutput: append,
+          // The retry may spend only what the first attempt left of the route's cap (the brain never raises it above the route's).
+          maxBudgetUsd: remainingUsd(),
+          onOutput: (chunk) => {
+            append(chunk);
+            streamed.push(chunk);
+          },
           sandbox: (job) => o.sandbox.launch({ role: "agent", buildId: id, cwd: job.cwd, mounts: [job.cwd], home, args: job.args, timeoutMs: job.timeoutMs, signal: job.signal, note }),
         },
       );
     } catch (e) {
+      streaming = false;
       const be = e instanceof BrainError ? e : undefined;
-      // Spend first: whatever the run cost is recorded before anything else happens.
-      runEnd = { sessionId: be?.sessionId ?? null, totalCostUsd: be?.totalCostUsd ?? 0, exitStatus: be?.kind ?? "failed" };
+      // Spend first: whatever the run cost is recorded before anything else happens. A run that was killed or crashed has no result, so
+      // its cost is the priced stream (an estimate); with no usable usage it is charged for the time it ran, never $0.
+      let cost = be?.totalCostUsd ?? 0;
+      let source: CostSource = be?.costSource ?? "exact";
+      if (be?.ran && source !== "exact" && !(cost > 0) && (be.kind === "timed-out" || be.kind === "interrupted" || be.kind === "failed")) {
+        cost = store.estimateBuildRunUsd(runId, clock(), remainingUsd());
+        source = "estimated";
+        note(`The run left no usable usage; charged ${cost.toFixed(2)} USD for its run time (an estimate)`);
+      }
+      cost = Math.min(cost, remainingUsd());
+      runEnd = { sessionId: be?.sessionId ?? null, totalCostUsd: cost, exitStatus: be?.kind ?? "failed", costSource: source };
       const why = e instanceof Error ? e.message : String(e);
       return fail(be?.kind === "interrupted" ? "interrupted by the worker shutting down" : `claude ${be?.kind ?? "failed"}: ${why}`, be?.kind ?? "failed");
     }
     if (run.dryRun) return fail("the brain is in dry-run mode but the Build Runner is not");
     // The spend is on the card now, while the run stays open for the deploy and the checks.
-    runEnd = { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "success" };
+    streaming = false;
+    runEnd = { sessionId: run.sessionId ?? null, totalCostUsd: run.totalCostUsd, exitStatus: "success", costSource: run.costSource ?? "exact" };
     store.recordBrainRunSpend(runId, runEnd);
     note(`claude finished (session ${run.sessionId ?? "none"}, est. usage $${run.totalCostUsd.toFixed(4)})`);
 

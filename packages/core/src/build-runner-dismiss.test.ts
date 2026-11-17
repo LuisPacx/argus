@@ -57,8 +57,10 @@ describe("dismissing a Proposal stops its running Build", { timeout: 60_000 }, (
     current = undefined;
   });
 
-  it("while claude runs: claude is stopped, nothing is deployed, the run closes as aborted", async () => {
-    const h = start(WAITING);
+  it("while claude runs: claude is stopped, nothing is deployed, the run closes as aborted with the spend it had streamed (an estimate, not $0)", async () => {
+    // Two streamed sonnet turns: 1 M cache-read tokens ($0.10) and 2 M ($0.20), plus 2 input and a stub 16 output tokens each.
+    const turn = (cacheRead: number) => ({ input_tokens: 2, output_tokens: 16, cache_read_input_tokens: cacheRead, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } });
+    const h = start({ claudeEnv: { ...WAITING.claudeEnv, FAKE_CLAUDE_TURNS: JSON.stringify([turn(1_000_000), turn(2_000_000)]) } });
     h.options.dismissPollMs = 20;
     const p = h.seedApproved("Cat Coin");
     const running = runNextBuild(h.store, h.brain, h.options);
@@ -67,7 +69,12 @@ describe("dismissing a Proposal stops its running Build", { timeout: 60_000 }, (
     // The release file is never written: only the dismissal can end this Build.
     expect(await within(running, 15_000, "the dismissed Build")).toEqual({ proposalId: p.id, result: "abandoned" });
     expect(h.store.getProposal(p.id)).toMatchObject({ status: "dismissed", previewUrl: null, brainRunInFlightSince: null });
-    expect(h.store.brainRunsFor(p.id)).toMatchObject([{ exitStatus: "aborted" }]);
+    const spend = 0.1 + 0.2 + 2 * (2 * 2 + 16 * 10) / 1e6;
+    const [run] = h.store.brainRunsFor(p.id);
+    expect(run).toMatchObject({ exitStatus: "aborted", costSource: "estimated" });
+    expect(run!.totalCostUsd).toBeCloseTo(spend, 6);
+    expect(h.store.getProposal(p.id)).toMatchObject({ agentCostKind: "estimated" });
+    expect(h.store.getProposal(p.id)!.agentCostUsd).toBeCloseTo(spend, 6);
     expect(h.deployCalls()).toEqual([]);
     expect(h.calls(h.wranglerLog)).toEqual([]);
     expect(h.containers()).toEqual([]);

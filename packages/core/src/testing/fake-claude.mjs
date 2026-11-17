@@ -80,6 +80,19 @@ const results = {
   ratelimit: { ...base, subtype: "success", is_error: true, result: "Claude AI usage limit reached", total_cost_usd: 0 },
 };
 
+// FAKE_CLAUDE_TURNS, a JSON array of usage objects (as in a stream-json `assistant` event: input_tokens, output_tokens,
+// cache_read_input_tokens, cache_creation_input_tokens, cache_creation), makes a stream-json run print the init message and one
+// assistant turn per entry (model FAKE_CLAUDE_TURN_MODEL, default claude-sonnet-5-5) FIRST, before any effect, hang or crash, so a run
+// that is then killed leaves usage behind as a real one does. A turn's output_tokens are a stub, as in a real stream.
+let turnsPrinted = false;
+if (format === "stream-json" && process.env.FAKE_CLAUDE_TURNS) {
+  turnsPrinted = true;
+  console.log(JSON.stringify({ type: "system", subtype: "init", session_id: base.session_id, model: process.env.FAKE_CLAUDE_TURN_MODEL ?? "claude-sonnet-5-5" }));
+  JSON.parse(process.env.FAKE_CLAUDE_TURNS).forEach((usage, i) => {
+    console.log(JSON.stringify({ type: "assistant", message: { id: `msg_fake_${i}`, model: process.env.FAKE_CLAUDE_TURN_MODEL ?? "claude-sonnet-5-5", content: [{ type: "text", text: `turn ${i}` }], usage }, session_id: base.session_id }));
+  });
+}
+
 if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mode === "hang-success" || mode === "hang-init") {
   // Never finishes. hang-stubborn also ignores SIGTERM, so only SIGKILL stops it.
   if (mode === "hang-stubborn") {
@@ -211,7 +224,7 @@ async function applyEffects() {
 function emit() {
 const result = results[mode] ?? results.success;
 if (format === "stream-json") {
-  console.log(
+  if (!turnsPrinted) console.log(
     JSON.stringify({
       type: "system",
       subtype: "init",

@@ -81,3 +81,18 @@ it("alerts render inline outside the details", async () => {
   expect(before).toContain("Proposal cap reached");
   expect(before).toContain("fill-bad");
 });
+
+it("the estimated part of the budget and the daily total across every task (Builds too) show beside the figures", async () => {
+  const v = researchBar(payload({ estimatedUsd: 0.35, dailyUsedUsd: 7.75 }));
+  expect(v.budget).toBe("$1.67 / $6.00 (est. $0.35)");
+  expect(v.daily).toBe("Daily $7.75 / $40");
+  expect(v.details.join(" ")).toContain("$0.35 of the budget is estimated");
+  expect(v.details.join(" ")).toContain("every Build dollar");
+  const html = await draw(payload({ estimatedUsd: 0.35, dailyUsedUsd: 7.75 }));
+  expect(html).toContain('data-test="daily-usage"');
+  expect(html).toContain("Daily $7.75 / $40");
+  expect(html).toContain("$1.67 / $6.00 (est. $0.35)");
+  // An older server's payload (no such fields) shows neither.
+  expect(researchBar(payload()).daily).toBe("");
+  expect(researchBar(payload()).budget).toBe("$1.67 / $6.00");
+});

@@ -11,6 +11,8 @@ import type { Signal } from "./sources/source.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { phraseText } from "./launchpad-subject.ts";
 import { oneLine } from "./judge.ts";
+import { DEFAULT_ROUTING } from "./brain.ts";
+import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RATE, type CostSource } from "./run-cost.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
@@ -69,6 +71,11 @@ export interface Proposal {
   evidenceLinks: string[];
   /** Sum of `total_cost_usd` over the Proposal's subscription brain runs: Est. usage, not a charge. */
   agentCostUsd: number;
+  /**
+   * What stands behind `agentCostUsd`: `exact` (every run reported its cost), `estimated` (some of it is an estimate: the priced stream of a
+   * killed Build, or an elapsed-time or cap charge), or `unknown` (a run ended with no result and nothing was charged for it, so the figure is a floor).
+   */
+  agentCostKind: CostSource;
   /** Real dollars its ApiBrain runs cost (backend `api`); kept apart from Est. usage. */
   apiCostUsd: number;
   specPath: string | null;
@@ -140,6 +147,8 @@ export interface BrainRunRecord {
   model: string;
   sessionId: string | null;
   totalCostUsd: number;
+  /** What stands behind `totalCostUsd` (see `CostSource`); a run still open with nothing recorded is `unknown`. */
+  costSource: CostSource;
   exitStatus: string;
   createdAt: string;
   /** Last time the process running it said it was alive (see touchBrainRun); null if it never did. */
@@ -192,9 +201,12 @@ export interface BrainRunSummary {
   model: string;
   narrativeId: number | null;
   proposalId: number;
+  /** What the run is charged: its recorded cost, or (research runs that ended without a result, given `caps`) its route's per-run cap. */
   estCostUsd: number;
   /** `api` runs report real dollars, every other backend an estimate. */
   costKind: "est" | "api";
+  /** `exact` (the run's own reported cost), `estimated` (a stream, elapsed-time or cap charge) or `unknown` (a run that ended with no cost and no charge). */
+  costSource: CostSource;
   startedAt: string;
   finishedAt: string | null;
   /** Whole seconds from start to finish; null while open and for rows from before `finished_at` existed. */
@@ -212,7 +224,27 @@ const cleanPollError = (message: string): string =>
     .replace(/\b(token|key|api_?key|access_token|secret|password)=[^\s&]+/gi, "$1=***")
     .slice(0, POLL_ERROR_CHARS);
 
-export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId">;
+export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId" | "costSource"> & { costSource?: CostSource };
+
+/** Tasks whose runs that end with no reported cost are charged at their route's per-run cap (`spendSince`). */
+const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "spec", "spec-revise"] as const;
+
+/** A run with no recorded cost that `spendSince` charges at its route's cap: it ended abnormally (or is still open), so it may have spent up to the cap. Mirrors the SQL there. */
+function chargedAtCap(r: { exit_status: string; session_id: string | null }): boolean {
+  return r.exit_status === "timed-out" || r.exit_status === "interrupted" || r.exit_status === "cancelled" || r.exit_status === BRAIN_RUN_IN_FLIGHT || (r.exit_status === "failed" && r.session_id !== null);
+}
+
+/**
+ * What a finished run's recorded cost stands behind, when the caller did not say: a positive cost the run reported is `exact` (an API
+ * run that failed was charged its ceiling, an estimate); a run that ended abnormally with no cost is `estimated` where it is charged at
+ * its route's cap, and `unknown` where nothing charges it; anything else (a clean $0: claude never started) is `exact`.
+ */
+export function costSourceFor(run: { task: string; backend: string; exitStatus: string; sessionId: string | null; totalCostUsd: number }): CostSource {
+  if (run.totalCostUsd > 0) return run.backend === "api" && run.exitStatus !== "success" && run.exitStatus !== "invalid-output" ? "estimated" : "exact";
+  const abnormal = run.exitStatus === "timed-out" || run.exitStatus === "interrupted" || run.exitStatus === "cancelled" || (run.exitStatus === "failed" && run.sessionId !== null);
+  if (!abnormal) return "exact";
+  return (CAP_CHARGED_TASKS as readonly string[]).includes(run.task) ? "estimated" : "unknown";
+}
 
 /** `brain_runs.exit_status` while the child is running; a crash leaves it behind, see interruptStaleBrainRuns. */
 export const BRAIN_RUN_IN_FLIGHT = "in-flight";
@@ -364,6 +396,15 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "brain_runs", "heartbeat_at", "TEXT");
   // When the run ended (ISO); null while open and for rows from before this column (their duration is unknown, no backfill).
   ensureColumn(db, "brain_runs", "finished_at", "TEXT");
+  // What stands behind `total_cost_usd`: exact | estimated | unknown (hardening ticket 10). Null on rows from before the column; the backfill below
+  // gives every finished one a value (`costSourceFor`'s rule, in SQL), so nothing needs to guess later. An open row stays null until it is written.
+  ensureColumn(db, "brain_runs", "cost_source", "TEXT");
+  db.exec(`UPDATE brain_runs SET cost_source = CASE
+      WHEN total_cost_usd > 0 THEN (CASE WHEN backend = 'api' AND exit_status NOT IN ('success', 'invalid-output') THEN 'estimated' ELSE 'exact' END)
+      WHEN exit_status IN ('timed-out', 'interrupted', 'cancelled') OR (exit_status = 'failed' AND session_id IS NOT NULL)
+        THEN (CASE WHEN task IN (${CAP_CHARGED_TASKS.map((t) => `'${t}'`).join(", ")}) THEN 'estimated' ELSE 'unknown' END)
+      ELSE 'exact' END
+    WHERE cost_source IS NULL AND exit_status != '${BRAIN_RUN_IN_FLIGHT}'`);
   // One row per ingest Source, upserted after every poll (phase 2 ticket 16): the War Room's per-Source health.
   db.exec(`CREATE TABLE IF NOT EXISTS source_polls (
     source_id TEXT PRIMARY KEY,
@@ -556,6 +597,7 @@ interface Row {
   description: string;
   evidence_links: string;
   cost_usd: number;
+  cost_kind: CostSource;
   api_cost_usd: number;
   spec_path: string | null;
   spec_hash: string | null;
@@ -581,7 +623,7 @@ interface Row {
   updated_at: string;
 }
 
-const PROPOSAL_SELECT = `SELECT p.*, (SELECT MAX(at) FROM status_history h WHERE h.proposal_id = p.id AND h.to_status = p.status) AS status_since,(SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
+const PROPOSAL_SELECT = `SELECT p.*, (SELECT MAX(at) FROM status_history h WHERE h.proposal_id = p.id AND h.to_status = p.status) AS status_since,(SELECT created_at FROM narratives n WHERE n.id = p.narrative_id) AS narrative_created_at,(SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_usd, (SELECT CASE WHEN SUM(b.cost_source = 'unknown') > 0 THEN 'unknown' WHEN SUM(b.cost_source = 'estimated' AND b.total_cost_usd > 0) > 0 THEN 'estimated' ELSE 'exact' END FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend != 'api') AS cost_kind, (SELECT COALESCE(SUM(total_cost_usd), 0) FROM brain_runs b WHERE b.proposal_id = p.id AND b.backend = 'api') AS api_cost_usd, (SELECT MIN(created_at) FROM brain_runs b WHERE b.proposal_id = p.id AND b.exit_status = '${BRAIN_RUN_IN_FLIGHT}') AS in_flight_since, (SELECT session_id FROM brain_runs b WHERE b.proposal_id = p.id AND b.task = 'build' AND b.session_id IS NOT NULL ORDER BY b.id DESC LIMIT 1) AS build_session_id FROM proposals p`;
 
 /** The stored snapshot, or null when there is none (a `narrative` row) or it cannot be read (never throws: a bad row must not break the list). */
 function parseSnapshot(text: string | null): MetaSnapshot | null {
@@ -624,6 +666,7 @@ function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
     description: r.description,
     evidenceLinks: JSON.parse(r.evidence_links) as string[],
     agentCostUsd: r.cost_usd,
+    agentCostKind: r.cost_kind,
     apiCostUsd: r.api_cost_usd,
     specPath: r.spec_path,
     specHash: r.spec_hash,
@@ -677,6 +720,7 @@ export type WarRoomStore = Pick<
   | "latestScore"
   | "getScore"
   | "researchSpendSince"
+  | "dailySpendSince"
   | "apiSpendSince"
   | "brainRunsFor"
   | "judgeRunsFor"
@@ -819,6 +863,7 @@ interface BrainRunRow {
   model: string;
   session_id: string | null;
   total_cost_usd: number;
+  cost_source: CostSource | null;
   exit_status: string;
   created_at: string;
   heartbeat_at: string | null;
@@ -834,6 +879,7 @@ const toBrainRun = (r: BrainRunRow): BrainRunRecord => ({
   model: r.model,
   sessionId: r.session_id,
   totalCostUsd: r.total_cost_usd,
+  costSource: r.cost_source ?? "unknown",
   exitStatus: r.exit_status,
   createdAt: r.created_at,
   heartbeatAt: r.heartbeat_at,
@@ -1358,12 +1404,17 @@ export class Datastore {
     return rows.map(toNarrative);
   }
 
-  /** The newest judge, propose and meme-ideas runs (Spec and Build runs left out), by id descending. */
-  recentBrainRuns(limit = 20): BrainRunSummary[] {
+  /**
+   * The newest judge, propose and meme-ideas runs (Spec and Build runs left out), by id descending. With `caps`, a run that ended without
+   * a reported cost (the runs `spendSince` charges at their route's cap) shows that charge as its `estCostUsd`, marked `estimated`, not $0.
+   */
+  recentBrainRuns(limit = 20, caps: RunCaps = {}): BrainRunSummary[] {
     const rows = this.db
       .prepare("SELECT * FROM brain_runs WHERE task IN ('judge', 'propose', 'meme-ideas') ORDER BY id DESC LIMIT ?")
       .all(limit) as unknown as BrainRunRow[];
     return rows.map((r) => ({
+      // A run still open has no cost yet (the budget holds it at its cap meanwhile, but the list shows what is recorded).
+      costSource: r.cost_source ?? "unknown",
       id: r.id,
       task: r.task,
       status: r.exit_status,
@@ -1371,7 +1422,7 @@ export class Datastore {
       model: r.model,
       narrativeId: r.narrative_id,
       proposalId: r.proposal_id,
-      estCostUsd: r.total_cost_usd,
+      estCostUsd: r.total_cost_usd === 0 && r.backend !== "api" && r.exit_status !== BRAIN_RUN_IN_FLIGHT && chargedAtCap(r) ? (caps[r.task] ?? 0) : r.total_cost_usd,
       costKind: r.backend === "api" ? "api" : "est",
       startedAt: r.created_at,
       finishedAt: r.finished_at,
@@ -1860,8 +1911,8 @@ export class Datastore {
   recordBrainRun(run: NewBrainRun): void {
     this.db
       .prepare(
-        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, exit_status, created_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO brain_runs (proposal_id, task, backend, model, session_id, total_cost_usd, cost_source, exit_status, created_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         run.proposalId,
@@ -1870,6 +1921,7 @@ export class Datastore {
         run.model,
         run.sessionId,
         run.totalCostUsd,
+        run.costSource ?? costSourceFor(run),
         run.exitStatus,
         new Date().toISOString(),
         new Date().toISOString(),
@@ -1921,9 +1973,20 @@ export class Datastore {
   }
 
   /**
+   * What every subscription brain task has spent since `since` (ISO): the figure the daily quota (`ARGUS_DAILY_QUOTA_USD`) is held to, not
+   * just its research share. Research and Spec runs that ended with no cost are charged at their route's cap as in `spendSince`; a
+   * Build's cost is whatever was recorded for it (exact, or the estimate of a killed run), so `caps` names no `build`, and a Build that is
+   * still running shows what it has streamed so far.
+   */
+  dailySpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "spec", "spec-revise", "build"], since, caps);
+  }
+
+  /**
    * `costUsd` is the sum of the costs runs reported. A run that ended without printing a result (killed by its wall-clock cap, by a
    * shutdown, or left in flight by a worker that died) reports $0 although it may have spent up to its `--max-budget-usd`, so for
-   * budget purposes `chargedUsd` charges such a run (`timed-out`, `interrupted`, or still `in-flight`, with no cost recorded) at its
+   * budget purposes `chargedUsd` charges such a run (`timed-out`, `interrupted`, `cancelled` (a Spec draft the Operator undid, which was
+   * running and spent), or still `in-flight`, with no cost recorded) at its
    * task's cap from `caps`, which is a ceiling on what it can have used. So is a `failed` run that has a session (claude ran, then failed
    * without printing a cost). A `failed` run with no session is not charged: it is what a claude that never started looks like. Without `caps` nothing is charged beyond the reported cost.
    */
@@ -1935,7 +1998,7 @@ export class Datastore {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS runs, COALESCE(SUM(CASE WHEN ${mine} THEN total_cost_usd ELSE 0 END), 0) AS cost,
-           COALESCE(SUM(CASE WHEN NOT (${mine}) THEN 0 WHEN total_cost_usd = 0 AND (exit_status IN ('timed-out', 'interrupted', '${BRAIN_RUN_IN_FLIGHT}') OR (exit_status = 'failed' AND session_id IS NOT NULL))
+           COALESCE(SUM(CASE WHEN NOT (${mine}) THEN 0 WHEN total_cost_usd = 0 AND (exit_status IN ('timed-out', 'interrupted', 'cancelled', '${BRAIN_RUN_IN_FLIGHT}') OR (exit_status = 'failed' AND session_id IS NOT NULL))
              THEN (CASE task ${tasks.map(() => "WHEN ? THEN ?").join(" ")} ELSE 0 END) ELSE total_cost_usd END), 0) AS charged
          FROM brain_runs WHERE task IN (${tasks.map(() => "?").join(",")}) AND created_at >= ?${backend === "api" ? " AND backend = 'api'" : ""}`,
       )
@@ -2071,8 +2134,44 @@ export class Datastore {
    * open past the claude child, through the deploy and checks, until the Proposal reaches its terminal state; the spend is
    * on the card from here on, even if the worker dies before the run is closed.
    */
-  recordBrainRunSpend(id: number, spend: { sessionId: string | null; totalCostUsd: number }): void {
-    this.db.prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ? WHERE id = ? AND exit_status = ?").run(spend.sessionId, spend.totalCostUsd, id, BRAIN_RUN_IN_FLIGHT);
+  recordBrainRunSpend(id: number, spend: { sessionId: string | null; totalCostUsd: number; costSource?: CostSource }): void {
+    // A null session keeps the one already recorded (a stream's running total may not know it).
+    this.db
+      .prepare("UPDATE brain_runs SET session_id = COALESCE(?, session_id), total_cost_usd = ?, cost_source = ? WHERE id = ? AND exit_status = ?")
+      .run(spend.sessionId, spend.totalCostUsd, spend.costSource ?? "exact", id, BRAIN_RUN_IN_FLIGHT);
+  }
+
+  /**
+   * The average dollars per minute of the most recent Builds (`RECENT_BUILDS_FOR_RATE`, newest first): finished Build runs whose cost
+   * claude itself reported (`exact`, above $0), their cost over their run time (the row's `created_at` to `finished_at`, the same span an
+   * estimate for a killed run is measured over). With no such Build it is `DEFAULT_BUILD_USD_PER_MINUTE`.
+   */
+  recentBuildUsdPerMinute(): number {
+    const rows = this.db
+      .prepare(
+        `SELECT total_cost_usd AS cost, created_at, finished_at FROM brain_runs
+         WHERE task = 'build' AND cost_source = 'exact' AND total_cost_usd > 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT ?`,
+      )
+      .all(RECENT_BUILDS_FOR_RATE) as unknown as { cost: number; created_at: string; finished_at: string }[];
+    let usd = 0;
+    let minutes = 0;
+    for (const r of rows) {
+      const m = (Date.parse(r.finished_at) - Date.parse(r.created_at)) / 60_000;
+      if (!(m > 0)) continue;
+      usd += r.cost;
+      minutes += m;
+    }
+    return minutes > 0 ? usd / minutes : DEFAULT_BUILD_USD_PER_MINUTE;
+  }
+
+  /**
+   * What a Build run that left no usable usage is charged: its minutes (from the row's `created_at` to `until`, at least one) times the
+   * recent Builds' average dollars per minute, never above `capUsd` (what the route still allows this Build). Never $0 for a positive cap.
+   */
+  estimateBuildRunUsd(id: number, until: Date, capUsd: number): number {
+    const row = this.db.prepare("SELECT created_at FROM brain_runs WHERE id = ?").get(id) as { created_at: string } | undefined;
+    const elapsed = row ? until.getTime() - Date.parse(row.created_at) : 0;
+    return elapsedEstimateUsd(elapsed, this.recentBuildUsdPerMinute(), capUsd);
   }
 
   /**
@@ -2089,17 +2188,19 @@ export class Datastore {
    * the row to what actually ran it: a run opened on claude-code may have been served by the API after a rate limit, and its dollars
    * must land in the API figure, not in Est. usage.
    */
-  finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string; backend?: string; model?: string }): void {
+  finishBrainRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string; backend?: string; model?: string; costSource?: CostSource }): void {
+    const row = this.db.prepare("SELECT task, backend FROM brain_runs WHERE id = ?").get(id) as { task: string; backend: string } | undefined;
+    const costSource = done.costSource ?? costSourceFor({ task: row?.task ?? "", backend: done.backend ?? row?.backend ?? "", exitStatus: done.exitStatus, sessionId: done.sessionId, totalCostUsd: done.totalCostUsd });
     this.db
-      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, exit_status = ?, backend = COALESCE(?, backend), model = COALESCE(?, model), finished_at = ? WHERE id = ?")
-      .run(done.sessionId, done.totalCostUsd, done.exitStatus, done.backend ?? null, done.model ?? null, new Date().toISOString(), id);
+      .prepare("UPDATE brain_runs SET session_id = ?, total_cost_usd = ?, cost_source = ?, exit_status = ?, backend = COALESCE(?, backend), model = COALESCE(?, model), finished_at = ? WHERE id = ?")
+      .run(done.sessionId, done.totalCostUsd, costSource, done.exitStatus, done.backend ?? null, done.model ?? null, new Date().toISOString(), id);
   }
 
   /**
    * WORKER ONLY. Ends the Build's run for a failed attempt and opens the run of its one retry, in one transaction: the Proposal
    * stays `building` and never has a moment without an open run (the stale sweep would fail it). Returns the new run's id.
    */
-  restartBuildRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string }, route: Pick<NewBrainRun, "backend" | "model">): number {
+  restartBuildRun(id: number, done: { sessionId: string | null; totalCostUsd: number; exitStatus: string; costSource?: CostSource }, route: Pick<NewBrainRun, "backend" | "model">): number {
     return this.inTransaction(() => {
       const proposalId = (this.db.prepare("SELECT proposal_id FROM brain_runs WHERE id = ?").get(id) as { proposal_id: number } | undefined)?.proposal_id;
       if (proposalId === undefined) throw new Error(`brain run ${id} not found`);
@@ -2129,7 +2230,8 @@ export class Datastore {
 
   /**
    * WORKER ONLY, call at worker boot and on every tick. Marks each open run whose last sign of life (its last heartbeat, else its start) is older than `staleAfterMs(its task)` as `interrupted` (its
-   * spend is unknown and recorded as 0) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
+   * spend is unknown: a Build run is recorded at its last streamed total, or an estimate of its run time, never 0; any other task's is left at 0
+   * and charged at its route's cap where it has one) and sets `specError` on a still-shortlisted Proposal whose Spec draft it was.
    * Nothing is retried: the failure shows on the card. `staleAfterMs` is the task's run timeout plus a grace
    * period: a live run is killed at its timeout, so a younger row may belong to a live worker (this process, or a
    * foreground `--once` run beside the daemon) and is left alone. Also fails any `building` Proposal that has no open
@@ -2144,16 +2246,28 @@ export class Datastore {
       for (const r of rows) {
         if (new Date(r.created_at).getTime() >= now.getTime() - staleAfterMs(r.task)) continue;
         n++;
-        this.db.prepare("UPDATE brain_runs SET exit_status = ?, finished_at = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, now.toISOString(), r.id);
+        const open = this.db.prepare("SELECT backend, session_id, total_cost_usd AS cost, cost_source FROM brain_runs WHERE id = ?").get(r.id) as unknown as { backend: string; session_id: string | null; cost: number; cost_source: CostSource | null };
+        let cost = open.cost;
+        let source: CostSource;
+        if (r.task === "build" && open.backend !== "api") {
+          // A Build's agent was running (or its Build was) when the worker died: the last total its stream put on the row (the runner records it
+          // as it goes) stands as an estimate; a row with nothing recorded is charged for the time it ran (to its last heartbeat), never $0.
+          if (cost > 0) source = open.cost_source === "exact" ? "exact" : "estimated";
+          else {
+            cost = this.estimateBuildRunUsd(r.id, new Date(r.created_at), DEFAULT_ROUTING.build.maxBudgetUsd);
+            source = "estimated";
+          }
+        } else source = costSourceFor({ task: r.task, backend: open.backend, exitStatus: BRAIN_RUN_INTERRUPTED, sessionId: open.session_id, totalCostUsd: cost });
+        this.db.prepare("UPDATE brain_runs SET exit_status = ?, finished_at = ?, total_cost_usd = ?, cost_source = ? WHERE id = ?").run(BRAIN_RUN_INTERRUPTED, now.toISOString(), cost, source, r.id);
         if (r.task === "build") {
-          // The worker died mid-Build: its spend is unknown. Free the Build slot; the failure shows in the status history.
+          // The worker died mid-Build: its spend is the figure above (a streamed total or a time estimate). Free the Build slot; the failure shows in the status history.
           const p = this.getProposal(r.proposal_id);
           if (p?.status === "building") {
             this.transition(
               r.proposal_id,
               "build-failed",
               "build",
-              "Build interrupted: the worker stopped during the Build, so its spend is unknown. Not retried automatically.",
+              "Build interrupted: the worker stopped during the Build; its spend is an estimate (the last streamed total, or its run time). Not retried automatically.",
             );
           }
         }

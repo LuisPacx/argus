@@ -22,6 +22,7 @@ defineProps<{ view: ResearchBarView }>();
           <span class="fill block" :style="{ width: `${view.proposalsPct}%`, '--i': 1 }" />
         </span>
       </span>
+      <span v-if="view.daily" class="muted text-xs tabular-nums" data-test="daily-usage" title="Everything the subscription ran in the last 24 hours against the daily quota: research, Specs and every Build dollar (exact, or the estimate of a killed run). Est. usage, not a charge.">{{ view.daily }}</span>
       <span class="muted text-xs tabular-nums" data-test="api-spend" title="Real money billed by the Anthropic API, unlike the Est. usage budget. Only the API fallback spends it.">{{ view.api }}</span>
     </div>
     <span v-for="a in view.alerts" :key="a" class="note note-amber block">{{ a }}</span>

@@ -88,7 +88,7 @@ const usedPct = computed(() => (usage.value && usage.value.budgetUsd > 0 ? Math.
             <span class="pill" :class="r.status === 'success' ? 'pill-green' : r.status === 'in-flight' ? 'pill-accent' : r.status === 'cancelled' || r.status === 'aborted' ? '' : 'pill-red'">{{ r.status }}</span>
           </div>
           <p class="muted mt-1 text-sm">
-            started {{ ago(r.startedAt) }} · {{ duration(r) }} · {{ r.costKind === "est" ? "est. " : "" }}{{ usd(r.estCostUsd) }}{{ r.costKind === "api" ? " (API)" : "" }}
+            started {{ ago(r.startedAt) }} · {{ duration(r) }} · <span :data-cost-source="r.status === 'in-flight' ? 'pending' : r.costSource">{{ r.status === "in-flight" ? "cost pending" : `${r.costKind === "api" ? "" : r.costSource === "exact" ? "reported " : r.costSource === "estimated" ? "est. " : "unknown "}${usd(r.estCostUsd)}${r.costKind === "api" ? " (API)" : ""}` }}</span>
           </p>
         </article>
       </TransitionGroup>
@@ -98,7 +98,8 @@ const usedPct = computed(() => (usage.value && usage.value.budgetUsd > 0 ? Math.
       <h3 class="section-title">Usage today</h3>
       <p v-if="usageError" class="note note-red w-full" data-test="usage-error">{{ usageError.statusMessage || usageError.message }}</p>
       <div v-else-if="usage" class="row row-static">
-        <p class="font-semibold" data-test="usage-text">{{ usd(usage.usedUsd) }} of {{ usd(usage.budgetUsd) }} research budget{{ usage.exhausted ? " (exhausted)" : "" }}</p>
+        <p class="font-semibold" data-test="usage-text">{{ usd(usage.usedUsd) }} of {{ usd(usage.budgetUsd) }} research budget{{ usage.exhausted ? " (exhausted)" : "" }}<span v-if="usage.estimatedUsd > 0" class="muted font-normal" data-test="usage-estimated" title="Runs that ended without a result (killed or timed out) are charged at their route's per-run cap: an estimate, not what claude reported."> · {{ usd(usage.estimatedUsd) }} of it est.</span></p>
+        <p class="muted mt-1 text-sm" data-test="daily-usage" title="Everything the subscription ran in 24 hours against the daily quota: research, Specs and every Build dollar (exact, or the estimate of a killed run).">All tasks incl. Builds: {{ usd(usage.dailyUsedUsd) }} of {{ usd(usage.quotaUsd) }} daily quota</p>
         <div class="track my-3 w-full" role="progressbar" :aria-valuenow="Math.round(usedPct)" aria-valuemin="0" aria-valuemax="100">
           <div class="fill" :class="{ 'fill-bad': usage.exhausted }" :style="{ width: `${usedPct}%` }" />
         </div>

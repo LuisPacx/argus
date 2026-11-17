@@ -23,6 +23,14 @@ export const fmtUtc = (iso: string): string => {
   return Number.isNaN(d.getTime()) ? "" : `${UTC_WHEN.format(d).replace(",", "")} UTC`;
 };
 
+/** What stands behind a recorded cost, in words (hardening ticket 10): the tooltip of the "est." and "unknown" markers. */
+export const costKindTitle = (kind: "exact" | "estimated" | "unknown"): string =>
+  kind === "exact"
+    ? "As reported by claude -p (API-equivalent, not a charge: runs use the Claude subscription)."
+    : kind === "estimated"
+      ? "An estimate: the priced usage of a run that was killed or crashed without a result, its run time at the average rate of recent Builds, or its route's per-run cap."
+      : "A run ended without a result and nothing recovered its cost, so this figure leaves it out.";
+
 /** "04:10:02 UTC"; "" when `iso` is not a date. */
 export const fmtUtcClock = (iso: string): string => {
   const d = new Date(iso);

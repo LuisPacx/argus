@@ -7,6 +7,10 @@ export interface ResearchPayload {
   budgetUsd: number;
   runs: number;
   usedShareOfQuota: number;
+  /** Of `usedUsd`, what is estimated (runs that ended without a result, charged at their route's cap); absent from an older server. */
+  estimatedUsd?: number;
+  /** Everything the subscription ran in 24 h against the daily quota (research, Specs, every Build dollar); absent from an older server. */
+  dailyUsedUsd?: number;
   quotaUsd: number;
   share: number;
   exhausted: boolean;
@@ -25,6 +29,8 @@ export interface ResearchBarView {
   proposals: string;
   proposalsPct: number;
   api: string;
+  /** "Daily $7.75 / $20" (all tasks incl. Builds), or "" when the server did not send it. */
+  daily: string;
   alerts: string[];
   details: string[];
 }
@@ -43,6 +49,12 @@ export function researchBar(r: ResearchPayload): ResearchBarView {
     `New Proposals: ${proposalCapText(r.newProposals, r.newProposalsCap)}.`,
     `API spend is real money billed by the Anthropic API, unlike Est. usage. Only the API fallback spends it, when the subscription is rate-limited: $${r.api.usedUsd.toFixed(4)} of $${r.api.capUsd.toFixed(2)} daily cap over ${runs(r.api.runs)}.`,
   ];
+  if (r.estimatedUsd !== undefined && r.estimatedUsd > 0) {
+    details.push(`$${r.estimatedUsd.toFixed(2)} of the budget is estimated: runs that ended without a result (killed, timed out) are charged at their route's per-run cap, not what claude reported.`);
+  }
+  if (r.dailyUsedUsd !== undefined) {
+    details.push(`Daily quota: $${r.dailyUsedUsd.toFixed(2)} of an assumed $${r.quotaUsd.toFixed(0)} in the last 24 h, counting every task: research, Specs and every Build dollar (exact, or the estimate of a killed run).`);
+  }
   if (!r.api.enabled) details.push("API fallback is off: set ARGUS_API_FALLBACK=1 and ANTHROPIC_API_KEY in .env to turn it on.");
   if (r.memeIdeas) {
     details.push(`Meme ideas: ${r.memeIdeas.runs} of ${r.memeIdeas.cap} runs in the last 24 h (counted in the budget above)${r.memeIdeas.enabled ? "." : "; off until ARGUS_MEME_IDEAS=1."}`);
@@ -50,12 +62,13 @@ export function researchBar(r: ResearchPayload): ResearchBarView {
   }
   return {
     label: "Research 24h",
-    budget: `$${r.usedUsd.toFixed(2)} / $${r.budgetUsd.toFixed(2)}`,
+    budget: `$${r.usedUsd.toFixed(2)} / $${r.budgetUsd.toFixed(2)}${r.estimatedUsd !== undefined && r.estimatedUsd > 0 ? ` (est. $${r.estimatedUsd.toFixed(2)})` : ""}`,
     budgetPct: pct(r.usedUsd, r.budgetUsd),
     budgetExhausted: r.exhausted,
     proposals: `${r.newProposals} / ${r.newProposalsCap}`,
     proposalsPct: pct(r.newProposals, r.newProposalsCap),
     api: `API $${r.api.usedUsd.toFixed(4)} / $${r.api.capUsd.toFixed(2)}`,
+    daily: r.dailyUsedUsd === undefined ? "" : `Daily $${r.dailyUsedUsd.toFixed(2)} / $${r.quotaUsd.toFixed(0)}`,
     alerts,
     details,
   };

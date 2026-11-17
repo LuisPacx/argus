@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { BrainError, SESSION_ID_RE, type Brain } from "./brain.ts";
+import { BrainError, DEFAULT_ROUTING, SESSION_ID_RE, type Brain } from "./brain.ts";
+import type { CostSource } from "./run-cost.ts";
 import { BRAIN_RUN_IN_FLIGHT, SpecConflictError, type Datastore, type Proposal } from "./datastore.ts";
 
 /** How long a rate-limited draft waits before the worker tries again. */
@@ -86,8 +87,22 @@ export function specProblem(text: string): string | null {
   return missing.length > 0 ? `missing required section(s): ${missing.map((h) => `## ${h}`).join(", ")}` : null;
 }
 
-/** `brain_runs.exit_status` of a Spec run the Operator cancelled by undoing the shortlist. Its cost is whatever the killed run reported. */
+/** `brain_runs.exit_status` of a Spec run the Operator cancelled by undoing the shortlist. It was running and spent, so it counts against the caps like any other killed run. */
 export const BRAIN_RUN_CANCELLED = "cancelled";
+
+/**
+ * What a Spec run that did not finish is recorded at (hardening ticket 10). A run that reported a cost (a failed or over-budget result)
+ * keeps it. One that was killed (the wall-clock cap, the shutdown, an Undo shortlist) or crashed after claude started prints no result
+ * (a Spec run is `--output-format json`, so nothing of it is streamed), so it may have spent up to its route's cap: it is recorded at the
+ * cap, as an estimate, so it counts against the daily budget and shows on the Proposal. A run that never started (an aborted signal, a
+ * missing session), a rate-limited one (it did no work) and a crash with no session (claude never started) cost nothing.
+ */
+function unfinishedSpend(brain: Brain, err: BrainError | undefined, cancelled: boolean): { totalCostUsd: number; costSource: CostSource } {
+  if (err && err.totalCostUsd > 0) return { totalCostUsd: err.totalCostUsd, costSource: err.costSource };
+  const killed = err?.ran === true && (cancelled || err.kind === "timed-out" || err.kind === "interrupted" || (err.kind === "failed" && err.sessionId !== undefined));
+  if (!killed) return { totalCostUsd: 0, costSource: "exact" };
+  return { totalCostUsd: brain.routeFor("spec").maxBudgetUsd ?? DEFAULT_ROUTING.spec.maxBudgetUsd, costSource: "estimated" };
+}
 
 /**
  * The Spec runs (draft and revise) this process has in flight, one per Proposal, each with its own abort. The worker hands `cancel` to
@@ -169,11 +184,11 @@ export async function draftSpec(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const brainError = e instanceof BrainError ? e : undefined;
-    // The Operator undid the shortlist: the run is recorded as cancelled with whatever it reported, and the Proposal (now `new`) is left alone.
+    // The Operator undid the shortlist: the run is recorded as cancelled (it spent: see `unfinishedSpend`), and the Proposal (now `new`) is left alone.
     const cancelled = live.cancelled();
     store.finishBrainRun(runId, {
       sessionId: brainError?.sessionId ?? null,
-      totalCostUsd: brainError?.totalCostUsd ?? 0,
+      ...unfinishedSpend(brain, brainError, cancelled),
       exitStatus: cancelled ? BRAIN_RUN_CANCELLED : (brainError?.kind ?? "failed"),
     });
     if (cancelled) return false;
@@ -312,7 +327,7 @@ export async function reviseSpec(
     const cancelled = live.cancelled(); // the Operator undid the shortlist: the Proposal is `new` and the queued instruction is gone
     store.finishBrainRun(runId, {
       sessionId: brainError?.sessionId ?? null,
-      totalCostUsd: brainError?.totalCostUsd ?? 0,
+      ...unfinishedSpend(brain, brainError, cancelled),
       exitStatus: cancelled ? BRAIN_RUN_CANCELLED : (brainError?.kind ?? "failed"),
     });
     if (cancelled) return false;
