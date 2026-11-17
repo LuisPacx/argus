@@ -38,4 +38,4 @@ Differences that matter and stay explicit (parameters, not merged away):
 
 ## Comments
 
-- 2026-11-17: written and implemented. Evidence is in the commit message and the worker report.
+- 2026-11-17: written and implemented in c23bf18. Evidence: `pnpm check` passed on that tree (161 files, 2626 tests, stamped tree 945211f4eb); `pnpm page:check --seed --all` exit 0 on every page, seeded, port 3217 free and dir removed after; `pnpm verify:boot` PASS on all four steps (step 4 uses the shared helper).
