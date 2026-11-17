@@ -1,15 +1,15 @@
 // The private War Room `pnpm page:check --seed` checks: a throwaway DB under ~/.cache/argus-scratch (home disk, never /tmp), filled by
 // scripts/page-seed.mjs through the Datastore API, and the Nuxt dev server on its own port with that DB, as its own process group.
 // `stop()` kills the group by PID (never by name), waits for the port to be free and removes the DB dir. Never touches the live DB,
-// the live War Room (port 3100) or `.env` (ARGUS_NO_DOTENV). Same pattern as verify-boot step 4; verify-boot is left as it is.
+// the live War Room (port 3100) or `.env` (ARGUS_NO_DOTENV). Boot, readiness wait and group stop are shared with verify-boot step 4 (scripts/nuxt-dev-server.mjs).
 // Ticket: .scratch/warroom-redesign/issues/14-page-check-seed-option.md
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isLiveDb } from './live-db-guard.mjs';
+import { spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
 import { seedDatastore } from './page-seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,24 +64,6 @@ export async function portBusy(port) {
   return false;
 }
 
-async function get(url) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-    return res.status;
-  } catch {
-    return 0;
-  }
-}
-
-function groupAlive(pgid) {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (err) {
-    return err.code === 'EPERM';
-  }
-}
-
 // Every seeded server still running, so a signal handler can stop them all (also while one is still booting).
 const active = new Set();
 export const stopAllSeeded = () => Promise.all([...active].map((stop) => stop()));
@@ -111,20 +93,7 @@ export async function startSeededServer({ port = SEED_DEFAULT_PORT, now, base = 
     if (stopped) return;
     stopped = true;
     if (pgid !== null) {
-      try {
-        process.kill(-pgid, 'SIGTERM');
-      } catch {
-        // Already gone.
-      }
-      const deadline = Date.now() + GRACE_MS;
-      while (groupAlive(pgid) && Date.now() < deadline) await sleep(POLL_MS);
-      if (groupAlive(pgid)) {
-        try {
-          process.kill(-pgid, 'SIGKILL');
-        } catch {
-          // Exited between the check and the kill.
-        }
-      }
+      await stopGroup(pgid, GRACE_MS, POLL_MS);
       const freeBy = Date.now() + GRACE_MS;
       while ((await portBusy(port)) && Date.now() < freeBy) await sleep(POLL_MS);
     }
@@ -147,28 +116,12 @@ export async function startSeededServer({ port = SEED_DEFAULT_PORT, now, base = 
     const serverTmp = path.join(dir, 'tmp');
     fs.mkdirSync(serverTmp);
     const logFile = path.join(dir, 'warroom.log');
-    const logFd = fs.openSync(logFile, 'a');
-    const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(port), '--strictPort'], {
-      cwd: ROOT,
-      // ARGUS_NO_DOTENV: never the operator's .env. ARGUS_NUXT_BUILD_DIR: own build dir (see nuxt.config.ts), so no shared .nuxt/ and no lock clash with the live server. TMPDIR: inside the throwaway dir, never /tmp.
-      env: { ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt'), TMPDIR: serverTmp },
-      detached: true,
-      stdio: ['ignore', logFd, logFd],
-    });
-    fs.closeSync(logFd);
-    pgid = child.pid;
-    let exited = false;
-    child.on('exit', () => (exited = true));
-    const tail = () => fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
-    const deadline = Date.now() + READY_TIMEOUT_MS;
-    let up = false;
-    while (!up && !exited && !stopped && Date.now() < deadline) {
-      const status = await get(`http://localhost:${port}/_nuxt/`);
-      up = status !== 0 && status !== 503; // Nuxt answers 503 while it loads the app
-      if (!up) await sleep(500);
-    }
-    if (!up) throw new Error(`dev server not up within ${READY_TIMEOUT_MS / 1000}s; log tail: ${tail()}`);
-    if (exited || !fs.readFileSync(logFile, 'utf8').includes(`:${port}`)) throw new Error(`dev server did not bind port ${port}; log tail: ${tail()}`);
+    // ARGUS_NO_DOTENV: never the operator's .env. ARGUS_NUXT_BUILD_DIR: own build dir (see nuxt.config.ts), so no shared .nuxt/ and no lock clash with the live server. TMPDIR: inside the throwaway dir, never /tmp.
+    const env = { ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt'), TMPDIR: serverTmp };
+    const server = spawnNuxtDev({ root: ROOT, port, env, logFile });
+    pgid = server.pgid;
+    const problem = await waitForNuxtReady({ port, logFile, hasExited: server.hasExited, timeoutMs: READY_TIMEOUT_MS, cancelled: () => stopped });
+    if (problem) throw new Error(problem);
     return { dir, port, pgid, ids: seeded.ids, counts: seeded.counts, stop };
   } catch (err) {
     await stop();

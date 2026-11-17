@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Datastore, clusterNewSignals } from '../packages/core/src/index.ts';
 import { checkDryRunOutput } from '../packages/core/src/containment-policy.ts';
+import { groupAlive, httpGet, spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
 import { activityProblem, pageProblem, pageRoutes, serverLogProblem } from './warroom-pages.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,16 +79,6 @@ async function seed(db) {
   const narrativeId = store.listNarratives()[0]?.id;
   store.close();
   return { proposals: p.id, narratives: narrativeId };
-}
-
-// Signal 0 probes existence of the whole group. EPERM still means something is alive.
-function groupAlive(pgid) {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (err) {
-    return err.code === 'EPERM';
-  }
 }
 
 async function stepOnce(dir) {
@@ -194,14 +185,7 @@ async function stepNoSurvivors(pgid) {
   report('step 3 no survivors', false, `process group ${pgid} still alive; SIGKILLed`);
 }
 
-async function get(url, timeoutMs) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    return { status: res.status, body: await res.text() };
-  } catch (err) {
-    return { status: 0, body: String(err.message ?? err) };
-  }
-}
+const get = httpGet;
 
 // Starts the real War Room dev server on its own DB, GETs every page route, then stops it and checks nothing survives.
 async function stepWarroom(dir, ids) {
@@ -214,35 +198,14 @@ async function stepWarroom(dir, ids) {
     }
   }
   const logFile = path.join(dir, 'warroom.log');
-  const logFd = fs.openSync(logFile, 'a');
-  const child = spawn('pnpm', ['--dir', ROOT, '--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(WARROOM_PORT), '--strictPort'], {
-    cwd: ROOT,
-    // ARGUS_NO_DOTENV: /api/research reads the config from the environment; never the operator's .env (CODING_STANDARDS rule 16).
-    env: { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1' },
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-  });
-  fs.closeSync(logFd);
-  const pgid = child.pid;
-  let exited = false;
-  child.on('exit', () => (exited = true));
+  // ARGUS_NO_DOTENV: /api/research reads the config from the environment; never the operator's .env (CODING_STANDARDS rule 16).
+  const env = { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1' };
+  const server = spawnNuxtDev({ root: ROOT, port: WARROOM_PORT, env, logFile });
+  const pgid = server.pgid;
   try {
-    // Nuxt answers 503 while it loads the app; anything else means the server is up.
-    const readyDeadline = Date.now() + WARROOM_READY_TIMEOUT_MS;
-    let up = false;
-    while (!up && !exited && Date.now() < readyDeadline) {
-      const { status } = await get(`${base}/_nuxt/`, 2_000);
-      up = status !== 0 && status !== 503;
-      if (!up) await sleep(500);
-    }
-    if (!up) {
-      const tail = fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
-      report('step 4 War Room pages', false, `dev server not up within ${WARROOM_READY_TIMEOUT_MS / 1000}s; log tail: ${tail}`);
-      return;
-    }
-    // --strictPort makes a different port an exit, not a fallback; confirm from the server's own log that it is on ours.
-    if (exited || !fs.readFileSync(logFile, 'utf8').includes(`:${WARROOM_PORT}`)) {
-      report('step 4 War Room pages', false, `dev server did not bind port ${WARROOM_PORT}; log tail: ${fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ')}`);
+    const notReady = await waitForNuxtReady({ port: WARROOM_PORT, logFile, hasExited: server.hasExited, timeoutMs: WARROOM_READY_TIMEOUT_MS });
+    if (notReady) {
+      report('step 4 War Room pages', false, notReady);
       return;
     }
     const routes = pageRoutes(WARROOM_PAGES, ids);
@@ -259,19 +222,7 @@ async function stepWarroom(dir, ids) {
     if (problems.length > 0) report('step 4 War Room pages', false, problems.join(' | '));
     else report('step 4 War Room pages', true, `${routes.join(', ')} all answered 2xx with no Nuxt error payload`);
   } finally {
-    try {
-      process.kill(-pgid, 'SIGTERM');
-    } catch {
-      // Already gone.
-    }
-    const deadline = Date.now() + GROUP_GRACE_MS * 3;
-    while (groupAlive(pgid) && Date.now() < deadline) await sleep(POLL_MS);
-    if (groupAlive(pgid)) {
-      try {
-        process.kill(-pgid, 'SIGKILL');
-      } catch {
-        // Exited between the check and the kill.
-      }
+    if (await stopGroup(pgid, GROUP_GRACE_MS * 3, POLL_MS)) {
       report('step 4 War Room stop', false, `process group ${pgid} ignored SIGTERM; SIGKILLed`);
     }
   }
