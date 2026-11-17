@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PROJECT_DIR}/scripts/wt-setup.mjs",
+            "command": "node ${CLAUDE_PROJECT_DIR}/scripts/wt-setup.mjs --hook",
             "timeout": 300
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PROJECT_DIR}/scripts/wt-setup.mjs",
+            "command": "node ${CLAUDE_PROJECT_DIR}/scripts/wt-setup.mjs --hook",
             "timeout": 300
           }
         ]

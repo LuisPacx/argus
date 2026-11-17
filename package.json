@@ -24,7 +24,7 @@
     "image:build": "node scripts/image-build.mjs",
     "verify:contain": "node scripts/verify-contain.mjs",
     "wt:setup": "node scripts/wt-setup.mjs",
-    "page:check":"node scripts/page-check.mjs",
+    "page:check": "node scripts/page-check.mjs",
     "docs:graph": "node scripts/gen-architecture.mjs",
     "prepare": "git config core.hooksPath .githooks"
   },
