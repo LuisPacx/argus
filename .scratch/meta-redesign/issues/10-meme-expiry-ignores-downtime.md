@@ -23,14 +23,15 @@ How the worker knows it was down: it does not. Nothing persists "the worker was 
 
 ## Recommendation
 
-Option (a): a one-row heartbeat plus a small gap ledger, and `expiresAtFor` takes the gaps. Smaller and safer than (b) (no rewrite of Proposal rows, idempotent, survives a crash during start), exact where (d) is not, and it does not need the Meta tables. Apply it to **meme Proposals only** (the 12 h life is the one that a pause can eat; the 48 h `new` and 7 day `shortlisted` lives of narrative Proposals are long enough that the Operator sees them, so they keep wall-clock expiry, which is also today's tested behaviour). Whether to apply it to them as well is an open question below.
+Option (a): a one-row heartbeat plus a small gap ledger, and `expiresAtFor` takes the gaps. Smaller and safer than (b) (no rewrite of Proposal rows, idempotent, survives a crash during start), exact where (d) is not, and it does not need the Meta tables. Apply it to **meme Proposals only** (the 12 h life is the one that a pause can eat; the 48 h `new` and 7 day `shortlisted` lives of narrative Proposals are long enough that the Operator sees them, so they keep wall-clock expiry, which is also today's tested behaviour). The user confirmed meme only (see Decisions).
 
 **What happens to a Proposal that would have expired during the stop anyway:** it is not closed on restart; it keeps its remaining running time (a Proposal made 11 h before the stop has 1 h of running time left, so it closes about 1 h after restart, not at once). A Proposal made before the stop and 12 h of running time old is closed on the first tick, as today.
 
 ## Acceptance criteria
 
 - [ ] A heartbeat is stored: the worker writes `worker_alive_at` (additive table, `CREATE TABLE IF NOT EXISTS`, idempotent, no migration of old data) every tick and at boot, and a gap `[alive_at, now]` is recorded when the previous heartbeat is more than a named constant (`WORKER_GAP_MS`, 10 min) older. A fresh database with no heartbeat records no gap (first boot).
-- [ ] `expiresAtFor` (or its caller in `datastore.ts:641`) pushes a meme Proposal's expiry out by the total length of recorded gaps that fall after its `since` (a gap that started before `since` counts only from `since`). Narrative Proposals are unchanged unless the open question below is answered yes.
+- [ ] `expiresAtFor` (or its caller in `datastore.ts:641`) pushes a meme Proposal's expiry out by the total length of recorded gaps that fall after its `since` (a gap that started before `since` counts only from `since`). Narrative Proposals are unchanged (decision 1). The extension has no cap (decision 2).
+- [ ] The 12 h refresh is held by the same gaps (decision 3): a Meta's refresh is due at its last started try plus `MEME_REFRESH_MS` plus the recorded gaps after that try. Test, fake clock: a Meta tried at T, worker stopped T+1 h to T+14 h, first tick after restart at T+14 h starts no refresh run and makes no second trio; the refresh is due at T+25 h. A New Meta event after the restart still runs (events bypass the gap, as before, under the 6 h trio guard).
 - [ ] Test, fake clock (beside `expiry.test.ts`): a meme Proposal created at T, the worker stopped from T+1 h to T+14 h (a 13 h gap), restart at T+14 h: the first tick after restart closes none; it is live until T+25 h (12 h of running time), and closes at the first tick at or after T+25 h. A second stop adds a second gap.
 - [ ] Test: a meme Proposal created before a stop, with 12 h of running time already spent at the stop, is closed on the first tick after restart, with reason `stale` (the downtime does not keep one alive that had already expired).
 - [ ] Test: a short gap below `WORKER_GAP_MS` (a slow tick, a `--once` run beside the daemon) records nothing and changes no expiry; two workers writing the heartbeat (daemon plus `--once`) never record a gap that spans a time one of them was alive.
@@ -40,10 +41,12 @@ Option (a): a one-row heartbeat plus a small gap ledger, and `expiresAtFor` take
 - [ ] GLOSSARY (Meme Proposal, Proposal status: "expires after 12 hours" becomes "12 hours the worker is running") and ADR 0013 get an amendment line; `docs/architecture.md` through `pnpm docs:graph` if a stored fact appears in the graph.
 - [ ] Type-check and the full `pnpm check` pass, run once before the commit.
 
-## Open questions for the user
+## Decisions (user, 2026-11-17)
 
-1. **Scope.** Should the same running-time rule apply to the 48 h `new` and 7 day `shortlisted` lives of narrative Proposals (a longer stop would otherwise eat them too), or only to the 12 h meme life? Recommendation: meme only now; narrative later if a stop ever eats one.
-2. **Cap on the extension.** Should a very long stop (a week, a deploy gone wrong) keep a 12 h-old idea alive for the whole week? An idea about a Meta that is gone is stale however the clock runs. Recommendation: no cap, since the Meta pass will raise nothing after a pause and a stale idea costs only a dismiss; or cap the total extension at 48 h (user's call).
-3. **The 12 h refresh.** Meme ideas for a Meta refresh every 12 h of wall time (`MEME_REFRESH_MS`); after a stop the first tick may make a second trio beside the kept ones (the 6 h trio guard stays). Accept that, or also hold the refresh by the same gap? Not in this ticket unless the user says so.
+1. **Scope:** meme Proposals only; narrative lives (48 h, 7 days) stay wall-clock.
+2. **Cap:** none. A stop of any length extends the idea by that length.
+3. **Refresh:** the 12 h meme refresh (`MEME_REFRESH_MS`) is also held by recorded downtime, so a restart makes no extra trio beside the kept ones.
+
+No open questions remain.
 
 ## Comments
