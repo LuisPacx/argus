@@ -1,5 +1,5 @@
-# 16: fmtWhen formats in UTC, not the host's time zone
-**Model:** sonnet / effort: medium. One formatter in `apps/warroom/app/utils/format.ts` and one test file; no schema, ADR or dependency change.
+# 16: fmtWhen shows the viewer's time zone after mount, fixed UTC before it
+**Model:** sonnet / effort: medium. One formatter in `apps/warroom/app/utils/format.ts`, a clock argument threaded through `why.ts` and two pages, one test file; no schema, ADR or dependency change.
 
 **Status:** done
 
@@ -7,24 +7,25 @@
 
 ## Problem
 
-`fmtWhen(iso)` (`utils/format.ts`) builds its `Intl.DateTimeFormat` without a `timeZone`, and picks the "no year" or "with year" form by comparing `getFullYear()` (host zone) of the value and of `new Date()`. Used on `proposals/[id].vue` (created, updated, expires, "started"), `narratives/[id].vue` (started, last Signal, material change, Signals, research) and `utils/why.ts` (Signal times).
+`fmtWhen(iso)` (`utils/format.ts`) built its `Intl.DateTimeFormat` without a `timeZone`, and picked the "no year" or "with year" form by comparing `getFullYear()` (host zone) of the value and of `new Date()`. Used on `proposals/[id].vue` (created, updated, expires, "started"), `narratives/[id].vue` (started, last Signal, material change, Signals, research) and `utils/why.ts` (Signal times in the Why panel).
 
-- Server render uses the server's zone, the browser hydrates in the viewer's zone: different text, so Vue logs "Hydration completed but contains mismatches". Nothing on the page says which zone it is ("6 Nov, 23:49" has no label), so the value is also ambiguous to the reader.
+- Server render uses the server's zone, the browser hydrates in the viewer's zone: different text, so Vue logs "Hydration completed but contains mismatches". Nothing on the page says which zone it is ("6 Nov, 23:49" has no label).
 - The year switch uses host-zone years too, so around New Year the two sides can pick different forms.
 
 No seeded run shows it because this machine's server and browser share a zone.
 
-## Repro
+## Decision (user, 2026-11-17)
 
-Test `apps/warroom/server/test/fmtwhen-time-zone.test.ts`: import `fmtWhen` with `TZ=UTC`, `Asia/Tokyo` and `America/Los_Angeles`; the same ISO gives three different strings before the fix.
+Absolute times show in the VIEWER'S local zone, not UTC. The server cannot know the viewer's zone, so this follows ticket 15's client-only pattern: `fmtWhen(iso, nowMs)` returns the fixed UTC text ("6 Nov 23:49 UTC", `fmtUtc`) while `nowMs <= 0` (server and first client render), and after mount (`useNowMs()`) the viewer's zone with a hint from `timeZoneName: "short"` ("6 Nov 20:49 GMT-3"; "6 Nov 2025 20:49 GMT-3" for another year, decided in the viewer's zone against the client clock). The full UTC timestamp is in `title` and `datetime`.
 
 ## Acceptance
 
-- [x] `fmtWhen` output is identical in any host time zone, formatted in UTC and labelled, e.g. `6 Nov 23:49 UTC` (`6 Nov 2025 23:49 UTC` for another year), with the year decided in UTC.
-- [x] The test pins `TZ` per case and fails before the fix, passes after.
-- [x] `pnpm check` green once before the commit.
-- [x] `pnpm page:check --seed` clean on the pages that use `fmtWhen` (if any War Room page markup changed: the text only changed).
+- [x] `fmtWhen(iso, nowMs)`: with `nowMs <= 0` the text is the fixed UTC form and identical in any host zone; with a real clock it is the viewer's zone with a zone hint, year decided in that zone.
+- [x] `whyView(p, nowMs)` and the pages `proposals/[id].vue` and `narratives/[id].vue` pass the shared clock; each time carries the full UTC timestamp in `title` (and `datetime` on `<time>`).
+- [x] The test `apps/warroom/server/test/fmtwhen-time-zone.test.ts` pins `TZ` per case; the UTC-text case failed against the previous host-zone formatter.
+- [x] `pnpm check` green once on the committed tree.
+- [x] `pnpm page:check --seed` on `/proposals/{tech}`, `/proposals/{metaMeme}`, `/narratives` and `/narratives/{id}` with no hydration warnings.
 
 ## Comments
 
-- Decision: UTC with a "UTC" label (same as `fmtUtc` from ticket 15), because the server cannot know the viewer's zone; a viewer-zone display would need client-only rendering.
+- First attempt (commit 04a96aa) formatted in UTC with a "UTC" label; the user wanted the viewer's zone, reworked here in a second commit.

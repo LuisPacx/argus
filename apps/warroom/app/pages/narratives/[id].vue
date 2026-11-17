@@ -1,7 +1,9 @@
 <script setup lang="ts">
 const route = useRoute();
 const { data: n } = await useFetch(`/api/narratives/${route.params.id}`);
-const pct = (value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
+// 0 until mounted: UTC text on the server and first client render, the viewer's zone after (ticket 16, like ticket 15).
+const nowMs = useNowMs();
+const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
 </script>
 
 <template>
@@ -14,8 +16,8 @@ const pct = (value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
       <h2 class="page-title">{{ n.title }}</h2>
       <p v-if="n.summary" class="mt-3 max-w-3xl leading-relaxed">{{ n.summary }}</p>
       <p class="muted mt-2 text-sm">
-        {{ signalsLabel(n.signalCount) }} · started {{ fmtWhen(n.createdAt) }} · last Signal {{ fmtWhen(n.lastSignalAt) }} · last material change
-        {{ fmtWhen(n.changedMateriallyAt) }}
+        {{ signalsLabel(n.signalCount) }} · started <time :datetime="n.createdAt" :title="n.createdAt">{{ fmtWhen(n.createdAt, nowMs) }}</time> · last Signal <time :datetime="n.lastSignalAt" :title="n.lastSignalAt">{{ fmtWhen(n.lastSignalAt, nowMs) }}</time> · last material change
+        <time :datetime="n.changedMateriallyAt" :title="n.changedMateriallyAt">{{ fmtWhen(n.changedMateriallyAt, nowMs) }}</time>
       </p>
     </div>
 
@@ -28,7 +30,7 @@ const pct = (value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
               <span class="pill pill-accent px-3 py-1.5 text-base tabular-nums">{{ s.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
               <span class="pill pill-outline">Rubric v{{ s.rubricVersion }}</span>
-              <span class="faint ml-auto text-xs"><time :datetime="s.createdAt">{{ fmtWhen(s.createdAt) }}</time> · {{ signalsLabel(s.signalCount) }}</span>
+              <span class="faint ml-auto text-xs"><time :datetime="s.createdAt" :title="s.createdAt">{{ fmtWhen(s.createdAt, nowMs) }}</time> · {{ signalsLabel(s.signalCount) }}</span>
             </div>
             <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 xl:grid-cols-5">
               <div v-for="(value, key) in s.scores" :key="key" class="grid gap-1.5 text-xs">
@@ -48,7 +50,7 @@ const pct = (value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
         <ul class="grid gap-2.5" data-testid="judge-runs">
           <li v-for="r in n.runs" :key="r.id" class="inset grid gap-2 px-4 py-3 text-sm">
             <div class="flex items-baseline justify-between gap-3">
-              <time class="muted" :datetime="r.createdAt">{{ fmtWhen(r.createdAt) }}</time>
+              <time class="muted" :datetime="r.createdAt" :title="r.createdAt">{{ fmtWhen(r.createdAt, nowMs) }}</time>
               <span class="font-semibold tabular-nums">{{ r.backend === "api" ? `$${r.totalCostUsd.toFixed(4)} real` : `$${r.totalCostUsd.toFixed(2)} est.` }}</span>
             </div>
             <div class="flex flex-wrap items-center gap-1.5">
@@ -71,7 +73,7 @@ const pct = (value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
             <svg class="size-3.5 shrink-0 opacity-70" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" /></svg>
           </a>
           <span v-else class="min-w-0 grow truncate" :title="s.title">{{ s.title }}</span>
-          <time class="faint shrink-0 text-xs" :datetime="s.publishedAt">{{ fmtWhen(s.publishedAt) }}</time>
+          <time class="faint shrink-0 text-xs" :datetime="s.publishedAt" :title="s.publishedAt">{{ fmtWhen(s.publishedAt, nowMs) }}</time>
         </li>
       </ul>
     </section>

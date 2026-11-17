@@ -1,39 +1,52 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fmtWhen } from "../../app/utils/format.ts";
+import { whyView } from "../../app/utils/why.ts";
 
 /**
- * fmtWhen time zone (War Room ticket 16). The server renders fmtWhen in its own zone and the browser hydrates in the viewer's, so the
- * text must not depend on TZ. Each zone gets a fresh import because the Intl formatters are built at module load.
+ * fmtWhen time zone (War Room ticket 16). Same pattern as the relative times (ticket 15): with a clock of 0 (server render and first client
+ * render) the text is fixed UTC and does not depend on the host zone; once the clock is set it is the viewer's zone. TZ is pinned per case.
  */
 const ORIGINAL_TZ = process.env.TZ;
-const loadIn = async (tz: string) => {
-  process.env.TZ = tz;
-  vi.resetModules();
-  return (await import("../../app/utils/format.ts")).fmtWhen;
-};
+const iso = "2026-11-06T23:49:00.000Z";
+const NOW = Date.parse("2026-11-17T12:00:00Z");
 
 afterEach(() => {
-  vi.useRealTimers();
   if (ORIGINAL_TZ === undefined) delete process.env.TZ;
   else process.env.TZ = ORIGINAL_TZ;
 });
 
 describe("fmtWhen", () => {
-  it("gives the same text in every time zone, labelled UTC", async () => {
-    vi.useFakeTimers({ now: Date.parse("2026-11-17T12:00:00Z"), toFake: ["Date"] });
-    const iso = "2026-11-06T23:49:00.000Z";
-    const utc = (await loadIn("UTC"))(iso);
-    const tokyo = (await loadIn("Asia/Tokyo"))(iso);
-    const la = (await loadIn("America/Los_Angeles"))(iso);
-    expect(utc).toBe("6 Nov 23:49 UTC");
-    expect(tokyo).toBe(utc);
-    expect(la).toBe(utc);
+  it("with clock 0 gives the same UTC text in every host zone", () => {
+    const out = ["UTC", "Asia/Tokyo", "America/Sao_Paulo"].map((tz) => {
+      process.env.TZ = tz;
+      return fmtWhen(iso, 0);
+    });
+    expect(out).toEqual(["6 Nov 23:49 UTC", "6 Nov 23:49 UTC", "6 Nov 23:49 UTC"]);
   });
 
-  it("decides the year in UTC, not in the host zone", async () => {
-    // 2026-12-31T23:30Z is already 2027 in Tokyo; the clock below is 2026 in UTC but 2027 in Tokyo.
-    vi.useFakeTimers({ now: Date.parse("2026-12-31T23:30:00Z"), toFake: ["Date"] });
-    const fmt = await loadIn("Asia/Tokyo");
-    expect(fmt("2026-12-31T22:00:00.000Z")).toBe("31 Dec 22:00 UTC");
-    expect(fmt("2025-03-02T10:05:00.000Z")).toBe("2 Mar 2025 10:05 UTC");
+  it("with a real clock gives the viewer's zone with a zone hint", () => {
+    process.env.TZ = "America/Sao_Paulo";
+    expect(fmtWhen(iso, NOW)).toBe("6 Nov 20:49 GMT-3");
+    process.env.TZ = "Asia/Tokyo";
+    expect(fmtWhen(iso, NOW)).toBe("7 Nov 08:49 GMT+9");
+  });
+
+  it("shows the year when it is not the current one in the viewer's zone", () => {
+    process.env.TZ = "Asia/Tokyo";
+    expect(fmtWhen("2025-03-02T10:05:00.000Z", NOW)).toBe("2 Mar 2025 19:05 GMT+9");
+    // 2026-12-31T22:00Z is already 2027 in Tokyo: not the current year when the clock reads 2026 there.
+    expect(fmtWhen("2026-12-31T22:00:00.000Z", Date.parse("2026-12-31T12:00:00Z"))).toBe("1 Jan 2027 07:00 GMT+9");
+  });
+
+  it("returns empty text for a bad date", () => {
+    expect(fmtWhen("nope", 0)).toBe("");
+    expect(fmtWhen("nope", NOW)).toBe("");
+  });
+
+  it("whyView carries the full timestamp beside the text", () => {
+    const input = { reason: "", interaction: "", evidenceLinks: [], score: null, signals: [{ title: "t", sourceLabel: "s", url: "https://e.com", publishedAt: iso }] };
+    expect(whyView(input).signals[0]).toMatchObject({ when: "6 Nov 23:49 UTC", whenIso: iso });
+    process.env.TZ = "America/Sao_Paulo";
+    expect(whyView(input, NOW).signals[0]?.when).toBe("6 Nov 20:49 GMT-3");
   });
 });

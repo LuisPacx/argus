@@ -25,11 +25,11 @@ async function loadSpec() {
 }
 if (p.value?.specHash) await loadSpec();
 
-const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }));
-// A meme Proposal (ADR 0013) is an idea for a Meta, with no Narrative, Tech, Spec or Score: its card is the idea, the Meta's snapshot and the evidence.
-const isMeme = computed(() => p.value?.kind === "meme");
 // 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
 const nowMs = useNowMs();
+const why = computed(() => whyView(p.value ?? { reason: "", interaction: "", evidenceLinks: [], signals: [], score: null }, nowMs.value));
+// A meme Proposal (ADR 0013) is an idea for a Meta, with no Narrative, Tech, Spec or Score: its card is the idea, the Meta's snapshot and the evidence.
+const isMeme = computed(() => p.value?.kind === "meme");
 const meme = computed(() => (p.value && p.value.kind === "meme" ? memeView(p.value, nowMs.value) : null));
 
 // Recomputes when the clock ticks and when the 3 s poll below changes `p`.
@@ -185,7 +185,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
           <h3 class="section-title">Narrative</h3>
           <p class="mt-3 text-sm">
             <NuxtLink :to="`/narratives/${p.narrativeId}`" class="link font-medium">Narrative {{ p.narrativeId }}</NuxtLink>
-            <span class="muted"> started {{ p.narrativeCreatedAt ? fmtWhen(p.narrativeCreatedAt) : "" }}</span>
+            <span class="muted"> started {{ p.narrativeCreatedAt ? fmtWhen(p.narrativeCreatedAt, nowMs) : "" }}</span>
           </p>
         </section>
 
@@ -317,9 +317,9 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <div><dt>Slug</dt><dd class="font-mono text-[0.8rem]">{{ p.slug }}</dd></div>
             <div><dt title="API-equivalent estimate reported by claude -p. Runs use the Claude subscription; this is not a charge.">Est. usage (API-equiv.)</dt><dd>${{ p.agentCostUsd.toFixed(2) }}</dd></div>
             <div v-if="p.apiCostUsd > 0"><dt title="Real money billed by the Anthropic API for this Proposal's fallback runs. Not part of Est. usage.">API spend (real $)</dt><dd data-test="api-cost">${{ p.apiCostUsd.toFixed(4) }}</dd></div>
-            <div><dt>Created</dt><dd :title="p.createdAt">{{ fmtWhen(p.createdAt) }}</dd></div>
-            <div><dt>Updated</dt><dd :title="p.updatedAt">{{ fmtWhen(p.updatedAt) }}</dd></div>
-            <div v-if="p.expiresAt"><dt>Expires</dt><dd :title="p.expiresAt">{{ fmtWhen(p.expiresAt) }}</dd></div>
+            <div><dt>Created</dt><dd :title="p.createdAt">{{ fmtWhen(p.createdAt, nowMs) }}</dd></div>
+            <div><dt>Updated</dt><dd :title="p.updatedAt">{{ fmtWhen(p.updatedAt, nowMs) }}</dd></div>
+            <div v-if="p.expiresAt"><dt>Expires</dt><dd :title="p.expiresAt">{{ fmtWhen(p.expiresAt, nowMs) }}</dd></div>
           </dl>
         </section>
 

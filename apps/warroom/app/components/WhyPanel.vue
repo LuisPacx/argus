@@ -27,7 +27,7 @@ defineProps<{ view: WhyView }>();
             <span class="pill pill-outline shrink-0">{{ s.source }}</span>
             <a v-if="s.href" class="url-link grow" :href="s.href" :title="s.href" target="_blank" rel="noopener noreferrer"><span>{{ s.title }}</span></a>
             <span v-else class="min-w-0 grow truncate" :title="s.title">{{ s.title }}</span>
-            <span class="faint shrink-0 text-xs">{{ s.when }}</span>
+            <time class="faint shrink-0 text-xs" :datetime="s.whenIso" :title="s.whenIso">{{ s.when }}</time>
           </li>
         </ul>
         <p v-else class="faint text-sm" data-test="absent">No Signals (hand-entered Proposal).</p>

@@ -1,12 +1,18 @@
 // Date text shared by the pages. Fixed locale and options so the server render and the browser agree.
-const WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+const LOCAL_OPTS: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" };
 
-const WHEN_YEAR = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-
-/** "6 Nov 23:49 UTC"; "6 Nov 2025 23:49 UTC" when the year is not the current one. UTC, so the server and any browser zone agree. */
-export const fmtWhen = (iso: string): string => {
+/**
+ * An absolute time, same client-only pattern as the relative times (ticket 15). While `nowMs <= 0` (the server render and the first client
+ * render) it is the fixed UTC text "6 Nov 23:49 UTC". Once the client clock is set it is the viewer's own zone with a hint,
+ * "6 Nov 20:49 GMT-3" ("6 Nov 2025 20:49 GMT-3" when the year is not the current one). "" when `iso` is not a date.
+ * Formatters are built per call so the host zone read is current (the page re-renders after mount, never on the server).
+ */
+export const fmtWhen = (iso: string, nowMs: number): string => {
+  if (nowMs <= 0) return fmtUtc(iso);
   const d = new Date(iso);
-  return `${(d.getUTCFullYear() === new Date().getUTCFullYear() ? WHEN : WHEN_YEAR).format(d).replace(",", "")} UTC`;
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === new Date(nowMs).getFullYear();
+  return new Intl.DateTimeFormat("en-GB", sameYear ? LOCAL_OPTS : { ...LOCAL_OPTS, year: "numeric" }).format(d).replace(",", "");
 };
 
 const UTC_WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
