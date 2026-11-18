@@ -134,6 +134,25 @@ describe("runBacktest", () => {
     expect(six.copies).toEqual({ checked: 10, rejected: 10 });
   });
 
+  it("counts a joiner as a success when it migrated after 60 s OR reached the market-cap threshold by the horizon (not raw migration)", async () => {
+    const store = market();
+    // A fast (30 s) migrator is a raw migration but not a success.
+    launch(store, { name: "HotCoin", creator: "fast", at: 50 * MIN, migratedAfterSec: 30 });
+    const all = store.study.createdBetween(new Date(T0).toISOString(), new Date(T0 + 30 * HOUR).toISOString());
+    const mintOfCreator = (c: string) => all.find((t) => t.creator === creatorOf(c))!.mint;
+    const mcapReachedAt = new Map([
+      [mintOfCreator("n1"), T0 + 2 * HOUR], // never migrated, reached the cap inside 6 h: success
+      [mintOfCreator("n3"), T0 + 8 * HOUR], // reached the cap after 6 h: success only in the 24 h horizon
+      [mintOfCreator("fast"), T0 + 3 * HOUR], // fast migrator that also reached the cap: success
+    ]);
+    const report = await runBacktest(store, opts({ mcapReachedAt }));
+    const six = report.horizons.find((h) => h.horizonHours === 6)!;
+    expect(six.arms.roomLeft).toMatchObject({ tokens: 11, migrated: 6, migratedAfter60s: 5, succeeded: 5 + 2 });
+    const day = report.horizons.find((h) => h.horizonHours === 24)!;
+    expect(day.arms.roomLeft).toMatchObject({ succeeded: 5 + 3 + 1 });
+    expect(summariseBacktest(report).horizons[0]!.success.roomLeft).toMatchObject({ tokens: 11, migrated: 7 });
+  });
+
   it("is deterministic", async () => {
     const a = summariseBacktest(await runBacktest(market(), opts()));
     const b = summariseBacktest(await runBacktest(market(), opts()));
@@ -159,16 +178,16 @@ describe("summariseBacktest and formatBacktest", () => {
   });
 
   it("calls a lift real only when the cluster interval excludes zero", () => {
-    const base = { tokens: 1000, migrated: 50, migratedAfter60s: 40, metas: 0, snapshots: 0 };
+    const base = { tokens: 1000, migrated: 50, migratedAfter60s: 40, succeeded: 40, metas: 0, snapshots: 0 };
     const report = {
       from: "", to: "", dataEnd: "", stepMinutes: 60, top: 3, snapshots: 4,
       horizons: [{
         horizonHours: 6, snapshots: 4, copies: { checked: 0, rejected: 0 },
         arms: { roomLeft: { tokens: 40, migrated: 20, migratedAfter60s: 15, metas: 2, snapshots: 4 }, size: { tokens: 40, migrated: 2, migratedAfter60s: 1, metas: 2, snapshots: 4 }, rejected: { tokens: 0, migrated: 0, migratedAfter60s: 0, metas: 0, snapshots: 0 }, base },
         clusters: {
-          roomLeft: { unfiltered: [{ k: 10, n: 20 }, { k: 10, n: 20 }], after60: [{ k: 8, n: 20 }, { k: 7, n: 20 }] },
-          size: { unfiltered: [{ k: 1, n: 20 }, { k: 1, n: 20 }], after60: [{ k: 1, n: 20 }, { k: 0, n: 20 }] },
-          rejected: { unfiltered: [], after60: [] },
+          roomLeft: { unfiltered: [{ k: 10, n: 20 }, { k: 10, n: 20 }], after60: [{ k: 8, n: 20 }, { k: 7, n: 20 }], success: [{ k: 8, n: 20 }, { k: 7, n: 20 }] },
+          size: { unfiltered: [{ k: 1, n: 20 }, { k: 1, n: 20 }], after60: [{ k: 1, n: 20 }, { k: 0, n: 20 }], success: [{ k: 1, n: 20 }, { k: 0, n: 20 }] },
+          rejected: { unfiltered: [], after60: [], success: [] },
         },
       }],
       rule: opts().rule,
@@ -178,7 +197,7 @@ describe("summariseBacktest and formatBacktest", () => {
     expect(six.unfiltered.verdict).toMatch(/^lift over base/);
     // ... but two Metas are two draws, and the verdict says so rather than let the interval look solid.
     expect(six.unfiltered.verdict).toContain("only 2 distinct Metas");
-    const none = { ...report, horizons: [{ ...report.horizons[0]!, arms: { ...report.horizons[0]!.arms, roomLeft: { tokens: 40, migrated: 2, migratedAfter60s: 2, metas: 2, snapshots: 4 } }, clusters: { ...report.horizons[0]!.clusters, roomLeft: { unfiltered: [{ k: 2, n: 20 }, { k: 0, n: 20 }], after60: [{ k: 1, n: 20 }, { k: 1, n: 20 }] } } }] } as typeof report;
+    const none = { ...report, horizons: [{ ...report.horizons[0]!, arms: { ...report.horizons[0]!.arms, roomLeft: { tokens: 40, migrated: 2, migratedAfter60s: 2, metas: 2, snapshots: 4 } }, clusters: { ...report.horizons[0]!.clusters, roomLeft: { unfiltered: [{ k: 2, n: 20 }, { k: 0, n: 20 }], after60: [{ k: 1, n: 20 }, { k: 1, n: 20 }], success: [{ k: 1, n: 20 }, { k: 1, n: 20 }] } } }] } as typeof report;
     expect(summariseBacktest(none, { resamples: 300 }).horizons[0]!.unfiltered.verdict).toMatch(/^no lift/);
   });
 });

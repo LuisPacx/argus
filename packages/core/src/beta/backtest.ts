@@ -37,6 +37,12 @@ export interface BacktestOptions {
   rule: RoomLeftRule;
   metaConfig: MetaConfig;
   bootstrapResamples?: number;
+  /**
+   * Mint to the first time (ms) the token was seen at or above the market-cap threshold. Used for the success measure (viral-sources
+   * ticket 04 re-run): migrated more than 60 s after its create, OR reached the threshold by the end of the horizon. Absent: only the
+   * migration half can succeed.
+   */
+  mcapReachedAt?: ReadonlyMap<string, number>;
 }
 
 export const DEFAULT_BACKTEST: Pick<BacktestOptions, "top" | "horizonsHours" | "rule" | "metaConfig"> = {
@@ -56,6 +62,8 @@ export interface ArmCounts {
   migrated: number;
   /** Of those, migrated more than 60 s after the token's own create. */
   migratedAfter60s: number;
+  /** Success: migrated more than 60 s after the create, or reached the market-cap threshold, by the end of the horizon. */
+  succeeded: number;
   /** Distinct Metas (group keys) that contributed. */
   metas: number;
   /** Snapshots in which the arm had at least one token. */
@@ -68,7 +76,7 @@ export interface HorizonResult {
   snapshots: number;
   arms: Record<ArmName, ArmCounts>;
   /** One Cluster per contributing Meta, for the cluster bootstrap. */
-  clusters: Record<(typeof ARMS)[number], { unfiltered: Cluster[]; after60: Cluster[] }>;
+  clusters: Record<(typeof ARMS)[number], { unfiltered: Cluster[]; after60: Cluster[]; success: Cluster[] }>;
   /** Of the room-left joiners, how many names slice 2 would have rejected as copies of a token in the Meta at T. */
   copies: { checked: number; rejected: number };
 }
@@ -132,7 +140,7 @@ interface Tok {
 
 interface Acc {
   /** mint -> outcome (from the latest snapshot that saw it), the Meta group it joined. */
-  seen: Map<string, { group: string; migrated: boolean; after60: boolean }>;
+  seen: Map<string, { group: string; migrated: boolean; after60: boolean; success: boolean }>;
   metas: Set<string>;
   snapshots: number;
 }
@@ -142,19 +150,21 @@ const newAcc = (): Acc => ({ seen: new Map(), metas: new Set(), snapshots: 0 });
 function counts(acc: Acc): ArmCounts {
   let migrated = 0;
   let after = 0;
+  let succeeded = 0;
   for (const v of acc.seen.values()) {
     if (v.migrated) migrated++;
     if (v.after60) after++;
+    if (v.success) succeeded++;
   }
-  return { tokens: acc.seen.size, migrated, migratedAfter60s: after, metas: acc.metas.size, snapshots: acc.snapshots };
+  return { tokens: acc.seen.size, migrated, migratedAfter60s: after, succeeded, metas: acc.metas.size, snapshots: acc.snapshots };
 }
 
-function clustersOf(acc: Acc, pick: "migrated" | "after60"): Cluster[] {
+function clustersOf(acc: Acc, pick: "migrated" | "after60" | "success"): Cluster[] {
   const by = new Map<string, Cluster>();
   for (const v of acc.seen.values()) {
     const c = by.get(v.group) ?? { k: 0, n: 0 };
     c.n++;
-    if (v[pick === "migrated" ? "migrated" : "after60"]) c.k++;
+    if (v[pick]) c.k++;
     by.set(v.group, c);
   }
   return [...by.values()];
@@ -199,7 +209,9 @@ export async function runBacktest(store: Datastore, opts: BacktestOptions): Prom
         if (f.createdMs <= tMs) continue;
         if (f.createdMs > endMs) break;
         const migrated = f.migratedMs !== null && f.migratedMs <= endMs;
-        const outcome = { migrated, after60: migrated && (f.migratedMs as number) - f.createdMs > 60_000 };
+        const after60 = migrated && (f.migratedMs as number) - f.createdMs > 60_000;
+        const capMs = opts.mcapReachedAt?.get(f.token.mint);
+        const outcome = { migrated, after60, success: after60 || (capMs !== undefined && capMs <= endMs) };
         out.accs.base.seen.set(f.token.mint, { group: "", ...outcome });
         touched.add("base");
         const g = f.keys.map((k) => snap.keyIndex.get(k)).find((x) => x !== undefined);
@@ -223,7 +235,7 @@ export async function runBacktest(store: Datastore, opts: BacktestOptions): Prom
 
   const horizons: HorizonResult[] = opts.horizonsHours.map((h) => {
     const o = perHorizon.get(h)!;
-    const cl = (name: (typeof ARMS)[number]) => ({ unfiltered: clustersOf(o.accs[name], "migrated"), after60: clustersOf(o.accs[name], "after60") });
+    const cl = (name: (typeof ARMS)[number]) => ({ unfiltered: clustersOf(o.accs[name], "migrated"), after60: clustersOf(o.accs[name], "after60"), success: clustersOf(o.accs[name], "success") });
     return {
       horizonHours: h,
       snapshots: o.snapshots,
@@ -263,6 +275,8 @@ export interface HorizonSummary {
   metasOffered: number;
   unfiltered: MeasureSummary;
   after60: MeasureSummary;
+  /** Migrated after 60 s OR reached the market-cap threshold. */
+  success: MeasureSummary;
   copies: { checked: number; rejected: number };
 }
 
@@ -280,7 +294,7 @@ const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 export function summariseBacktest(report: BacktestReport, opts: { resamples?: number } = {}): BacktestSummary {
   const resamples = opts.resamples ?? 2_000;
   const horizons = report.horizons.map((h): HorizonSummary => {
-    const measure = (pick: "migrated" | "migratedAfter60s", cl: "unfiltered" | "after60"): MeasureSummary => {
+    const measure = (pick: "migrated" | "migratedAfter60s" | "succeeded", cl: "unfiltered" | "after60" | "success"): MeasureSummary => {
       const l = (name: ArmName) => line(h.arms[name].tokens, h.arms[name][pick]);
       const room = l("roomLeft");
       const size = l("size");
@@ -302,7 +316,7 @@ export function summariseBacktest(report: BacktestReport, opts: { resamples?: nu
       if (room.tokens > 0 && metas < MIN_TRUSTED_METAS) verdict += `; only ${metas} distinct Metas, too few independent draws to trust this`;
       return { roomLeft: room, size, rejected, base, liftOverBase: ratio(room.rate, base.rate), liftOverSize: ratio(room.rate, size.rate), diffOverBase: overBase, diffOverSize: overSize, verdict };
     };
-    return { horizonHours: h.horizonHours, snapshots: h.snapshots, metasOffered: h.arms.roomLeft.metas, unfiltered: measure("migrated", "unfiltered"), after60: measure("migratedAfter60s", "after60"), copies: h.copies };
+    return { horizonHours: h.horizonHours, snapshots: h.snapshots, metasOffered: h.arms.roomLeft.metas, unfiltered: measure("migrated", "unfiltered"), after60: measure("migratedAfter60s", "after60"), success: measure("succeeded", "success"), copies: h.copies };
   });
   return { report, horizons };
 }
@@ -324,7 +338,7 @@ export function formatBacktest(s: BacktestSummary): string {
   for (const h of s.horizons) {
     out.push("");
     out.push(`== Horizon ${h.horizonHours} h: ${h.snapshots} snapshots, ${h.metasOffered} distinct Metas offered by room-left, ${h.copies.rejected} of ${h.copies.checked} room-left joiner names would be rejected by the distinct-name rule (copies of a group token)`);
-    for (const [title, m] of [["migrated (unfiltered)", h.unfiltered], ["migrated more than 60 s after the create", h.after60]] as const) {
+    for (const [title, m] of [["migrated (unfiltered)", h.unfiltered], ["migrated more than 60 s after the create", h.after60], ["SUCCESS: migrated after 60 s or reached the market-cap threshold", h.success]] as const) {
       out.push(`-- ${title}`);
       out.push("arm        tokens  migrated  rate    Wilson 95%");
       for (const name of ["roomLeft", "size", "rejected", "base"] as const) {

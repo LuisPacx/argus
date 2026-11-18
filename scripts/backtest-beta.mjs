@@ -4,7 +4,7 @@
 // then joined them (new creators, created in (T, T+H]) migrated by T+H, against the base rate and against a size ranking.
 //
 // Usage: sqlite3 .data/argus.db ".backup <home-disk path>"        (make the copy first; this never opens the live file)
-//        node scripts/backtest-beta.mjs <copy.db> [--min-history-hours 24] [--step-minutes 60] [--top 3] [--horizons 6,24] [--min-migrations 0] [--json out.json]
+//        node scripts/backtest-beta.mjs <copy.db> [--min-history-hours 24] [--step-minutes 60] [--top 3] [--horizons 6,24] [--min-migrations 0] [--from <ISO>] [--mcap-threshold 1000000] [--json out.json]
 // The copy is opened with Datastore.open (migrated additively) and gets one Meta run per T: delete it afterwards, and use a fresh copy per run.
 // No market cap exists as of T, so the lead-cap gate is off; the other gates and the order are what is tested.
 import { writeFileSync } from 'node:fs';
@@ -43,18 +43,42 @@ if (![minHistoryHours, stepMinutes, top, ...horizonsHours].every((n) => Number.i
 // The data range, read once from the copy (read-only handle) before Datastore.open migrates it.
 const probe = new DatabaseSync(dbPath, { readOnly: true });
 const hasRuns = probe.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta_runs'").get() && probe.prepare('SELECT 1 FROM meta_runs LIMIT 1').get();
+// Market cap per token: the only history is what the live Meta runs stored (top tokens of a group, looked up on DexScreener at the run's
+// time). A token "reached the threshold" at the first run whose stored top tokens show it at or above --mcap-threshold. Sparse (top 3 per
+// group, runs only since the Meta tables existed), so the success measure undercounts the market-cap half.
+const mcapThreshold = Number(flag('mcap-threshold', '1000000'));
+const mcapReachedAt = new Map();
 if (hasRuns) {
-  probe.close();
-  console.error('this copy already holds Meta runs (an earlier backtest wrote them): make a fresh .backup copy');
-  process.exit(2);
+  const rows = probe.prepare('SELECT r.computed_at AS at, m.top_tokens AS top FROM meta_rows m JOIN meta_runs r ON r.id = m.run_id WHERE m.top_market_cap_usd IS NOT NULL ORDER BY r.computed_at').all();
+  for (const row of rows) {
+    let tokens;
+    try { tokens = JSON.parse(row.top); } catch { continue; }
+    for (const t of tokens) if (typeof t.marketCapUsd === 'number' && t.marketCapUsd >= mcapThreshold && !mcapReachedAt.has(t.mint)) mcapReachedAt.set(t.mint, Date.parse(row.at));
+  }
 }
-const range = probe.prepare('SELECT MIN(created_at) AS start, MAX(created_at) AS lastCreate, MAX(migrated_at) AS lastMigrate FROM study_tokens').get();
 probe.close();
+if (hasRuns) {
+  // The runs the live app stored would be newer than the early T and confuse the per-T recompute: clear them on the copy (never the live file; guarded above).
+  const wr = new DatabaseSync(dbPath);
+  wr.exec('DELETE FROM meta_rows; DELETE FROM meta_runs;');
+  wr.close();
+}
+console.error(`market-cap threshold $${mcapThreshold}: ${mcapReachedAt.size} tokens seen at or above it in stored Meta runs`);
+const probe2 = new DatabaseSync(dbPath, { readOnly: true });
+const range = probe2.prepare('SELECT MIN(created_at) AS start, MAX(created_at) AS lastCreate, MAX(migrated_at) AS lastMigrate FROM study_tokens').get();
+probe2.close();
 const dataStart = new Date(range.start);
 const dataEnd = new Date(Math.max(Date.parse(range.lastCreate), Date.parse(range.lastMigrate ?? range.lastCreate)));
 
 const HOUR = 3_600_000;
-const firstMs = Math.ceil((dataStart.getTime() + minHistoryHours * HOUR) / (stepMinutes * 60_000)) * stepMinutes * 60_000;
+// --from <ISO>: the first T (the new-data-only window); the history before it is still read by the ranking at T.
+const fromFlag = flag('from', undefined);
+const earliestMs = fromFlag ? Date.parse(fromFlag) : dataStart.getTime() + minHistoryHours * HOUR;
+if (!Number.isFinite(earliestMs)) {
+  console.error('--from must be an ISO time');
+  process.exit(2);
+}
+const firstMs = Math.ceil(earliestMs / (stepMinutes * 60_000)) * stepMinutes * 60_000;
 const lastMs = dataEnd.getTime() - Math.min(...horizonsHours) * HOUR;
 const times = [];
 for (let t = firstMs; t <= lastMs; t += stepMinutes * 60_000) times.push(new Date(t));
@@ -66,7 +90,7 @@ if (times.length === 0) {
 console.error(`data ${dataStart.toISOString()} to ${dataEnd.toISOString()}; ${times.length} snapshots every ${stepMinutes} min from ${times[0].toISOString()}`);
 const store = Datastore.open(dbPath);
 const t0 = performance.now();
-const report = await runBacktest(store, { ...DEFAULT_BACKTEST, rule: { ...DEFAULT_BACKTEST.rule, minMigrations }, top, horizonsHours, times, dataEnd });
+const report = await runBacktest(store, { ...DEFAULT_BACKTEST, rule: { ...DEFAULT_BACKTEST.rule, minMigrations }, top, horizonsHours, times, dataEnd, mcapReachedAt });
 store.close();
 console.error(`done in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 const summary = summariseBacktest(report);
