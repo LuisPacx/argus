@@ -5,6 +5,7 @@ export const INCLUDE = ["apps/*/src/**/*.test.ts", "packages/*/src/**/*.test.ts"
 
 export const SLOW_TESTS = [
   "scripts/page-check-browser.test.ts", // real headless browser against a local server
+  "scripts/supervise.test.ts", // spawns the supervisor and stand-in processes
   "apps/worker/src/api-fallback.test.ts", // spawned worker
   "apps/worker/src/boot.test.ts", // spawned worker
   "apps/worker/src/ingest.test.ts", // spawned worker

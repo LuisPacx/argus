@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dotenvLine, withDotenvArgus } from './dev-env.mjs';
 import { listLocks, lockStatusLine, onPath, wrapCommand } from './inhibit.mjs';
+import { exitsLogFile, readState, stateFile, stopFile } from './supervise.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUN_DIR = path.join(ROOT, '.data', 'run');
@@ -95,8 +96,11 @@ function workerTicked(fromOffset) {
   }
 }
 
-async function terminate(pid) {
+// The supervisor (scripts/supervise.mjs) is the group leader. It only stays down for a SIGTERM that follows its stop marker,
+// so every intended stop writes the marker first.
+async function terminate(pid, name) {
   if (!alive(pid, true)) return;
+  fs.writeFileSync(stopFile(RUN_DIR, name), '');
   try {
     process.kill(-pid, 'SIGTERM');
   } catch {
@@ -113,6 +117,14 @@ async function terminate(pid) {
   }
 }
 
+// Starts `cmd` under scripts/supervise.mjs in its own process group (pgid === child.pid); the supervisor restarts it after any exit.
+function spawnSupervised(name, cmd, logFd) {
+  fs.rmSync(stopFile(RUN_DIR, name), { force: true });
+  fs.rmSync(stateFile(RUN_DIR, name), { force: true });
+  const args = [path.join(ROOT, 'scripts', 'supervise.mjs'), '--name', name, '--run-dir', RUN_DIR, '--', cmd.command, ...cmd.args];
+  return spawn(process.execPath, args, { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd], env: CHILD_ENV });
+}
+
 async function warroomStart(tag) {
   const existing = readPid(WARROOM_PID_FILE);
   if (existing && alive(existing, true)) {
@@ -124,7 +136,7 @@ async function warroomStart(tag) {
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const logFd = fs.openSync(WARROOM_LOG_FILE, 'a');
   const cmd = inhibited('pnpm', ['--filter', '@argus/warroom', 'exec', 'nuxt', 'dev', '--port', String(PORT)], 'argus War Room is running');
-  const child = spawn(cmd.command, cmd.args, { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd], env: CHILD_ENV });
+  const child = spawnSupervised('warroom', cmd, logFd);
   fs.closeSync(logFd);
   child.unref();
   fs.writeFileSync(WARROOM_PID_FILE, `${child.pid}\n`);
@@ -142,7 +154,7 @@ async function warroomStart(tag) {
   console.error(`${tag}War Room did not answer on port ${PORT} within ${START_TIMEOUT_MS / 1000}s. Last 20 log lines:`);
   console.error(tailLog(WARROOM_LOG_FILE, 20));
   // Do not leave a half-started server running.
-  await terminate(child.pid);
+  await terminate(child.pid, 'warroom');
   removePidFile(WARROOM_PID_FILE);
   return 1;
 }
@@ -159,12 +171,7 @@ async function workerStart(tag) {
   const fromOffset = fs.existsSync(WORKER_LOG_FILE) ? fs.statSync(WORKER_LOG_FILE).size : 0;
   const logFd = fs.openSync(WORKER_LOG_FILE, 'a');
   const cmd = inhibited('pnpm', ['--filter', '@argus/worker', 'start'], 'argus worker is running');
-  const child = spawn(cmd.command, cmd.args, {
-    cwd: ROOT,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-    env: CHILD_ENV,
-  });
+  const child = spawnSupervised('worker', cmd, logFd);
   fs.closeSync(logFd);
   child.unref();
   fs.writeFileSync(WORKER_PID_FILE, `${child.pid}\n`);
@@ -181,40 +188,53 @@ async function workerStart(tag) {
 
   console.error(`${tag}worker did not log a tick within ${WORKER_START_TIMEOUT_MS / 1000}s. Last 20 log lines:`);
   console.error(tailLog(WORKER_LOG_FILE, 20));
-  await terminate(child.pid);
+  await terminate(child.pid, 'worker');
   removePidFile(WORKER_PID_FILE);
   return 1;
 }
 
-async function stopOne(pidFile, tag) {
+async function stopOne(pidFile, tag, name) {
   const pid = readPid(pidFile);
   if (!pid || !alive(pid, true)) {
     removePidFile(pidFile);
     console.log(`${tag}not running`);
     return 0;
   }
-  await terminate(pid);
+  await terminate(pid, name);
   removePidFile(pidFile);
   console.log(`${tag}stopped`);
   return 0;
 }
 
-function statusOne(pidFile, tag, detail) {
+// Restart count and last exit come from the supervisor's state file (absent for a process started before supervision).
+function supervisorDetail(name) {
+  const s = readState(RUN_DIR, name);
+  if (!s) return '';
+  const last = s.lastExit ? `, last exit ${s.lastExit.how} at ${s.lastExit.at} after ${(s.lastExit.uptimeMs / 1000).toFixed(0)}s` : '';
+  return `; restarts: ${s.restarts}${last}; exit log: ${path.relative(ROOT, exitsLogFile(RUN_DIR, name))}`;
+}
+
+function statusOne(pidFile, tag, detail, name) {
   const pid = readPid(pidFile);
-  console.log(pid && alive(pid, true) ? `${tag}running (pid ${pid})${detail}` : `${tag}not running`);
+  if (pid && alive(pid, true)) {
+    console.log(`${tag}running (pid ${pid})${detail}${supervisorDetail(name)}`);
+  } else {
+    const gaveUp = readState(RUN_DIR, name)?.status === 'gave-up';
+    console.log(`${tag}not running${gaveUp ? `; supervisor gave up after repeated exits${supervisorDetail(name)}` : ''}`);
+  }
   return 0;
 }
 
 const TARGET_FNS = {
   warroom: {
     start: (tag) => warroomStart(tag),
-    stop: (tag) => stopOne(WARROOM_PID_FILE, tag),
-    status: (tag) => statusOne(WARROOM_PID_FILE, tag, ` on ${PORT}`),
+    stop: (tag) => stopOne(WARROOM_PID_FILE, tag, 'warroom'),
+    status: (tag) => statusOne(WARROOM_PID_FILE, tag, ` on ${PORT}`, 'warroom'),
   },
   worker: {
     start: (tag) => workerStart(tag),
-    stop: (tag) => stopOne(WORKER_PID_FILE, tag),
-    status: (tag) => statusOne(WORKER_PID_FILE, tag, ''),
+    stop: (tag) => stopOne(WORKER_PID_FILE, tag, 'worker'),
+    status: (tag) => statusOne(WORKER_PID_FILE, tag, '', 'worker'),
   },
 };
 
