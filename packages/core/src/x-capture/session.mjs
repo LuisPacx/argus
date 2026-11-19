@@ -15,11 +15,13 @@ export function gatherFacts() {
     for (const el of clone.querySelectorAll("article, script, style, noscript")) el.remove();
     text = (clone.textContent || "").replace(/\s+/g, " ").slice(0, 20000);
   }
+  // A login or sign-up link is a wall even when a nav or an account menu is also on the page (a logged-out page can have a nav).
+  const hasLoginButton = has('[data-testid="loginButton"], [data-testid="signupButton"], a[href="/login"], a[href="/i/flow/login"]');
   return {
     text,
     // X's test ids are gone from the logged-in page (seen 2026-11-19); the account menu and the primary nav are what is there now.
-    loggedIn: has('[aria-label="Account menu"], nav[aria-label="Primary"], [data-testid="AppTabBar_Home_Link"], [data-testid="SideNav_AccountSwitcher_Button"]'),
-    hasLoginButton: has('[data-testid="loginButton"], [data-testid="signupButton"], a[href="/login"], a[href="/i/flow/login"]'),
+    loggedIn: !hasLoginButton && has('[aria-label="Account menu"], nav[aria-label="Primary"], [data-testid="AppTabBar_Home_Link"], [data-testid="SideNav_AccountSwitcher_Button"]'),
+    hasLoginButton,
     hasChallengeWidget: has('iframe[src*="arkoselabs"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-testid="ocfEnterTextTextInput"]'),
     articleCount: document.querySelectorAll("article").length,
     emptyState: /no results for/i.test(text),

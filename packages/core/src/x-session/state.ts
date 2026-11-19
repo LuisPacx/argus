@@ -179,14 +179,21 @@ export class XSessionStore {
     }));
   }
 
-  /** WORKER ONLY. Applies every waiting Resume: clears the stop when there is one, and marks the presses applied. Returns whether it cleared a stop. */
+  /**
+   * WORKER ONLY. Applies every waiting Resume and marks the presses applied. Only a press made after the current stop began clears it: an
+   * earlier press (one that was never applied before a newer stop) can never clear that newer stop, least of all a second stop that
+   * waits for the Operator. Returns whether it cleared a stop.
+   */
   applyResumes(now: Date): boolean {
     const pending = this.pendingResumes();
     if (pending.length === 0) return false;
-    const wasStopped = this.row().status === "stopped";
-    if (wasStopped) this.clearOnCleanProbe();
+    const r = this.row();
+    const stoppedAt = (r.stopped_at as string | null) ?? null;
+    const wasStopped = r.status === "stopped";
+    const fresh = wasStopped && pending.some((p) => stoppedAt === null || Date.parse(p.createdAt) > Date.parse(stoppedAt));
+    if (fresh) this.clearOnCleanProbe();
     for (const p of pending) this.db.prepare("UPDATE x_session_resume_requests SET status = 'applied', applied_at = ? WHERE id = ?").run(now.toISOString(), p.id);
-    return wasStopped;
+    return fresh;
   }
 }
 

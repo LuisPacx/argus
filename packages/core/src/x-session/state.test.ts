@@ -232,6 +232,21 @@ describe("Resume", () => {
     expect(store.xSession.state(at(180_000)).status).toBe("ok");
   });
 
+  it("an earlier press never clears a newer stop, the second stop that waits for Resume least of all; a press made after it does", () => {
+    const store = Datastore.open(":memory:");
+    store.xSession.recordStop("login_wall", D0);
+    const early = store.xSession.requestResume(at(60_000)); // never applied: the worker was down
+    store.xSession.clearOnCleanProbe(); // a probe cleared the first stop meanwhile
+    store.xSession.recordStop("challenge", at(DAY)); // within 7 days: no resume time
+    expect(store.xSession.state(at(DAY)).resumeAt).toBeNull();
+    expect(applyXSessionResumes(store, at(DAY + 30_000))).toBe(false);
+    expect(store.xSession.state(at(DAY + 30_000))).toMatchObject({ status: "stopped", reason: "challenge", resumeAt: null });
+    expect(store.xSession.resumeRequests()[0]).toMatchObject({ id: early.id, status: "applied" }); // spent, not kept for later
+    store.xSession.requestResume(at(DAY + 60_000));
+    expect(applyXSessionResumes(store, at(DAY + 90_000))).toBe(true);
+    expect(store.xSession.state(at(DAY + 90_000)).status).toBe("ok");
+  });
+
   it("a press for a stop that was cleared meanwhile is marked applied and changes nothing", () => {
     const store = Datastore.open(":memory:");
     store.xSession.recordStop("locked", D0);

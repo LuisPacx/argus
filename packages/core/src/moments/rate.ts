@@ -21,7 +21,7 @@ export function viewsPerHour(views: number | null, postedAt: Date, at: Date): nu
 
 /**
  * Views gained an hour between two readings (the later minus the earlier, over the time between them). It rates only when the post meets the
- * floor at the later reading, both readings show views, they are at least 15 minutes apart and the count did not go down.
+ * floor at the later reading, both readings show views, they are at least 12 minutes apart and the count did not go down.
  */
 export function recentRate(earlier: ViewReading, later: ViewReading, postedAt: Date): number | null {
   if (earlier.views === null || later.views === null) return null;

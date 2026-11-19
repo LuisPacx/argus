@@ -26,8 +26,8 @@ export const MOMENT_CONFIG = {
   risingViewsPerHour: 50_000,
   /** The rate floor (proposal in the spec): a post must be at least this old, and have at least this many views, before a rate counts. */
   rateFloor: { minAgeMs: 30 * 60_000, minViews: 20_000 },
-  /** The least gap between two readings for a recent rate to count (proposal): a 1-minute gap would turn a few hundred views into a huge rate. */
-  recentMinGapMs: 15 * 60_000,
+  /** The least gap between two readings for a recent rate to count (proposal): a 1-minute gap would turn a few hundred views into a huge rate. 12 minutes, so scans 15 minutes apart (the least interval) still rate despite the time a scan takes. */
+  recentMinGapMs: 12 * 60_000,
 
   // ---- the query (spec section 3.1, group B) ----
   /** The `min_faves:` of the rising-clips query. */

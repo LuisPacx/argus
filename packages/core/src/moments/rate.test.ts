@@ -53,10 +53,14 @@ describe("FelpsCrypto's Area 51 clip (gta6-post-release.md)", () => {
 
 describe("recentRate", () => {
   const posted = at("10:00");
-  it("needs both readings to show views, 15 minutes between them and no fall in the count", () => {
+  it("needs both readings to show views, 12 minutes between them and no fall in the count", () => {
     expect(recentRate({ at: at("12:00"), views: null }, { at: at("13:00"), views: 90_000 }, posted)).toBeNull();
     expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: at("13:00"), views: null }, posted)).toBeNull();
     expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: at("12:10"), views: 90_000 }, posted)).toBeNull(); // 10 minutes apart
+    expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: at("12:11"), views: 90_000 }, posted)).toBeNull();
+    expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: at("12:12"), views: 90_000 }, posted)).toBeCloseTo(200_000, 5); // 12 minutes: counts
+    // scans 15 minutes apart (the least interval), each a little late or early, still rate
+    expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: new Date(at("12:15").getTime() - 90_000), views: 90_000 }, posted)).not.toBeNull();
     expect(recentRate({ at: at("12:00"), views: 90_000 }, { at: at("13:00"), views: 80_000 }, posted)).toBeNull(); // went down
     expect(recentRate({ at: at("12:00"), views: 50_000 }, { at: at("12:15"), views: 90_000 }, posted)).toBeCloseTo(160_000, 5);
   });

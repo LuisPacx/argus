@@ -109,6 +109,23 @@ describe.skipIf(!found)("the collector and parser on the two saved search pages"
     expect(parsed.posts.some((p) => p.text.includes("Sign in to X"))).toBe(true);
   });
 
+  it("gatherFacts: a minimal logged-in page is logged in and raises no signal; a logged-out page with a nav is a login wall", async () => {
+    const article = '<article><a href="/a/status/2123371841851125900">1m</a></article>';
+    const loggedIn = await readPage(`<!doctype html><html><body><nav aria-label="Primary"><a href="/home">Home</a></nav><button aria-label="Account menu">me</button><main>${article}</main></body></html>`);
+    const facts = (g: unknown) => g as { loggedIn: boolean; hasLoginButton: boolean; text: string };
+    expect(facts(loggedIn.gathered)).toMatchObject({ loggedIn: true, hasLoginButton: false });
+    expect(classify({ url: "https://x.com/search?q=x&f=top", ...facts(loggedIn.gathered) })).toEqual([]);
+    // logged out, yet the page still has a Primary nav (and even an account-menu-like button): the login link decides
+    for (const wall of ['<a href="/login">Log in</a>', '<a href="/i/flow/login">Sign in</a>', '<a data-testid="signupButton" href="/i/flow/signup">Sign up</a>']) {
+      const out = await readPage(`<!doctype html><html><body><nav aria-label="Primary"><a href="/home">Home</a></nav><button aria-label="Account menu">x</button>${wall}<main>${article}</main></body></html>`);
+      expect(facts(out.gathered), wall).toMatchObject({ loggedIn: false, hasLoginButton: true });
+      expect(statusOf(classify({ url: "https://x.com/search?q=x&f=top", ...facts(out.gathered) })), wall).toBe("login_wall");
+    }
+    // a logged-out page with no nav at all is a wall too
+    const bare = await readPage(`<!doctype html><html><body><main>${article}</main></body></html>`);
+    expect(statusOf(classify({ url: "https://x.com/search?q=x&f=top", ...facts(bare.gathered) }))).toBe("login_wall");
+  });
+
   it("a page with no article and no 'no results' text is `selectors_found_nothing`; with the empty-state text it is `ok` with zero posts", async () => {
     const none = await readPage("<!doctype html><html><body><main><div>something X changed</div></main></body></html>");
     expect(none.gathered.articleCount).toBe(0);
