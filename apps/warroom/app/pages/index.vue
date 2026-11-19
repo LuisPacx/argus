@@ -110,8 +110,17 @@ onMounted(() => {
 });
 onBeforeUnmount(() => clearInterval(newMetaTimer));
 
+// The trend radar's one-line strip and its source banner (trend radar ticket 01): the same slow poll.
+const { data: radarStrip, refresh: refreshRadarStrip } = await useFetch("/api/radar-strip", { default: () => null });
+let radarTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  radarTimer = setInterval(() => void refreshRadarStrip(), RADAR_POLL_MS);
+});
+onBeforeUnmount(() => clearInterval(radarTimer));
+
 // 0 until mounted, so the server and the first client render agree (absolute UTC text); see composables/useNowMs.ts.
 const nowMs = useNowMs();
+const radarStripSection = computed(() => radarStripView(radarStrip.value, nowMs.value));
 const metaSection = computed(() => currentMetaView(currentMeta.value, nowMs.value));
 const newMetaSection = computed(() => newMetaView(newMetas.value, nowMs.value));
 // Time left before a stale Proposal closes itself (the worker closes it; a Brain run in flight holds it off).
@@ -238,6 +247,8 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
         </form>
       </section>
     </Transition>
+
+    <RadarStrip :view="radarStripSection" />
 
     <NewMeta :view="newMetaSection" />
 

@@ -23,6 +23,8 @@ import { ChainStore, migrateChain } from "./study/chain-store.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { MomentStore, migrateMoments, type MomentsView } from "./moments/store.ts";
 import { XSessionStore, migrateXSession, type ResumeRequest } from "./x-session/state.ts";
+import { RadarStore, migrateRadar, type RadarView } from "./radar/store.ts";
+import type { SourceAlert } from "./radar/types.ts";
 import { isMaterialJoin } from "./narratives.ts";
 import {
   type DimensionScores,
@@ -597,6 +599,8 @@ export function migrate(db: DatabaseSync): void {
   // The Moment scanner (moment scanner ticket 01): its scans, posts and readings, and the X session's shared stop state. Additive tables.
   migrateMoments(db);
   migrateXSession(db);
+  // The trend radar (trend radar ticket 01): its readings, seen-set, Trends and source states. Additive tables.
+  migrateRadar(db);
 }
 
 export function slugify(text: string): string {
@@ -786,6 +790,8 @@ export type WarRoomStore = Pick<
   | "recentBrainRuns"
   | "studyStats"
   | "momentsView"
+  | "radarView"
+  | "radarStrip"
   | "requestXSessionResume"
   | "latestMetas"
   | "currentMetas"
@@ -1003,6 +1009,8 @@ export class Datastore {
   readonly moments: MomentStore;
   /** The X session's shared stop state and its Resume requests. The worker writes through this; the War Room may only `requestXSessionResume`. */
   readonly xSession: XSessionStore;
+  /** The trend radar's readings, seen-set, Trends and source states (trend radar ticket 01). The worker writes through this; the War Room reads `radarView`. */
+  readonly radar: RadarStore;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
@@ -1012,6 +1020,17 @@ export class Datastore {
     this.meme = new MemeStore(db);
     this.moments = new MomentStore(db);
     this.xSession = new XSessionStore(db);
+    this.radar = new RadarStore(db);
+  }
+
+  /** The Radar page's data: at most 100 Trends (50 lookalikes each), the sources' states and the banners due. READ ONLY. */
+  radarView(now: Date = new Date()): RadarView {
+    return this.radar.view(now);
+  }
+
+  /** The home page's Radar strip: Trends shown, how many are untokenized and the banners due. READ ONLY. */
+  radarStrip(now: Date = new Date()): { shown: number; untokenized: number; alerts: SourceAlert[] } {
+    return this.radar.strip(now);
   }
 
   /** The Moments page's data: the newest scan, the rising posts and the X session state as of `now`. READ ONLY. */

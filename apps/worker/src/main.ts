@@ -16,6 +16,10 @@ import {
   type ChainState,
   createGroupStep,
   createMomentJob,
+  createRadarJob,
+  GoogleTrendsReader,
+  radarSettingsFromEnv,
+  RADAR_CONFIG,
   createTopDownReader,
   momentSettingsFromEnv,
   spawnMomentRunner,
@@ -460,6 +464,29 @@ const momentTick = reentrant(
   },
   () => console.log("[worker] moment scan skipped: the previous scan is still running"),
 );
+// The trend radar (trend radar ticket 01, ADR 0016): every 15 minutes it reads Google Trends' rising terms for the US through its own reader (not a
+// Source: no Signal, no Narrative), keeps the 14-day seen-set, drops what is already a Meta or Watching subject, and runs the untokenized check
+// (DexScreener search through the shared client, the live-token test, the local creates) on each new Trend, within 30 searches a tick. No Claude, no Brain.
+// OFF unless ARGUS_RADAR=1 (any other value but 0 is an error); a dry run polls and searches nothing. It uses the collision checks' DexScreener URL
+// override, so a test run never reaches the real API.
+const radarSettings = radarSettingsFromEnv(process.env);
+const RADAR_TICK_MS = RADAR_CONFIG.tickMinutes * 60_000;
+const radarJob = createRadarJob({
+  store,
+  settings: radarSettings,
+  reader: new GoogleTrendsReader(),
+  dex: new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined }),
+  dryRun,
+  log: console.log,
+  signal: shutdown.signal,
+});
+const radarTick = reentrant(
+  async () => {
+    const r = await radarJob();
+    if (r.status === "ok") console.log(`[worker] radar tick: ${r.note}${r.waiting.length > 0 ? `, waiting out a backoff: ${r.waiting.join(", ")}` : ""}${r.failed.length > 0 ? `, failed: ${r.failed.join(", ")}` : ""}`);
+  },
+  () => console.log("[worker] radar tick skipped: the previous tick is still running"),
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -493,6 +520,7 @@ const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
 const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
 const runMomentTick = () => track(momentTick, "moment scan");
+const runRadarTick = () => track(radarTick, "radar tick");
 const runMetaTick = () =>
   track(async () => {
     await metaTick();
@@ -514,6 +542,7 @@ let studyTimer: ReturnType<typeof setInterval> | undefined;
 let chainTimer: ReturnType<typeof setInterval> | undefined;
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 let momentTimer: ReturnType<typeof setInterval> | undefined;
+let radarTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -527,6 +556,7 @@ const stop = async () => {
   clearInterval(chainTimer);
   clearInterval(metaTimer);
   clearInterval(momentTimer);
+  clearInterval(radarTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
@@ -615,4 +645,9 @@ if (once) {
     momentTimer = setInterval(() => void runMomentTick(), MOMENT_TICK_MS);
     console.log(`[worker] Moment scanner started: topic "${momentSettings.topic?.label}", every ${momentSettings.intervalMinutes} min, at most ${momentSettings.loadsPerDay} page loads in 24 h${dryRun ? " (dry run: nothing is spawned)" : ""}`);
   } else console.log("[worker] Moment scanner off (ARGUS_MOMENTS=1 turns it on)");
+  if (radarSettings.enabled) {
+    void runRadarTick();
+    radarTimer = setInterval(() => void runRadarTick(), RADAR_TICK_MS);
+    console.log(`[worker] Trend radar started: Google Trends ${RADAR_CONFIG.googleGeos.join(", ")} every ${RADAR_CONFIG.tickMinutes} min, at most ${radarSettings.searchesPerTick} DexScreener searches a tick${dryRun ? " (dry run: nothing is polled or searched)" : ""}`);
+  } else console.log("[worker] Trend radar off (ARGUS_RADAR=1 turns it on)");
 }

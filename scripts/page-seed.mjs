@@ -8,10 +8,11 @@
 // The `{token}` names an explicit --seed path can use, each replaced by that Proposal's id.
 // `narrative` is the id of the Tech Proposal's Narrative (its verdict history and Proposal link), not a Proposal id.
 // `moment` is the status ID of the seeded rising clip, as text (it is longer than a safe integer): `/moments#post-{moment}` names its row.
-export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative', 'moment'];
+// `trend` is the id of the seeded untokenized Trend: `/radar#trend-{trend}` names its row.
+export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative', 'moment', 'trend'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
@@ -59,6 +60,7 @@ function idea(name, ticker, angle) {
 // Writes the fixture rows into `store` and returns { ids, counts }. `now` is a Date. Run it once on an empty store.
 export async function seedDatastore(store, now) {
   const { aMeta, saveCurrentRun } = await import('../packages/core/src/testing/meta-current.ts');
+  const { radarKey } = await import('../packages/core/src/radar/key.ts');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * MIN).toISOString();
   const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0, angle_requests: 0, verdicts: 0 };
 
@@ -251,5 +253,39 @@ export async function seedDatastore(store, now) {
   counts.moment_readings = 6;
   counts.x_session_stops = 1;
 
-  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId }, counts };
+  // The trend radar (trend radar ticket 01), through the production write paths: an untokenized Trend (with a drained-pool lookalike), a taken one, a
+  // not-traced one that keeps its last good trace, one being tokenized (folded), a hostile term with a link that is not http, and every source status
+  // (two of them over the hour, so the banner shows). Every name carries SEED.
+  const seenAt = (minutesAgo) => new Date(now.getTime() - minutesAgo * MIN);
+  const liveToken = (name, symbol, cap, liquidity) => ({ name, symbol, url: `https://dexscreener.com/solana/seed-${symbol.toLowerCase()}`, marketCapUsd: cap, liquidityUsd: liquidity, createdAt: at(300) });
+  const addTrend = (term, trafficText, trafficMin, news, minutesAgo) => {
+    const candidate = { trafficText, trafficMin, newsTitle: news.title, newsUrl: news.url };
+    const key = radarKey(term);
+    store.radar.recordReading({ sourceId: 'radar:google:US', key, term, ...candidate, at: at(minutesAgo) }, at(minutesAgo));
+    store.radar.touchSeen(key, seenAt(minutesAgo));
+    return store.radar.createTrend({ key, label: term, firstSeen: at(minutesAgo), score: trafficMin >= 20_000 ? 40 : trafficMin >= 5_000 ? 30 : 20, candidate });
+  };
+  const trace = (minutesAgo, live, lookalikes) => ({ at: at(minutesAgo), phrases: [], live, lookalikes });
+  const untokenized = addTrend('SEED Glass Whale', '50000+', 50_000, { title: 'SEED Wire: a glass whale surfaces off the coast', url: 'https://seed.example/glass-whale' }, 50);
+  store.radar.recordCheck(untokenized, { side: 'untokenized', trace: trace(44, [], [{ ...liveToken('SEED Boomazoom', 'SEEDBOOM', 131_000, 4), reason: 'pool $4, cap $131K: drained or fake' }]), localCreates: 3, localCreators: 2 }, seenAt(44));
+  const taken = addTrend('SEED Iron Moth', '20000+', 20_000, { title: 'SEED Wire: the iron moth returns', url: 'https://seed.example/iron-moth' }, 120);
+  store.radar.recordCheck(taken, { side: 'taken', trace: trace(30, [liveToken('SEED Iron Moth coin', 'SEEDMOTH', 140_000, 30_000), liveToken('SEED Moth Two', 'SEEDM2', 20_000, 6_000)], [{ ...liveToken('SEED Moth Dust', 'SEEDDUST', 90_000, 12), reason: 'pool $12, cap $90K: drained or fake' }]), localCreates: 9, localCreators: 4 }, seenAt(30));
+  const notTraced = addTrend('SEED Quiet Falcon', '2000+', 2_000, { title: 'SEED Wire: a quiet falcon', url: 'https://seed.example/quiet-falcon' }, 200);
+  store.radar.recordCheck(notTraced, { side: 'contested', trace: trace(100, [liveToken('SEED Falcon coin', 'SEEDFALC', 30_000, 9_000)], []), localCreates: 1, localCreators: 1 }, seenAt(100));
+  store.radar.recordCheck(notTraced, { side: 'not traced', trace: null, localCreates: null, localCreators: null }, seenAt(15));
+  const tokenizing = addTrend('SEED Copper Heron', '5000+', 5_000, { title: 'SEED Wire: a copper heron', url: 'https://seed.example/copper-heron' }, 150);
+  store.radar.recordCheck(tokenizing, { side: 'tokenizing', trace: trace(20, [], []), localCreates: 12, localCreators: 7 }, seenAt(20));
+  addTrend(`<img src=x onerror=alert(1)> SEED hostile ${'Q'.repeat(150)}`, '1000+', 1_000, { title: `SEED <script>alert(1)</script> ${'N'.repeat(300)}`, url: 'javascript:alert("SEED news")' }, 10);
+  store.radar.recordSource('radar:google:US', 'ok', '', seenAt(300));
+  store.radar.recordSource('radar:google:GB', 'ok', '', seenAt(300));
+  store.radar.recordSource('radar:google:GB', 'backing off', 'HTTP 429', seenAt(125));
+  store.radar.recordSource('radar:google:CA', 'ok', '', seenAt(400));
+  store.radar.recordSource('radar:google:CA', 'format changed', 'the answer is not the feed or has no items', seenAt(190));
+  store.radar.recordSource('radar:google:AU', 'ok', '', seenAt(200));
+  store.radar.recordSource('radar:google:AU', 'down', 'HTTP 503', seenAt(20));
+  store.radar.recordSource('radar:google:US', 'ok', '', seenAt(5));
+  counts.radar_trends = 5;
+  counts.radar_sources = 4;
+
+  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId, trend: untokenized }, counts };
 }

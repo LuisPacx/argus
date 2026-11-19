@@ -18,8 +18,20 @@ describe("the seed fixture", () => {
   it("writes a row of each kind through the Datastore and returns the Proposal ids", async () => {
     const store = fresh();
     const { ids, counts } = await seedDatastore(store, NOW);
-    const { narrative, moment, ...proposalIds } = ids;
+    const { narrative, moment, trend, ...proposalIds } = ids;
     expect(new Set(Object.values(proposalIds)).size).toBe(5);
+    // The trend radar (trend radar ticket 01): an untokenized Trend with a drained-pool lookalike, a taken one, a not-traced one that keeps its last
+    // good trace, one being tokenized, a hostile term, and every source status (two over the hour, so the banner shows).
+    const radar = store.radarView(NOW);
+    const bySide = Object.fromEntries(radar.trends.map((t: { term: string; side: string }) => [t.term, t.side]));
+    expect(bySide).toMatchObject({ "SEED Glass Whale": "untokenized", "SEED Iron Moth": "taken", "SEED Quiet Falcon": "not traced", "SEED Copper Heron": "tokenizing" });
+    expect(radar.trends).toHaveLength(5);
+    expect(radar.trends.find((t: { id: number }) => t.id === trend)).toMatchObject({ term: "SEED Glass Whale", lookalikeCount: 1, localCreators: 2 });
+    expect(radar.trends.find((t: { term: string }) => t.term === "SEED Quiet Falcon")).toMatchObject({ liveCount: 1, side: "not traced" });
+    expect(radar.trends.find((t: { term: string }) => t.term.includes("hostile"))!.term).toContain("<img");
+    expect(radar.sources.map((s: { source: string; status: string }) => [s.source, s.status])).toEqual([["radar:google:AU", "down"], ["radar:google:CA", "format changed"], ["radar:google:GB", "backing off"], ["radar:google:US", "ok"]]);
+    expect(radar.alerts.map((a: { source: string }) => a.source)).toEqual(["radar:google:CA", "radar:google:GB"]);
+    expect(radar.counts).toEqual({ shown: 5, untokenized: 1 });
     // The Moment scanner (moment scanner ticket 01): the rising clip's status ID, a hostile post and the X session stopped by a login wall.
     const view = store.momentsView(NOW);
     expect(view.topic).toBe("SEED Moments topic");
@@ -76,7 +88,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 5, radar_sources: 4 });
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
     expect(store.getProposal(ids.tech)).toMatchObject({ agentCostKind: "unknown" });
@@ -96,9 +108,10 @@ describe("the seed fixture", () => {
     const ra = await seedDatastore(a, NOW);
     const rb = await seedDatastore(b, NOW);
     expect(ra).toEqual(rb);
-    const { narrative, moment, ...proposalIds } = ra.ids;
+    const { narrative, moment, trend: _trend, ...proposalIds } = ra.ids;
     expect(a.getNarrative(narrative)).toEqual(b.getNarrative(narrative));
     expect(a.momentsView(NOW)).toEqual(b.momentsView(NOW));
+    expect(a.radarView(NOW)).toEqual(b.radarView(NOW));
     expect(moment).toBe(rb.ids.moment);
     for (const id of Object.values(proposalIds) as number[]) expect(a.getProposal(id)).toEqual(b.getProposal(id));
     a.close();
@@ -116,6 +129,7 @@ describe("seed paths and arguments", () => {
     // a status ID is longer than a safe integer, so the `moment` token is text
     expect(expandTokens("/moments#post-{moment}", { ...ids, moment: "2123280111864811617" })).toBe("/moments#post-2123280111864811617");
     expect(() => expandTokens("/moments#post-{moment}", { ...ids, moment: "not-an-id" })).toThrow(/has no id/);
+    expect(expandTokens("/radar#trend-{trend}", { ...ids, trend: 6 })).toBe("/radar#trend-6");
     expect(() => expandTokens("/proposals/{nope}", ids)).toThrow(/unknown seed token \{nope\}/);
     expect(pathProblem("/proposals/{nope}")).toContain("{nope}");
     expect(pathProblem("/proposals/{tech")).toContain("unmatched");

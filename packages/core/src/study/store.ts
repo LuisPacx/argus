@@ -476,6 +476,22 @@ export class StudyStore {
   }
 
   /**
+   * READ ONLY. Every stored pump.fun create made at or after `sinceIso`, whatever path brought it (the live stream, a migrated mint's create read
+   * from chain, or the daily sample: `source` pumpportal, chain_migrated or chain_sample), for the trend radar's local half of the untokenized check.
+   * At most `limit` rows, newest first. Other launchpads' creates (`out-of-scope`) and rows with no create time are left out. Text is creator-written.
+   * A row's first sighting is never before its create, so the indexed `first_seen_at` bounds the read.
+   */
+  createsSince(sinceIso: string, limit: number): Array<{ mint: string; name: string; symbol: string; creator: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT mint, name, symbol, creator FROM study_tokens
+         WHERE first_seen_at >= ? AND created_at IS NOT NULL AND created_at >= ? AND status <> 'out-of-scope' ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(sinceIso, sinceIso, Math.max(0, Math.trunc(limit))) as Row[];
+    return rows.map((r) => ({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, creator: r.creator as string }));
+  }
+
+  /**
    * READ ONLY. The comparison sample of one UTC day (`YYYY-MM-DD`, phase 3 ticket 20): every mint drawn that day, whatever path first
    * brought it, with `sampleWeight` (the day's creates listed / creates drawn) so Phase 4 can weight back to the full population.
    */
