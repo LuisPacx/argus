@@ -33,7 +33,7 @@ export interface Trace {
 export interface CheckResult {
   side: Exclude<TrendSide, "unchecked">;
   trace: Trace | null;
-  /** Local pump.fun creates of the last 48 hours under the Trend's name, and their distinct creators. Null when the check failed. */
+  /** Local launchpad creates of the last 48 hours under the Trend's name, and their distinct creators. Null when the check failed. */
   localCreates: number | null;
   localCreators: number | null;
 }
