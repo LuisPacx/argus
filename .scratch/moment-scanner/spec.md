@@ -1,6 +1,6 @@
 # Moment scanner: turn the Operator's manual X scans into a shortlist
 
-Status: draft for Operator review. Written 2026-11-19. Design and documents only; nothing here is built. The Operator chose this as item 1 of `.scratch/research/petal-dev/game-plan.md` (untracked in the main checkout) and approved amending ADR 0009 and ADR 0013 for it. Terms follow `GLOSSARY.md`; new terms (Moment, Watched topic) are added there. Anything marked **(proposal)** is my number or choice, not a decision. Tickets: `.scratch/moment-scanner/issues/`. Amendments: ADR 0009 and ADR 0013 (2026-11-19).
+Status: accepted (the Operator answered the open questions on 2026-11-19; section 11). Written 2026-11-19. Design and documents only; nothing here is built. The Operator chose this as item 1 of `.scratch/research/petal-dev/game-plan.md` (untracked in the main checkout) and approved amending ADR 0009 and ADR 0013 for it. Terms follow `GLOSSARY.md`; new terms (Moment, Watched topic) are added there. Anything marked **(proposal)** is my number or choice, not a decision. Tickets: `.scratch/moment-scanner/issues/`. Amendments: ADR 0009 and ADR 0013 (2026-11-19).
 
 ## 1. The problem, with evidence
 
@@ -56,7 +56,7 @@ For each active topic the scanner builds its search queries by code from the top
 - **Rising clips (the manual group B):** the same spellings, `filter:videos`, `min_faves:500`, Top and Latest tabs. Surfaces videos still on the way up.
 - **Re-reads:** a Moment already tracked whose best post did not appear in this scan's results is re-read from its own post page, at most 2 a scan, so its counts keep a time series.
 
-Posts are read from bare `article` elements (the X page no longer carries `data-testid="tweet"`; `.scratch/research/gta6-post-release.md`, scan 07:21) and counts from the action-row aria-label ("44 replies, 39 reposts, 185 likes, 4 bookmarks, 18856 views"). The post time is decoded from the status ID, which is exact to the second (status 2123280111864811617 is 05:00:01 UTC on 2026-11-19), because search results show no time element. Views are sometimes not shown; a missing figure stays missing and is never read as zero. A page where the selectors find nothing is a status of its own ("selectors found nothing"), not "ok with zero posts". The same stop rule as the Study applies: a login wall, challenge, lock, suspension or rate-limit text ends the scanner's day with no retry and notifies the Operator.
+Posts are read from bare `article` elements (the X page no longer carries `data-testid="tweet"`; `.scratch/research/gta6-post-release.md`, scan 07:21) and counts from the action-row aria-label ("44 replies, 39 reposts, 185 likes, 4 bookmarks, 18856 views"). The post time is decoded from the status ID, which is exact to the second (status 2123280111864811617 is 05:00:01 UTC on 2026-11-19), because search results show no time element. Views are sometimes not shown; a missing figure stays missing and is never read as zero. A page where the selectors find nothing is a status of its own ("selectors found nothing"), not "ok with zero posts". The same stop rule as the Study applies: a login wall, challenge, lock, suspension or rate-limit text ends the scanner's day with no retry, pauses every X job (the account is shared) and notifies the Operator. The next day one probe load (a search page from the allowed list, never a profile page) decides whether to go on; a second wall inside 7 days stops the jobs until the Operator presses Resume. All of this ships with the first scan (ticket 01), so live reading never runs without it.
 
 ### 3.2 Qualify (the numbers, all in code)
 
@@ -103,7 +103,16 @@ A second, reverse view arrives later (ticket 09): the top coins of the topic by 
 
 ### 3.5 What the scanner stores
 
-The scanner writes only to its own tables in the worker's database (posts and their counts over time, Moments with tier history, traces, topics, judge results). The War Room reads them through its read-only view and may write only two things: a request row asking for ideas (section 6) and an Operator topic or "ignore" mark. It never writes a Proposal (CODING_STANDARDS rule 1).
+The scanner writes only to its own tables in the worker's database (posts and their counts over time, Moments with tier history, traces, topics, judge results, the shared X session state). The War Room reads them through its read-only view. It writes only **request or mark rows, by an explicit POST the Operator causes, never as a side effect of a GET**, and the worker applies each one:
+
+1. "Make ideas" on a Moment: a request row (ticket 06; the existing Operator-angle table).
+2. "Make this a Moment anyway" on a folded item: a mark (ticket 03).
+3. "Ignore" on a Moment: a mark (ticket 02).
+4. "Seen": a request row recording that the Operator looked at a Moment and the views it had then, sent when he opens a row or presses Mark seen, so "grown" has something to compare with (ticket 02). Opening the page alone writes nothing.
+5. A topic request: add, renew or stop an Operator topic (ticket 05).
+6. "Resume X jobs": a request row clearing a stop (ticket 01).
+
+It never writes a Proposal, a Moment, a tier or a trace (CODING_STANDARDS rule 1). Each write has a test that a GET leaves every table unchanged.
 
 ### 3.6 Behaviour when things fail
 
@@ -119,10 +128,10 @@ Every post, handle, caption and token name is third-party text. Rules, all alrea
 
 Topics come from two places and are capped.
 
-- **From Metas.** Every current Meta (at most 3) is a topic, labelled and spelled by code from the Meta's label and the labels of its merged launch themes ("GTA VI", "Lucia", "Vice City" for the GTA VI Meta). Spelling variants are added by plain rules: a roman numeral and its digit (GTA VI and GTA 6), no-space form (GTA6), hashtag form (#GTA6). The start time is the Meta's entry time minus 24 hours **(proposal)**. Watching subjects are off by default **(proposal)**: they are weaker evidence and cost loads; the Operator can switch them on. A topic stays active for 24 hours after its Meta leaves.
+- **From Metas.** Every current Meta (at most 3) is a topic, labelled and spelled by code from the Meta's label and the labels of its merged launch themes ("GTA VI", "Lucia", "Vice City" for the GTA VI Meta). Spelling variants are added by plain rules: a roman numeral and its digit (GTA VI and GTA 6), no-space form (GTA6), hashtag form (#GTA6). The start time is the Meta's entry time minus 24 hours (decided). Watching subjects are off (decided): they are weaker evidence and cost loads; a switch exists but stays off. A topic stays active for 24 hours after its Meta leaves.
 - **From the Operator.** A small form on the Moments page: a label, up to 6 spellings, an optional start time, and an expiry of 7 days unless renewed **(proposal)**. This is how a topic with no Meta yet (the case that matters most) gets watched, and how the Operator carries over his "post-release only" rule: the start time.
 
-At most 4 topics are active **(proposal)**. When more are due than the load caps allow, Metas go first, then the Operator's by oldest scan. A topic that finds nothing for 6 scans in a row is scanned at half the rate until something flags **(proposal)**.
+At most 4 topics are active (decided). When more are due than the load caps allow, Metas go first, then the Operator's by oldest scan. A topic that finds nothing for 6 scans in a row is scanned at half the rate until something flags **(proposal)**.
 
 Generalising from GTA VI: nothing in the code says GTA. What the manual brief hard-coded (the seven spellings, "post-release gameplay only", the 200K and 5K bars) becomes a topic's spellings, its start time, and the global bars. A topic type with different bars (a sports event, a launch) is not designed here; one set of bars is used until the replay shows a topic where it fails.
 
@@ -147,8 +156,8 @@ Reuse the meme-ideas path; add one source.
 - **War Room.** A new page `/moments` lists live Moments per topic: tier (qualifying or rising, with "grown"), best post (link, views, likes, views an hour), kind and subject, flags, coin-side state with the biggest real clone and the lookalikes, and age. A strip on `/` shows how many are qualifying and links in. The page is text only.
 - **Button.** "Make ideas" on a Moment writes a request row (insert only, like Operator angle requests, ticket 11 of Meta redesign) and nothing else. The worker runs the `meme-ideas` path with a Moment block in place of the Meta block (the post text and counts as untrusted data, the topic, the traced clones as names to avoid, the Meta's own tokens too when the topic came from a Meta) and files three ordinary `meme` Proposals. They carry a link to the Moment's best post and its numbers on the Proposal page, and have the usual 12-hour life, Shortlist and Dismiss, no Spec, no Build, no score (ADR 0013).
 - **Why not a new kind.** See the ADR 0013 amendment: a Moment idea is a `meme` Proposal with a moment source (a fourth, beside a Meta, a news story and the Operator's angle). Recommended because every behaviour the idea needs already hangs off `kind = 'meme'`, and a new kind would touch each of them for no new behaviour.
-- **Caps.** An Operator-pressed request counts in the existing allowance for angle runs (5 in any rolling 24 hours, one waiting, the same request refused for 24 hours), and in the research budget. Nothing about the caps loosens.
-- **Later (ticket 11, full version).** Automatic ideas for a qualifying, `open` Moment, under their own switch and a daily cap of their own **(proposal: 4)**, and a Telegram message when a Moment first qualifies. Not before the live scorecard (section 9) says the flags are worth a message.
+- **Caps.** An Operator-pressed request counts in the existing allowance for angle runs (5 in any rolling 24 hours, one waiting), and in the research budget. The duplicate rule is keyed on the Moment (`moment:<id>`), not on the request text: the existing rule compares the angle text, and a Moment's text carries live view counts, so a text match would never fire. A second request for the same Moment inside 24 hours is refused. Nothing about the caps loosens.
+- **Later (ticket 11, full version).** Automatic ideas for a qualifying, `open` Moment, under their own switch and a daily cap of their own (4 when it turns on), and a Telegram message when a Moment first qualifies. Deferred: not before the Operator has read 14 days of the live scorecard (section 9).
 
 ## 7. Cadence and cost
 
@@ -163,7 +172,7 @@ Reuse the meme-ideas path; add one source.
 | Gap between loads | 9 to 22 seconds, jittered (the spike's pacing) |
 | Minimum scan interval per topic | 15 minutes; default 30 |
 
-The Study's X capture has its own 200 a day (ADR 0009), so the profile could see about 500 loads a day. That is 2.5 times what the spike was designed around and the spike only tried 12 loads. **Start the scanner at 100 loads a day for the first week** and raise it by hand only if no wall appears (ticket 08). The Operator must accept this extra exposure; it is the first open question (section 11). One process owns the browser directory at a time, so the scanner, the Study's capture and the Operator's own Argus Chrome session queue behind one lock; the scanner skips a scan when the lock is held rather than waiting.
+The Study's X capture has its own 200 a day (ADR 0009), so the profile could see about 500 loads a day. That is 2.5 times what the spike was designed around and the spike only tried 12 loads. **Start the scanner at 100 loads a day for the first week** and raise it to 300 only after a week with no wall (the ramp is code, ticket 08). The Operator accepted this extra exposure on 2026-11-19 (section 11). One process owns the browser directory at a time, so the scanner, the Study's capture and the Operator's own Argus Chrome session queue behind one lock; the scanner skips a scan when the lock is held rather than waiting.
 
 **Brain spend.** Judge runs (cap 24 a day) are short: a few posts in, one small object out. The one-off Operator-angle ideas run cost $0.0377 on sonnet (Meta redesign ticket 11), so a judge run of similar or smaller size is about $0.02 **(estimate; ticket 03 measures it)**, about $0.50 a day at the cap, against a default research budget of $6. Ideas runs are the Operator's and are already capped at 5 a day. Spend is Est. usage on the subscription, shown apart from real dollars (GLOSSARY). A cheaper model for the judge is a measured option after the replay, not a starting choice.
 
@@ -201,13 +210,15 @@ Ticket 07 builds the replay and puts the live scorecard on the Moments page.
 - **Browser-only evidence of coin age.** DexScreener's pair creation time is the pair's, not the token's; a token that migrated looks newer. Treated as a known imprecision in the lead-time figure.
 - **Not tested here.** I did not open X, DexScreener or any live page for this spec; everything about the live sites is taken from the scan notes and the spike's outcome note (`.scratch/phase-3-feedback/issues/05-outcome.md`).
 
-## 11. Open questions for the Operator
+## 11. Operator decisions (2026-11-19)
 
-1. **X exposure.** Is the scanner allowed on the same Argus X account as the Study, at 100 loads a day for a week and then up to 300, or should it have a second account and Chrome directory? (Recommended: same account for the first week, as above; a second account if any wall appears.)
-2. **Watching subjects as topics** (off by default), and the cap of 4 active topics.
-3. **Start time for a Meta topic.** Meta entry minus 24 hours is a proposal; the GTA VI case wants the release time. Should the Operator always set it, or is the default enough?
-4. **Automatic ideas and the Telegram nudge** (ticket 11): wanted at all, and the daily cap of 4.
-5. **Judge model.** Sonnet to start; ask for a haiku comparison after the replay?
+The open questions of the first draft, as the Operator answered them:
+
+1. **X exposure: decided.** The scanner shares the Argus X account with the Study. It adds 100 loads a day in week 1, then up to 300 after a week with no wall. A second account is not used; a wall is handled by the stop rules (section 3.1) and the Operator's Resume.
+2. **Topics: decided.** Topics come from current Metas plus Operator-entered ones, at most 4 active. Watching subjects stay off.
+3. **Start time: decided.** A Meta topic's start is the Meta's entry minus 24 hours. A manual topic such as GTA VI takes a start time the Operator sets.
+4. **Automatic ideas and the Telegram nudge: deferred.** Ticket 11 waits until the Operator has read 14 days of the scorecard (ticket 07). When it turns on, its cap is 4 automatic runs a day.
+5. **Judge model: decided.** Sonnet. A later ticket may test haiku against it on the same fixtures; none is written now.
 
 ## 12. Slices
 
@@ -219,15 +230,15 @@ Each ticket is one thin vertical slice and says what is useful on its own. Order
 | 02 | Qualifying bars, grouped Moments, dedupe and growth | sonnet / medium | 01 |
 | 03 | The moment judge: kind, subject, phrases, flags | sonnet / medium | 02 |
 | 04 | Coin-side trace and the taken check | sonnet / medium | 03 |
-| 05 | Topics from current Metas and from the Operator | sonnet / high | 02 |
+| 05 | Topics from current Metas and from the Operator | sonnet / high | 02, 08 |
 | 06 | "Make ideas" hands a Moment to the meme-ideas path | sonnet / high | 03, 04 |
 | 07 | Replay on 2026-11-18 and 19, and the live scorecard | sonnet / medium | 04 |
-| 08 | Cadence, load caps and one shared X session | sonnet / high | 01 |
+| 08 | The hourly cap, the load ramp and one X session wrapper for every X job | sonnet / high | 01 |
 | 09 | Coin-side list: top topic coins matched to Moments | sonnet / medium | 04 |
 | 10 | Architecture doc and pipeline graph lines | haiku / low | 06 |
-| 11 | Automatic ideas and a Telegram nudge (full version) | sonnet / high | 06, 07, 08 |
+| 11 | Automatic ideas and a Telegram nudge (full version) | sonnet / high | 06, 07, 08 (deferred: Status blocked until the Operator has read 14 days of scorecard) |
 
-Ticket 01 is useful alone: the Operator gets a War Room list of fast-rising clips for one topic from one config line, with the whole scan, store and page behind it. After that the order is a choice: 02 and 03 make it a shortlist; 04 makes it a tool for deciding; 05 and 08 make it general and safe to run all day.
+Ticket 01 is useful alone: the Operator gets a War Room list of fast-rising clips for one topic from one config line, with the whole scan, store, page, the stop rules, the next-day probe, the shared pause and Resume behind it, so live reading never ships without its safeguards. After that the order is a choice: 02 and 03 make it a shortlist; 04 makes it a tool for deciding; 05 and 08 make it general and safe to run all day.
 
 ## 13. Not in this spec
 

@@ -5,7 +5,8 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 04 (tiers, trace and the first-$50K-clone time).
+**Blocked by:** 04
+It needs the tiers, the trace and the first-$50K-clone time.
 
 ## Evidence and limits (state these in the command's output too)
 

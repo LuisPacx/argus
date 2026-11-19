@@ -5,7 +5,8 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 06 (and 05 and 08 if they are merged; describe only what exists).
+**Blocked by:** 06
+Tickets 05 and 08 may or may not be merged by then; describe only what exists.
 
 ## Acceptance criteria
 

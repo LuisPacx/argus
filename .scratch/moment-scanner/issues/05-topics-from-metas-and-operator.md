@@ -5,13 +5,14 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 02.
+**Blocked by:** 02, 08
+The turn-taking below relies on ticket 08's hourly cap, ramp and session wrapper, so topics are never scanned faster than the account's caps allow. Decided by the Operator (2026-11-19): at most 4 active topics, Watching subjects off, a Meta topic starts at the Meta's entry minus 24 hours, a manual topic takes a start time the Operator sets.
 
 ## Design
 
 - **Table** `moment_topics` (id, label, spellings JSON, `starts_at`, `source` `meta|operator`, `meta_key` nullable, `created_at`, `expires_at`, `active`, `last_scanned_at`). Idempotent create; the old env topic is read once at boot as an Operator topic if the table is empty, then ignored (note it in Comments).
 - **From Metas:** each tick, for every current Meta (at most 3; Watching off by default, `ARGUS_MOMENT_WATCHING=1` turns it on), upsert a topic keyed by the Meta's key: label from `CurrentMeta.label`, spellings from the label and its merged theme labels (`themes`, at most 12), plus plain variants: a roman numeral and its digit (VI and 6, I to XX), the spaceless form, the hashtag form; at most 6 spellings, shortest first after the label. `starts_at` is the Meta's `enteredAt` minus 24 hours. A topic stays active 24 hours after its Meta leaves.
-- **From the Operator:** `POST /api/moment-topics` `{ label, spellings (0 to 6), startsAt? }`; body-size and JSON handling as `meme-angle.post.ts`; the server cleans and validates (below), refuses a 5th active topic (cap of 4 active, `ARGUS_MOMENT_TOPICS_MAX` can only lower it, ceiling 6), and the same cleaned label twice. Expiry 7 days from creation or last renewal; a "Renew" and a "Stop" mark. The War Room writes the request row; the worker applies it (the War Room writes no scanner state).
+- **From the Operator:** `POST /api/moment-topics` `{ label, spellings (0 to 6), startsAt }` (the start time is required: the Operator sets it, as the release time for GTA VI; a missing one is a 400); body-size and JSON handling as `meme-angle.post.ts`; the server cleans and validates (below), refuses a 5th active topic (cap of 4 active, `ARGUS_MOMENT_TOPICS_MAX` can only lower it, ceiling 6), and the same cleaned label twice. Expiry 7 days from creation or last renewal; a "Renew" and a "Stop" mark. The War Room writes the request row; the worker applies it (the War Room writes no scanner state).
 - **Cleaning** (one function used for both sources): words limited to letters, digits, spaces and `#`, each spelling cut to 40 characters, a spelling that contains an X operator word (`from`, `to`, `filter`, `since`, `until`, `min_faves`, `min_retweets`, `lang`, `url`, `list`, `near`, `within_time`) followed by a colon is dropped, not repaired, quote and parenthesis characters removed. `startsAt` must be a valid date within the last 14 days and not in the future.
 - **Turns:** the worker picks the due topic (Metas first, then the Operator's by oldest scan) subject to 01's caps; a topic with 6 scans in a row that flagged nothing is scanned at half the rate until something flags. Per-topic Moments and the page group by topic.
 

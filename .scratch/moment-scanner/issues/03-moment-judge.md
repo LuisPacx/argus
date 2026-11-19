@@ -5,7 +5,7 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 02.
+**Blocked by:** 02
 
 ## Design
 

@@ -5,7 +5,8 @@
 
 **Status:** ready-for-agent
 
-**Blocked by:** 03 (the phrases).
+**Blocked by:** 03
+The judge's search phrases (ticket 03) are what the trace searches with.
 
 ## Evidence
 
