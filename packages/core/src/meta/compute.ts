@@ -403,7 +403,8 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const subjects: LeaderSubject[] = subjectStats
     .filter(({ stat, extra }) => stat.copies["24h"].creators >= config.minCopies || prevKeys.has(stat.group.key) || (extra.memberKeys ?? []).some((k) => prevKeys.has(k)))
     .map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, counts: stat.copies, topTokens: topTokensOf(stat, config.topTokens), tokens: stat.group.tokens, ...extra }));
-  const current = currentMetas({ subjects, tokens: fresh, previous: carried, now, config });
+  const shownTokens = applied ? new Set(items.flatMap((i) => (i.kind === "token" ? [i.mint] : []))) : undefined;
+  const current = currentMetas({ subjects, tokens: fresh, previous: carried, ...(shownTokens ? { grouped: shownTokens } : {}), now, config });
 
   // 5. Rank each window and shape the rows.
   const rows = {} as NewMetaRun["rows"];

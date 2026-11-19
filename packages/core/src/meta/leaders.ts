@@ -11,7 +11,8 @@ import { DEFAULT_THEME_CONFIG, tokenWholeForms } from "./theme.ts";
  *
  *   - A subject is a launch-theme group. Its leader is the token of any age with the highest market cap that carries the subject: either
  *     the token names the group (a `subjectKey` form of it equals the group's key or a whole name of one of the group's tokens, never
- *     through a generic or too-short form), or the compute step says it belongs to the group (`groupKey`, the biggest token of a theme).
+ *     through a generic or too-short form, and a token's form counts only when a tenth of the group's tokens carry it, ticket 13), or the
+ *     compute step says it belongs to the group (`groupKey`, the biggest token of a theme).
  *   - Becomes a Meta: leader at or above `enterMcapUsd`, looked up this run, and at least `minCopies` distinct creators in 24 h.
  *   - Stays a Meta: leader at or above `stayMcapUsd`, whatever the copies; between the two it is `holding`. At most `maxMetas`.
  *   - Watching: the top `watching` other subjects below `enterMcapUsd` that meet the copies rule.
@@ -56,6 +57,11 @@ export interface CurrentMetasInput {
   /** Tokens whose market cap was read this run. A previous leader missing from here is carried at its last figure, marked stale. */
   tokens: readonly LeaderToken[];
   previous?: PreviousMetas;
+  /**
+   * The trending tokens the AI grouping step was shown this run (set only when its answer was applied). A previous leader in it that the
+   * answer did not put in its subject keeps that subject only through a name that still matches it, never through having led it last run.
+   */
+  grouped?: ReadonlySet<string>;
   now: Date;
   config: LeaderConfig;
 }
@@ -84,7 +90,12 @@ function tokenForms(t: { name: string; symbol: string }, minChars: number): Set<
   return out;
 }
 
-/** Which subjects a form names. Built once per run. */
+/**
+ * Which subjects a form names. Built once per run. The subject's own key always names it; a form of one of its tokens names it only when at
+ * least `DEFAULT_THEME_CONFIG.keyShare` (10 %) of the subject's tokens carry it (the share rule `theme.ts` uses for an anchor's subject
+ * forms). One spam launch that copies a big token's ticker (two `dacity coin / fartcoin` creates inside the 559-token GTA 6 cluster, meta
+ * redesign ticket 13) is not the subject's name, so that big token cannot match the subject through it.
+ */
 function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<string, number[]> {
   const index = new Map<string, number[]>();
   const add = (form: string, i: number) => {
@@ -95,7 +106,10 @@ function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<st
   subjects.forEach((s, i) => {
     if (s.key.startsWith("unkeyed:")) return;
     for (const f of tokenForms({ name: s.key, symbol: "" }, minChars)) add(f, i);
-    for (const t of s.tokens) for (const f of tokenForms(t, minChars)) add(f, i);
+    const carried = new Map<string, number>();
+    for (const t of s.tokens) for (const f of tokenForms(t, minChars)) carried.set(f, (carried.get(f) ?? 0) + 1);
+    const need = Math.ceil(s.tokens.length * DEFAULT_THEME_CONFIG.keyShare);
+    for (const [f, n] of carried) if (n >= need) add(f, i);
   });
   return index;
 }
@@ -184,6 +198,9 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
     return best;
   };
 
+  /** Whether one of the token's name forms names subject `i`. */
+  const names = (t: LeaderToken, i: number): boolean => [...tokenForms(t, minChars)].some((f) => index.get(f)?.includes(i));
+
   // Which previous Meta each subject continues: by key, else through the previous leader's name, else a subject with no copies left.
   const continues = new Map<number, CurrentMeta>();
   for (const p of prevMetas) {
@@ -218,8 +235,14 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
       if (i !== undefined && open(i)) offer(i, t);
       continue;
     }
-    const i = ownByMint.get(t.mint) ?? match(t, open);
-    if (i !== undefined) offer(i, t);
+    const i = ownByMint.get(t.mint);
+    // A previous leader keeps its subject without a name match, unless the AI step saw it this run and left it out of that subject: a wrong
+    // leader cannot hold a Meta for ever by having led it (ticket 13). On a run with no AI answer the carry stands.
+    if (i !== undefined && (!input.grouped?.has(t.mint) || names(t, i))) offer(i, t);
+    else {
+      const j = match(t, open);
+      if (j !== undefined) offer(j, t);
+    }
   }
 
   interface Standing {

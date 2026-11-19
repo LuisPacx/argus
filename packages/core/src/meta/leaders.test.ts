@@ -32,7 +32,7 @@ const token = (n: string, name: string, symbol: string, marketCapUsd: number, ov
   ...over,
 });
 
-const run = (over: { subjects: LeaderSubject[]; tokens: LeaderToken[]; previous?: PreviousMetas; now?: Date }) => currentMetas({ now: NOW, config, ...over });
+const run = (over: { subjects: LeaderSubject[]; tokens: LeaderToken[]; previous?: PreviousMetas; grouped?: ReadonlySet<string>; now?: Date }) => currentMetas({ now: NOW, config, ...over });
 const keys = (rows: CurrentMeta[]) => rows.map((r) => r.key);
 
 /** A stored previous row for a subject whose leader was `lead`. */
@@ -204,6 +204,56 @@ describe("currentMetas: matching a leader to the subject that copies it", () => 
     expect(performance.now() - t0).toBeLessThan(2_000);
     // The hostile tokens name no subject; the metacharacters are plain characters and drop out of the key.
     expect(r.metas.map((m) => [m.key, m.leader.mint])).toEqual([["jensen", mintOf("j")]]);
+  });
+});
+
+/**
+ * Meta redesign ticket 13: the real run 330 (2026-11-18T01:24Z). The GTA 6 launch cluster held 559 tokens; two spam creates named
+ * `dacity coin` with the ticker `fartcoin` had been swept into it, so "fartcoin" became one of its name forms and the real Fartcoin
+ * ($90M, trending, which the AI grouping left out of every subject) matched the subject, out-ranked the GTA VI token ($15.5M) and led the Meta.
+ */
+describe("currentMetas: an off-subject large-cap token cannot lead a Meta (ticket 13)", () => {
+  const gtaNames: Array<[string, string, number]> = [["GTA 6", "GTA COIN", 68], ["GTA6", "GTA6", 58], ["GTA VI", "$GTA", 10], ["GTAVI", "GTAVI", 8], ["Official Grand Theft Auto VI", "GTAVI", 7], ["GTA VI", "GTAVI", 6], ["GTA 6", "GTA6", 6], ["Grand Theft Ansem", "GTA", 4]];
+  const gtaTokens = gtaNames.flatMap(([name, symbol, n]) => Array.from({ length: n }, () => ({ name, symbol })));
+  const filler = Array.from({ length: 559 - gtaTokens.length - 2 }, (_, i) => ({ name: `GTA 6 Rp${i}`, symbol: `GTA6RP${i}` }));
+  const spam = [{ name: "dacity coin", symbol: "fartcoin" }, { name: "dacity coin", symbol: "fartcoin" }];
+  const gta6: LeaderSubject = { key: "gta6", label: "GTA6", counts: counts(244), topTokens: [], tokens: [...gtaTokens, ...filler, ...spam] };
+  const gtaVi = token("gtavi", "GTA VI", "GTA VI", 15_550_730, { groupKey: "gta6" });
+  const fartcoin = token("fart", "Fartcoin", "Fartcoin", 90_226_224);
+
+  it("two spam creates that copy the ticker inside the 559-token GTA 6 cluster do not make Fartcoin its leader", () => {
+    expect(gta6.tokens).toHaveLength(559);
+    const r = run({ subjects: [gta6], tokens: [fartcoin, gtaVi] });
+    expect(r.metas.map((m) => [m.key, m.leader.mint])).toEqual([["gta6", gtaVi.mint]]);
+  });
+
+  it("a Fartcoin that is the only priced token leads nothing: no Meta, no Watching", () => {
+    expect(run({ subjects: [gta6], tokens: [fartcoin] })).toEqual({ metas: [], watching: [] });
+  });
+
+  it("a Meta that already has Fartcoin as its leader corrects itself on the next AI-grouped run (the live state of run 446)", () => {
+    const previous = previousAt(15, [prevRow("gta6", fartcoin, { enteredAt: "2026-11-17T12:47:34.915Z" })]);
+    // The AI step was shown Fartcoin and left it out of GTA 6: having led it last run no longer keeps it there. The Meta keeps its entry time.
+    const r = run({ subjects: [gta6], tokens: [fartcoin, gtaVi], previous, grouped: new Set([fartcoin.mint]) });
+    expect(r.metas.map((m) => [m.key, m.leader.mint, m.enteredAt])).toEqual([["gta6", gtaVi.mint, "2026-11-17T12:47:34.915Z"]]);
+  });
+
+  it("a previous leader the AI step did not see (a run with no AI answer) keeps the carry: a Meta is not lost to a failed grouping call", () => {
+    const trump = token("trump", "OFFICIAL TRUMP", "TRUMP", 277_000_000);
+    const subjects = [subject("trumpedo", 13, ["Trumpedo", "Trumpedo Coin"])];
+    const previous = previousAt(15, [prevRow("trumpedo", trump)]);
+    expect(run({ subjects, tokens: [trump], previous }).metas[0]!.leader.mint).toBe(trump.mint);
+    // The AI step held it as a member of the subject: it leads by membership, as before.
+    const held = [{ ...subjects[0]!, memberMints: [trump.mint] }];
+    expect(run({ subjects: held, tokens: [trump], previous, grouped: new Set([trump.mint]) }).metas[0]!.leader.mint).toBe(trump.mint);
+  });
+
+  it("a token named by a tenth of the subject's tokens still leads it by name, and stays its leader on the next run", () => {
+    const named = token("gta", "GTA 6", "GTA COIN", 20_000_000);
+    const first = run({ subjects: [gta6], tokens: [named, gtaVi] });
+    expect(first.metas[0]!.leader.mint).toBe(named.mint);
+    const next = run({ subjects: [gta6], tokens: [named, gtaVi], previous: previousAt(15, first.metas) });
+    expect(next.metas[0]!.leader.mint).toBe(named.mint);
   });
 });
 
