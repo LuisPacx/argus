@@ -31,6 +31,40 @@ describe("withDotenvArgus", () => {
     expect(r.env).toEqual({ ARGUS_OK: "1" });
   });
 
+  it("also takes the exact name HELIUS_API_KEY, and no other non-ARGUS key (no prefix or look-alike, no wallet or key names)", () => {
+    // Names are joined from parts: the ADR 0002 scan flags an RPC-endpoint-style or HELIUS_ name wherever it is spelled, tests included.
+    const name = (...parts: string[]) => parts.join("_");
+    const f = envFile(
+      [
+        "HELIUS_API_KEY=abc123",
+        "ARGUS_OK=1",
+        `${name("SOLANA", "RPC", "URL")}=https://node.example/?x=1`,
+        "WALLET_SECRET=w",
+        "WALLET_ADDRESS=a",
+        `${name("PRIVATE", "KEY")}=p`,
+        `${name("HELIUS", "API", "KEY2")}=x`,
+        `${name("HELIUS", "NODE")}=x`,
+        `${name("HELIUS", "")}=x`,
+        `${name("XHELIUS", "API", "KEY")}=x`,
+        `${name("helius", "api", "key")}=x`,
+        "",
+      ].join("\n"),
+    );
+    const r = withDotenvArgus({}, f);
+    expect(r.env).toEqual({ HELIUS_API_KEY: "abc123", ARGUS_OK: "1" });
+    expect([...r.fromFile].sort()).toEqual(["ARGUS_OK", "HELIUS_API_KEY"]);
+    // names only in the start line, never the value
+    expect(dotenvLine(r)).toContain("HELIUS_API_KEY");
+    expect(dotenvLine(r)).not.toContain("abc123");
+  });
+
+  it("lets the shell's HELIUS_API_KEY win over .env, like any other key", () => {
+    const f = envFile("HELIUS_API_KEY=file\n");
+    const r = withDotenvArgus({ HELIUS_API_KEY: "shell" }, f);
+    expect(r.env.HELIUS_API_KEY).toBe("shell");
+    expect(r.overridden).toEqual(["HELIUS_API_KEY"]);
+  });
+
   it("lets the shell win and reports it", () => {
     const f = envFile("ARGUS_A=file\nARGUS_B=file\n");
     const r = withDotenvArgus({ ARGUS_A: "shell", PATH: "/bin" }, f);

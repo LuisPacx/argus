@@ -1,10 +1,12 @@
 // ARGUS_* settings from the repo-root .env for the dev processes (`pnpm dev:start`).
-// Same parser as packages/core (node:util parseEnv). Only ^ARGUS_[A-Z0-9_]+$ keys pass; a variable
+// Same parser as packages/core (node:util parseEnv). Only ^ARGUS_[A-Z0-9_]+$ keys and the exact name HELIUS_API_KEY pass; a variable
 // already set in the shell environment wins over .env. A missing .env is a no-op.
 import fs from 'node:fs';
 import { parseEnv } from 'node:util';
 
 const KEY = /^ARGUS_[A-Z0-9_]+$/;
+// The one non-ARGUS name that passes, by exact match (Operator, 2026-11-19): the Helius key the chain-sourced creates job reads (phase 3 ticket 20).
+const EXTRA_KEYS = new Set(['HELIUS_API_KEY']);
 // Set only by `page:check --seed` for its private server; a stray .env line must never move the live War Room's build dir.
 const NEVER_FROM_FILE = new Set(['ARGUS_NUXT_BUILD_DIR']);
 
@@ -15,7 +17,7 @@ export function withDotenvArgus(shellEnv, envFile) {
   if (!fs.existsSync(envFile)) return out;
   const parsed = parseEnv(fs.readFileSync(envFile, 'utf8'));
   for (const [key, value] of Object.entries(parsed)) {
-    if (!KEY.test(key)) continue;
+    if (!KEY.test(key) && !EXTRA_KEYS.has(key)) continue;
     if (NEVER_FROM_FILE.has(key)) {
       out.ignored.push(key);
       continue;
