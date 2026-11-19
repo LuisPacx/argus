@@ -10,7 +10,7 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchUsage } from "../research-budge
 import type { DexPair } from "../sources/dexscreener.ts";
 import { aMeta, saveCurrentRun } from "../testing/meta-current.ts";
 import { tempDir } from "../testing/temp.ts";
-import { parseAngle } from "./angle.ts";
+import { ANGLE_ATTEMPT_CAP_FACTOR, angleAttemptCap, parseAngle } from "./angle.ts";
 import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
 import { MEME_REFRESH_MS } from "./types.ts";
 
@@ -317,12 +317,12 @@ describe("the 2026-11-12 case: the jensen Meta, its news and a New Meta event gi
     const lines: string[] = [];
     const bad = JENSEN_ANSWER.replace("CHAIR", "chair");
     const { brain, prompts } = fakeBrain([bad]);
-    expect(await pass(store, brain, { lines })).toMatchObject({ called: 1, stored: 0, refused: 1 });
-    expect(prompts).toHaveLength(1); // a schema refusal is not retried
+    expect(await pass(store, brain, { lines })).toMatchObject({ called: 2, stored: 0, refused: 1 });
+    expect(prompts).toHaveLength(2); // a schema refusal gets one repair retry (ticket 16), not two
     expect(memes(store)).toHaveLength(0);
     expect(lines.join("\n")).toMatch(/refused: .*ticker/);
     expect(store.recentBrainRuns(5)[0]!.status).toBe("invalid-output");
-    expect(store.meme.since(at(-60).toISOString())[0]).toMatchObject({ outcome: "refused", runs: 1 });
+    expect(store.meme.since(at(-60).toISOString())[0]).toMatchObject({ outcome: "refused", runs: 2 });
   });
 });
 
@@ -412,7 +412,7 @@ describe("cadence: a new Meta starts a run, and a Meta that stays one gets a fre
     await pass(store, brain, { now: at(20) });
     tick(store, 7 * HOUR, [meta]);
     await pass(store, brain, { now: at(7 * HOUR + 1) });
-    expect(prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(2); // the first pass's run and its one repair retry; the later passes made none
   });
 
   it("a failed run (not refused) is tried again after 30 minutes, not at the next pass", async () => {
@@ -674,7 +674,7 @@ describe("names must not copy a token of the Meta or one DexScreener lists", () 
   });
 
   it("a name that DexScreener lists on Solana is a copy; another chain's token, or a failed lookup, is not", async () => {
-    const pair = (name: string, symbol: string, chainId: string): DexPair => ({ chainId, tokenAddress: "x", name, symbol, url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0 });
+    const pair = (name: string, symbol: string, chainId: string): DexPair => ({ chainId, tokenAddress: `x-${name}`, name, symbol, url: "", liquidityUsd: 30_000, volume24hUsd: 5_000, priceChange24hPct: 0, marketCapUsd: 200_000 });
     const searches: string[] = [];
     const dex: MemeDexClient = {
       async search(q) {
@@ -748,7 +748,7 @@ describe("untrusted input", () => {
     ]) {
       const { store } = await seedJensen();
       const { brain } = fakeBrain([bad]);
-      expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 0, refused: 1 });
+      expect(await pass(store, brain)).toMatchObject({ called: 2, stored: 0, refused: 1 }); // the repair retry gets the same answer
       expect(memes(store)).toHaveLength(0);
     }
   });
@@ -890,7 +890,7 @@ describe("news stories: a news Narrative that failed the buildability gate gets 
   });
 
   it("a copied name goes back once with the copied names listed; a second copy fails closed with nothing stored; the retry is one more run of the same cap", async () => {
-    const pair = (name: string, symbol: string): DexPair => ({ chainId: "solana", tokenAddress: "x", name, symbol, url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0 });
+    const pair = (name: string, symbol: string): DexPair => ({ chainId: "solana", tokenAddress: `x-${name}`, name, symbol, url: "", liquidityUsd: 30_000, volume24hUsd: 5_000, priceChange24hPct: 0, marketCapUsd: 200_000 });
     const dex: MemeDexClient = { async search(q) { return q === "Earnings Call Hat" ? [pair("Earnings Call Hat", "ECH")] : []; } };
     const retry = Datastore.open(":memory:");
     seedStory(retry);
@@ -912,7 +912,7 @@ describe("news stories: a news Narrative that failed the buildability gate gets 
     const store = Datastore.open(":memory:");
     const story = seedStory(store);
     const refused = fakeBrain([STORY_ANSWER.replace("EARNHAT", "earnhat")]);
-    expect(await storyPass(store, refused.brain)).toMatchObject({ called: 1, refused: 1 });
+    expect(await storyPass(store, refused.brain)).toMatchObject({ called: 2, refused: 1 });
     expect(await storyPass(store, refused.brain, { now: at(60) })).toMatchObject({ called: 0 });
     rescore(store, story.id, {}, 61);
     const again = fakeBrain([STORY_ANSWER]);
@@ -1110,14 +1110,14 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
   it("a name that copies a DexScreener ticker is retried once, then the request ends refused with the problem and nothing is stored", async () => {
     const { store, meta } = await noEvent();
     const req = request(store, meta.key);
-    const dex: MemeDexClient = { async search(q) { return q === "CHAIR" ? [{ chainId: "solana", tokenAddress: "x", name: "Chair Coin", symbol: "CHAIR", url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0 }] : []; } };
+    const dex: MemeDexClient = { async search(q) { return q === "CHAIR" ? [{ chainId: "solana", tokenAddress: "x", name: "Chair Coin", symbol: "CHAIR", url: "", liquidityUsd: 30_000, volume24hUsd: 5_000, priceChange24hPct: 0, marketCapUsd: 200_000 }] : []; } };
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER, JENSEN_ANSWER]);
     expect(await anglePass(store, brain, { dex })).toMatchObject({ called: 2, stored: 0, refused: 1 });
     expect(prompts).toHaveLength(2);
     expect(named(prompts[1]!)).toContain("Copied by your earlier answer:\n- Chair Coin");
     expect(memes(store)).toHaveLength(0);
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "refused", proposalIds: [] });
-    expect(store.getAngleRequest(req.id)!.detail).toMatch(/copies a token DexScreener lists|copies an existing token/);
+    expect(store.getAngleRequest(req.id)!.detail).toMatch(/copies a live token DexScreener lists|copies an existing token/);
   });
 
   it("a name that copies a token of the Meta is retried once and the retry can succeed", async () => {
@@ -1129,12 +1129,12 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
   });
 
-  it("a schema refusal ends the request refused with the problem, and no retry", async () => {
+  it("a schema refusal gets one repair retry; when the retry is refused too the request ends refused with the problem and no third run is made", async () => {
     const { store, meta } = await noEvent();
     const req = request(store, meta.key);
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER.replace("CHAIR", "chair")]);
-    expect(await anglePass(store, brain)).toMatchObject({ called: 1, refused: 1 });
-    expect(prompts).toHaveLength(1);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 2, refused: 1 });
+    expect(prompts).toHaveLength(2);
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "refused" });
     expect(store.getAngleRequest(req.id)!.detail).toMatch(/ticker/);
   });
@@ -1157,10 +1157,10 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(researchUsage(store, at(1), DEFAULT_RESEARCH_BUDGET_CONFIG).usedUsd).toBeCloseTo(0.12);
   });
 
-  /** Runs as the worker records them: `angle` marks an angle run. */
-  const seedRuns = (store: Datastore, n: number, angle: boolean) => {
+  /** Runs as the worker records them: `angle` marks an angle run; `filed` gives each its own trio (a run that filed Proposals is attached to the first one's id; a refused run keeps 0). */
+  const seedRuns = (store: Datastore, n: number, angle: boolean, filed = false) => {
     for (let i = 0; i < n; i++) {
-      const id = store.startBrainRun({ proposalId: 0, task: "meme-ideas", backend: "claude-code", model: "sonnet", angle }, at(-30 - i));
+      const id = store.startBrainRun({ proposalId: filed ? 1000 + i : 0, task: "meme-ideas", backend: "claude-code", model: "sonnet", angle }, at(-30 - i));
       store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.01, exitStatus: "success" });
     }
   };
@@ -1174,18 +1174,18 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(prompts).toHaveLength(1);
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
     // the run is marked as an angle run, so it is counted apart from the regular 8
-    expect(store.memeRunsSince(at(-60).toISOString())).toEqual({ regular: 8, angle: 1 });
+    expect(store.memeRunsSince(at(-60).toISOString())).toEqual({ regular: 8, angle: 1, angleFiled: 1 });
   });
 
-  it("at the angle allowance the request ends capped with the angle message, and no Brain call is made", async () => {
+  it("at the angle allowance (10 filed trios) the request ends capped with the angle message, and no Brain call is made", async () => {
     const { store, meta } = await noEvent();
     const req = request(store, meta.key);
-    seedRuns(store, DEFAULT_ANGLE_DAILY_MEME_RUNS, true);
+    seedRuns(store, DEFAULT_ANGLE_DAILY_MEME_RUNS, true, true);
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
     expect(await anglePass(store, brain)).toMatchObject({ called: 0, stored: 0, stoppedBy: "daily-cap" });
     expect(prompts).toHaveLength(0);
     expect(store.getAngleRequest(req.id)).toMatchObject({ status: "capped", proposalIds: [] });
-    expect(store.getAngleRequest(req.id)!.detail).toMatch(/angle allowance of 5 meme-ideas runs a day reached/);
+    expect(store.getAngleRequest(req.id)!.detail).toMatch(/angle allowance of 10 meme-ideas runs a day reached \(10 runs that filed ideas in 24 h/);
     expect(store.getAngleRequest(req.id)!.detail).not.toMatch(/daily cap of/);
     expect(memes(store)).toHaveLength(0);
   });
@@ -1203,14 +1203,164 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(lines.join("\n")).toMatch(/daily cap of 8 meme-ideas runs reached/);
   });
 
-  it("the limits are one named function: 5 angle runs a day, never past 10, the regular cap untouched", () => {
-    expect(DEFAULT_ANGLE_DAILY_MEME_RUNS).toBe(5);
+  it("the limits are one named function: 10 filed angle runs a day, never past 10, the regular cap untouched, and 3 times the allowance as the hard cap on attempts", () => {
+    expect(DEFAULT_ANGLE_DAILY_MEME_RUNS).toBe(10);
     expect(MAX_ANGLE_DAILY_MEME_RUNS).toBe(10);
+    expect(ANGLE_ATTEMPT_CAP_FACTOR).toBe(3);
+    expect(angleAttemptCap(DEFAULT_ANGLE_DAILY_MEME_RUNS)).toBe(30);
     expect(dailyMemeRunLimit("automatic", 8)).toBe(8);
-    expect(dailyMemeRunLimit("angle", 8)).toBe(5);
+    expect(dailyMemeRunLimit("angle", 8)).toBe(10);
     expect(dailyMemeRunLimit("angle", 8, 99)).toBe(10); // never past the ceiling
     expect(dailyMemeRunLimit("automatic", 38)).toBe(38);
     expect(dailyMemeRunLimit("automatic", 99)).toBe(MAX_MEME_RUNS_PER_DAY);
+  });
+
+  // ---------------------------------------------------------------------------------------- ticket 16: the 2026-11-19 failures
+  const tokenPair = (name: string, symbol: string, over: Partial<DexPair> = {}): DexPair => ({ chainId: "solana", tokenAddress: `mint-${name}`, name, symbol, url: "", liquidityUsd: 30_000, volume24hUsd: 5_000, priceChange24hPct: 0, marketCapUsd: 200_000, ...over });
+  const dexOf = (answers: Record<string, DexPair[]>): MemeDexClient => ({ async search(q) { return answers[q] ?? []; } });
+  const trio = (first: { name: string; ticker: string }) =>
+    JSON.stringify({ subject: { name: "Dexter's apartment", isRealPerson: false }, ideas: [idea(first.name, first.ticker, { riskLabels: [] }), idea("Quiet Quitting Chip", "QUIET", { riskLabels: [] }), idea("Boardroom Bingo", "BINGO", { riskLabels: [] })] });
+  const DEXTER = trio({ name: "Dexter", ticker: "DEXTER" });
+  const MUSCLE = trio({ name: "Muscle Mommy", ticker: "MUSCLEMOMMY" });
+  const MUSCLE_FIXED = trio({ name: "Muscle Mommy", ticker: "MUSCLE" });
+  const byId = (store: Datastore) => memes(store).sort((a, b) => a.id - b.id);
+
+  it("Dexter: a name only a dead token uses ($2.4K of liquidity) is stored with a note, in one run", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    const dead = tokenPair("Dexter", "DEXTER", { liquidityUsd: 2_400, marketCapUsd: 2_900 });
+    const { brain, prompts } = fakeBrain([DEXTER]);
+    expect(await anglePass(store, brain, { dex: dexOf({ Dexter: [dead], DEXTER: [dead] }) })).toMatchObject({ called: 1, stored: 1, refused: 0 });
+    expect(prompts).toHaveLength(1);
+    const made = byId(store);
+    expect(made.map((p) => p.name)).toEqual(["Dexter", "Quiet Quitting Chip", "Boardroom Bingo"]);
+    expect(made[0]!.meme!.copyNote).toBe("name also used by a dead token: Dexter $2.9K");
+    expect(made[1]!.meme!.copyNote).toBeUndefined();
+    expect(made[2]!.meme!.copyNote).toBeUndefined();
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
+  });
+
+  it("Dexter: the same name on a live token ($30K liquidity, $200K cap) is still a copy: retried once, then refused with nothing stored", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    const live = tokenPair("Dexter", "DEXTER");
+    const { brain, prompts } = fakeBrain([DEXTER, DEXTER]);
+    expect(await anglePass(store, brain, { dex: dexOf({ Dexter: [live], DEXTER: [live] }) })).toMatchObject({ called: 2, stored: 0, refused: 1 });
+    expect(named(prompts[1]!)).toContain("Copied by your earlier answer:\n- Dexter");
+    expect(memes(store)).toHaveLength(0);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "refused" });
+    expect(store.getAngleRequest(req.id)!.detail).toMatch(/copies a live token DexScreener lists/);
+    // refused: it spent two attempts and none of the allowance
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 2, angleFiled: 0 });
+  });
+
+  it("Dexter: a token with a live pair and a drained pair is live; a $4 pool under a $131K headline cap is dead", async () => {
+    const { store, meta } = await noEvent();
+    request(store, meta.key);
+    const mixed = [tokenPair("Dexter", "DEXTER", { liquidityUsd: 3, marketCapUsd: 131_000 }), tokenPair("Dexter", "DEXTER")];
+    expect(await anglePass(store, fakeBrain([DEXTER, DEXTER]).brain, { dex: dexOf({ Dexter: mixed }) })).toMatchObject({ called: 2, refused: 1 });
+    const second = await noEvent();
+    request(second.store, second.meta.key);
+    const drained = [tokenPair("Dexter", "DEXTER", { liquidityUsd: 4, marketCapUsd: 131_000 })];
+    expect(await anglePass(second.store, fakeBrain([DEXTER]).brain, { dex: dexOf({ Dexter: drained }) })).toMatchObject({ called: 1, stored: 1 });
+    expect(byId(second.store)[0]!.meme!.copyNote).toBe("name also used by a dead token: Dexter $131K");
+  });
+
+  it("Muscle Mommy: a ticker over 10 characters gets one repair retry that carries the exact error, and the repaired answer is stored", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    const { brain, prompts } = fakeBrain([MUSCLE, MUSCLE_FIXED]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 2, stored: 1, refused: 0 });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).not.toContain("Your earlier answer was refused");
+    expect(prompts[1]).toContain("Your earlier answer was refused for this reason: `ideas[0].ticker` is over 10 characters.");
+    expect(prompts[1]).not.toContain("Copied by your earlier answer");
+    expect(byId(store).map((p) => p.ticker)).toEqual(["MUSCLE", "QUIET", "BINGO"]);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
+    // both runs belong to the one filed trio: one against the allowance, two attempts
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 2, angleFiled: 1 });
+  });
+
+  it("Muscle Mommy: when the repair retry is refused too the request ends refused with the problem; no third run for the same kind", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    const { brain, prompts } = fakeBrain([MUSCLE, MUSCLE]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 2, stored: 0, refused: 1 });
+    expect(prompts).toHaveLength(2);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "refused", detail: "`ideas[0].ticker` is over 10 characters" });
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 2, angleFiled: 0 });
+  });
+
+  it("a wrong key set gets the same repair retry, with the key named", async () => {
+    const { store, meta } = await noEvent();
+    request(store, meta.key);
+    const extra = JSON.stringify({ ...JSON.parse(JENSEN_ANSWER) as object, confidence: "high" });
+    const { brain, prompts } = fakeBrain([extra, JENSEN_ANSWER]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 2, stored: 1 });
+    expect(prompts[1]).toContain("Your earlier answer was refused for this reason: unexpected key(s): confidence.");
+  });
+
+  it("a copy retry and a repair retry are independent: copy, then a contract error, then a good answer is three runs and is stored", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    const { brain, prompts } = fakeBrain([COPY_ANSWER, MUSCLE, OTHER_ANSWER]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 3, stored: 1, refused: 0 });
+    expect(prompts[1]).toContain("Copied by your earlier answer:");
+    expect(prompts[2]).toContain("Your earlier answer was refused for this reason: `ideas[0].ticker` is over 10 characters.");
+    expect(prompts[2]).not.toContain("Copied by your earlier answer");
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 3, angleFiled: 1 });
+    // a copy again after the repair is not retried a second time: three runs in all, never four
+    const again = await noEvent();
+    request(again.store, again.meta.key);
+    const b = fakeBrain([COPY_ANSWER, MUSCLE, COPY_ANSWER, OTHER_ANSWER]);
+    expect(await anglePass(again.store, b.brain)).toMatchObject({ called: 3, stored: 0, refused: 1 });
+    expect(b.prompts).toHaveLength(3);
+  });
+
+  it("the automatic path repairs a contract error too, and stores a dead-token note", async () => {
+    const { store } = await seedJensen();
+    const dead = tokenPair("Empty Leather Chair", "ELC", { liquidityUsd: 12, marketCapUsd: 700 });
+    const bad = JENSEN_ANSWER.replace("CHAIR", "CHAIRCHAIRCHAIR");
+    const { brain, prompts } = fakeBrain([bad, JENSEN_ANSWER]);
+    expect(await pass(store, brain, { dex: dexOf({ "Empty Leather Chair": [dead] }) })).toMatchObject({ called: 2, stored: 1 });
+    expect(prompts[1]).toContain("`ideas[0].ticker` is over 10 characters");
+    expect(byId(store)[0]!.meme!.copyNote).toBe("name also used by a dead token: Empty Leather Chair $700");
+  });
+
+  it("refused requests do not spend the angle allowance: after 8 refused attempts (4 requests of 2 runs) a fifth request still runs", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    seedRuns(store, 8, true, false);
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 8, angleFiled: 0 });
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 1, stored: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done" });
+    expect(store.memeRunsSince(at(-60).toISOString())).toMatchObject({ angle: 9, angleFiled: 1 });
+  });
+
+  it("the hard cap on all attempts is 3 times the allowance: the 30th attempt is the last, the request ends capped and says so", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    seedRuns(store, 30, true, false);
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await anglePass(store, brain)).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
+    expect(prompts).toHaveLength(0);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "capped" });
+    expect(store.getAngleRequest(req.id)!.detail).toBe("angle attempt cap of 30 meme-ideas runs a day reached (30 angle runs in 24 h, refused runs and retries included; the cap is 3 times the allowance of 10)");
+  });
+
+  it("the attempt cap also stops a retry: at 29 attempts the first run is made, its copy is not retried, and nothing is stored", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
+    seedRuns(store, 29, true, false);
+    const lines: string[] = [];
+    const { brain, prompts } = fakeBrain([COPY_ANSWER, OTHER_ANSWER]);
+    expect(await anglePass(store, brain, { lines })).toMatchObject({ called: 1, stored: 0, refused: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(lines.join("\n")).toMatch(/angle attempt cap of 30/);
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "refused" });
   });
 
   it("at the research budget the request ends capped with the reason, and no Brain call is made", async () => {

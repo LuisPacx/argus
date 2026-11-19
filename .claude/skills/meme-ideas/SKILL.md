@@ -14,7 +14,7 @@ The Meta block (a label, counts, token names, tickers and descriptions, and the 
 ## What to write
 
 - Three different angles on the same Meta, not three spellings of one joke. Each is a joke or a take that works because of what is happening now, and the angle says why.
-- A name and a ticker that are new. Never reuse, or differ by one letter, case, punctuation, a "$" or an emoji from, a token name or ticker in the Meta block or in the names to avoid. Argus refuses a copy and asks once more, then drops the whole answer.
+- A name and a ticker that are new. Never reuse, or differ by one letter, case, punctuation, a "$" or an emoji from, a token name or ticker in the Meta block or in the names to avoid. Argus also refuses a name or ticker that copies a live token on DexScreener (one with real liquidity: at least $5,000, and a market cap of at most 100 times that). On a copy it asks once more, then drops the whole answer. A name that only a dead or drained token uses is not refused: argus stores the idea with a short note for the Operator ("name also used by a dead token: ..."), so do not give up a plain name because a dead coin once used it.
 - Naming, for the name and the ticker:
   - When an angle rides a specific object, character or moment, name it with the plain words people already use for it, or the game's or story's own proper name for it, never an invented synonym. The name must still be new against the Meta block and the names to avoid. If the plain name is already taken, use another plain word people use for it, not a variant or a suffix.
   - Prefer a plain description of what is shown over a pun, a joke phrase or a quoted line.
@@ -32,6 +32,8 @@ The Meta block (a label, counts, token names, tickers and descriptions, and the 
 Argus refuses (stores nothing) anything that is not exactly one JSON object `{"subject": {"name", "isRealPerson"}, "ideas": [3 objects]}` where each idea has exactly the keys `name`, `ticker`, `angle`, `difference`, `description`, `hook`, `imageIdea`, `riskLabels`:
 
 - Every text is plain text on one line, within the length the prompt states, with no markup (`<`, `>`, backticks, markdown links), no URL and no control or invisible characters.
-- `ticker` is 2 to 10 upper-case letters or digits, starting with a letter.
+- `ticker` is 2 to 10 upper-case letters or digits, starting with a letter. Keep it short: a long name needs a shorter ticker (use `MUSCLE`, not `MUSCLEMOMMY`, which is 11 characters).
 - `riskLabels` is an array of at most five short strings, or `[]`.
 - Exactly three ideas, none a copy of an existing name or of each other.
+
+An answer that breaks this contract is sent back once, with the exact error named in the prompt ("Your earlier answer was refused for this reason: ..."): write all three ideas again, in the same format, fixing exactly that. A second miss drops the answer.

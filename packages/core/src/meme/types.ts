@@ -39,6 +39,11 @@ export interface MemeFields {
   imageIdea: string;
   /** Short plain-text labels such as "real person". Empty when the model named none and the Meta's subject is not a person. */
   riskLabels: string[];
+  /**
+   * Set when the name or ticker is also used by a dead or drained token on DexScreener (meta redesign ticket 16): one code-written line,
+   * "name also used by a dead token: Dexter $2.9K". Absent when nothing was found; it never refuses the idea. The token name in it is creator text, cleaned and cut.
+   */
+  copyNote?: string;
 }
 
 /** One news headline as stored in the snapshot (third-party text, untrusted; the url is only safe to link after `safeHttpUrl`). */

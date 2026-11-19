@@ -11,6 +11,7 @@ const ANGLE_CHARS = 300;
 const FIELD_CHARS = 300;
 const HOOK_CHARS = 280;
 const LABEL_CHARS = 30;
+const COPY_NOTE_CHARS = 160;
 const LABELS_SHOWN = 5;
 const META_LABEL_CHARS = 60;
 const HEADLINE_CHARS = 160;
@@ -57,7 +58,7 @@ export interface MemeProposalPayload {
     roomLeft?: { passed?: boolean; text?: string };
     news?: Array<{ title?: string; sourceLabel?: string; url?: string; publishedAt?: string }>;
   } | null;
-  meme?: { difference?: string; hook?: string; imageIdea?: string; riskLabels?: string[] } | null;
+  meme?: { difference?: string; hook?: string; imageIdea?: string; riskLabels?: string[]; copyNote?: string } | null;
   /** Set on an idea made from the Operator's angle (ticket 11): the text the Operator typed, and its link when there was a plain one. Operator-typed, so untrusted. */
   operatorAngle?: { requestId?: number; angle?: string; sourceUrl?: string | null; urlDropped?: boolean } | null;
 }
@@ -115,6 +116,8 @@ export interface MemeView {
   hook: string | null;
   imageIdea: string | null;
   riskLabels: string[];
+  /** "name also used by a dead token: Dexter $2.9K" when a dead or drained token uses the name or ticker (meta redesign ticket 16); null otherwise. Cut text. */
+  copyNote: string | null;
   /** Why it was made: "New Meta: $JENSEN at $2.4M, 14 creators in 24 h" (an older idea: "Hot now: creators 70 to 148 in 1 h"). */
   reason: string | null;
   meta: {
@@ -232,6 +235,7 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
     hook: present(p.meme?.hook, HOOK_CHARS),
     imageIdea: present(p.meme?.imageIdea, FIELD_CHARS),
     riskLabels: riskLabelsOf(p.meme),
+    copyNote: present(p.meme?.copyNote, COPY_NOTE_CHARS),
     reason: present(p.reason, REASON_CHARS),
     meta: {
       // A story's headline is the "from news" line, so the Meta block does not repeat it.

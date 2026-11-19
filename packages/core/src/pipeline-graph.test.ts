@@ -6,7 +6,8 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG } from "./judge.ts";
-import { DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY } from "./meme/angle.ts";
+import { ANGLE_ATTEMPT_CAP_FACTOR, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY } from "./meme/angle.ts";
+import { LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO, LIVE_TOKEN_MIN_LIQUIDITY_USD } from "./meme/live-token.ts";
 import { DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { DEFAULT_META_INTERVAL_MINUTES, META_RULE, META_WINDOWS } from "./meta/config.ts";
@@ -107,6 +108,9 @@ function realRegistry(): PipelineRegistry {
       MAX_MEME_ANGLE_PER_DAY,
       DEFAULT_ANGLE_DAILY_MEME_RUNS,
       MAX_ANGLE_DAILY_MEME_RUNS,
+      ANGLE_ATTEMPT_CAP_FACTOR,
+      LIVE_TOKEN_MIN_LIQUIDITY_USD,
+      LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO,
       MEME_TRIO_SIZE,
       MEME_WINDOW_MS,
       MEME_REFRESH_MS,
@@ -152,7 +156,10 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(byId.get("meme")!.statusNote).toMatch(/ARGUS_MEME_IDEAS=1/);
     expect(byId.get("meme")!.brainTask).toBe("meme-ideas");
     expect(byId.get("meme")!.worker).toEqual(["memeIdeasTick", "memeAngleTick"]); // the Operator's angle (ticket 11) runs on its own fast tick
-    expect(byId.get("meme")!.rules.map((r) => r.key)).toEqual(expect.arrayContaining(["DEFAULT_MEME_ANGLE_PER_DAY", "MAX_MEME_ANGLE_PER_DAY", "DEFAULT_ANGLE_DAILY_MEME_RUNS", "MAX_ANGLE_DAILY_MEME_RUNS"]));
+    expect(byId.get("meme")!.rules.map((r) => r.key)).toEqual(expect.arrayContaining(["DEFAULT_MEME_ANGLE_PER_DAY", "MAX_MEME_ANGLE_PER_DAY", "DEFAULT_ANGLE_DAILY_MEME_RUNS", "MAX_ANGLE_DAILY_MEME_RUNS", "ANGLE_ATTEMPT_CAP_FACTOR", "LIVE_TOKEN_MIN_LIQUIDITY_USD", "LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO"]));
+    // ticket 16: the lines show the new numbers (10 a day, 3 times that as the hard cap on attempts, the live-token test)
+    const rule = (key: string) => byId.get("meme")!.rules.find((r) => r.key === key)!.ref();
+    expect([rule("DEFAULT_MEME_ANGLE_PER_DAY"), rule("DEFAULT_ANGLE_DAILY_MEME_RUNS"), rule("ANGLE_ATTEMPT_CAP_FACTOR"), rule("LIVE_TOKEN_MIN_LIQUIDITY_USD"), rule("LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO")]).toEqual([10, 10, 3, 5000, 100]);
     expect(byId.get("meme")!.tickets).toContain(".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md");
     // The new edges: a new Meta (then every 12 h) goes in, three meme Proposals come out (counted by their own metric).
     expect(PIPELINE.edges.find((e) => e.id === "meta-meme")).toMatchObject({ from: "meta", to: "meme" });

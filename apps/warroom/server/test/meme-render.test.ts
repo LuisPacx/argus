@@ -177,6 +177,23 @@ describe("the Proposal page's meme card", () => {
     for (const section of ["meme-idea", "meme-meta", "meme-why", "meme-hook", "meme-image", "meme-news", "meme-evidence"]) expect(html, section).toContain(`data-test="${section}"`);
   });
 
+  it("shows the dead-token note under the idea as text, only when there is one; a hostile note is escaped and cut (meta redesign ticket 16)", async () => {
+    const plain = await draw(renderCard, { view: memeView(proposalPayload(), NOW) });
+    expect(plain).not.toContain('data-test="meme-copy-note"');
+    const noted = await draw(renderCard, { view: memeView(proposalPayload({ meme: { riskLabels: [], copyNote: "name also used by a dead token: Dexter $2.9K" } }), NOW) });
+    expect(noted).toContain('data-test="meme-copy-note"');
+    expect(noted).toContain("name also used by a dead token: Dexter $2.9K");
+    const hostile = await draw(renderCard, { view: memeView(proposalPayload({ meme: { riskLabels: [], copyNote: `<img src=x onerror=alert(1)> ${"x".repeat(1_000)}` } }), NOW) });
+    expect(hostile).not.toContain("<img src=x");
+    expect(hostile).toContain("&lt;img src=x");
+    expect(hostile.length).toBeLessThan(plain.length + 1_500);
+    // the note really comes through the store and the route
+    store.createMemeProposals(trio("jensen", { ideas: trio().ideas.map((idea, i) => ({ ...idea, ...(i === 0 ? { copyNote: "ticker also used by a dead token: Other $800" } : {}) })) }), { now: new Date(NOW) });
+    const fromRoute = list({ query: { kind: "meme" } }).sort((a, b) => a.id - b.id);
+    expect(fromRoute[0]!.meme).toMatchObject({ copyNote: "ticker also used by a dead token: Other $800" });
+    expect(fromRoute[1]!.meme!.copyNote).toBeUndefined();
+  });
+
   it("a version 1 idea made by Hot now still reads as it did (rank, Hot now wording), and a version 2 idea made by a new Meta or a refresh says New Meta or Meta refresh and names the leader", async () => {
     const v1 = await draw(renderCard, { view: memeView(proposalPayload(), NOW) });
     expect(v1).toContain("rank 2 in the 24 h ranking");

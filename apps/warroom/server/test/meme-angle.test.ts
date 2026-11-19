@@ -93,15 +93,23 @@ describe("POST /api/meme-angle", () => {
     expect(await status(post({ body: body({ angle: "x".repeat(600) }) }))).toBe(200);
   });
 
-  it("the 6th request of the day is a 429 with the reason in words, and stores nothing", async () => {
-    for (let i = 0; i < 5; i++) {
+  it("the 11th request of the day is a 429 with the reason in words, and stores nothing", async () => {
+    for (let i = 0; i < 10; i++) {
       const r = await post({ body: body({ angle: `angle number ${i}` }) });
       store.resolveAngleRequest(r.id, { status: "done", detail: "3 ideas" });
     }
-    const p = post({ body: body({ angle: "angle number 5" }) });
-    expect(await message(p)).toMatch(/5 angle requests in 24 hours is the most \(5\)/);
-    expect(await status(post({ body: body({ angle: "angle number 5" }) }))).toBe(429);
-    expect(stored()).toHaveLength(5);
+    const p = post({ body: body({ angle: "angle number 10" }) });
+    expect(await message(p)).toMatch(/10 angle requests in 24 hours is the most \(10\)/);
+    expect(await status(post({ body: body({ angle: "angle number 10" }) }))).toBe(429);
+    expect(stored()).toHaveLength(10);
+  });
+
+  it("refused requests do not spend the day's 10 (ticket 16)", async () => {
+    for (let i = 0; i < 6; i++) {
+      const r = await post({ body: body({ angle: `refused angle ${i}` }) });
+      store.resolveAngleRequest(r.id, { status: "refused", detail: "a name copies a live token DexScreener lists" });
+    }
+    expect(await status(post({ body: body({ angle: "the seventh" }) }))).toBe(200);
   });
 
   it("ARGUS_MEME_ANGLE_MAX_PER_DAY can lower the cap", async () => {

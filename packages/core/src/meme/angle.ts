@@ -11,10 +11,19 @@ import { cleanLine } from "./ideas.ts";
 
 /** The longest angle, in characters after cleaning (the form's `maxlength`). */
 export const ANGLE_MAX_CHARS = 600;
-/** Angle requests in any rolling 24 h, whatever became of them (Decision 3): the default and the most `ARGUS_MEME_ANGLE_MAX_PER_DAY` may say. */
-export const DEFAULT_MEME_ANGLE_PER_DAY = 5;
+/**
+ * The daily allowance of angle requests in any rolling 24 h (Decision 3, raised from 5 to 10 by ticket 16): the default and the most
+ * `ARGUS_MEME_ANGLE_MAX_PER_DAY` may say. A request that ended refused, failed or capped does not spend it (ticket 16); one that is waiting,
+ * running or done does. Every request, whatever became of it, counts toward the hard cap `angleAttemptCap`.
+ */
+export const DEFAULT_MEME_ANGLE_PER_DAY = 10;
 /** The hard ceiling in code: `requestMemeAngle` never allows more than this in 24 h, whatever it is given. */
 export const MAX_MEME_ANGLE_PER_DAY = 10;
+/** The hard cap on all angle attempts in 24 h, refused ones and retries included, is this many times the allowance (ticket 16), so spend stays bounded when refusals do not spend the allowance. */
+export const ANGLE_ATTEMPT_CAP_FACTOR = 3;
+export const angleAttemptCap = (allowance: number): number => ANGLE_ATTEMPT_CAP_FACTOR * allowance;
+/** The statuses that spend the allowance: a request the worker has not ended yet, or ended by filing Proposals. */
+export const ANGLE_SPENDING_STATUSES: readonly AngleStatus[] = ["pending", "running", "done"];
 /** Rows `GET /api/meme-angle` returns. */
 export const ANGLE_LIST_LIMIT = 20;
 /** The same cleaned angle for the same Meta is refused for this long (Decision 6). */
@@ -96,7 +105,7 @@ export function parseAngle(raw: unknown): AngleParse {
 }
 
 /**
- * ARGUS_MEME_ANGLE_MAX_PER_DAY: a whole number from 1 to the default of 5 (it can only lower the cap, Decision 3); unset or empty is the
+ * ARGUS_MEME_ANGLE_MAX_PER_DAY: a whole number from 1 to the default of 10 (it can only lower the cap, Decision 3); unset or empty is the
  * default; anything else is an error and never a fallback, as for the other ARGUS_* caps.
  */
 export function memeAngleConfigFromEnv(env: Record<string, string | undefined>): { maxPerDay: number } {

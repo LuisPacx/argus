@@ -63,6 +63,10 @@ defineProps<{ view: MemeView }>();
           <p class="eyebrow mb-1.5">Image idea (text only: argus makes no image)</p>
           <p class="min-w-0 break-words leading-relaxed">{{ view.imageIdea }}</p>
         </div>
+        <div v-if="view.copyNote" data-test="meme-copy-note">
+          <p class="eyebrow mb-1.5">Name check</p>
+          <p class="min-w-0 break-words text-sm leading-relaxed">{{ view.copyNote }}</p>
+        </div>
         <div data-test="meme-risk">
           <p class="eyebrow mb-1.5">Risk labels</p>
           <ul v-if="view.riskLabels.length > 0" class="flex flex-wrap gap-2">

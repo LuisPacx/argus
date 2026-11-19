@@ -16,7 +16,7 @@ import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RAT
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
-import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_WINDOW_MS, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
+import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -560,6 +560,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "meme_hook", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "meme_image_idea", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "proposals", "meme_risk_labels", "TEXT NOT NULL DEFAULT '[]'");
+  // Meta redesign ticket 16: "name also used by a dead token: ..." (empty when none). Additive; old rows read ''.
+  ensureColumn(db, "proposals", "meme_copy_note", "TEXT NOT NULL DEFAULT ''");
   // A news meme (proposal-routing ticket 04) sets `narrative_id` too, so a Narrative may have a trio and a Tech Proposal: the unique index is
   // over Tech (`kind = 'narrative'`) rows only. An index made before this change has no `kind` in its definition: it is dropped and made
   // again (idempotent; every row that has a `narrative_id` is a `narrative` row, so the new index cannot refuse existing data).
@@ -615,6 +617,7 @@ interface Row {
   meme_hook: string;
   meme_image_idea: string;
   meme_risk_labels: string;
+  meme_copy_note: string;
   operator_angle: string | null;
   status: ProposalStatus;
   narrative_summary: string;
@@ -696,7 +699,7 @@ function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
     metaKey: r.meta_key ?? null,
     metaLabel: r.meta_label ?? null,
     metaSnapshot: parseSnapshot(r.meta_snapshot ?? null),
-    meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels) } : null,
+    meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels), ...(r.meme_copy_note ? { copyNote: r.meme_copy_note } : {}) } : null,
     operatorAngle: parseOperatorAngle(r.operator_angle),
     status: r.status,
     narrativeSummary: r.narrative_summary,
@@ -1170,8 +1173,8 @@ export class Datastore {
             .prepare(
               `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
                  narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
-                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle)
-               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle, meme_copy_note)
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               slug,
@@ -1197,6 +1200,7 @@ export class Datastore {
               now,
               now,
               operatorAngle,
+              idea.copyNote ?? "",
             );
         } catch (e) {
           if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) throw new MemeTrioExistsError(input.metaKey);
@@ -1252,8 +1256,9 @@ export class Datastore {
   /**
    * The War Room's one write for an angle (ticket 11, insert only like `enqueueCommand`): a `pending` row the worker takes. The checks are
    * here, so no caller skips them: the angle is cleaned text (1 to 600 characters, one line), the key is a Meta or Watching subject of
-   * the newest run, the same cleaned angle for the same Meta is not asked twice in 24 h, at most `maxPerDay` requests (default 5, never
-   * over 10) in a rolling 24 h whatever became of them, and one request waits at a time. Refused with `MemeAngleRefusedError`.
+   * the newest run, the same cleaned angle for the same Meta is not asked twice in 24 h, at most `maxPerDay` requests (default 10, never
+   * over 10) in a rolling 24 h that are waiting, running or done (a refused, failed or capped one does not spend the allowance, ticket 16),
+   * at most 3 times that many requests of any outcome (`angleAttemptCap`), and one request waits at a time. Refused with `MemeAngleRefusedError`.
    */
   requestMemeAngle(input: { metaKey: string; angle: string; sourceUrl?: string | null; urlDropped?: boolean }, opts: { now?: Date; maxPerDay?: number } = {}): AngleRequest {
     const now = opts.now ?? new Date();
@@ -1267,9 +1272,11 @@ export class Datastore {
       const subject = [...(current?.metas ?? []), ...(current?.watching ?? [])].find((m) => m.key === input.metaKey);
       if (!subject) throw new MemeAngleRefusedError("unknown-meta", "That subject is not a current Meta or Watching subject in the newest run");
       // One window serves both rules (`ANGLE_WINDOW_MS` and `ANGLE_DUPLICATE_MS` are both 24 h).
-      const recent = this.db.prepare("SELECT meta_key, angle FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { meta_key: string; angle: string }[];
+      const recent = this.db.prepare("SELECT meta_key, angle, status FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { meta_key: string; angle: string; status: AngleStatus }[];
       if (recent.some((r) => r.meta_key === input.metaKey && angleKey(r.angle) === angleKey(angle))) throw new MemeAngleRefusedError("duplicate", "You already asked this angle for this Meta in the last 24 hours");
-      if (recent.length >= max) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours is the most (${max}); try again later`);
+      const spent = recent.filter((r) => ANGLE_SPENDING_STATUSES.includes(r.status)).length;
+      if (spent >= max) throw new MemeAngleRefusedError("daily-cap", `${spent} angle requests in 24 hours is the most (${max}); try again later`);
+      if (recent.length >= angleAttemptCap(max)) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours, refused ones included, is the most (3 times the allowance of ${max}); try again later`);
       if (this.db.prepare("SELECT 1 FROM meme_angle_requests WHERE status IN ('pending', 'running')").get()) throw new MemeAngleRefusedError("pending", "One request is waiting for the worker; wait until it is done");
       const res = this.db
         .prepare("INSERT INTO meme_angle_requests (meta_key, meta_label, angle, source_url, url_dropped, status, detail, created_at, proposal_ids) VALUES (?, ?, ?, ?, ?, 'pending', '', ?, '[]')")
@@ -2243,10 +2250,21 @@ export class Datastore {
     return Number(res.lastInsertRowid);
   }
 
-  /** The meme-ideas runs started since `since` (ISO), split into the regular ones and those made for an Operator angle (each has its own daily cap). */
-  memeRunsSince(since: string): { regular: number; angle: number } {
-    const row = this.db.prepare("SELECT COALESCE(SUM(angle = 0), 0) AS regular, COALESCE(SUM(angle = 1), 0) AS angle FROM brain_runs WHERE task = 'meme-ideas' AND created_at >= ?").get(since) as unknown as { regular: number; angle: number };
-    return { regular: row.regular, angle: row.angle };
+  /**
+   * The meme-ideas runs started since `since` (ISO), split into the regular ones and those made for an Operator angle (each has its own daily
+   * cap). `angle` is every angle run (refused ones and retries too: the hard cap on attempts reads it); `angleFiled` is the number of angle
+   * trios filed, which is what the angle allowance counts (ticket 16): the runs that made a trio are attached to its first Proposal, so
+   * they share one `proposal_id`, and a run that filed nothing keeps 0.
+   */
+  memeRunsSince(since: string): { regular: number; angle: number; angleFiled: number } {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(angle = 0), 0) AS regular, COALESCE(SUM(angle = 1), 0) AS angle,
+                COUNT(DISTINCT CASE WHEN angle = 1 AND proposal_id != 0 THEN proposal_id END) AS angleFiled
+         FROM brain_runs WHERE task = 'meme-ideas' AND created_at >= ?`,
+      )
+      .get(since) as unknown as { regular: number; angle: number; angleFiled: number };
+    return { regular: row.regular, angle: row.angle, angleFiled: row.angleFiled };
   }
 
   /**

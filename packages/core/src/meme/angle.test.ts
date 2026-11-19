@@ -59,17 +59,41 @@ describe("requestMemeAngle: the War Room's insert", () => {
     expect(refusal(() => ask(Datastore.open(":memory:"))).code).toBe("unknown-meta");
   });
 
-  it("refuses the 6th request in 24 h (the cap is 5) and frees a slot when the first is over 24 h old", () => {
+  it("refuses the 11th request in 24 h (the allowance is 10) and frees a slot when the first is over 24 h old", () => {
     const store = seeded();
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       const r = ask(store, { angle: `angle number ${i}` }, at(HOUR + i * 60_000));
       store.resolveAngleRequest(r.id, { status: "done", detail: "", proposalIds: [] }, at(HOUR + i * 60_000));
     }
-    const e = refusal(() => ask(store, { angle: "angle number 5" }, at(2 * HOUR)));
+    const e = refusal(() => ask(store, { angle: "angle number 10" }, at(2 * HOUR)));
     expect(e.code).toBe("daily-cap");
-    expect(e.message).toMatch(/5 angle requests in 24 hours/);
-    expect(store.memeAngleRequests()).toHaveLength(5);
-    expect(ask(store, { angle: "angle number 5" }, at(HOUR + 24 * HOUR + 1)).id).toBe(6);
+    expect(e.message).toMatch(/10 angle requests in 24 hours is the most \(10\)/);
+    expect(store.memeAngleRequests()).toHaveLength(10);
+    expect(ask(store, { angle: "angle number 10" }, at(HOUR + 24 * HOUR + 1)).id).toBe(11);
+  });
+
+  it("requests that ended refused, failed or capped do not spend the allowance, but every request counts toward a hard cap of 3 times it (ticket 16)", () => {
+    const store = seeded();
+    // 10 refused requests (Dexter, Muscle Mommy ...) leave the allowance whole: an 11th is accepted and, once done, counts.
+    for (let i = 0; i < 10; i++) {
+      const r = ask(store, { angle: `refused angle ${i}` }, at(HOUR + i * 60_000));
+      store.resolveAngleRequest(r.id, { status: (["refused", "failed", "capped"] as const)[i % 3]!, detail: "no" }, at(HOUR + i * 60_000));
+    }
+    const next = ask(store, { angle: "a real one" }, at(2 * HOUR));
+    store.resolveAngleRequest(next.id, { status: "done", detail: "3 ideas" }, at(2 * HOUR));
+    // 11 requests so far; 19 more refused ones make 30, and the 31st is refused whatever became of the others.
+    for (let i = 0; i < 19; i++) store.resolveAngleRequest(ask(store, { angle: `more refused ${i}` }, at(3 * HOUR + i * 60_000)).id, { status: "refused", detail: "no" }, at(3 * HOUR));
+    const e = refusal(() => ask(store, { angle: "one too many" }, at(4 * HOUR)));
+    expect(e.code).toBe("daily-cap");
+    expect(e.message).toMatch(/30 angle requests in 24 hours, refused ones included, is the most \(3 times the allowance of 10\)/);
+    expect(store.memeAngleRequests()).toHaveLength(20); // the list shows the last 20
+  });
+
+  it("an allowance of 10 done requests is refused with the allowance message while refused ones are still below the hard cap", () => {
+    const store = seeded();
+    for (let i = 0; i < 4; i++) store.resolveAngleRequest(ask(store, { angle: `refused ${i}` }, at(HOUR + i * 60_000)).id, { status: "refused", detail: "no" }, at(HOUR));
+    for (let i = 0; i < 10; i++) store.resolveAngleRequest(ask(store, { angle: `done ${i}` }, at(2 * HOUR + i * 60_000)).id, { status: "done", detail: "3 ideas" }, at(2 * HOUR));
+    expect(refusal(() => ask(store, { angle: "eleventh" }, at(3 * HOUR))).message).toMatch(/10 angle requests in 24 hours is the most \(10\)/);
   });
 
   it("the daily cap can only be lowered: maxPerDay 2 refuses the third; a larger value stops at the ceiling of 10", () => {
@@ -218,10 +242,11 @@ describe("parseAngle: what the form's text becomes", () => {
 });
 
 describe("ARGUS_MEME_ANGLE_MAX_PER_DAY", () => {
-  it("defaults to 5, may only be lowered, and 10 is the ceiling; anything else is an error", () => {
-    expect(memeAngleConfigFromEnv({}).maxPerDay).toBe(5);
-    expect(memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: "" }).maxPerDay).toBe(5);
+  it("defaults to 10, may only be lowered, and 10 is the ceiling; anything else is an error", () => {
+    expect(memeAngleConfigFromEnv({}).maxPerDay).toBe(10);
+    expect(memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: "" }).maxPerDay).toBe(10);
     expect(memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: "2" }).maxPerDay).toBe(2);
-    for (const bad of ["0", "-1", "1.5", "6", "11", "many"]) expect(() => memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: bad })).toThrow(/ARGUS_MEME_ANGLE_MAX_PER_DAY/);
+    expect(memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: "10" }).maxPerDay).toBe(10);
+    for (const bad of ["0", "-1", "1.5", "11", "many"]) expect(() => memeAngleConfigFromEnv({ ARGUS_MEME_ANGLE_MAX_PER_DAY: bad })).toThrow(/ARGUS_MEME_ANGLE_MAX_PER_DAY/);
   });
 });

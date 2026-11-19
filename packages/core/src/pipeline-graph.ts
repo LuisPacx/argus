@@ -12,7 +12,8 @@ import { BUILD_TICK_MS } from "./build-refusal.ts";
 import { MAX_NEW_PROPOSALS_PER_DAY } from "./datastore.ts";
 import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
-import { DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, memeAngleConfigFromEnv } from "./meme/angle.ts";
+import { ANGLE_ATTEMPT_CAP_FACTOR, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, memeAngleConfigFromEnv } from "./meme/angle.ts";
+import { LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO, LIVE_TOKEN_MIN_LIQUIDITY_USD } from "./meme/live-token.ts";
 import { DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
@@ -124,6 +125,7 @@ const BETA_TICKET = ".scratch/viral-sources/issues/04-beta-finder.md";
 const MEME_TICKET = ".scratch/missed-ideas/issues/06-meta-meme-idea-generation.md";
 const NEWS_MEME_TICKET = ".scratch/proposal-routing/issues/04-news-meme-proposals.md";
 const ANGLE_TICKET = ".scratch/meta-redesign/issues/11-operator-angle-for-meme-ideas.md";
+const COPY_CHECK_TICKET = ".scratch/meta-redesign/issues/16-copy-check-live-tokens-and-repair-retry.md";
 const LAUNCHPAD_CLUSTER_TICKET = ".scratch/viral-sources/issues/01-launchpad-signals-cluster-by-theme.md";
 
 export const PIPELINE: PipelineGraph = {
@@ -392,17 +394,20 @@ export const PIPELINE: PipelineGraph = {
       status: "off",
       statusNote: "Off until the Operator sets ARGUS_MEME_IDEAS=1 in the worker's environment (the switch defaults to off). The 2026-11-18 backtest re-run is an input to turning it on.",
       diagramNote: "New Meta, then every 12 h, one sonnet run, 3 ideas",
-      what: "When a subject becomes a Meta, and again every 12 hours while it stays one, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). After the Metas, a news story that failed the buildability gate (so it has no Tech) but passes the legitimacy, hook and momentum floors gets one trio too, from the same task and the same daily cap. They become meme Proposals: no Spec, no Build, no Score of their own, and they close after 12 hours unless shortlisted. The room-left ranking is an input to a Meta's prompt, and a name that copies a token of the Meta is refused. Watching subjects get no ideas, and a story that names a Meta or a Watching subject is left to it.",
+      what: "When a subject becomes a Meta, and again every 12 hours while it stays one, one sonnet run writes three meme ideas for it (a name, ticker, angle, X post and image idea as text). After the Metas, a news story that failed the buildability gate (so it has no Tech) but passes the legitimacy, hook and momentum floors gets one trio too, from the same task and the same daily cap. They become meme Proposals: no Spec, no Build, no Score of their own, and they close after 12 hours unless shortlisted. The room-left ranking is an input to a Meta's prompt, and a name that copies a token of the Meta, or a live token DexScreener lists (real liquidity, not a dead or drained one), is refused once and then dropped; a name only a dead token uses is stored with a note. An answer that breaks the output contract gets one repair retry that states the error. An Operator angle spends its daily allowance only when it files Proposals; every attempt is held by a hard cap of 3 times that. Watching subjects get no ideas, and a story that names a Meta or a Watching subject is left to it.",
       rules: [
         { label: "Ideas per run", key: "MEME_TRIO_SIZE", ref: () => MEME_TRIO_SIZE, unit: "count" },
         { label: "A Meta gets ideas again every", key: "MEME_REFRESH_MS", ref: () => MEME_REFRESH_MS, unit: "ms", diagram: true },
         { label: "A new trio is refused within (of the last one)", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms" },
         { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
-        { label: "Operator angle requests per day (own allowance of 5 angle runs a day, apart from the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
+        { label: "Operator angle requests per day (waiting, running or done; a refused one does not spend it; own allowance apart from the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
         { label: "Operator angle requests per day, hard cap", key: "MAX_MEME_ANGLE_PER_DAY", ref: () => MAX_MEME_ANGLE_PER_DAY, unit: "count" },
-        { label: "Angle runs per day, their own allowance apart from the runs above", key: "DEFAULT_ANGLE_DAILY_MEME_RUNS", ref: () => DEFAULT_ANGLE_DAILY_MEME_RUNS, unit: "count" },
-        { label: "Angle runs per day, hard cap", key: "MAX_ANGLE_DAILY_MEME_RUNS", ref: () => MAX_ANGLE_DAILY_MEME_RUNS, unit: "count" },
+        { label: "Angle runs per day that file Proposals (their own allowance apart from the runs above; a refused run does not count)", key: "DEFAULT_ANGLE_DAILY_MEME_RUNS", ref: () => DEFAULT_ANGLE_DAILY_MEME_RUNS, unit: "count" },
+        { label: "Angle runs per day that file Proposals, hard cap", key: "MAX_ANGLE_DAILY_MEME_RUNS", ref: () => MAX_ANGLE_DAILY_MEME_RUNS, unit: "count" },
+        { label: "All angle attempts per day (refused runs and retries too), hard cap: this many times the allowance", key: "ANGLE_ATTEMPT_CAP_FACTOR", ref: () => ANGLE_ATTEMPT_CAP_FACTOR, unit: "count" },
+        { label: "A DexScreener token refuses an idea's name only when its liquidity is at least", key: "LIVE_TOKEN_MIN_LIQUIDITY_USD", ref: () => LIVE_TOKEN_MIN_LIQUIDITY_USD, unit: "usd" },
+        { label: "and its market cap is at most this many times its liquidity (a dead token only adds a note)", key: "LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO", ref: () => LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO, unit: "count" },
         { label: "Spend per run", key: "DEFAULT_ROUTING.meme-ideas.maxBudgetUsd", ref: () => DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd, unit: "usd" },
         { label: "Wall clock per run", key: "DEFAULT_ROUTING.meme-ideas.timeoutMs", ref: () => DEFAULT_ROUTING["meme-ideas"].timeoutMs, unit: "ms" },
         { label: "Model", ref: () => DEFAULT_ROUTING["meme-ideas"].model, unit: "text" },
@@ -410,8 +415,8 @@ export const PIPELINE: PipelineGraph = {
         { label: "A news story needs a Signal newer than", key: "NEWS_MEME_LIVE_MS", ref: () => NEWS_MEME_LIVE_MS, unit: "ms" },
       ],
       adrs: ["0013-a-proposal-has-a-kind-narrative-or-meme.md", "0012-metas-are-ranked-from-launchpad-data-by-plain-code.md"],
-      tickets: [MEME_TICKET, BETA_TICKET, NEWS_MEME_TICKET, ANGLE_TICKET],
-      files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/meme/angle.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
+      tickets: [MEME_TICKET, BETA_TICKET, NEWS_MEME_TICKET, ANGLE_TICKET, COPY_CHECK_TICKET],
+      files: ["packages/core/src/meme/pass.ts", "packages/core/src/meme/ideas.ts", "packages/core/src/meme/angle.ts", "packages/core/src/meme/live-token.ts", "packages/core/src/beta/room-left.ts", "packages/core/src/beta/distinct-name.ts", ".claude/skills/meme-ideas/SKILL.md"],
       worker: ["memeIdeasTick", "memeAngleTick"],
       brainTask: "meme-ideas",
     },

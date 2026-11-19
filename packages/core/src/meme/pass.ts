@@ -15,9 +15,10 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type Re
 import type { DexPair } from "../sources/dexscreener.ts";
 import { sourceClass } from "../sources/source-class.ts";
 import type { LaunchedToken } from "../study/store.ts";
-import { avoidLabels, cleanLine, copiedNames, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
+import { avoidLabels, cleanLine, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
+import { deadTokenNotes } from "./live-token.ts";
 import type { MemeAttempt, MemeOutcome } from "./store.ts";
-import type { AngleRequest } from "./angle.ts";
+import { angleAttemptCap, type AngleRequest } from "./angle.ts";
 import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeSnapshotTriggerKind, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews } from "./types.ts";
 
 /**
@@ -46,11 +47,16 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
 /** The most meme-ideas runs started in any rolling 24 hours, whatever is configured: the hard ceiling, which configuration cannot pass. */
 export const MAX_MEME_RUNS_PER_DAY = 40;
 
-/** The Operator's angle runs have a daily allowance of their own (ticket 12, from ticket 11's grilling): 5 runs in any rolling 24 hours (the retry for a copied name is a run), never more than the ceiling. The regular cap does not count them and they do not count against it. */
-export const DEFAULT_ANGLE_DAILY_MEME_RUNS = 5;
+/**
+ * The Operator's angle runs have a daily allowance of their own (ticket 12, from ticket 11's grilling): 10 in any rolling 24 hours (ticket 16
+ * raised it from 5), never more than the ceiling. Since ticket 16 it counts only runs that filed Proposals (one per filed trio, its retries
+ * included); a refused run does not spend it. All angle attempts, refused ones and retries included, are held by a hard cap of
+ * `ANGLE_ATTEMPT_CAP_FACTOR` (3) times the allowance (`angleAttemptCap`). The regular cap does not count angle runs and they do not count against it.
+ */
+export const DEFAULT_ANGLE_DAILY_MEME_RUNS = 10;
 export const MAX_ANGLE_DAILY_MEME_RUNS = 10;
 
-/** THE one place that says how many meme-ideas runs started in the last 24 h stop another run of this kind (only runs of the same kind are counted): `maxRunsPerDay` for an automatic run, the angle allowance for an angle run. */
+/** THE one place that says how many meme-ideas runs started in the last 24 h stop another run of this kind (only runs of the same kind are counted): `maxRunsPerDay` for an automatic run, the angle allowance (of filed trios) for an angle run. */
 export function dailyMemeRunLimit(kind: "automatic" | "angle", maxRunsPerDay: number, angleAllowance: number = DEFAULT_ANGLE_DAILY_MEME_RUNS): number {
   return kind === "angle" ? Math.min(MAX_ANGLE_DAILY_MEME_RUNS, angleAllowance) : Math.min(MAX_MEME_RUNS_PER_DAY, maxRunsPerDay);
 }
@@ -343,10 +349,22 @@ interface Job {
   capReason?(now: Date): string | undefined;
 }
 
+/** Why a prompt is asked a second time: the copied names (the existing retry) or the contract error (the repair retry, ticket 16). */
+interface Retry {
+  copies?: readonly string[];
+  problem?: string;
+}
+
+/** The prompt inputs of a retry. */
+const retryFields = (retry: Retry | undefined): { retryCopies?: readonly string[]; retryProblem?: string } => ({
+  ...(retry?.copies ? { retryCopies: retry.copies } : {}),
+  ...(retry?.problem ? { retryProblem: retry.problem } : {}),
+});
+
 interface Prepared {
   /** Tokens the ideas must not copy (a Meta's group; none for a story: DexScreener's list is the check). */
   existing: ExistingToken[];
-  promptFor(retryCopies?: readonly string[]): string;
+  promptFor(retry?: Retry): string;
   /** Stores the trio, or "withdrawn" when the subject stopped being eligible. Throws `MemeTrioExistsError`. */
   create(ideas: NewMemeIdea[], now: Date, runIds: number[]): Proposal[] | "withdrawn";
   /** The log line of a stored trio. */
@@ -407,14 +425,17 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     const spent = store.memeIdeasSpendSince(since, caps);
     const runs = store.memeRunsSince(since);
     const dailyLimit = dailyMemeRunLimit(due.angle ? "angle" : "automatic", maxRunsPerDay);
-    const used = due.angle ? runs.angle : runs.regular;
-    if (used >= dailyLimit) {
-      // The two caps are told apart in the words: the regular cap and the angle allowance.
-      const detail = due.angle
-        ? `angle allowance of ${dailyLimit} meme-ideas runs a day reached (${used} angle runs in 24 h; the regular cap is separate)`
-        : `daily cap of ${dailyLimit} meme-ideas runs reached (${used} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`;
+    // The caps are told apart in the words: the regular cap, the angle allowance (filed trios only, ticket 16) and the hard cap on all angle attempts.
+    const capped = (detail: string) => {
       store.meme.record({ key: due.key, eventAt: due.eventAt, at: clock().toISOString(), outcome: "daily-cap", detail, runs: 0 });
-      return { ok: false, stoppedBy: "daily-cap", detail };
+      return { ok: false, stoppedBy: "daily-cap", detail } as const;
+    };
+    if (due.angle) {
+      if (runs.angleFiled >= dailyLimit) return capped(`angle allowance of ${dailyLimit} meme-ideas runs a day reached (${runs.angleFiled} runs that filed ideas in 24 h; refused runs do not count; the regular cap is separate)`);
+      const attemptCap = angleAttemptCap(dailyLimit);
+      if (runs.angle >= attemptCap) return capped(`angle attempt cap of ${attemptCap} meme-ideas runs a day reached (${runs.angle} angle runs in 24 h, refused runs and retries included; the cap is 3 times the allowance of ${dailyLimit})`);
+    } else if (runs.regular >= dailyLimit) {
+      return capped(`daily cap of ${dailyLimit} meme-ideas runs reached (${runs.regular} runs, $${spent.chargedUsd.toFixed(4)} in 24 h)`);
     }
     const usage = researchUsage(store, clock(), research, caps);
     if (usage.exhausted) {
@@ -483,7 +504,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       const trigger = { kind: due.kind, reason: facts, at: due.eventAt };
       return {
         existing,
-        promptFor: (retryCopies) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(retryCopies ? { retryCopies } : {}) }),
+        promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...retryFields(retry) }),
         create: (ideas, at, runIds) => {
           const stored = store.meta.summaries([meta.key]).get(meta.key);
           const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -524,7 +545,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const n = due.narrative;
         return {
           existing: [],
-          promptFor: (retryCopies) => newsMemePromptFor({ title: n.title, summary: n.summary, signalCount: n.signalCount, lastSignalAt: n.lastSignalAt, news, market, score: { total: due.score.total, scores: due.score.scores, rationale: due.score.rationale, gateMin }, legitimacy, ...(retryCopies ? { retryCopies } : {}) }),
+          promptFor: (retry) => newsMemePromptFor({ title: n.title, summary: n.summary, signalCount: n.signalCount, lastSignalAt: n.lastSignalAt, news, market, score: { total: due.score.total, scores: due.score.scores, rationale: due.score.rationale, gateMin }, legitimacy, ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             // The story may have been scored again, or stopped moving, while the model ran: it is judged on the same terms as the selector's, now.
             const again = embedder ? store.narrativesToMeme(embedder, liveSince(at), store.getRubric().gateMinScore, NEWS_MEME_FLOORS, 1, n.id)[0] : undefined;
@@ -580,7 +601,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const trigger = { kind: "operator-angle" as const, reason: facts, at: req.createdAt };
         return {
           existing,
-          promptFor: (retryCopies) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, angle: req.angle, ...(retryCopies ? { retryCopies } : {}) }),
+          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, angle: req.angle, ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             const stored = store.meta.summaries([meta.key]).get(meta.key);
             const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -661,12 +682,15 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
 
     const record = (outcome: MemeOutcome, detail: string, runs: number) => store.meme.record({ key: job.key, eventAt: job.eventAt, at: clock().toISOString(), outcome, detail, runs });
 
-    /** The answer's check: the schema and the subject's own tokens (`parseMemeOutput`), then DexScreener's. */
-    const check = async (output: string): Promise<MemeParse> => {
+    /**
+     * The answer's check: the schema and the subject's own tokens (`parseMemeOutput`), then DexScreener's live tokens. A name that only a dead
+     * or drained token uses passes, with a note per idea (ticket 16).
+     */
+    const check = async (output: string): Promise<Checked> => {
       const parsed = parseMemeOutput(output, existing);
       if (!parsed.ok) return parsed;
       const listed = await dexCopies(parsed.ideas, opts.dex, log);
-      return listed.length > 0 ? { ok: false, problem: "a name or ticker copies a token DexScreener lists", copies: listed } : parsed;
+      return listed.live.length > 0 ? { ok: false, problem: "a name or ticker copies a live token DexScreener lists", copies: listed.live } : { ...parsed, notes: listed.notes };
     };
 
     const first = await ask(promptFor(), job.label, job.angle !== undefined);
@@ -689,24 +713,30 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     const runIds = [first.runId];
     if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" refused: ${parsed.problem}. Output not stored: ${JSON.stringify(first.result.output.trim().slice(0, 200))}`);
 
-    // A copied name goes back exactly once, with the copied names listed; the retry is one more run under the same caps.
-    if (!parsed.ok && parsed.copies !== undefined) {
+    // A refusal goes back once per kind, each retry one more run under the same caps: a copied name with the copied names listed, a contract
+    // error (ticket 16) with the exact error. The two are independent, so one request makes at most three runs.
+    let copyRetried = false;
+    let repairRetried = false;
+    while (!parsed.ok) {
+      const copies = parsed.copies;
+      if (copies !== undefined ? copyRetried : repairRetried) break;
+      if (copies !== undefined) copyRetried = true;
+      else repairRetried = true;
       const retryGate = mayRun(job);
       if (!retryGate.ok) {
-        log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" copies existing names but ${retryGate.detail}; nothing stored`);
-      } else {
-        const second = await ask(promptFor(parsed.copies), job.label, job.angle !== undefined);
-        if (second.kind === "stop") {
-          record("name-copy", "interrupted before the retry", runIds.length);
-          return stopPass(second.stoppedBy);
-        }
-        if (second.kind === "ok") {
-          runIds.push(second.runId);
-          parsed = await check(second.result.output);
-          finish(second, parsed.ok);
-          if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" retry refused: ${parsed.problem}. Output not stored: ${JSON.stringify(second.result.output.trim().slice(0, 200))}`);
-        }
+        log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" was refused (${parsed.problem}) but ${retryGate.detail}; nothing stored`);
+        break;
       }
+      const next = await ask(promptFor(copies !== undefined ? { copies } : { problem: parsed.problem }), job.label, job.angle !== undefined);
+      if (next.kind === "stop") {
+        record(copies !== undefined ? "name-copy" : "refused", "interrupted before the retry", runIds.length);
+        return stopPass(next.stoppedBy);
+      }
+      if (next.kind !== "ok") break;
+      runIds.push(next.runId);
+      parsed = await check(next.result.output);
+      finish(next, parsed.ok);
+      if (!parsed.ok) log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" retry refused: ${parsed.problem}. Output not stored: ${JSON.stringify(next.result.output.trim().slice(0, 200))}`);
     }
     if (!parsed.ok) {
       out.refused++;
@@ -717,9 +747,10 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
 
     // The ideas are valid and distinct. Collision checks of each name, then the trio is stored in one transaction.
     const ideas: NewMemeIdea[] = [];
-    for (const idea of parsed.ideas) {
+    for (const [i, idea] of parsed.ideas.entries()) {
       const collisions = await collisionsOf(idea, opts.collisions, log);
-      ideas.push({ ...idea, ...(collisions ? { collisions } : {}) });
+      const copyNote = parsed.notes[i];
+      ideas.push({ ...idea, ...(collisions ? { collisions } : {}), ...(copyNote !== undefined ? { copyNote } : {}) });
     }
     let made: Proposal[] | "withdrawn";
     try {
@@ -766,19 +797,31 @@ export function summaryLine(meta: Pick<CurrentMeta, "label" | "leader" | "counts
   return `Meta ${cleanLine(meta.label, 60)}: led by ${cleanLine(leaderTag(meta.leader), 40)} at ${metaMoney(meta.leader.marketCapUsd)}, ${meta.counts["24h"].creators} creators in 24 h. ${kind === "new-meta" ? "New Meta" : "Refresh after 12 h"}.`;
 }
 
-/** The existing tokens DexScreener lists on Solana for each idea's name and ticker that the idea copies, as display labels. A lookup that fails is logged and skips that idea. */
-async function dexCopies(ideas: readonly MemeIdea[], dex: MemeDexClient | undefined, log: (line: string) => void): Promise<string[]> {
-  if (!dex) return [];
-  const out: string[] = [];
+/** An answer that passed the schema and the Meta's tokens, with one note per idea (undefined when none) for a dead token that uses its name or ticker. */
+type Checked = Exclude<MemeParse, { ok: true }> | (Extract<MemeParse, { ok: true }> & { notes: (string | undefined)[] });
+
+/**
+ * What DexScreener says about each idea's name and ticker (ticket 16): `live`, the live Solana tokens the ideas copy, as display labels (they
+ * refuse the answer); `notes`, one per idea, naming the dead or drained tokens it copies (they do not). A lookup that fails is logged and
+ * skips that idea.
+ */
+async function dexCopies(ideas: readonly MemeIdea[], dex: MemeDexClient | undefined, log: (line: string) => void): Promise<{ live: string[]; notes: (string | undefined)[] }> {
+  const live: string[] = [];
+  const notes: (string | undefined)[] = [];
   for (const idea of ideas) {
-    try {
-      const pairs = [...(await dex.search(idea.name)), ...(await dex.search(idea.ticker))].filter((p) => p.chainId === "solana");
-      for (const c of copiedNames([idea], pairs.map((p) => ({ name: p.name, symbol: p.symbol })))) if (!out.includes(c)) out.push(c);
-    } catch (e) {
-      log(`[worker] meme ideas: DexScreener name lookup failed, that idea is checked against the Meta's tokens only: ${e instanceof Error ? e.message : String(e)}`);
+    let note: string | undefined;
+    if (dex) {
+      try {
+        const found = deadTokenNotes(idea, [...(await dex.search(idea.name)), ...(await dex.search(idea.ticker))]);
+        for (const c of found.live) if (!live.includes(c)) live.push(c);
+        note = found.note;
+      } catch (e) {
+        log(`[worker] meme ideas: DexScreener name lookup failed, that idea is checked against the Meta's tokens only: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
+    notes.push(note);
   }
-  return out;
+  return { live, notes };
 }
 
 /** The collision checks of one idea; a checker that throws leaves it unchecked (undefined), which the card shows as "not checked", never as clear. */
