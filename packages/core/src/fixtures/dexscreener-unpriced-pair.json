@@ -1,0 +1,16 @@
+[
+  {
+    "chainId": "solana",
+    "dexId": "pumpswap",
+    "url": "https://dexscreener.com/solana/7ycvqfkhgnqpd9yqjkqxwmcvoqzvhh9yqjkqxwmcvoqz",
+    "pairAddress": "7ycvqfkhgnqpd9yqjkqxwmcvoqzvhh9yqjkqxwmcvoqz",
+    "labels": ["pump.fun"],
+    "baseToken": { "address": "ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump", "name": "GTA VI", "symbol": "GTAVI" },
+    "quoteToken": { "address": "GTA6QuoteMint11111111111111111111111111111pump", "name": "GTA 6", "symbol": "GTA6" },
+    "priceNative": "0.0000412",
+    "txns": { "m5": { "buys": 0, "sells": 0 }, "h1": { "buys": 0, "sells": 0 }, "h6": { "buys": 0, "sells": 0 }, "h24": { "buys": 0, "sells": 0 } },
+    "volume": {},
+    "priceChange": {},
+    "pairCreatedAt": 1763407980000
+  }
+]

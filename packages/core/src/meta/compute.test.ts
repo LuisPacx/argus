@@ -737,6 +737,29 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       expect(await run(fresh(), dex, 0, { topDown: lists(271_000, 73), config: { ...cfg, topDownMinOrganicScore: 80 } })).toMatchObject({ metas: 0 });
     });
 
+    it("GTAVI (2026-11-17): its only DexScreener pair is unpriced, so the list's GeckoTerminal figures verify it, and a failure is logged once across ticks", async () => {
+      const mint = "ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump";
+      const unpricedPair = (): DexPair[] => [{ chainId: "solana", tokenAddress: mint, name: "GTA VI", symbol: "GTAVI", url: "", liquidityUsd: 0, volume24hUsd: 0, priceChange24hPct: 0, unpriced: true }];
+      const dex: MetaDexClient = { async tokenPairs() { return unpricedPair(); } };
+      const lists = (withFigures: boolean) => async (): Promise<TopDownResult> => ({
+        candidates: [{ mint, name: "GTA VI", symbol: "GTAVI", marketCapUsd: 260_000, liquidityUsd: withFigures ? 56_600 : 0, volume24hUsd: 1_100_000, sources: ["geckoterminal"], ranks: { geckoterminal: 3 } }],
+        dropped: [], requests: 1, errors: [],
+      });
+      const fresh = () => {
+        const s = Datastore.open(":memory:");
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTAVI", creator: `g${String(i).padStart(3, "0")}` }));
+        return s;
+      };
+      const ok = fresh();
+      await run(ok, dex, 0, { topDown: lists(true) });
+      expect(ok.currentMetas()!.watching[0]!.leader).toMatchObject({ mint, marketCapUsd: 260_000, stale: false }); // $260K is under the Meta floor: Watching, but priced
+      // no usable list liquidity: one reason, logged on the first tick only
+      const log = logged();
+      const store = fresh();
+      for (const at of [0, 5, 10]) await run(store, dex, at, { topDown: lists(false), log: log.log });
+      expect(log.lines).toEqual(["[meta] leader GTAVI failed verification: no priced DexScreener pair"]);
+    });
+
     it("a creator's newline or control character in a token name never reaches a log line", async () => {
       const store = Datastore.open(":memory:");
       jensenWave(store);

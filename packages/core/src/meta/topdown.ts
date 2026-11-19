@@ -204,8 +204,18 @@ export interface DexVerdict {
  * no Jupiter score (GeckoTerminal only) or a lower one is judged on DexScreener's liquidity alone, so a list figure cannot rescue a fake.
  * Liquidity and volume minimums are always DexScreener's own.
  */
-export function verifyAgainstDex(pairs: readonly DexPair[], config: TopDownFilterConfig & Pick<MetaConfig, "topDownMinOrganicScore">, list?: { liquidityUsd?: number; organicScore?: number }): DexVerdict {
-  if (pairs.length === 0) return { ok: false, reason: "no DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
+export function verifyAgainstDex(allPairs: readonly DexPair[], config: TopDownFilterConfig & Pick<MetaConfig, "topDownMinOrganicScore">, list?: { liquidityUsd?: number; organicScore?: number; marketCapUsd?: number; volume24hUsd?: number }): DexVerdict {
+  if (allPairs.length === 0) return { ok: false, reason: "no DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
+  // A pair with no figures at all (quoted in another token) is skipped, never read as 0.
+  const pairs = allPairs.filter((p) => p.unpriced !== true);
+  if (pairs.length === 0) {
+    // Every pair is unpriced: the list's own figures (GeckoTerminal / Jupiter, already collected) stand when all three are present and pass the same tests.
+    const f = { marketCapUsd: list?.marketCapUsd, liquidityUsd: list?.liquidityUsd, volume24hUsd: list?.volume24hUsd };
+    if (positive(f.marketCapUsd) && positive(f.liquidityUsd) && positive(f.volume24hUsd) && fakeTestFailures(f, config).length === 0) {
+      return { ok: true, marketCapUsd: f.marketCapUsd, liquidityUsd: f.liquidityUsd, volume24hUsd: f.volume24hUsd };
+    }
+    return { ok: false, reason: "no priced DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
+  }
   let deepest = pairs[0] as DexPair;
   let liquidityUsd = 0;
   let volume24hUsd = 0;

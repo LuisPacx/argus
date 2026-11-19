@@ -41,6 +41,12 @@ export interface DexPair {
   marketCapUsd?: number;
   /** Fully diluted valuation in USD, absent when none was given. */
   fdvUsd?: number;
+  /**
+   * True when DexScreener gave this pair no liquidity, 24 h volume, market cap or FDV at all (a pair quoted in another token, not SOL
+   * or a stable, comes back as `volume: {}` with nothing else). `liquidityUsd` and `volume24hUsd` are then 0 only because the type needs
+   * a number: they mean "unknown", not "zero", and verification skips the pair.
+   */
+  unpriced?: true;
 }
 
 export interface DexScreenerClientOptions {
@@ -143,14 +149,17 @@ export class DexScreenerClient {
       const createdAt = num(entry.pairCreatedAt);
       const marketCap = num(entry.marketCap);
       const fdv = num(entry.fdv);
+      const liquidity = isRecord(entry.liquidity) ? num(entry.liquidity.usd) : undefined;
+      const volume = isRecord(entry.volume) ? num(entry.volume.h24) : undefined;
       out.push({
         chainId,
         tokenAddress,
         name: str(base.name, MAX_NAME_CHARS),
         symbol: str(base.symbol, MAX_SYMBOL_CHARS),
         url: safeUrl(str(entry.url, 2_001)),
-        liquidityUsd: (isRecord(entry.liquidity) ? num(entry.liquidity.usd) : undefined) ?? 0,
-        volume24hUsd: (isRecord(entry.volume) ? num(entry.volume.h24) : undefined) ?? 0,
+        liquidityUsd: liquidity ?? 0,
+        volume24hUsd: volume ?? 0,
+        ...(liquidity === undefined && volume === undefined && marketCap === undefined && fdv === undefined ? { unpriced: true as const } : {}),
         priceChange24hPct: (isRecord(entry.priceChange) ? num(entry.priceChange.h24) : undefined) ?? 0,
         ...(createdAt !== undefined ? { pairCreatedAt: createdAt } : {}),
         ...(marketCap !== undefined ? { marketCapUsd: marketCap } : {}),

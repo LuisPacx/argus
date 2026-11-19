@@ -516,6 +516,15 @@ function candidatesOf(topDown: TopDownResult, verdicts: ReadonlyMap<string, Verd
   return [...kept, ...dropped];
 }
 
+/** The last failure reason logged per mint, kept per log function (the worker passes one for its whole life; a test's own log starts empty). */
+const failureLogs = new WeakMap<(message: string) => void, Map<string, string | undefined>>();
+function loggedFailure(log: ((message: string) => void) | undefined): Map<string, string | undefined> | undefined {
+  if (!log) return undefined;
+  let m = failureLogs.get(log);
+  if (!m) failureLogs.set(log, (m = new Map()));
+  return m;
+}
+
 interface LeaderLookupInput {
   dex: MetaDexClient | undefined;
   config: MetaConfig;
@@ -556,6 +565,9 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
     topDown: boolean;
     /** The token-level liquidity the trending lists gave a top-down candidate (read by the cap-to-liquidity test of the verification). */
     listLiquidityUsd?: number;
+    /** The list's market cap and 24 h volume: read only when every DexScreener pair of the token is unpriced. */
+    listMarketCapUsd?: number;
+    listVolume24hUsd?: number;
     /** The candidate's Jupiter organic score, when it is on Jupiter's list: the list's liquidity counts only above the knob. */
     listOrganicScore?: number;
   }
@@ -577,9 +589,11 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
     const held = known.get(c.mint);
     if (held && !held.topDown) {
       held.listLiquidityUsd = c.liquidityUsd;
+      held.listMarketCapUsd = c.marketCapUsd;
+      held.listVolume24hUsd = c.volume24hUsd;
       if (c.organicScore !== undefined) held.listOrganicScore = c.organicScore;
     }
-    const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, ...(c.organicScore !== undefined ? { listOrganicScore: c.organicScore } : {}), ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
+    const wanted = want(c.mint, { name: c.name, symbol: c.symbol, source: "trending", topDown: true, listLiquidityUsd: c.liquidityUsd, listMarketCapUsd: c.marketCapUsd, listVolume24hUsd: c.volume24hUsd, ...(c.organicScore !== undefined ? { listOrganicScore: c.organicScore } : {}), ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}) });
     out.verdicts.set(c.mint, skipped(wanted ? "not looked up: leader call budget used" : "not looked up: already a previous leader or priced by a launch theme"));
   }
 
@@ -607,13 +621,24 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
         const first = createdMs.length > 0 ? Math.min(...createdMs) : undefined;
         const created = k.createdAt ?? (first !== undefined && Number.isFinite(new Date(first).getTime()) ? new Date(first).toISOString() : undefined);
         let cap: number | undefined;
-        const verdict = verifyAgainstDex(pairs, config, { ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}), ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}) });
+        const verdict = verifyAgainstDex(pairs, config, {
+          ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}),
+          ...(k.listMarketCapUsd !== undefined ? { marketCapUsd: k.listMarketCapUsd } : {}),
+          ...(k.listVolume24hUsd !== undefined ? { volume24hUsd: k.listVolume24hUsd } : {}),
+          ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}),
+        });
         if (verdict.ok) {
           cap = verdict.marketCapUsd;
           if (k.topDown) out.verdicts.set(mint, { verified: true });
+          loggedFailure(input.log)?.delete(mint);
         } else {
           if (k.topDown) out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
-          input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
+          // Once per state change: the same mint failing for the same reason on the next tick is not logged again.
+          const seen = loggedFailure(input.log);
+          if (seen?.get(mint) !== verdict.reason) {
+            seen?.set(mint, verdict.reason);
+            input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
+          }
         }
         if (cap !== undefined) out.tokens.push({ mint, name: k.name, symbol: k.symbol, marketCapUsd: cap, ...(created !== undefined ? { createdAt: created } : {}), source: k.source, stale: false, freshAt: input.now });
       }

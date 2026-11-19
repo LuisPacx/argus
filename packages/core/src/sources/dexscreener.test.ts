@@ -22,6 +22,23 @@ function fakeApi(routes: Record<string, string>) {
 const boostsUrl = "https://api.dexscreener.com/token-boosts/top/v1";
 const pairsUrl = `https://api.dexscreener.com/tokens/v1/solana/${MOON},${BOT}`;
 
+describe("DexScreenerClient: a pair quoted in another token (GTAVI, 2026-11-17)", () => {
+  it("marks a pair with no liquidity, volume, market cap or FDV as unpriced", async () => {
+    const mint = "ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump";
+    const api = fakeApi({ [`https://api.dexscreener.com/tokens/v1/solana/${mint}`]: fixture("dexscreener-unpriced-pair.json") });
+    const pairs = await new DexScreenerClient({ fetchText: api.fetchText }).tokenPairs("solana", [mint]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ tokenAddress: mint, symbol: "GTAVI", unpriced: true });
+    expect(pairs[0]?.marketCapUsd).toBeUndefined();
+  });
+
+  it("a pair with any figure is priced", async () => {
+    const body = JSON.stringify([{ chainId: "solana", url: "", baseToken: { address: "ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump", name: "x", symbol: "X" }, volume: { h24: 5 } }]);
+    const pairs = await new DexScreenerClient({ fetchText: async () => body }).tokenPairs("solana", ["ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump"]);
+    expect(pairs[0]?.unpriced).toBeUndefined();
+  });
+});
+
 describe("DexScreenerClient", () => {
   it("lists the top boosted tokens, dropping malformed entries", async () => {
     const api = fakeApi({ [boostsUrl]: fixture("dexscreener-boosts.json") });

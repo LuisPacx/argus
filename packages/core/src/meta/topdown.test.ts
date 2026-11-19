@@ -193,6 +193,25 @@ describe("verifyAgainstDex: DexScreener's own figures", () => {
     expect(v).toMatchObject({ ok: true, marketCapUsd: 7_050_000, liquidityUsd: 321_000, volume24hUsd: 410_500 });
   });
 
+  describe("unpriced pairs (GTAVI: a pair quoted in another token has no figures at all)", () => {
+    const unpriced = dexPair(0, undefined, 0, { unpriced: true });
+    const gecko = { marketCapUsd: 260_000, liquidityUsd: 56_600, volume24hUsd: 1_100_000 };
+
+    it("skips an unpriced pair beside a priced one, never summing it as 0", () => {
+      expect(verifyAgainstDex([unpriced, dexPair(300_000, 7_000_000, 400_000)], config)).toMatchObject({ ok: true, marketCapUsd: 7_000_000, liquidityUsd: 300_000 });
+    });
+
+    it("with every pair unpriced, the list's figures stand when all three are present", () => {
+      expect(verifyAgainstDex([unpriced], config, gecko)).toMatchObject({ ok: true, marketCapUsd: 260_000, liquidityUsd: 56_600, volume24hUsd: 1_100_000 });
+    });
+
+    it("with every pair unpriced and no usable list figures, the one reason is 'no priced DexScreener pair'", () => {
+      expect(verifyAgainstDex([unpriced], config).reason).toBe("no priced DexScreener pair");
+      expect(verifyAgainstDex([unpriced], config, { liquidityUsd: 56_600 }).reason).toBe("no priced DexScreener pair");
+      expect(verifyAgainstDex([unpriced], config, { ...gecko, marketCapUsd: 90_000_000 }).reason).toBe("no priced DexScreener pair"); // list figures still face the 100x rule
+    });
+  });
+
   it("fails each test with its reason, and a token with no pair or no market cap", () => {
     expect(verifyAgainstDex([], config)).toMatchObject({ ok: false, reason: "no DexScreener pair" });
     expect(verifyAgainstDex([dexPair(300_000, 7_000_000, 20)], config).reason).toBe("24 h volume $20 under $50,000");
