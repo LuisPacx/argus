@@ -9,3 +9,5 @@ export const INGEST_TICK_MS = 5 * 60_000;
 export const JUDGE_TICK_MS = 30 * 60_000;
 /** The Study's capture job (Snapshots of new tokens at their fixed age). */
 export const STUDY_TICK_MS = 10_000;
+/** The Study's chain-sourced creates job (phase 3 ticket 20): migrated creates through the day, the daily sample once a day. */
+export const CHAIN_TICK_MS = 5 * 60_000;

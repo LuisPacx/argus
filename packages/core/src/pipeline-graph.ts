@@ -25,7 +25,8 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchBudgetUsd, researchConfigFromEn
 import { SEED_GATE_MIN_SCORE } from "./rubric.ts";
 import { MARKET_SOURCE_IDS, type SourceClass } from "./sources/source-class.ts";
 import { captureRunCap, MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./study/config.ts";
-import { INGEST_TICK_MS, JUDGE_TICK_MS, STUDY_TICK_MS } from "./ticks.ts";
+import { CHAIN_TICK_MS, INGEST_TICK_MS, JUDGE_TICK_MS, STUDY_TICK_MS } from "./ticks.ts";
+import { DEFAULT_DAILY_CREDIT_CAP, DEFAULT_SAMPLE_SIZE, chainCreatesConfig } from "./study/chain-config.ts";
 
 /** `on`: running. `off`: declared off (drawn muted). `context-only`: a Source whose Signals are only background (ADR 0011). */
 export type NodeStatus = "on" | "off" | "context-only";
@@ -326,11 +327,14 @@ export const PIPELINE: PipelineGraph = {
         { label: "X capture at age", key: "STUDY_CAPTURE_RULE.xCaptureAgeSec", ref: () => STUDY_CAPTURE_RULE.xCaptureAgeSec, unit: "sec" },
         { label: "Fast migration within", key: "STUDY_CAPTURE_RULE.fastMigrationSec", ref: () => STUDY_CAPTURE_RULE.fastMigrationSec, unit: "sec" },
         { label: "Captures per day, hard cap", key: "MAX_CAPTURE_RUNS_PER_DAY", ref: () => MAX_CAPTURE_RUNS_PER_DAY, unit: "count", live: (env) => captureRunCap(env) },
+        { label: "Chain-sourced creates (migrated mints, daily sample) run every", ref: () => CHAIN_TICK_MS, unit: "ms" },
+        { label: "Chain credits per day, default cap (Helius Free plan; at most MAX_DAILY_CREDIT_CAP)", ref: () => DEFAULT_DAILY_CREDIT_CAP, unit: "count", live: (env) => chainCreatesConfig(env).chainCreatesDailyCreditCap },
+        { label: "Comparison sample per day", ref: () => DEFAULT_SAMPLE_SIZE, unit: "count", live: (env) => chainCreatesConfig(env).chainCreatesSampleSize },
       ],
       adrs: ["0009-x-capture-through-a-dedicated-logged-in-browser.md"],
-      tickets: [".scratch/phase-3-feedback/issues/02-snapshot-metadata-and-website.md", ".scratch/phase-3-feedback/issues/06-x-capture-job.md"],
-      files: ["packages/core/src/study/config.ts", "packages/core/src/study/capture.ts", "packages/core/src/study/store.ts"],
-      worker: "studyTick",
+      tickets: [".scratch/phase-3-feedback/issues/02-snapshot-metadata-and-website.md", ".scratch/phase-3-feedback/issues/06-x-capture-job.md", ".scratch/phase-3-feedback/issues/20-chain-sourced-creates.md"],
+      files: ["packages/core/src/study/config.ts", "packages/core/src/study/capture.ts", "packages/core/src/study/store.ts", "packages/core/src/study/chain-creates.ts", "packages/core/src/study/helius.ts"],
+      worker: ["studyTick", "chainTick"],
     },
     {
       id: "meta",

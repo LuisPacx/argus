@@ -1,0 +1,114 @@
+{
+ "measuredOn": "2026-11-19",
+ "note": "paging = getSignaturesForAddress back to the oldest signature (1 credit a page, capped at 25 pages) plus 1 for reading the create; history = getTransactionsForAddress ascending, limit 1, full (10 credits, no separate read). Mints are the most recent migrations in the Study table, spread across the list.",
+ "rows": [
+  {
+   "mint": "6rA3FVhen2mcF16N87CmCsC447oSW2Hsu1dwMe7Ppump",
+   "pagingPages": 25,
+   "pagingCapped": true,
+   "pagingSignaturesSeen": 25000,
+   "pagingCredits": 26,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "GWd4sj4gND3txk2t57uHScA91XB8xSCfxqKDa2nepump",
+   "pagingPages": 12,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 11399,
+   "pagingCredits": 13,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "2XjNoVMEhKYzen9Ut6bm6w6SxHCWieozgK4DB6Mrpump",
+   "pagingPages": 14,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 13379,
+   "pagingCredits": 15,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "Fe2g8vXENr7G1C2MvGNgaPsYVEGZsDshb4U2XCPRpump",
+   "pagingPages": 9,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 8845,
+   "pagingCredits": 10,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "3RMbFEaQXfT5se9nB7H3U3Pn227A7jaLGkH2xbqnpump",
+   "pagingPages": 5,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 4145,
+   "pagingCredits": 6,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "5vbzq7NwZ5fEHANiCQ2hFY79KsQT5GEjqJL1VKWFpump",
+   "pagingPages": 25,
+   "pagingCapped": true,
+   "pagingSignaturesSeen": 25000,
+   "pagingCredits": 26,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "Fmri79m1VwtTQPppfpm1f6LA6MRxRJKB4kBs2WYYpump",
+   "pagingPages": 5,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 4961,
+   "pagingCredits": 6,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "C9GkkK31jhvchVMbYCtgRNAVUkfd7Btk9fKuFTaypump",
+   "pagingPages": 4,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 3911,
+   "pagingCredits": 5,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "873Ly5CTFi3xBpZ2SjcbsfKQgS1gU2aquWpfVUK2pump",
+   "pagingPages": 10,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 9970,
+   "pagingCredits": 11,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "kqArS7z7MQ639Pphj5CWmHVSJRp89VAtTy9SxMMpump",
+   "pagingPages": 13,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 12102,
+   "pagingCredits": 14,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "AcPBreW4cbKxxNHv5vhkMarWYinTbir4Ud2rw19Mpump",
+   "pagingPages": 2,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 1480,
+   "pagingCredits": 3,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  },
+  {
+   "mint": "BjrwrhDFZXjtc3xGLJ827J4iaK1DKassPQFEoy57pump",
+   "pagingPages": 10,
+   "pagingCapped": false,
+   "pagingSignaturesSeen": 9168,
+   "pagingCredits": 11,
+   "historyCredits": 10,
+   "historyMatchesKnownCreate": true
+  }
+ ]
+}

@@ -136,7 +136,7 @@ describe("the pipeline graph is in sync with the code", () => {
 
   it("the registry really finds what it claims to (so an empty gap list means something)", () => {
     const r = realRegistry();
-    expect(r.ticks).toEqual(["buildTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "proposeTick", "studyTick", "tick"]);
+    expect(r.ticks).toEqual(["buildTick", "chainTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "proposeTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
     expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "build"]);

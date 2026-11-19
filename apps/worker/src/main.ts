@@ -10,6 +10,10 @@ import {
   missingCloudflareVariables,
   captureDueSnapshots,
   captureRunCap,
+  CHAIN_TICK_MS,
+  chainCreatesConfig,
+  runChainCreates,
+  type ChainState,
   createGroupStep,
   createMomentJob,
   createTopDownReader,
@@ -348,6 +352,18 @@ const studyTick = reentrant(
   },
   () => {}, // a slow site is still being fetched: the next tick takes what is due then
 );
+// The Study's chain-sourced creates (phase 3 ticket 20): PumpPortal misses about half of the pump creates, so migrated mints get their create
+// read from chain (read-only, through Helius, the key in HELIUS_API_KEY) and once a day a random sample of the previous UTC day's creates is
+// stored as the comparison population. Credits are counted per call against a daily cap (ARGUS_CHAIN_CREATES_DAILY_CREDIT_CAP, 25,000 by default,
+// 33,000 at most) and logged per job and verb. Without the key it is off. A dry run makes no chain call and logs what a run would use.
+const chainConfig = chainCreatesConfig(process.env);
+const chainState: ChainState = {};
+const chainTick = reentrant(
+  async () => {
+    await runChainCreates({ chain: store.chain, config: chainConfig, dryRun, state: chainState, log: console.log });
+  },
+  () => {}, // the previous run is still reading: the next tick carries on
+);
 // The Meta ranking (viral sources ticket 03): groups the last 24 h of launchpad creates into clone clusters, ranks them for the 6 h and 24 h
 // windows and stores the run. Plain code, no LLM. DexScreener market cap for the top groups only, within a call budget (ARGUS_META_DEX_*).
 // Every ARGUS_META_INTERVAL_MINUTES (default 15). The lookup uses the collision checks' DexScreener URL override, so a test run never reaches
@@ -472,6 +488,7 @@ const runIngestTick = () => track(ingestTick, "ingest tick");
 const runJudgeTick = () => track(judgeTick, "judge tick");
 const runProposeTick = () => track(proposeTick, "propose tick");
 const runStudyTick = () => track(studyTick, "study tick");
+const runChainTick = () => track(chainTick, "chain creates");
 const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
 const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
@@ -494,6 +511,7 @@ let stopHeartbeat: (() => void) | undefined;
 let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let studyTimer: ReturnType<typeof setInterval> | undefined;
+let chainTimer: ReturnType<typeof setInterval> | undefined;
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 let momentTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
@@ -506,6 +524,7 @@ const stop = async () => {
   clearInterval(ingestTimer);
   if (studyTimer) console.log("[worker] Study stopped");
   clearInterval(studyTimer);
+  clearInterval(chainTimer);
   clearInterval(metaTimer);
   clearInterval(momentTimer);
   pumpPortal?.close();
@@ -572,6 +591,15 @@ if (once) {
   if (studyOn) {
     studyTimer = setInterval(() => void runStudyTick(), STUDY_TICK_MS);
     console.log(`[worker] Study started: capture tick every ${STUDY_TICK_MS / 1000}s, rule v${STUDY_CAPTURE_RULE.version}`);
+    if (dryRun) {
+      void runChainTick(); // one report of what a run would use; no chain call
+    } else if (chainConfig.apiKey) {
+      void runChainTick();
+      chainTimer = setInterval(() => void runChainTick(), CHAIN_TICK_MS);
+      console.log(`[worker] chain creates started: every ${CHAIN_TICK_MS / 60_000} min, credit cap ${chainConfig.chainCreatesDailyCreditCap} a day, sample ${chainConfig.chainCreatesSampleSize} a day`);
+    } else {
+      console.log("[worker] chain creates off: HELIUS_API_KEY is not set");
+    }
     if (!dryRun) {
       void runMetaTick();
       metaTimer = setInterval(() => void runMetaTick(), META_TICK_MS);

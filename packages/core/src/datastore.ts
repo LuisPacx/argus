@@ -19,6 +19,7 @@ import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNar
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_WINDOW_MS, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
+import { ChainStore, migrateChain } from "./study/chain-store.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
 import { MomentStore, migrateMoments, type MomentsView } from "./moments/store.ts";
 import { XSessionStore, migrateXSession, type ResumeRequest } from "./x-session/state.ts";
@@ -532,6 +533,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "collision_checks", "TEXT");
   // The Study (phase 3 ticket 02): additive tables for tokens seen, capture runs, gap markers and frozen Snapshots.
   migrateStudy(db);
+  // Chain-sourced creates (phase 3 ticket 20): additive tables for the run log, the credit ledger and the daily sample's draw.
+  migrateChain(db);
   // Meta runs and ranked rows (viral sources ticket 03): additive tables, nothing existing is altered.
   migrateMeta(db);
   ensureColumn(db, "meta_current", "leader_fresh_at", "TEXT"); // a table made before this column existed (null reads as the run's own time)
@@ -987,6 +990,8 @@ export class Datastore {
   private readonly db: DatabaseSync;
   /** The Study's tables (phase 3). The worker writes through this; the War Room reads only `studyStats`. */
   readonly study: StudyStore;
+  /** The chain-sourced creates job's tables (phase 3 ticket 20): run log, credit ledger, the daily sample's draw. The worker writes. */
+  readonly chain: ChainStore;
   /** The Meta ranking's tables (viral sources ticket 03). The worker writes through this; readers use `latestMetas`. */
   readonly meta: MetaStore;
   /** The meme ideas' attempts (missed ideas ticket 06). The worker writes through this; the War Room reads Proposals only. */
@@ -999,6 +1004,7 @@ export class Datastore {
   private constructor(db: DatabaseSync) {
     this.db = db;
     this.study = new StudyStore(db);
+    this.chain = new ChainStore(db);
     this.meta = new MetaStore(db);
     this.meme = new MemeStore(db);
     this.moments = new MomentStore(db);

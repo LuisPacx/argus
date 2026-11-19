@@ -27,7 +27,12 @@ export type TokenStatus =
   /** The metadata could not be read inside the window. */
   | "unreadable"
   /** Not a pump.fun launch (another launchpad) or no metadata uri: outside the Study and the base rate. */
-  | "out-of-scope";
+  | "out-of-scope"
+  /** Found on chain after the fact (the comparison sample, ticket 20): create fields and uri only. Never due, never a Snapshot, not in the base rate. */
+  | "chain";
+
+/** Where a row's create fields came from (phase 3 ticket 20). A mint reached by two paths is one row: the first source whose data is kept, and the rest in `alsoSources`. */
+export type TokenSource = "pumpportal" | "chain_migrated" | "chain_sample";
 
 export interface StudyToken {
   mint: string;
@@ -46,6 +51,16 @@ export interface StudyToken {
   /** Null until the metadata has been read. */
   inPopulation: boolean | null;
   firstSeenAt: string;
+  /** Where the create fields came from; `pumpportal` also for a row that so far holds only a migration. */
+  source: TokenSource;
+  /** Other paths that reached the mint, comma separated and sorted (empty when there is only one). */
+  alsoSources: string;
+  /** The UTC day (YYYY-MM-DD) of the comparison sample this mint was drawn in, and its sampling weight; null when it was not sampled. */
+  sampleDay: string | null;
+  sampleWeight: number | null;
+  /** The create_v2 flags read from chain; null when no chain read has seen this mint. */
+  mayhem: boolean | null;
+  cashback: boolean | null;
 }
 
 /** The hard maximum of migrated-token examples the propose prompt can carry (ticket 22). */
@@ -185,6 +200,20 @@ export function migrateStudy(db: DatabaseSync): void {
     metadata_attempts INTEGER NOT NULL DEFAULT 0,
     in_population INTEGER
   )`);
+  // Phase 3 ticket 20 (chain-sourced creates): where the create fields came from, the comparison sample's day and weight, the create_v2 flags.
+  // Added to a table made before they existed; a row that is already there reads as a PumpPortal row (the default).
+  const have = (db.prepare("PRAGMA table_info(study_tokens)").all() as { name: string }[]).map((c) => c.name);
+  for (const [column, definition] of [
+    ["source", "TEXT NOT NULL DEFAULT 'pumpportal'"],
+    ["also_sources", "TEXT NOT NULL DEFAULT ''"],
+    ["sample_day", "TEXT"],
+    ["sample_weight", "REAL"],
+    ["mayhem", "INTEGER"],
+    ["cashback", "INTEGER"],
+  ] as const) {
+    if (!have.includes(column)) db.exec(`ALTER TABLE study_tokens ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS study_tokens_sample_day ON study_tokens (sample_day)");
   db.exec("CREATE INDEX IF NOT EXISTS study_tokens_due ON study_tokens (status, created_at)");
   db.exec("CREATE INDEX IF NOT EXISTS study_tokens_first_seen ON study_tokens (first_seen_at)");
   db.exec("CREATE INDEX IF NOT EXISTS study_tokens_migrated_at ON study_tokens (migrated_at)");
@@ -260,6 +289,12 @@ const toToken = (r: Row): StudyToken => ({
   metadataAttempts: r.metadata_attempts as number,
   inPopulation: r.in_population === null ? null : r.in_population === 1,
   firstSeenAt: r.first_seen_at as string,
+  source: ((r.source as string | null) ?? "pumpportal") as TokenSource,
+  alsoSources: (r.also_sources as string | null) ?? "",
+  sampleDay: (r.sample_day as string | null) ?? null,
+  sampleWeight: (r.sample_weight as number | null) ?? null,
+  mayhem: r.mayhem === null || r.mayhem === undefined ? null : r.mayhem === 1,
+  cashback: r.cashback === null || r.cashback === undefined ? null : r.cashback === 1,
 });
 
 const toSnapshot = (r: Row): StudySnapshot => ({
@@ -426,7 +461,7 @@ export class StudyStore {
     const rows = this.db
       .prepare(
         `SELECT mint, name, symbol, creator, created_at, migrated_at, pool FROM study_tokens
-         WHERE first_seen_at >= ? AND created_at >= ? AND created_at <= ? AND (status <> 'out-of-scope'${opts.includeBonk ? " OR pool = 'bonk'" : ""})`,
+         WHERE first_seen_at >= ? AND created_at >= ? AND created_at <= ? AND source = 'pumpportal' AND (status <> 'out-of-scope'${opts.includeBonk ? " OR pool = 'bonk'" : ""})`,
       )
       .all(fromIso, fromIso, toIso) as Row[];
     return rows.map((r) => ({
@@ -438,6 +473,14 @@ export class StudyStore {
       migratedAt: r.migrated_at as string | null,
       pool: r.pool as string,
     }));
+  }
+
+  /**
+   * READ ONLY. The comparison sample of one UTC day (`YYYY-MM-DD`, phase 3 ticket 20): every mint drawn that day, whatever path first
+   * brought it, with `sampleWeight` (the day's creates listed / creates drawn) so Phase 4 can weight back to the full population.
+   */
+  chainSampleRows(day: string): StudyToken[] {
+    return (this.db.prepare("SELECT * FROM study_tokens WHERE sample_day = ? ORDER BY mint").all(day) as Row[]).map(toToken);
   }
 
   /** Pending tokens whose age has reached the Snapshot age at `now`, oldest create first. */
@@ -471,7 +514,7 @@ export class StudyStore {
   }
 
   /** Moves a pending token to a final status other than captured (counted, late, capped, unreadable). Throws if it is not pending. */
-  markToken(mint: string, status: Exclude<TokenStatus, "pending" | "captured" | "missed" | "out-of-scope">, reason: string, patch: { inPopulation?: boolean } = {}): void {
+  markToken(mint: string, status: Exclude<TokenStatus, "pending" | "captured" | "missed" | "out-of-scope" | "chain">, reason: string, patch: { inPopulation?: boolean } = {}): void {
     const res = this.db
       .prepare("UPDATE study_tokens SET status = ?, status_reason = ?, in_population = COALESCE(?, in_population) WHERE mint = ? AND status = 'pending'")
       .run(status, reason.slice(0, 200), patch.inPopulation === undefined ? null : Number(patch.inPopulation), mint);
@@ -557,7 +600,8 @@ export class StudyStore {
     const gapRows = this.db.prepare("SELECT started_at, ended_at FROM study_gaps WHERE COALESCE(ended_at, ?) >= ?").all(now.toISOString(), from) as Array<{ started_at: string; ended_at: string | null }>;
     const gapSeconds = gapRows.reduce((sum, g) => sum + Math.max(0, ((g.ended_at ? Date.parse(g.ended_at) : now.getTime()) - Math.max(Date.parse(g.started_at), from ? Date.parse(from) : 0)) / 1000), 0);
     return {
-      seen: count("created_at IS NOT NULL AND status != 'out-of-scope'"),
+      // PumpPortal's own creates only: a create found on chain afterwards (a migrated one, or the comparison sample) is not the base rate.
+      seen: count("created_at IS NOT NULL AND status != 'out-of-scope' AND source = 'pumpportal'"),
       outOfScope: byStatus("out-of-scope"),
       inPopulation: count("in_population = 1"),
       captured: byStatus("captured"),

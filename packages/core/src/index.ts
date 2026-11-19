@@ -82,4 +82,7 @@ export * from "./moments/store.ts";
 export * from "./moments/scan-runner.ts";
 export * from "./moments/job.ts";
 export * from "./x-session/state.ts";
+export * from "./study/chain-config.ts";
+export * from "./study/chain-creates.ts";
+export * from "./study/chain-store.ts";
 export * from "./launch.ts";
