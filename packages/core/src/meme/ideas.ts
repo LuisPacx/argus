@@ -53,6 +53,11 @@ export type MemeParse =
       problem: string;
       /** Set when the answer was refused for copying existing tokens: their names, as display labels (still creator text), for the retry. */
       copies?: string[];
+      /**
+       * What the repair retry tells the model (ticket 16), when `problem` would echo text the model wrote (a key name): a fixed sentence that
+       * names only the contract's own keys. Absent when `problem` is already fixed wording, numbers and the contract's own names.
+       */
+      repair?: string;
     };
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -90,11 +95,11 @@ export function parseMemeOutput(output: string, existing: readonly ExistingToken
   }
   if (!isPlainObject(value)) return { ok: false, problem: "output is not a JSON object" };
   const extra = Object.keys(value).filter((k) => !(TOP_KEYS as readonly string[]).includes(k));
-  if (extra.length > 0) return { ok: false, problem: `unexpected key(s): ${extra.map((k) => oneLine(k, 30)).join(", ")}` };
+  if (extra.length > 0) return { ok: false, problem: `unexpected key(s): ${extra.map((k) => oneLine(k, 30)).join(", ")}`, repair: `the answer must have exactly the keys ${TOP_KEYS.map((k) => `"${k}"`).join(" and ")} and no others` };
   const rawSubject = value.subject;
   if (!isPlainObject(rawSubject)) return { ok: false, problem: "`subject` is missing or not an object" };
   const subjectExtra = Object.keys(rawSubject).filter((k) => k !== "name" && k !== "isRealPerson");
-  if (subjectExtra.length > 0) return { ok: false, problem: `unexpected key(s) in subject: ${subjectExtra.map((k) => oneLine(k, 30)).join(", ")}` };
+  if (subjectExtra.length > 0) return { ok: false, problem: `unexpected key(s) in subject: ${subjectExtra.map((k) => oneLine(k, 30)).join(", ")}`, repair: `"subject" must have exactly the keys "name" and "isRealPerson" and no others` };
   const subjectName = text(rawSubject.name, "subject.name", MEME_LIMITS.subject);
   if (typeof subjectName !== "string") return { ok: false, problem: subjectName.problem };
   if (typeof rawSubject.isRealPerson !== "boolean") return { ok: false, problem: "`subject.isRealPerson` is missing or not true or false" };
@@ -109,7 +114,7 @@ export function parseMemeOutput(output: string, existing: readonly ExistingToken
     const at = `ideas[${i}]`;
     if (!isPlainObject(r)) return { ok: false, problem: `\`${at}\` is not an object` };
     const unexpected = Object.keys(r).filter((k) => !(IDEA_KEYS as readonly string[]).includes(k));
-    if (unexpected.length > 0) return { ok: false, problem: `unexpected key(s) in ${at}: ${unexpected.map((k) => oneLine(k, 30)).join(", ")}` };
+    if (unexpected.length > 0) return { ok: false, problem: `unexpected key(s) in ${at}: ${unexpected.map((k) => oneLine(k, 30)).join(", ")}`, repair: `\`${at}\` must have exactly the keys ${IDEA_KEYS.map((k) => `"${k}"`).join(", ")} and no others` };
     const fields = {
       name: text(r.name, `${at}.name`, MEME_LIMITS.name),
       ticker: text(r.ticker, `${at}.ticker`, 10),

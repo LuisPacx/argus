@@ -727,7 +727,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         log(`[worker] meme ideas: "${cleanLine(job.label, 60)}" was refused (${parsed.problem}) but ${retryGate.detail}; nothing stored`);
         break;
       }
-      const next = await ask(promptFor(copies !== undefined ? { copies } : { problem: parsed.problem }), job.label, job.angle !== undefined);
+      const next = await ask(promptFor(copies !== undefined ? { copies } : { problem: parsed.repair ?? parsed.problem }), job.label, job.angle !== undefined);
       if (next.kind === "stop") {
         record(copies !== undefined ? "name-copy" : "refused", "interrupted before the retry", runIds.length);
         return stopPass(next.stoppedBy);

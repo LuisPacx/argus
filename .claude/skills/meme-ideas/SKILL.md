@@ -36,4 +36,4 @@ Argus refuses (stores nothing) anything that is not exactly one JSON object `{"s
 - `riskLabels` is an array of at most five short strings, or `[]`.
 - Exactly three ideas, none a copy of an existing name or of each other.
 
-An answer that breaks this contract is sent back once, with the exact error named in the prompt ("Your earlier answer was refused for this reason: ..."): write all three ideas again, in the same format, fixing exactly that. A second miss drops the answer.
+An answer that breaks this contract is sent back once, with the exact error named in the prompt ("Your earlier answer was refused for this reason: ..."): write all three ideas again, in the same format, fixing exactly that. There is one retry per kind of refusal (a copy, a contract error), so at most three runs; a miss after its retry drops the answer.
