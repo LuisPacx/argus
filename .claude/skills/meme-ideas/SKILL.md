@@ -15,6 +15,11 @@ The Meta block (a label, counts, token names, tickers and descriptions, and the 
 
 - Three different angles on the same Meta, not three spellings of one joke. Each is a joke or a take that works because of what is happening now, and the angle says why.
 - A name and a ticker that are new. Never reuse, or differ by one letter, case, punctuation, a "$" or an emoji from, a token name or ticker in the Meta block or in the names to avoid. Argus refuses a copy and asks once more, then drops the whole answer.
+- Naming, for the name and the ticker:
+  - When an angle rides a specific object, character or moment, name it with the plain words people already use for it, or the game's or story's own proper name for it, never an invented synonym. The name must still be new against the Meta block and the names to avoid.
+  - Prefer a plain description of what is shown over a pun, a joke phrase or a quoted line.
+  - Keep the name to 1 to 3 words, with no filler suffixes such as "Coin", "Inu" or "Cult".
+  - When a proper name exists, it is the best ticker, still within the ticker rule below.
 - How the idea differs from the Meta's leading tokens, in a sentence.
 - A short description, a first post for X, and what the image would show, all as plain text.
 - Risk labels: short plain labels for what the Operator should weigh, for example `real person`. When the Meta is about a named real person, set `subject.isRealPerson` to true and give every idea the label `real person`; the answer is refused otherwise.
