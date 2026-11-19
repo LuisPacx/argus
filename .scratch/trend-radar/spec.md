@@ -61,7 +61,7 @@ The split follows the rest of argus: plain code counts and applies thresholds; t
 
 ## 4. Sources
 
-"Access" is how argus reads it; "failure" is what the radar does when it breaks. Every source has a status the page shows (`ok`, `backing off`, `format changed`, `down`) with the time of the last good poll. **An empty answer is never read as "no trends"**: zero items from a non-empty body is `format changed`, a network error or 429 is `backing off`, and neither counts as a quiet hour in the seen-set or the score.
+"Access" is how argus reads it; "failure" is what the radar does when it breaks. Every source has a status the page shows (`ok`, `backing off`, `format changed`, `down`) with the time of the last good poll. A source that stays `backing off`, `format changed` or `down` for more than an hour (Google Trends included) raises a banner on `/radar` and `/`, and `/radar` reads at most 100 Trends at a time. Before the first real poll the agent checks each source's terms and robots rules (the Google feed in ticket 01, each news feed in ticket 02). **An empty answer is never read as "no trends"**: zero items from a non-empty body is `format changed`, a network error or 429 is `backing off`, and neither counts as a quiet hour in the seen-set or the score.
 
 ### 4.1 Stage A (free, no X account load, no key)
 
@@ -90,7 +90,7 @@ The X API is not the logged-in browser: it adds **0 page loads** to the shared a
 ### 5.1 Candidates and keys (code)
 
 - A **candidate** is one term from one source at one time: a Google term with its traffic, a headline phrase, an X trend name.
-- **Key.** Lower-case, Unicode-normalised, punctuation stripped, spaces collapsed, spelling aliases folded (a roman numeral and its digit, "GTA VI", "GTA 6", "GTA6", the hashtag form). The moment scanner's `spellings.ts` (its ticket 05) does the same job from the other side; whichever ticket lands first owns the function and the other imports it. No second copy.
+- **Key.** `radarKey` is a thin wrapper over `packages/core/src/meta/key.ts` (`aliasKey(normaliseKey(x))`: lower-case, Unicode-normalised, punctuation stripped, spaces collapsed, a roman numeral and its digit folded, so "GTA VI", "GTA 6", "GTA6" and "#GTA6" are one key). That is what "the same name" already means for Metas. The radar has no normaliser of its own, and the skip rule folds both sides (a Meta "GTA 6" skips the term "gta vi"). The moment scanner's `spellings.ts` (its ticket 05) makes search spellings for topics; it is not a key.
 - **Headline phrases without a model.** For news feeds the radar counts word sequences (1 to 4 words, stop words dropped with `stopwords.ts`) across feeds and keeps one that appears in at least 3 distinct feeds within 3 hours and is not in the seen-set. Google terms are already phrases. The model never extracts terms from headlines; it only names and filters what counting already found.
 - **Seen-set.** Every key keeps `first_seen` and `last_seen` for 14 days. A key not seen for 14 days and seen again is new again. Only keys new inside the window can become a Trend.
 
@@ -124,11 +124,11 @@ A key (or a phrase) that matches the normalised label or a merged theme label of
 
 For each Trend, when it is first shown and again every 60 minutes while it is live (24 hours after it was last flagged):
 
-1. **DexScreener.** Search each phrase (the raw key until the naming run has phrases) with `DexScreenerClient.search`. Keep Solana pairs whose name or ticker matches (every word of a phrase in the normalised name, or the ticker equals the phrase squashed together) and whose pair was created at or after the Trend's `first_seen` minus 48 hours **(proposal)**.
+1. **DexScreener.** Search each phrase (the raw key until the naming run has phrases) with `DexScreenerClient.search`. Keep Solana pairs whose name or ticker matches (every word of a phrase in the normalised name, or the ticker equals the phrase squashed together) and whose pair was created at or after the Trend's `first_seen` minus 48 hours **(proposal)**. A pair with no creation time is kept, not dropped (fail closed: dropping it could read a live coin as absent).
 2. **The ticket 16 test.** Each kept pair goes through `isLiveToken` from `packages/core/src/meme/live-token.ts` (priced, liquidity at least $5,000, market cap at most 100 times liquidity). The check imports it; it does not copy it. A pair that fails is a lookalike, listed with its reason ("pool $4, cap $131K: drained or fake"), not counted.
 3. **State.** `taken` if a live token has a market cap of $50,000 or more; `contested` if live tokens are all smaller; otherwise coin-side `open`.
 4. **Local creates.** Count the distinct creators of stored pump.fun creates of the last 48 hours whose normalised name or ticker matches a phrase (one in-memory index built once per tick from the stored creates; no RegExp from the text). 0 to 4 distinct creators is "few or none"; 5 to 9 is `tokenizing` (the market is already moving on it; shown folded); 10 or more distinct creators in 24 hours is the Watching rule's own number, so the subject is dropped as above once the Meta pipeline lists it.
-5. **Untokenized** is coin-side `open` and local creators 4 or fewer. The numbers are shown (how many creates, how many creators), so the Operator can judge. Because PumpPortal misses about 47 percent of creates, a local count of 0 is weaker than it looks; the page says "local creates are a partial view".
+5. **Precedence, first match wins:** `not traced`, `taken`, `contested`, `tokenizing`, `untokenized`. A live token always outranks the local count (so a live $20K token with 6 local creators is `contested`, not `tokenizing`). **Untokenized** is coin-side `open` and local creators 4 or fewer. The numbers are shown (how many creates, how many creators), so the Operator can judge. Because PumpPortal misses about 47 percent of creates, a local count of 0 is weaker than it looks; the page says "local creates are a partial view".
 
 A failed or missing DexScreener answer is `not traced` and keeps the last good trace. The state change times are stored: the lead-time measure reads them.
 
@@ -150,7 +150,9 @@ The War Room writes only **request or mark rows by an explicit POST the Operator
 The moment scanner owns its topics table and its cap: at most 4 active Watched topics, Metas first, then the Operator's by oldest scan, Watching subjects off (moment spec section 4). The radar does not build a second scanner and does not raise the cap.
 
 - **Stage A, by hand.** "Watch on X" adds a topic whose label and spellings come from the Trend's key and phrases, passed through the moment scanner's one cleaner (ticket 05 there), start time the Trend's `first_seen` minus 12 hours **(proposal)**, expiry 7 days like an Operator topic. It counts as an Operator topic. When all 4 slots are taken the request ends `refused` with "4 topics are active" and the Trend shows it; nothing is queued or displaced.
-- **Stage B, automatic (ticket 13, off by default).** The best Trend of each hour that is `untokenized` or `contested`, score 60 or more, flags free of `nsfw` and `political`, becomes a topic of source `trend`. These topics may hold **at most 2 of the 4 slots**, never displace a Meta or an Operator topic, live 12 hours (proposal, shorter than the research's 24 hours because two slots cannot hold hourly arrivals for longer) unless the Operator keeps them, are released after 6 empty scans (the scanner's own rule), and at most 6 new automatic topics start in a day. The scanner's loads stay under its own caps (ADR 0009 amendment: 100 a day in week 1, up to 300 after a week with no wall, shared with the Study), so each topic is scanned about hourly instead of every 30 minutes.
+- **Stage B, automatic (ticket 13, off by default).** The best Trend of each hour that is `untokenized` or `contested`, score 60 or more, flags free of `nsfw` and `political`, becomes a topic of source `trend`. These topics may hold **at most 2 of the 4 slots**, never displace a Meta or an Operator topic, live 12 hours (proposal, shorter than the research's 24 hours because two slots cannot hold hourly arrivals for longer) unless the Operator keeps them, and are released early after 3 empty scans (the radar's own release rule, not the scanner's slow-down rule of 6, which a 12-hour life could not reach in week 1).
+  - **Cadence in numbers.** The scanner's loads stay under its own caps (ADR 0009 amendment: 100 a day in week 1, up to 300 after a week with no wall, shared with the Study's own separate cap). A topic scan is about 2 to 3 loads, so **week 1 allows about 33 to 50 scans a day across all topics, about one scan per topic every 3 hours with 4 topics** (and more often for a topic if fewer are active); week 2 on, at 300 loads, about one scan per topic every hour. So in week 1 a 12-hour topic gets about 4 scans, and 3 empty scans take about 9 hours: the release rule can fire inside the slot's life. At the hourly pace it fires after about 3 hours.
+  - **How many automatic topics a day.** Two slots at a 12-hour life is 4 a day if every topic runs its life; early release can free a slot sooner, so the cap is **6 new automatic topics a day**. Expect 4 and at most 6; neither exceeds what the scanner's load cap can scan.
 - Moments found under such a topic appear on `/moments` as for any topic, with their own coin-side trace. The radar adds nothing there.
 
 ### 6.3 Meme ideas
@@ -180,8 +182,11 @@ All caps are in code, in `packages/core/src/radar/config.ts`. Configuration may 
 | | Stage A | Stage B |
 |---|---|---|
 | haiku runs a day (radar-name) | up to 48 | up to 96 |
-| sonnet runs a day by the radar | 0 (only the Operator's presses, inside the 10-a-day allowance) | 0 (the moment judge's own cap of 24 covers topics the radar hands off) |
-| Est. usage | about $0.4 a day, $12 a month (API-equivalent, on the subscription) | about $1.1 a day, $33 a month |
+| sonnet runs a day started by the radar | 0 | 0 |
+| sonnet runs the Operator starts by pressing "Make ideas" (inside the 10-a-day allowance; the research assumed about 5) | about 5, $0.22 a day | about 5, $0.22 a day |
+| Est. usage, the radar's own (haiku at about $0.003 to $0.004 a run, plus the presses) | about $0.4 a day at most, $12 a month (API-equivalent, on the subscription) | about $0.6 a day, $18 a month |
+
+The research's stage B figure of about 125 runs, $1.1 a day and $33 a month **also counts the moment judge's 24 sonnet runs a day** (about $0.5 a day). Those runs belong to the moment scanner's own cap (its ticket 03) and are not the radar's: the radar only gives the scanner topics. They are shown here so the total is honest: radar plus the judge on handed-off topics is about $1.1 a day.
 
 **Cash.** Stage A: $0. Stage B: about $75 a month ($43 Trends + $30 Counts), inside the $100 a month of real cash the architecture names. **X loads** on the logged-in account added by the radar: 0 in both stages. **Helius** credits: 0. **Machine:** a few HTTP requests a minute. **Operator time:** about 10 minutes a day in A, 15 in B.
 
@@ -219,7 +224,7 @@ The scorecard is a block on `/radar` computed from the live tables (ticket 05), 
 ## 10. Decision records
 
 - **ADR 0016** (new): a Trend is its own thing and not a Source, a Signal or a Narrative; a Trend idea is a `meme` Proposal with a trend source and no new kind; stage B pays for X's official API under a spend cap in code, behind one module and one host, with a hand-off to the moment scanner under a slot limit. It is recommended and written with this spec; the Operator's choice of Option B is its basis. A short pointer is added to ADR 0013.
-- **No ADR 0009 amendment is needed.** ADR 0009 governs the logged-in browser. The radar uses it only through the moment scanner's existing topics, under that scanner's caps. The ADR notes the official API "remains the compliant path"; ADR 0016 is the first use of it, for subject-level counts only. The Study's capture stays on the browser (its API cost was $330 to $630 a month).
+- **ADR 0009 gets a dated one-line pointer amendment** (added with this spec): a Trend-sourced Watched topic (tickets 06 and 13) is a third origin of topic text, after a Meta and the Operator, built from cleaned third-party text under the same limits (the scanner's one cleaner, the fixed operator list, the same caps). It changes no page, cap or rule. The radar otherwise uses the browser only through the scanner's topics. The ADR notes the official API "remains the compliant path"; ADR 0016 is the first use of it, for subject-level counts only. The Study's capture stays on the browser (its API cost was $330 to $630 a month).
 - **No ADR 0011 or 0002 amendment.** The radar is not a Source; it reads public APIs, never a chain, never a wallet. `adr-0002.test.ts` bans swap and RPC hosts, not the X API host; ticket 10 adds its own tripwire test pinning the one module that names the X host.
 
 ## 11. Risks and what we do not know
@@ -258,7 +263,11 @@ Order of value in stage A: 01 alone is useful; 02 and 03 say whether more source
 
 ## 13. Open questions for the Operator
 
-1. The first 8 countries and the 30 feeds (the agent proposes the feed list in ticket 02 and shows it before it goes live): any you want in or out?
-2. Is `X_API_BEARER_TOKEN` an acceptable name to add to the dev server's allowed list (it today takes `ARGUS_*` and `HELIUS_API_KEY` only; ticket 10)?
-3. Is a $3 daily and $90 30-day X API cap right, and is the prepay-small-first plan (section 8) what you want?
-4. Automatic topics at 2 of the 4 slots, 12 hours each: acceptable, or should the radar never take a slot without your press?
+When each is asked:
+
+1. **The first 8 countries and the 30 feeds** (stage A). The agent proposes the feed list in ticket 02 and **shows it to the Operator in that ticket's Comments before it goes live**: any you want in or out?
+2. **The X token allowlist** (stage B): is `X_API_BEARER_TOKEN` an acceptable name to add to the dev server's allowed list (it today takes `ARGUS_*` and `HELIUS_API_KEY` only)? Asked **before stage B**, in ticket 09 step 7, and again by ticket 10 if a different name is chosen.
+3. **The caps** (stage B): is a $3 daily and $90 30-day X API cap right, and is the prepay-small-first plan (section 8) what you want? Asked **before stage B**, in ticket 09 step 2.
+4. **Automatic topics** (stage B): 2 of the 4 slots, 12 hours each, release after 3 empty scans, or should the radar never take a slot without your press? Asked **before stage B**, in ticket 09 step 2 (and before ticket 13 is built).
+
+Questions 2 to 4 are not asked now: they have no meaning until stage A has run its 14 days and the Operator has written "go B".

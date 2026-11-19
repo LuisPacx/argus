@@ -37,3 +37,7 @@ What is now allowed, and only this:
 - **What is stored.** Post text (cut), author handle, status ID and time, counts at each reading, and links, in the worker's database; raw HTML and screenshots only on a failure, written 0600 under a 700 directory outside the repository, and never committed (a saved page holds the account's own nav and handle). Saved real pages used as test fixtures are scrubbed of that handle and checked by a test.
 
 What this does not change: the scanner is not a Source and produces no Signals (the architecture's "No X as a Source" line, ADR 0011), the Study's own captures keep their cap of about 200 a day, X data stays optional with a switch (`ARGUS_MOMENTS`, off by default), and argus still never posts, likes, follows or messages (architecture invariant 6) or launches (ADR 0002). The official API remains the compliant path and stays behind the same seam if the budget or the risk changes; whether it can do this search, and at what price, was not checked for this amendment.
+
+## Amendment 2026-11-19 (trend radar): a Trend is a third origin of topic text
+
+A Watched topic can also come from a Trend (trend radar tickets 06 and 13, ADR 0016): a third origin of topic text after a Meta and the Operator, built from cleaned third-party text (a feed term or a model-written phrase) under the same limits (the scanner's one cleaner, the fixed operator list, the same load caps, ramp, lock and stop rules). Nothing else in this ADR changes.
