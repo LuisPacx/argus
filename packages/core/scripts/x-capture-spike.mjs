@@ -21,7 +21,8 @@
 
 import { chromium } from "playwright-core";
 import { captureAll, classify, statusOf } from "../src/x-capture/detect.mjs";
-import { mkdirSync, readlinkSync, existsSync, writeFileSync, statSync } from "node:fs";
+import { assertDirSafe, lockHolder } from "../src/x-capture/lock.mjs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -41,35 +42,7 @@ const MAX_LOADS = 16; // hard cap on page loads for one run
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = (lo, hi) => lo + Math.random() * (hi - lo);
 
-// One process per directory. Chrome's SingletonLock is a symlink "host-pid".
-export function lockHolder(dir) {
-  const lock = join(dir, "SingletonLock");
-  let target;
-  try {
-    target = readlinkSync(lock);
-  } catch {
-    return null;
-  }
-  const pid = Number(target.split("-").pop());
-  if (!Number.isInteger(pid)) return { pid: null, alive: false, stale: true };
-  try {
-    process.kill(pid, 0);
-    return { pid, alive: true, stale: false };
-  } catch (e) {
-    return { pid, alive: e.code === "EPERM", stale: e.code !== "EPERM" };
-  }
-}
-
-function assertDirSafe(dir) {
-  const st = statSync(dir);
-  const mode = st.mode & 0o777;
-  if (mode !== 0o700) throw new Error(`refusing: ${dir} has mode ${mode.toString(8)}, expected 700`);
-  if (dir.startsWith(process.cwd()) && existsSync(join(process.cwd(), ".git"))) {
-    throw new Error("refusing: the Chrome directory must be outside the repository");
-  }
-  return mode.toString(8);
-}
-
+// The lock and the directory-safety checks live in ../src/x-capture/lock.mjs (shared with the Moment scanner).
 const holder = lockHolder(DIR);
 if (holder?.alive) {
   console.error(`REFUSED: a Chrome process (pid ${holder.pid}) already holds ${DIR}. One process per directory.`);

@@ -20,6 +20,8 @@ import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_WINDOW_MS,
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
+import { MomentStore, migrateMoments, type MomentsView } from "./moments/store.ts";
+import { XSessionStore, migrateXSession, type ResumeRequest } from "./x-session/state.ts";
 import { isMaterialJoin } from "./narratives.ts";
 import {
   type DimensionScores,
@@ -587,6 +589,9 @@ export function migrate(db: DatabaseSync): void {
   migrateVerdicts(db);
   // The worker heartbeat and the ledger of its stops (meta redesign ticket 10): additive tables.
   migrateWorkerGaps(db);
+  // The Moment scanner (moment scanner ticket 01): its scans, posts and readings, and the X session's shared stop state. Additive tables.
+  migrateMoments(db);
+  migrateXSession(db);
 }
 
 export function slugify(text: string): string {
@@ -774,6 +779,8 @@ export type WarRoomStore = Pick<
   | "newestNarratives"
   | "recentBrainRuns"
   | "studyStats"
+  | "momentsView"
+  | "requestXSessionResume"
   | "latestMetas"
   | "currentMetas"
   | "metaSummaries"
@@ -984,12 +991,28 @@ export class Datastore {
   readonly meta: MetaStore;
   /** The meme ideas' attempts (missed ideas ticket 06). The worker writes through this; the War Room reads Proposals only. */
   readonly meme: MemeStore;
+  /** The Moment scanner's scans, posts and readings (moment scanner ticket 01). The worker writes through this; the War Room reads `momentsView`. */
+  readonly moments: MomentStore;
+  /** The X session's shared stop state and its Resume requests. The worker writes through this; the War Room may only `requestXSessionResume`. */
+  readonly xSession: XSessionStore;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
     this.study = new StudyStore(db);
     this.meta = new MetaStore(db);
     this.meme = new MemeStore(db);
+    this.moments = new MomentStore(db);
+    this.xSession = new XSessionStore(db);
+  }
+
+  /** The Moments page's data: the newest scan, the rising posts and the X session state as of `now`. READ ONLY. */
+  momentsView(now: Date = new Date()): MomentsView {
+    return this.moments.view(now, this.xSession.state(now));
+  }
+
+  /** The War Room's one write for the X session: a Resume press, an insert-only request row, refused unless the state is `stopped`. */
+  requestXSessionResume(now: Date = new Date()): ResumeRequest {
+    return this.xSession.requestResume(now);
   }
 
   /** The newest Meta ranking run's top `limit` rows for a window; undefined before the first run. */

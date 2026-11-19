@@ -7,17 +7,18 @@
 
 // The `{token}` names an explicit --seed path can use, each replaced by that Proposal's id.
 // `narrative` is the id of the Tech Proposal's Narrative (its verdict history and Proposal link), not a Proposal id.
-export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative'];
+// `moment` is the status ID of the seeded rising clip, as text (it is longer than a safe integer): `/moments#post-{moment}` names its row.
+export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative', 'moment'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
   return pagePath.replace(/\{([^{}]*)\}/g, (whole, name) => {
     if (!SEED_TOKENS.includes(name)) throw new Error(`unknown seed token ${whole}; use ${SEED_TOKENS.map((t) => `{${t}}`).join(', ')}`);
     const id = ids?.[name];
-    if (ids && !Number.isInteger(id)) throw new Error(`seed token ${whole} has no id`);
+    if (ids && !Number.isInteger(id) && !(typeof id === 'string' && /^\d{1,25}$/.test(id))) throw new Error(`seed token ${whole} has no id`);
     return ids ? String(id) : '1';
   });
 }
@@ -229,5 +230,26 @@ export async function seedDatastore(store, now) {
   verdict(newsNarrative, 'bad', 8, { tags: ['wrong-cluster', 'duplicate'] });
   counts.verdicts += 3;
 
-  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative }, counts };
+  // The Moment scanner (moment scanner ticket 01), through the production write paths: two scans of one fake topic, a rising clip read twice
+  // (so it has an average and a recent rate), a slow clip that must not be listed, a hostile post (markup, newlines, a 700-character run)
+  // and the X session stopped by a login wall, so the page shows the Resume button. The page shows one session state at a time: the others
+  // (ok, probe due, no resume time) are covered by the render test.
+  const statusId = (ms, seq) => ((BigInt(ms - 1_288_834_974_657) << 22n) | BigInt(seq)).toString();
+  const nums = (views, likes) => ({ replies: 12, reposts: 30, likes, bookmarks: 5, views });
+  const risingId = statusId(now.getTime() - 3 * HOUR, 11);
+  const slowId = statusId(now.getTime() - 3 * HOUR, 12);
+  const hostileId = statusId(now.getTime() - 2 * HOUR, 13);
+  const post = (id, handle, text, counts) => ({ statusId: id, handle, text, hasVideo: true, counts });
+  const scanOne = store.moments.recordScan({ at: at(70), topic: 'SEED Moments topic', status: 'ok', loads: 2, signals: [], reason: '' });
+  store.moments.recordPosts(scanOne, at(69), [post(risingId, 'seed_clip', 'SEED rising clip: a fake story about an iguana on a scooter', nums(90_000, 2_100)), post(slowId, 'seed_slow', 'SEED slow clip: nothing to see', nums(21_000, 300)), post(hostileId, 'seed_hostile', `SEED <img src=x onerror=alert(1)>\njavascript:alert(1) ${'H'.repeat(700)}`, nums(400_000, 9_000))]);
+  const scanTwo = store.moments.recordScan({ at: at(40), topic: 'SEED Moments topic', status: 'ok', loads: 2, signals: [], reason: '' });
+  store.moments.recordPosts(scanTwo, at(39), [post(risingId, 'seed_clip', 'SEED rising clip: a fake story about an iguana on a scooter', nums(310_000, 5_400)), post(slowId, 'seed_slow', 'SEED slow clip: nothing to see', nums(24_000, 330)), post(hostileId, 'seed_hostile', `SEED <img src=x onerror=alert(1)>\njavascript:alert(1) ${'H'.repeat(700)}`, nums(520_000, 11_000))]);
+  store.moments.recordScan({ at: at(10), topic: 'SEED Moments topic', status: 'stopped', loads: 1, signals: ['login_wall'], reason: 'stopped on login_wall: no retry' });
+  store.xSession.recordStop('login_wall', new Date(now.getTime() - 9 * MIN));
+  counts.moment_scans = 3;
+  counts.moment_posts = 3;
+  counts.moment_readings = 6;
+  counts.x_session_stops = 1;
+
+  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId }, counts };
 }

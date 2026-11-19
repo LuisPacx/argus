@@ -28,6 +28,8 @@ export const SLOW_TESTS = [
   "packages/core/src/build-runner-retry.test.ts",
   "packages/core/src/build-runner-verify.test.ts", // spawns processes
   "packages/core/src/build-runner.test.ts",
+  "packages/core/src/x-capture/posts.test.ts", // a real headless browser over the saved search pages
+  "packages/core/src/moments/scan-runner.test.ts", // spawns the real scanner script (it ends before Chrome opens) and stand-in children
   "packages/core/src/judge-pass.test.ts",
   "packages/core/src/propose-pass.test.ts",
   "packages/core/src/sandbox-lifecycle.test.ts", // podman

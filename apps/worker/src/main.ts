@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ApiBrain,
+  applyXSessionResumes,
   BackoffSource,
   BUILD_TICK_MS,
   buildTokenFilePresent,
@@ -10,7 +11,10 @@ import {
   captureDueSnapshots,
   captureRunCap,
   createGroupStep,
+  createMomentJob,
   createTopDownReader,
+  momentSettingsFromEnv,
+  spawnMomentRunner,
   generateMemeIdeas,
   runMemeAngles,
   memeConfigFromEnv,
@@ -205,6 +209,8 @@ const tick = reentrant(
     // The heartbeat first: a stop since the last one is recorded before expiry reads it (meme ideas count running time only).
     if (!dryRun) recordAlive();
     applyCommands();
+    // A Resume press the War Room wrote clears the X session's stop state here, on the next tick (moment scanner ticket 01).
+    applyXSessionResumes(store, new Date(), console.log);
     await applyCleanups();
     sweepStaleRuns();
     expireStaleProposals(store, new Date(), console.log);
@@ -424,6 +430,20 @@ const memeAngleTick = reentrant(
   },
   () => {}, // the previous pass is still waiting on claude: the next tick picks up what is left
 );
+// The Moment scanner (moment scanner ticket 01, ADR 0009 as amended 2026-11-19): every ARGUS_MOMENT_INTERVAL_MIN minutes (30 by default, 15 at
+// least) one child process loads the topic's two search pages on the dedicated logged-in profile and stores the posts and their counts. No Claude,
+// no Brain. OFF unless ARGUS_MOMENTS=1 (and then ARGUS_MOMENT_TOPIC must be set). Caps are in code: 8 loads a scan and 100 a day
+// (ARGUS_MOMENT_LOADS_PER_DAY can only lower it). A locked profile or a stopped X session skips the scan; a dry run spawns nothing.
+const momentSettings = momentSettingsFromEnv(process.env);
+const MOMENT_TICK_MS = momentSettings.intervalMinutes * 60_000;
+const momentJob = createMomentJob({ store, settings: momentSettings, runner: spawnMomentRunner(), notifier, dryRun, log: console.log, signal: shutdown.signal });
+const momentTick = reentrant(
+  async () => {
+    const r = await momentJob();
+    if (r.status !== "off" && r.status !== "overlap") console.log(`[worker] moment scan: ${r.status}${r.note ? ` (${r.note})` : ""}, ${r.loads} load(s), ${r.newPosts} new post(s), ${r.readings} reading(s)`);
+  },
+  () => console.log("[worker] moment scan skipped: the previous scan is still running"),
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -455,6 +475,7 @@ const runStudyTick = () => track(studyTick, "study tick");
 const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
 const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
+const runMomentTick = () => track(momentTick, "moment scan");
 const runMetaTick = () =>
   track(async () => {
     await metaTick();
@@ -474,6 +495,7 @@ let ingestTimer: ReturnType<typeof setInterval> | undefined;
 let judgeTimer: ReturnType<typeof setInterval> | undefined;
 let studyTimer: ReturnType<typeof setInterval> | undefined;
 let metaTimer: ReturnType<typeof setInterval> | undefined;
+let momentTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -485,6 +507,7 @@ const stop = async () => {
   if (studyTimer) console.log("[worker] Study stopped");
   clearInterval(studyTimer);
   clearInterval(metaTimer);
+  clearInterval(momentTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
@@ -556,4 +579,12 @@ if (once) {
     }
   }
   judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
+  if (momentSettings.enabled) {
+    // The first scan waits out the interval since the last one (a restart does not start an extra scan); then one every interval.
+    const last = store.moments.lastScan();
+    const sinceLastMs = last ? Date.now() - Date.parse(last.at) : Infinity;
+    if (sinceLastMs >= MOMENT_TICK_MS) void runMomentTick();
+    momentTimer = setInterval(() => void runMomentTick(), MOMENT_TICK_MS);
+    console.log(`[worker] Moment scanner started: topic "${momentSettings.topic?.label}", every ${momentSettings.intervalMinutes} min, at most ${momentSettings.loadsPerDay} page loads in 24 h${dryRun ? " (dry run: nothing is spawned)" : ""}`);
+  } else console.log("[worker] Moment scanner off (ARGUS_MOMENTS=1 turns it on)");
 }
