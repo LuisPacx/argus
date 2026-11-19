@@ -284,8 +284,28 @@ export async function seedDatastore(store, now) {
   store.radar.recordSource('radar:google:AU', 'ok', '', seenAt(200));
   store.radar.recordSource('radar:google:AU', 'down', 'HTTP 503', seenAt(20));
   store.radar.recordSource('radar:google:US', 'ok', '', seenAt(5));
-  counts.radar_trends = 5;
-  counts.radar_sources = 4;
+  // Ticket 02: a Trend that several independent places carry (the "why now" line and the score breakdown), one whose coin-side state changed, the news
+  // feeds with each state, a hostile feed label and headline, and the worker's own word that the radar is on.
+  const multiKey = radarKey('SEED Crystal Fox');
+  const multi = addTrend('SEED Crystal Fox', '25000+', 25_000, { title: 'SEED Wire: a crystal fox is everywhere', url: 'https://seed.example/crystal-fox' }, 95);
+  store.radar.rescore(multiKey, 80, { at: at(5), since: at(95), parts: [{ label: '4 independent sources within 3 hours (6 carry it, 4 count)', points: 80 }, { label: 'Google traffic of 20,000 or more', points: 20 }, { label: '3 Google countries', points: 10 }], geos: ['CA', 'GB', 'US'], feeds: [{ id: 'radar:ign', label: 'SEED IGN' }, { id: 'radar:kotaku', label: 'SEED Kotaku' }, { id: 'radar:vgc', label: 'SEED VGC' }], trafficText: '25000+' }, seenAt(5));
+  store.radar.recordCheck(multi, { side: 'untokenized', trace: trace(80, [], []), localCreates: 0, localCreators: 0 }, seenAt(80));
+  store.radar.recordCheck(multi, { side: 'contested', trace: trace(20, [liveToken('SEED Fox coin', 'SEEDFOX', 18_000, 6_000)], []), localCreates: 2, localCreators: 2 }, seenAt(20));
+  const hostileFeedKey = radarKey('SEED feeds only story');
+  addTrend('SEED feeds only story', '', 0, { title: `SEED <img src=x onerror=alert(1)> ${'W'.repeat(300)}`, url: 'data:text/html,<script>alert(1)</script>' }, 30);
+  store.radar.rescore(hostileFeedKey, 60, { at: at(5), since: at(30), parts: [{ label: `3 independent sources within 3 hours <script>alert(1)</script> ${'P'.repeat(200)}`, points: 60 }], geos: [], feeds: [{ id: 'radar:evil', label: `SEED <b>evil</b> ${'L'.repeat(200)}` }, { id: 'radar:ign', label: 'SEED IGN' }, { id: 'radar:vgc', label: 'SEED VGC' }], trafficText: '' }, seenAt(5));
+  store.radar.recordSource('radar:ign', 'ok', '', seenAt(5), 'SEED IGN');
+  store.radar.recordSource('radar:kotaku', 'ok', '', seenAt(300), 'SEED Kotaku');
+  store.radar.recordSource('radar:kotaku', 'backing off', 'HTTP 429', seenAt(35), 'SEED Kotaku');
+  store.radar.recordSource('radar:vgc', 'ok', '', seenAt(5), 'SEED VGC');
+  store.radar.recordSource('radar:polygon', 'ok', '', seenAt(500), 'SEED Polygon');
+  store.radar.recordSource('radar:polygon', 'down', 'HTTP 503', seenAt(10), 'SEED Polygon');
+  store.radar.recordSource('radar:gamespot', 'ok', '', seenAt(300), 'SEED GameSpot');
+  store.radar.recordSource('radar:gamespot', 'format changed', 'the answer is not a feed or has no items', seenAt(15), 'SEED GameSpot');
+  store.radar.recordSource('radar:evil', 'ok', '', seenAt(5), `SEED <b>evil</b> ${'L'.repeat(200)}`);
+  store.radar.recordWorker({ enabled: true, dryRun: false, startedAt: at(600), lastTickAt: at(5), geos: 8, feeds: 29 });
+  counts.radar_trends = 7;
+  counts.radar_sources = 10;
 
   return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId, trend: untokenized }, counts };
 }

@@ -1,5 +1,7 @@
 import { radarKey } from "../radar/key.ts";
+import type { RadarFeed } from "../radar/feeds.ts";
 import type { Candidate, ReadResult } from "../radar/readers/google-trends.ts";
+import type { FeedItem, FeedReadResult } from "../radar/readers/rss.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
 
 /** Fixtures for the trend radar's tests (trend radar ticket 01). Test code only; the worker never imports this. */
@@ -26,6 +28,21 @@ export function aPair(over: Partial<DexPair> & { name: string }): DexPair {
 
 export function aCandidate(term: string, trafficMin: number, over: Partial<Candidate> = {}): Candidate {
   return { sourceId: "radar:google:US", key: radarKey(term), term, trafficText: `${trafficMin}+`, trafficMin, newsTitle: "", newsUrl: "", at: T0.toISOString(), ...over };
+}
+
+/** A news feed of the radar's list. */
+export function aFeed(slug: string, label = slug.toUpperCase()): RadarFeed {
+  return { id: `radar:${slug}`, label, url: "https://feeds.example/" + slug + ".xml", group: "entertainment" };
+}
+
+/** A feed item published `minutesAgo` before `from` (T0 unless given). */
+export function anItem(title: string, minutesAgo = 5, from: Date = T0): FeedItem {
+  return { title, url: `https://news.example/${encodeURIComponent(title.slice(0, 20))}`, at: from.getTime() - minutesAgo * 60_000 };
+}
+
+/** What the feed reader answers for one feed that polled well. */
+export function anOkFeedRead(feed: RadarFeed, items: FeedItem[]): FeedReadResult {
+  return { sourceId: feed.id, status: "ok", reason: "", items, fetched: true, notModified: false, undated: 0, waitUntil: null };
 }
 
 export function anOkRead(candidates: Candidate[], sourceId = "radar:google:US"): ReadResult {

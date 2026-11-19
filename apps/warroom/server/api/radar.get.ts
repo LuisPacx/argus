@@ -9,7 +9,9 @@ const token = (t: Token) => ({ name: t.name, symbol: t.symbol, url: t.url, marke
 export default defineEventHandler(() => {
   const view = useStore().radarView(new Date());
   return {
-    enabled: process.env.ARGUS_RADAR === "1",
+    // What the WORKER says it is doing (a row it writes), not this process's own environment: the two are started separately and can differ.
+    enabled: view.enabled,
+    workerTickAt: view.worker?.lastTickAt ?? null,
     trends: view.trends.map((t) => ({
       id: t.id,
       term: t.term,
@@ -30,9 +32,12 @@ export default defineEventHandler(() => {
       biggest: t.biggest ? token(t.biggest) : null,
       lookalikes: t.lookalikes.map((l) => ({ ...token(l), reason: l.reason })),
       lookalikeCount: t.lookalikeCount,
+      why: t.why ? { since: t.why.since, parts: t.why.parts, geos: t.why.geos, feeds: t.why.feeds, trafficText: t.why.trafficText } : null,
+      changedAt: t.changedAt,
+      changedWhy: t.changedWhy,
     })),
-    sources: view.sources.map((s) => ({ source: s.source, status: s.status, reason: s.reason, lastOk: s.lastOk, since: s.since })),
-    alerts: view.alerts.map((a) => ({ source: a.source, status: a.status, reason: a.reason, since: a.since, lastOk: a.lastOk })),
+    sources: view.sources.map((s) => ({ source: s.source, label: s.label, status: s.status, reason: s.reason, lastOk: s.lastOk, since: s.since })),
+    alerts: view.alerts.map((a) => ({ source: a.source, label: a.label, status: a.status, reason: a.reason, since: a.since, lastOk: a.lastOk })),
     lastGoodPollAt: view.lastGoodPollAt,
     counts: { shown: view.counts.shown, untokenized: view.counts.untokenized },
   };

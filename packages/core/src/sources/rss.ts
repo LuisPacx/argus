@@ -8,6 +8,14 @@ export type { FetchText } from "./http.ts";
 export const FEED_FETCH_TIMEOUT_MS = 10_000;
 /** A feed body larger than this fails its poll: feeds are untrusted and a hostile one could be endless. */
 export const FEED_MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * Sent with every feed request. Node's bare User-Agent is refused by some hosts (TechCrunch answered 403 to it and 200 to any named reader), so the
+ * reader names itself. It says what it is and nothing about who runs it.
+ */
+export const FEED_HEADERS: Record<string, string> = {
+  "user-agent": "argus/1.0 (RSS reader; research tool)",
+  accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
+};
 /** Only the first this-many items of a feed are taken. */
 export const FEED_MAX_ITEMS = 100;
 const MAX_TITLE_CHARS = 300;
@@ -35,7 +43,7 @@ export class RssSource implements Source {
     this.id = opts.id;
     this.label = opts.label;
     this.url = opts.url;
-    this.fetchText = opts.fetchText ?? timedFetchText({ what: "RSS", timeoutMs: opts.timeoutMs ?? FEED_FETCH_TIMEOUT_MS, maxBytes: FEED_MAX_BYTES });
+    this.fetchText = opts.fetchText ?? timedFetchText({ what: "RSS", timeoutMs: opts.timeoutMs ?? FEED_FETCH_TIMEOUT_MS, maxBytes: FEED_MAX_BYTES, headers: FEED_HEADERS });
   }
 
   async poll(): Promise<Signal[]> {

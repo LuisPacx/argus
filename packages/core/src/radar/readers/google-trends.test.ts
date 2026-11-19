@@ -127,8 +127,8 @@ describe("failures back the source off", () => {
 });
 
 describe("the config", () => {
-  it("polls the US only, every 15 minutes (ticket 02 widens it)", () => {
-    expect([...RADAR_CONFIG.googleGeos]).toEqual(["US"]);
+  it("polls the 8 proposed countries, every 15 minutes (ticket 02)", () => {
+    expect([...RADAR_CONFIG.googleGeos]).toEqual(["US", "GB", "CA", "AU", "IN", "BR", "DE", "JP"]);
     expect(RADAR_CONFIG.tickMinutes).toBe(15);
   });
 });

@@ -36,7 +36,7 @@ describe("the stored creates the local check reads (study.createsSince)", () => 
 });
 
 describe("the row cap", () => {
-  it("with 500 stored Trends the view has 100, highest score first, and the counts cover all 500", () => {
+  it("with 500 stored Trends the view has 30, highest score first, and the counts cover all 500", () => {
     const store = open();
     for (let i = 0; i < 500; i++) {
       const c = aCandidate(`Subject ${i}`, 2_000);
@@ -45,8 +45,8 @@ describe("the row cap", () => {
       if (i % 100 === 0) store.radar.recordCheck(id, { side: "untokenized", trace: { at: at(1).toISOString(), phrases: [], live: [], lookalikes: [] }, localCreates: 0, localCreators: 0 }, at(1));
     }
     const view = store.radar.view(at(2));
-    expect(view.trends).toHaveLength(100);
-    expect(view.trends.map((t) => t.score)).toEqual(Array.from({ length: 100 }, (_, n) => 499 - n));
+    expect(view.trends).toHaveLength(30);
+    expect(view.trends.map((t) => t.score)).toEqual(Array.from({ length: 30 }, (_, n) => 499 - n));
     expect(view.counts).toEqual({ shown: 500, untokenized: 5 });
     store.close();
   });
@@ -63,7 +63,7 @@ describe("the row cap", () => {
       }
     }
     const view = store.radar.view(at(2));
-    expect(view.trends).toHaveLength(100);
+    expect(view.trends).toHaveLength(30);
     expect(view.trends[0]).toMatchObject({ term: "Subject 7", score: 1_000, lookalikeCount: 80 });
     expect(view.trends[0]!.lookalikes).toHaveLength(50);
     expect(view.trends[0]!.lookalikes[0]!.name).toBe("Dead 0");

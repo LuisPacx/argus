@@ -110,6 +110,37 @@ export function retryingFetchText(fetchText: FetchText, opts: RetryOptions = {})
   };
 }
 
+/** The validators a server gave with an earlier answer; sent back as `If-None-Match` and `If-Modified-Since`. */
+export interface ConditionalRequest {
+  etag?: string;
+  lastModified?: string;
+}
+
+/** A 304 (nothing new), or a body with the validators the server sent with it. */
+export type ConditionalResponse = { notModified: true } | { notModified: false; body: string; etag?: string; lastModified?: string };
+
+export type FetchConditional = (url: string, cond: ConditionalRequest) => Promise<ConditionalResponse>;
+
+/** Like `timedFetchText` (same timer, same size cap, same errors) for a poller that keeps ETag or Last-Modified. A 304 is not an error. */
+export function timedFetchConditional(opts: TimedFetchOptions): FetchConditional {
+  return async (url, cond) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+    try {
+      const headers: Record<string, string> = { ...opts.headers };
+      if (cond.etag) headers["if-none-match"] = cond.etag;
+      if (cond.lastModified) headers["if-modified-since"] = cond.lastModified;
+      const res = await fetch(url, { signal: controller.signal, headers });
+      if (res.status === 304) return { notModified: true };
+      if (!res.ok) throw new HttpError(`${opts.what} fetch failed: ${res.status} ${res.statusText}`, res.status, retryAfterMs(res));
+      const body = await readLimited(res, opts.maxBytes, opts.what);
+      return { notModified: false, body, etag: res.headers.get("etag") ?? undefined, lastModified: res.headers.get("last-modified") ?? undefined };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 /** Fetches with a timer that stays armed until the body is read, so a trickled body is bounded too. Remote bodies are untrusted. */
 export function timedFetchText(opts: TimedFetchOptions): FetchText {
   return async (url) => {

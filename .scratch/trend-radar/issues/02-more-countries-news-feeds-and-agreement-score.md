@@ -3,7 +3,7 @@
 
 **What to build:** the radar stops being one feed and becomes a counter of agreement. Google Trends is polled for about 8 countries; about 30 news feeds in a radar-only list are polled; headline phrases that three or more distinct feeds carry within 3 hours become candidates; and the **score** (spec 5.2) decides what the page shows. Useful alone: the Operator sees a subject because several independent places carry it, which is the cheapest lead the research found (Anthropic IPO on 13 feeds, about 9 hours before the first matching coin), and the Google noise of one country no longer fills the page.
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** 01
 Spec: sections 4.1, 5.1 to 5.3.
@@ -26,14 +26,14 @@ Spec: sections 4.1, 5.1 to 5.3.
 
 ## Acceptance criteria
 
-- [ ] **Feed list** (`radar-feeds.test.ts`): every entry has a unique `radar:` id and an https URL; `config/rss-feeds.json` is byte-identical to its state before this ticket (the test fails if a radar feed id appears there); the Narrative sources registered by the worker are unchanged (`source-polls.test.ts` still passes).
-- [ ] **RSS reader** (`readers/rss.test.ts`, recorded feeds, fake fetch): items parse; a 304 is a good poll; a 429 backs off per feed; three failures mark the feed `down` and it is retried hourly; a non-feed body is `format changed`; one feed failing leaves the others polled.
-- [ ] **Phrase counting** (`phrases.test.ts`): a phrase in 3 distinct feeds inside 3 hours is a candidate; the same phrase 5 times in one feed, or in 3 feeds spread over 5 hours, is not; stop-word-only phrases are not; "GTA VI" in one feed and "GTA 6" in another are one key; 20,000 characters of headline do not make the counter slow (a bounded-time test); no RegExp from the text.
-- [ ] **Storage of feed text** (`readers/rss-storage.test.ts`, real Datastore on a temp dir): a headline with `<script>`, `<img onerror>`, control characters, newlines and 100,000 characters is stored flattened, markup-free and cut to the `cleanTerm` limit; a `javascript:`, `data:` or over-long link is stored empty; no stored `radar_readings` row holds a character the cleaner removes.
-- [ ] **Score** (`score.test.ts`): 3 feeds is 60; Google alone at 2,000 traffic is 20 and not shown; Google in 3 countries at 25,000 plus one feed is 20 + 20 + 20 + 10 = 70; a fifth source adds nothing; 39 is hidden and 40 shown; the replayed Anthropic IPO fixture (13 feeds) is shown; a Trend crossing 70 is "changed" once, not on every tick.
-- [ ] **Job** (`job.test.ts`): sources merge into one row per key; the 30-row and 10-an-hour limits hold; a Meta's label from a fixture is skipped as in ticket 01; a country in `backing off` does not stop the others and is not counted as a quiet hour.
-- [ ] **Render** (`radar-render.test.ts`, `pnpm page:check --seed /radar`, seeded): "why now" and the breakdown show for a multi-source Trend; every country and feed shows with its state; no overflow at 390 or 1240 px; hostile headline text renders as one escaped line.
-- [ ] Type-check, `pnpm lint` and the full `pnpm check` pass, run once before the commit.
+- [x] **Feed list** (`radar-feeds.test.ts`): every entry has a unique `radar:` id and an https URL; `config/rss-feeds.json` is byte-identical to its state before this ticket (the test fails if a radar feed id appears there); the Narrative sources registered by the worker are unchanged (`source-polls.test.ts` still passes).
+- [x] **RSS reader** (`readers/rss.test.ts`, recorded feeds, fake fetch): items parse; a 304 is a good poll; a 429 backs off per feed; three failures mark the feed `down` and it is retried hourly; a non-feed body is `format changed`; one feed failing leaves the others polled.
+- [x] **Phrase counting** (`phrases.test.ts`): a phrase in 3 distinct feeds inside 3 hours is a candidate; the same phrase 5 times in one feed, or in 3 feeds spread over 5 hours, is not; stop-word-only phrases are not; "GTA VI" in one feed and "GTA 6" in another are one key; 20,000 characters of headline do not make the counter slow (a bounded-time test); no RegExp from the text.
+- [x] **Storage of feed text** (`readers/rss-storage.test.ts`, real Datastore on a temp dir): a headline with `<script>`, `<img onerror>`, control characters, newlines and 100,000 characters is stored flattened, markup-free and cut to the `cleanTerm` limit; a `javascript:`, `data:` or over-long link is stored empty; no stored `radar_readings` row holds a character the cleaner removes.
+- [x] **Score** (`score.test.ts`): 3 feeds is 60; Google alone at 2,000 traffic is 20 and not shown; Google in 3 countries at 25,000 plus one feed is 20 + 20 + 20 + 10 = 70; a fifth source adds nothing; 39 is hidden and 40 shown; the replayed Anthropic IPO fixture (13 feeds) is shown; a Trend crossing 70 is "changed" once, not on every tick.
+- [x] **Job** (`job.test.ts`): sources merge into one row per key; the 30-row and 10-an-hour limits hold; a Meta's label from a fixture is skipped as in ticket 01; a country in `backing off` does not stop the others and is not counted as a quiet hour.
+- [x] **Render** (`radar-render.test.ts`, `pnpm page:check --seed /radar`, seeded): "why now" and the breakdown show for a multi-source Trend; every country and feed shows with its state; no overflow at 390 or 1240 px; hostile headline text renders as one escaped line.
+- [x] Type-check, `pnpm lint` and the full `pnpm check` pass, run once before the commit.
 
 ## Constraints
 
@@ -41,3 +41,28 @@ Spec: sections 4.1, 5.1 to 5.3.
 - Commit subject `Trend radar ticket 02: more countries, radar-only news feeds and the agreement score`, body ends with `Ticket: .scratch/trend-radar/issues/02-more-countries-news-feeds-and-agreement-score.md`. No `Closes #N`.
 
 ## Comments
+
+### For the Operator to approve before go-live (spec open question 1)
+
+**Countries (8):** US, GB, CA, AU, IN, BR, DE, JP (`RADAR_CONFIG.googleGeos`).
+
+**News feeds (29, `config/radar-feeds.json`)**, each loaded with the radar's User-Agent on 2026-11-19, parsed with dated items, and allowed by its host's robots.txt for `*` (feed path not disallowed). Terms of use were not read beyond robots.txt:
+- Entertainment (8): Pitchfork, BBC Entertainment and Arts, The A.V. Club, Mashable Entertainment, Bloody Disgusting, E! News, Flickering Myth, Cultured Vultures.
+- Gaming (10): IGN (feedburner), GameSpot, Polygon, Kotaku, VGC, PlayStation Blog, Xbox Wire, Gematsu, Siliconera, Giant Bomb (publishes rarely).
+- Sport (7): BBC Sport, Sky Sports, Yahoo Sports, Sporting News, RaceFans, Pro Football Talk, ABC News Australia Sport.
+- Upcoming (4): ComingSoon.net, Den of Geek, Dexerto, Nintendo Everything.
+URLs are in the file. At most 2 feeds per host (a test guards it).
+
+**Rejected, with reason:** robots.txt disallows the feed path for `*`: Variety, Deadline, The Hollywood Reporter, IndieWire, Collider, /Film, Screen Rant, Rolling Stone, Billboard, Consequence, NME, TVLine, TheWrap, Stereogum, Guardian (film, music, sport, football), PC Gamer, Eurogamer, GamesRadar, Rock Paper Shotgun, Destructoid, Game Rant, TheGamer, GamesIndustry.biz, Insider Gaming, VideoGamer, Game Informer, Windows Central, ESPN, CBS Sports, ESPNcricinfo, talkSPORT, Autosport, The Independent, FourFourTwo, MLB Trade Rumors, First Showing, JoBlo, Movieweb, Cinemablend, Film Daily, Geek Tyrant, Slashgear. Not loadable or not a feed: Entertainment Weekly (404), Vulture, Empire, Digital Spy, Complex, SB Nation, The Ringer, Bleacher Report, Fox Sports, NBC Sports, Cricbuzz, Goal, Football365, Film School Rejects (404), People, Twinfinite, Nintendo Wire (403), Apple trailers (redirects to a web page), Screen Daily (202, empty). Over the 2 MB cap: Rotten Tomatoes. robots.txt itself unreadable (403): Nintendo Life, Push Square, Pure Xbox (left out to be safe; the feeds load). Same publisher as a kept feed, left out to avoid double counting: BBC Football, Sky Sports Football and F1, GameSpot mashup, NPR and NYT section feeds.
+
+### Review leftovers of ticket 01, decided here
+1. **Not-traced streak:** 3 `not traced` results in a row end that tick's checks (`notTracedStreakMax`); the unchecked Trends go first next tick.
+2. **Retention:** readings kept 30 days then deleted by the tick's prune; "append only" kept for updates and for any delete outside the prune (flag row in `radar_meta`). Feed phrases are stored only for Trends. Recorded in ADR 0016 decision 6.
+3. **War Room "enabled":** the worker writes a `radar_meta` row (enabled, dry run, last tick); the API and page report that, and say so when a worker that is on has not ticked for 45 minutes. ADR 0016 decision 7.
+4. **TechCrunch 403:** fixed, not dropped. Node's bare User-Agent gets 403 from TechCrunch's Cloudflare; any named reader gets 200. `RssSource` now sends a User-Agent (`argus/1.0 (RSS reader; research tool)`) and an Accept header (`FEED_HEADERS` in `sources/rss.ts`); `config/rss-feeds.json` is unchanged (byte-identical).
+
+### Decisions worth a look
+- A feed-only phrase cannot become a Trend in the first 3 hours of polling, nor if it first appeared at the very first poll (it is background). Google-carried keys are not held back.
+- Several cuts of one headline (`anthropic ipo`, `ipo filing`) are one Trend: the longest, best-carried cut wins; a cut of a Meta's headline is skipped with it. The model-free merge is by shared headline or shared words, not by meaning (ticket 04 does the subject merge).
+- A Google-only Trend needs 20,000 searches (20 + 20), or 3 countries at 5,000 or more (20 + 10 + 10). That follows the spec table, so most single-country Google terms no longer show.
+- A longer phrase around a Meta's label (not the label itself) is still a Trend.

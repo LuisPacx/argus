@@ -25,7 +25,8 @@ describe("the seen-set", () => {
     expect(store.radar.touchSeen(c.key, at(0))).toBe(true);
     store.radar.createTrend({ key: c.key, label: c.term, firstSeen: at(0).toISOString(), score: 20, candidate: c });
     expect(store.radar.touchSeen(c.key, at(15))).toBe(false);
-    store.radar.touchTrend(c.key, aCandidate("GTA VI", 6_000, { newsTitle: "Trailer 3" }), 30, at(15));
+    store.radar.touchTrend(c.key, aCandidate("GTA VI", 6_000, { newsTitle: "Trailer 3" }), at(15));
+    store.radar.rescore(c.key, 30, { at: at(15).toISOString(), since: at(15).toISOString(), parts: [], geos: ["US"], feeds: [], trafficText: "6000+" }, at(15));
     expect(store.radar.touchSeen(aCandidate("gta 6", 1).key, at(30))).toBe(false); // the same key under another spelling
     expect(store.radar.view(at(31)).trends).toHaveLength(1);
     expect(store.radar.trendByKey(c.key)).toMatchObject({ firstSeen: at(0).toISOString(), lastSeen: at(15).toISOString(), trafficMin: 6_000, score: 30, newsTitle: "Trailer 3" });
@@ -126,10 +127,10 @@ describe("source states", () => {
     const { store } = open();
     store.radar.recordSource("radar:google:US", "ok", "", at(0));
     store.radar.recordSource("radar:google:US", "ok", "", at(15));
-    expect(store.radar.sourceStates()).toEqual([{ source: "radar:google:US", status: "ok", reason: "", lastOk: at(15).toISOString(), since: at(0).toISOString() }]);
+    expect(store.radar.sourceStates()).toEqual([{ source: "radar:google:US", label: "", status: "ok", reason: "", lastOk: at(15).toISOString(), since: at(0).toISOString() }]);
     store.radar.recordSource("radar:google:US", "backing off", "HTTP 429", at(30));
     store.radar.recordSource("radar:google:US", "down", "HTTP 503", at(60));
-    expect(store.radar.sourceStates()[0]).toEqual({ source: "radar:google:US", status: "down", reason: "HTTP 503", lastOk: at(15).toISOString(), since: at(30).toISOString() });
+    expect(store.radar.sourceStates()[0]).toEqual({ source: "radar:google:US", label: "", status: "down", reason: "HTTP 503", lastOk: at(15).toISOString(), since: at(30).toISOString() });
     store.radar.recordSource("radar:google:US", "ok", "", at(90));
     expect(store.radar.sourceStates()[0]).toMatchObject({ status: "ok", reason: "", lastOk: at(90).toISOString(), since: at(90).toISOString() });
     store.close();
@@ -141,9 +142,121 @@ describe("the War Room's view of the store (type test)", () => {
     const { store } = open();
     const wr: WarRoomStore = store;
     expect(wr.radarView(T0)).toMatchObject({ trends: [], sources: [], alerts: [], lastGoodPollAt: null, counts: { shown: 0, untokenized: 0 } });
-    expect(wr.radarStrip(T0)).toEqual({ shown: 0, untokenized: 0, alerts: [] });
+    expect(wr.radarStrip(T0)).toEqual({ shown: 0, untokenized: 0, alerts: [], enabled: false });
     // @ts-expect-error the radar's tables are the worker's: the War Room's store has no `radar`
     expect(wr.radar).toBeDefined();
+    store.close();
+  });
+});
+
+describe("retention of the readings (ADR 0016)", () => {
+  const count = (file: string) => {
+    const raw = new DatabaseSync(file);
+    try {
+      return (raw.prepare("SELECT COUNT(*) AS n FROM radar_readings").get() as { n: number }).n;
+    } finally {
+      raw.close();
+    }
+  };
+
+  it("prune deletes readings older than 30 days and keeps the rest, and nothing else can delete one", () => {
+    const { file, store } = open();
+    store.radar.recordReading(aCandidate("Old", 2_000), at(0).toISOString());
+    store.radar.recordReading(aCandidate("Mid", 2_000), at(20 * DAY).toISOString());
+    store.radar.recordReading(aCandidate("New", 2_000), at(29 * DAY).toISOString());
+    store.radar.prune(at(31 * DAY));
+    store.close();
+    expect(count(file)).toBe(2);
+    const raw = new DatabaseSync(file);
+    expect(() => raw.exec("DELETE FROM radar_readings")).toThrow(/append only/); // the flag row is gone after the prune: the guard is back
+    expect(() => raw.exec("UPDATE radar_readings SET term = 'x'")).toThrow(/append only/);
+    expect((raw.prepare("SELECT COUNT(*) AS n FROM radar_meta WHERE k = 'pruning'").get() as { n: number }).n).toBe(0);
+    raw.close();
+  });
+
+  it("a prune that fails half way leaves the flag row out and the guard on", () => {
+    const { file, store } = open();
+    store.radar.recordReading(aCandidate("Old", 2_000), at(0).toISOString());
+    expect(() => store.radar.prune(new Date("not a date"))).toThrow();
+    store.close();
+    expect(count(file)).toBe(1);
+    const raw = new DatabaseSync(file);
+    expect(() => raw.exec("DELETE FROM radar_readings")).toThrow(/append only/);
+    raw.close();
+  });
+
+  it("a database that ticket 01 made (the old delete trigger, no ticket 02 columns) is upgraded in place and keeps its rows", () => {
+    const { file, store } = open();
+    store.radar.recordReading(aCandidate("Old", 2_000), at(0).toISOString());
+    store.close();
+    const raw = new DatabaseSync(file);
+    raw.exec("DROP TRIGGER radar_readings_delete_by_prune_only");
+    raw.exec("CREATE TRIGGER radar_readings_no_delete BEFORE DELETE ON radar_readings BEGIN SELECT RAISE(ABORT, 'radar readings are append only'); END");
+    raw.exec("ALTER TABLE radar_trends DROP COLUMN why");
+    raw.exec("ALTER TABLE radar_trends DROP COLUMN changed_at");
+    raw.exec("ALTER TABLE radar_trends DROP COLUMN changed_why");
+    raw.exec("ALTER TABLE radar_source_state DROP COLUMN label");
+    raw.close();
+    const again = Datastore.open(file);
+    again.radar.prune(at(40 * DAY)); // the old trigger would have refused this
+    again.radar.recordSource("radar:ign", "ok", "", at(0), "IGN");
+    expect(again.radar.sourceStates()[0]).toMatchObject({ label: "IGN" });
+    again.close();
+    expect(count(file)).toBe(0);
+  });
+});
+
+describe("the score and what changed", () => {
+  const why = (score: number) => ({ at: at(0).toISOString(), since: at(0).toISOString(), parts: [{ label: "x", points: score }], geos: [], feeds: [], trafficText: "" });
+
+  it("keeps the highest score and its reasons, and flags crossing 70 once", () => {
+    const { store } = open();
+    trendFor(store, "Alpha", 2_000);
+    store.radar.rescore("alpha", 60, why(60), at(15));
+    expect(store.radar.trendByKey("alpha")).toMatchObject({ score: 60, changedAt: null });
+    store.radar.rescore("alpha", 80, why(80), at(30));
+    expect(store.radar.trendByKey("alpha")).toMatchObject({ score: 80, changedAt: at(30).toISOString(), changedWhy: "score rose to 80" });
+    store.radar.rescore("alpha", 80, why(80), at(45)); // still above 70: not flagged again
+    store.radar.rescore("alpha", 40, why(40), at(60)); // lower: the peak stays
+    expect(store.radar.trendByKey("alpha")).toMatchObject({ score: 80, changedAt: at(30).toISOString(), why: { parts: [{ label: "x", points: 80 }] } });
+    store.close();
+  });
+
+  it("a change between two coin-side states is flagged; a failed check and its recovery are not", () => {
+    const { store } = open();
+    const id = trendFor(store, "Alpha", 2_000);
+    const traced = (side: CheckResult["side"], t: Date): CheckResult => ({ side, trace: { at: t.toISOString(), phrases: [], live: [], lookalikes: [] }, localCreates: 0, localCreators: 0 });
+    store.radar.recordCheck(id, traced("untokenized", at(1)), at(1)); // the first check is not a change
+    expect(store.radar.trend(id)).toMatchObject({ changedAt: null });
+    store.radar.recordCheck(id, { side: "not traced", trace: null, localCreates: null, localCreators: null }, at(61));
+    store.radar.recordCheck(id, traced("untokenized", at(121)), at(121));
+    expect(store.radar.trend(id)).toMatchObject({ changedAt: null });
+    store.radar.recordCheck(id, traced("taken", at(181)), at(181));
+    expect(store.radar.trend(id)).toMatchObject({ changedAt: at(181).toISOString(), changedWhy: "untokenized to taken" });
+    store.close();
+  });
+});
+
+describe("what the worker says about itself", () => {
+  it("the page's enabled is the worker's row: absent, off, on, and on in a dry run", () => {
+    const { store } = open();
+    expect(store.radarView(T0)).toMatchObject({ enabled: false, worker: null });
+    const state = { enabled: false, dryRun: false, startedAt: at(0).toISOString(), lastTickAt: null, geos: 8, feeds: 0 };
+    store.radar.recordWorker(state);
+    expect(store.radarView(T0)).toMatchObject({ enabled: false, worker: state });
+    store.radar.recordWorker({ ...state, enabled: true, feeds: 29 });
+    store.radar.recordWorkerTick(at(15));
+    expect(store.radarView(T0)).toMatchObject({ enabled: true, worker: { lastTickAt: at(15).toISOString(), feeds: 29 } });
+    expect(store.radarStrip(T0).enabled).toBe(true);
+    store.radar.recordWorker({ ...state, enabled: true, dryRun: true });
+    expect(store.radarView(T0).enabled).toBe(false);
+    store.close();
+  });
+
+  it("a tick before the worker said anything writes nothing", () => {
+    const { store } = open();
+    store.radar.recordWorkerTick(at(15));
+    expect(store.radar.workerState()).toBeNull();
     store.close();
   });
 });

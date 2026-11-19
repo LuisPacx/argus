@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example Sport</title>
+  <id>https://sport.example/</id>
+  <updated>2026-11-19T11:55:00Z</updated>
+  <entry>
+    <title type="html">Derby preview: &lt;b&gt;big&lt;/b&gt; match tonight</title>
+    <link rel="alternate" href="https://sport.example/derby-preview"/>
+    <id>tag:sport.example,2026:derby</id>
+    <published>2026-11-19T11:30:00Z</published>
+    <updated>2026-11-19T11:55:00Z</updated>
+    <summary>Preview.</summary>
+  </entry>
+</feed>

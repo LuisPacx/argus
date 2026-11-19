@@ -40,9 +40,39 @@ export interface CheckResult {
 
 export type SourceStatus = "ok" | "backing off" | "format changed" | "down";
 
+/** Why a Trend is shown (ticket 02): the sources that carried it and the parts of its score. Text is cleaned and cut before it is stored. */
+export interface TrendWhy {
+  /** When this was worked out (ISO). */
+  at: string;
+  /** The earliest reading inside the 3-hour window (ISO), or null. */
+  since: string | null;
+  parts: Array<{ label: string; points: number }>;
+  /** The Google countries that carried it. */
+  geos: string[];
+  /** The feeds that carried it: id and label. */
+  feeds: Array<{ id: string; label: string }>;
+  /** Google's traffic figure, as Google wrote it ("20000+"), or "". */
+  trafficText: string;
+}
+
+/** What the worker says about itself (item 3 of the ticket 01 review): the War Room shows this and not its own environment. */
+export interface WorkerState {
+  /** ARGUS_RADAR=1 in the worker's environment. */
+  enabled: boolean;
+  dryRun: boolean;
+  startedAt: string;
+  /** The last tick that ran (ISO), or null before the first. */
+  lastTickAt: string | null;
+  /** How many Google countries and news feeds the worker polls. */
+  geos: number;
+  feeds: number;
+}
+
 /** The status of one source, as stored and shown. */
 export interface SourceState {
   source: string;
+  /** A feed's label ("IGN"); "" for a Google country. */
+  label: string;
   status: SourceStatus;
   reason: string;
   /** The last good poll (ISO), or null. */
@@ -53,6 +83,7 @@ export interface SourceState {
 
 export interface SourceAlert {
   source: string;
+  label: string;
   status: Exclude<SourceStatus, "ok">;
   reason: string;
   since: string;

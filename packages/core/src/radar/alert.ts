@@ -12,7 +12,7 @@ export function sourceAlerts(states: readonly SourceState[], now: Date): SourceA
     if (s.status === "ok") continue;
     const since = Date.parse(s.since);
     if (!Number.isFinite(since) || now.getTime() - since <= RADAR_CONFIG.alertAfterMs) continue;
-    out.push({ source: s.source, status: s.status, reason: s.reason, since: s.since, lastOk: s.lastOk });
+    out.push({ source: s.source, label: s.label, status: s.status, reason: s.reason, since: s.since, lastOk: s.lastOk });
   }
   return out;
 }

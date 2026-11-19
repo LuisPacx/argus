@@ -18,6 +18,8 @@ import {
   createMomentJob,
   createRadarJob,
   GoogleTrendsReader,
+  loadRadarFeeds,
+  RssFeedReader,
   radarSettingsFromEnv,
   RADAR_CONFIG,
   createTopDownReader,
@@ -471,10 +473,15 @@ const momentTick = reentrant(
 // override, so a test run never reaches the real API.
 const radarSettings = radarSettingsFromEnv(process.env);
 const RADAR_TICK_MS = RADAR_CONFIG.tickMinutes * 60_000;
+// Ticket 02: the radar's own news feed list (config/radar-feeds.json, never config/rss-feeds.json), read once at start and only when the radar is on, so a
+// bad file stops a radar that is on and cannot break one that is off. ARGUS_RADAR_FEEDS points at another file (tests, local mirrors).
+const radarFeeds = radarSettings.enabled ? loadRadarFeeds(process.env.ARGUS_RADAR_FEEDS || join(repoRoot, "config", "radar-feeds.json")) : [];
 const radarJob = createRadarJob({
   store,
   settings: radarSettings,
   reader: new GoogleTrendsReader(),
+  feedReader: new RssFeedReader(),
+  feeds: radarFeeds,
   dex: new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined }),
   dryRun,
   log: console.log,
@@ -645,9 +652,11 @@ if (once) {
     momentTimer = setInterval(() => void runMomentTick(), MOMENT_TICK_MS);
     console.log(`[worker] Moment scanner started: topic "${momentSettings.topic?.label}", every ${momentSettings.intervalMinutes} min, at most ${momentSettings.loadsPerDay} page loads in 24 h${dryRun ? " (dry run: nothing is spawned)" : ""}`);
   } else console.log("[worker] Moment scanner off (ARGUS_MOMENTS=1 turns it on)");
+  // The War Room shows this row, not its own environment (it may have been started with other variables than the worker).
+  store.radar.recordWorker({ enabled: radarSettings.enabled, dryRun, startedAt: new Date().toISOString(), lastTickAt: null, geos: RADAR_CONFIG.googleGeos.length, feeds: radarFeeds.length });
   if (radarSettings.enabled) {
     void runRadarTick();
     radarTimer = setInterval(() => void runRadarTick(), RADAR_TICK_MS);
-    console.log(`[worker] Trend radar started: Google Trends ${RADAR_CONFIG.googleGeos.join(", ")} every ${RADAR_CONFIG.tickMinutes} min, at most ${radarSettings.searchesPerTick} DexScreener searches a tick${dryRun ? " (dry run: nothing is polled or searched)" : ""}`);
+    console.log(`[worker] Trend radar started: Google Trends ${RADAR_CONFIG.googleGeos.join(", ")} and ${radarFeeds.length} news feeds every ${RADAR_CONFIG.tickMinutes} min, at most ${radarSettings.searchesPerTick} DexScreener searches a tick${dryRun ? " (dry run: nothing is polled or searched)" : ""}`);
   } else console.log("[worker] Trend radar off (ARGUS_RADAR=1 turns it on)");
 }

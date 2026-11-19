@@ -18,7 +18,7 @@ const view = computed(() => radarPageView(data.value, nowMs.value));
   <div class="grid gap-6">
     <h2 class="page-title">Radar</h2>
     <p class="note muted">
-      Subjects that are rising on Google Trends right now, with whether a live token already carries the name. Read by the worker every 15 minutes; a token counts only when it passes the
+      Subjects that several independent places carry right now (Google Trends in several countries and a list of news feeds), scored by how many agree, with whether a live token already carries the name. Read by the worker every 15 minutes; a token counts only when it passes the
       live-token test (priced, real liquidity, a market cap in proportion to it), and a drained pool or a fake cap is shown as a lookalike and not counted. Nothing here is advice or a launch signal.
     </p>
     <RadarPanel :view="view" />

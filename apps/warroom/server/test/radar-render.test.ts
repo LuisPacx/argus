@@ -30,11 +30,15 @@ const trend = (over: Partial<RadarPayloadTrend> = {}): RadarPayloadTrend => ({
   biggest: null,
   lookalikes: [],
   lookalikeCount: 0,
+  why: null,
+  changedAt: null,
+  changedWhy: "",
   ...over,
 });
-const source = (over: Partial<RadarPayloadSource> = {}): RadarPayloadSource => ({ source: "radar:google:US", status: "ok", reason: "", lastOk: ago(5), since: ago(300), ...over });
+const source = (over: Partial<RadarPayloadSource> = {}): RadarPayloadSource => ({ source: "radar:google:US", label: "", status: "ok", reason: "", lastOk: ago(5), since: ago(300), ...over });
 const payload = (trends: RadarPayloadTrend[] = [trend()], over: Partial<RadarPayload> = {}): RadarPayload => ({
   enabled: true,
+  workerTickAt: ago(3),
   trends,
   sources: [source()],
   alerts: [],
@@ -68,7 +72,7 @@ describe("a Trend", () => {
   it("is one row with the term, the coin-side state, the traffic, the age, the creates line, the news headline as a link and the source", async () => {
     const html = await draw(payload());
     expect(html).toContain('data-test="trend-7"');
-    for (const text of ["alpha bear", "Untokenized", "50000+ searches", "first seen 50 minutes ago", "No live token found.", "12 creates in 48 h by 9 creators; local creates are a partial view.", "checked 44 minutes ago", "A bear walks into a bar", "Google Trends (US)", "Data source: Google Trends", "1 Trend shown, 1 untokenized."]) expect(html, text).toContain(text);
+    for (const text of ["alpha bear", "Untokenized", "50000+ searches", "first seen 50 minutes ago", "No live token found.", "12 creates in 48 h by 9 creators; local creates are a partial view.", "checked 44 minutes ago", "A bear walks into a bar", "Google Trends (US)", "Data sources: Google Trends and the news feed list", "1 Trend shown, 1 untokenized.", "Score 30"]) expect(html, text).toContain(text);
     expect(hrefs(html)).toEqual(["https://news.example/bear"]);
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
@@ -109,6 +113,93 @@ describe("a Trend", () => {
   });
 });
 
+describe("why now and the score", () => {
+  const why = (over: Partial<NonNullable<RadarPayloadTrend["why"]>> = {}): NonNullable<RadarPayloadTrend["why"]> => ({
+    since: ago(95),
+    parts: [
+      { label: "2 independent sources within 3 hours", points: 40 },
+      { label: "Google traffic of 20,000 or more", points: 20 },
+      { label: "3 Google countries", points: 10 },
+    ],
+    geos: ["CA", "GB", "US"],
+    feeds: [{ id: "radar:ign", label: "IGN" }],
+    trafficText: "25000+",
+    ...over,
+  });
+
+  it("a Trend carried by several sources says which, since when, the numbers, and opens a breakdown that adds up", async () => {
+    const html = await draw(payload([trend({ score: 70, why: why() })]));
+    expect(html).toContain('data-test="trend-why"');
+    expect(html).toContain("Carried by Google Trends (CA, GB, US; 25000+ searches) and 1 news feed (IGN), since 1 hour ago.");
+    expect(html).toContain('data-test="trend-score">Score 70<');
+    expect(html).toMatch(/<details[^>]*data-test="trend-breakdown"/);
+    expect(html).toContain("Score 70: how it adds up");
+    for (const line of ["2 independent sources within 3 hours: 40 points", "Google traffic of 20,000 or more: 20 points", "3 Google countries: 10 points"]) expect(html, line).toContain(line);
+    const row = radarPageView(payload([trend({ score: 70, why: why() })]), NOW).groups[0]!.rows[0]!;
+    expect(row.breakdown).toHaveLength(3);
+  });
+
+  it("feeds only: no Google part, and the feeds are listed with a count (and 'and N more' past 6)", async () => {
+    const feeds = Array.from({ length: 9 }, (_, i) => ({ id: `radar:f${i}`, label: `Feed ${i}` }));
+    const html = await draw(payload([trend({ trafficText: "", trafficMin: 0, score: 80, why: why({ geos: [], trafficText: "", feeds, parts: [{ label: "4 independent sources within 3 hours (9 carry it, 4 count)", points: 80 }] }) })]));
+    expect(html).toContain("Carried by 9 news feeds (Feed 0, Feed 1, Feed 2, Feed 3, Feed 4, Feed 5, and 3 more), since 1 hour ago.");
+    expect(html).toContain("not on Google Trends");
+    expect(html).toContain("(9 carry it, 4 count): 80 points");
+  });
+
+  it("a Trend with no why (made before the score existed) shows no why line and no breakdown", async () => {
+    const html = await draw(payload([trend()]));
+    expect(html).not.toContain("trend-why");
+    expect(html).not.toContain("trend-breakdown");
+  });
+
+  it("a Trend that changed says when and what", async () => {
+    const html = await draw(payload([trend({ changedAt: ago(7), changedWhy: "score rose to 80" })]));
+    expect(html).toContain('data-test="trend-changed"');
+    expect(html).toContain("changed 7 minutes ago: score rose to 80");
+    expect(await draw(payload())).not.toContain("trend-changed");
+  });
+});
+
+describe("every country and feed shows with its state", () => {
+  const countries = ["US", "GB", "CA", "AU", "IN", "BR", "DE", "JP"].map((g) => source({ source: `radar:google:${g}` }));
+  const feeds = [
+    source({ source: "radar:ign", label: "IGN" }),
+    source({ source: "radar:kotaku", label: "Kotaku", status: "backing off", reason: "HTTP 429", since: ago(30), lastOk: ago(45) }),
+    source({ source: "radar:polygon", label: "Polygon", status: "down", reason: "HTTP 503", since: ago(200), lastOk: null }),
+    source({ source: "radar:vgc", label: "VGC", status: "format changed", reason: "the answer is not a feed or has no items", since: ago(20) }),
+  ];
+
+  it("lists the 8 countries and each feed under its own heading, with the state and the last good poll", async () => {
+    const html = await draw(payload([trend()], { sources: [...countries, ...feeds] }));
+    expect(html).toContain("Google Trends countries (8)");
+    expect(html).toContain("News feeds (4)");
+    for (const g of ["US", "GB", "CA", "AU", "IN", "BR", "DE", "JP"]) expect(html, g).toContain(`Google Trends (${g}):</span> ok; last good poll 5 minutes ago`);
+    expect(html).toContain("IGN:</span> ok; last good poll 5 minutes ago");
+    expect(html).toContain("Kotaku:</span> backing off since 30 minutes ago (HTTP 429); last good poll 45 minutes ago");
+    expect(html).toContain("Polygon:</span> down since 3 hours ago (HTTP 503); last good poll none yet");
+    expect(html).toContain("VGC:</span> format changed since 20 minutes ago (the answer is not a feed or has no items)");
+    expect(html.match(/data-tone="amber"/g)).toHaveLength(3);
+    expect(html.match(/data-tone="green"/g)).toHaveLength(9);
+    // the feeds are in alphabetical order whatever order the API sent
+    expect(html.indexOf("IGN:")).toBeLessThan(html.indexOf("Kotaku:"));
+    expect(html.indexOf("Kotaku:")).toBeLessThan(html.indexOf("Polygon:"));
+  });
+
+  it("a down feed does not hide the others, and the banner names it by its label", async () => {
+    const html = await draw(payload([trend()], { sources: [...countries, ...feeds], alerts: [{ source: "radar:polygon", label: "Polygon", status: "down", reason: "HTTP 503", since: ago(200), lastOk: null }] }));
+    expect(html).toContain("Polygon is down since 3 hours ago (HTTP 503). Last good poll: none yet.");
+    expect(html).toContain("IGN:</span> ok");
+  });
+
+  it("a worker that says it is on but has not ticked for 45 minutes is named, and a recent one is not", async () => {
+    expect(await draw(payload([trend()], { workerTickAt: ago(130) }))).toContain("The radar worker last ticked 2 hours ago. What is listed may be old.");
+    expect(await draw(payload([trend()], { workerTickAt: ago(40) }))).not.toContain("last ticked");
+    expect(await draw(payload([trend()], { enabled: false, workerTickAt: ago(900) }))).not.toContain("last ticked"); // off is off
+    expect(await draw(payload([trend()], { workerTickAt: null }))).not.toContain("last ticked");
+  });
+});
+
 describe("hostile text", () => {
   const EVIL = `<img src=x onerror=1>\n<script>alert(1)</script> javascript:alert(1) ‮${"A".repeat(100_000)}`;
 
@@ -132,6 +223,20 @@ describe("hostile text", () => {
     expect(html).not.toContain("<img");
     expect(html).not.toContain("<script");
     expect(html.length).toBeLessThan(20_000);
+  });
+
+  it("a hostile headline, feed label and why line render as one escaped line each", async () => {
+    const why = { since: ago(30), parts: [{ label: EVIL, points: 20 }], geos: ["US"], feeds: [{ id: "radar:x", label: EVIL }], trafficText: EVIL };
+    const html = await draw(payload([trend({ term: EVIL, newsTitle: EVIL, why, changedAt: ago(5), changedWhy: EVIL })], { sources: [source({ source: "radar:x", label: EVIL })] }));
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("‮");
+    expect(html).not.toContain("A".repeat(300));
+    expect(html.length).toBeLessThan(30_000);
+    for (const test of ["trend-why", "trend-changed", "trend-term"]) {
+      const shown = html.match(new RegExp(`data-test="${test}"[^>]*>([^<]*)<`))![1]!;
+      expect(shown, test).not.toContain("\n");
+    }
   });
 
   it.each([
@@ -178,10 +283,10 @@ describe("the empty and source-down states say why", () => {
     expect(html).toContain("a source is not answering");
     expect(html).toContain("An empty answer is never read as no trends");
     expect(html).toContain("Google Trends (US):</span> format changed since 20 minutes ago (the answer is not the feed or has no items); last good poll 5 minutes ago");
-    expect(html).not.toContain("No new rising term");
+    expect(html).not.toContain("No Trend has reached");
   });
   it("polling fine, nothing new", async () => {
-    expect(await say(nothing())).toContain("No new rising term in the last 24 hours");
+    expect(await say(nothing())).toContain("No Trend has reached 40 points in the last 24 hours.");
   });
   it("the list could not be loaded at all", async () => {
     expect(await say(null)).toContain("The Radar list could not be loaded.");
@@ -192,7 +297,7 @@ describe("the empty and source-down states say why", () => {
 });
 
 describe("the source banner", () => {
-  const alert = { source: "radar:google:US", status: "backing off" as const, reason: "HTTP 429", since: ago(125), lastOk: ago(130) };
+  const alert = { source: "radar:google:US", label: "", status: "backing off" as const, reason: "HTTP 429", since: ago(125), lastOk: ago(130) };
 
   it("shows for a source down over an hour, with its state and its last good poll, and not otherwise", async () => {
     const html = await draw(payload([trend()], { alerts: [alert], sources: [source({ status: "backing off", reason: "HTTP 429", since: ago(125), lastOk: ago(130) })] }));
@@ -223,7 +328,7 @@ describe("the strip on the home page", () => {
   });
 
   it("carries the source banner above the line", async () => {
-    const html = await drawStrip(strip({ alerts: [{ source: "radar:google:US", status: "down", reason: "HTTP 503", since: ago(90), lastOk: ago(95) }] }));
+    const html = await drawStrip(strip({ alerts: [{ source: "radar:google:US", label: "", status: "down", reason: "HTTP 503", since: ago(90), lastOk: ago(95) }] }));
     expect(html).toContain("Google Trends (US) is down since 1 hour ago (HTTP 503). Last good poll: 1 hour ago.");
     expect(html.indexOf("radar-alert")).toBeLessThan(html.indexOf("radar-strip-link"));
   });

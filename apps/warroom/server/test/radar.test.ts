@@ -14,7 +14,7 @@ let file: string;
 vi.stubGlobal("defineEventHandler", (f: unknown) => f);
 vi.stubGlobal("useStore", () => store);
 
-type Payload = { enabled: boolean; trends: Array<Record<string, unknown> & { biggest: Record<string, unknown> | null; lookalikes: Array<Record<string, unknown>> }>; sources: Array<Record<string, unknown>>; alerts: Array<Record<string, unknown>>; lastGoodPollAt: string | null; counts: Record<string, number> };
+type Payload = { enabled: boolean; workerTickAt: string | null; trends: Array<Record<string, unknown> & { biggest: Record<string, unknown> | null; lookalikes: Array<Record<string, unknown>> }>; sources: Array<Record<string, unknown>>; alerts: Array<Record<string, unknown>>; lastGoodPollAt: string | null; counts: Record<string, number> };
 const get = (await import("../api/radar.get.ts")).default as unknown as () => Payload;
 const getStrip = (await import("../api/radar-strip.get.ts")).default as unknown as () => { enabled: boolean; shown: number; untokenized: number; alerts: unknown[] };
 
@@ -60,12 +60,12 @@ describe("GET /api/radar", () => {
     store.radar.recordCheck(id, { side: "taken", trace: { at: at(10).toISOString(), phrases: ["alpha bear"], live: [token("Alpha Bear coin", 90_000, 20_000)], lookalikes: [{ ...token("Dead bear", 131_000, 4), reason: "pool $4, cap $131K: drained or fake" }] }, localCreates: 9, localCreators: 6 }, at(10));
     store.radar.recordSource("radar:google:US", "ok", "", at(5));
     const r = get();
-    expect(Object.keys(r).sort()).toEqual(["alerts", "counts", "enabled", "lastGoodPollAt", "sources", "trends"]);
+    expect(Object.keys(r).sort()).toEqual(["alerts", "counts", "enabled", "lastGoodPollAt", "sources", "trends", "workerTickAt"]);
     expect(Object.keys(r.counts).sort()).toEqual(["shown", "untokenized"]);
-    expect(Object.keys(r.sources[0]!).sort()).toEqual(["lastOk", "reason", "since", "source", "status"]);
+    expect(Object.keys(r.sources[0]!).sort()).toEqual(["label", "lastOk", "reason", "since", "source", "status"]);
     expect(r.trends).toHaveLength(1);
     const t = r.trends[0]!;
-    expect(Object.keys(t).sort()).toEqual(["biggest", "firstSeen", "id", "lastChecked", "lastSeen", "liveCount", "localCreates", "localCreators", "lookalikeCount", "lookalikes", "newsTitle", "newsUrl", "score", "side", "sideAt", "term", "traceAt", "trafficMin", "trafficText"]);
+    expect(Object.keys(t).sort()).toEqual(["biggest", "changedAt", "changedWhy", "firstSeen", "id", "lastChecked", "lastSeen", "liveCount", "localCreates", "localCreators", "lookalikeCount", "lookalikes", "newsTitle", "newsUrl", "score", "side", "sideAt", "term", "traceAt", "trafficMin", "trafficText", "why"]);
     expect(Object.keys(t.biggest!).sort()).toEqual(["liquidityUsd", "marketCapUsd", "name", "symbol", "url"]);
     expect(Object.keys(t.lookalikes[0]!).sort()).toEqual(["liquidityUsd", "marketCapUsd", "name", "reason", "symbol", "url"]);
     expect(t).toMatchObject({ term: "Alpha Bear", side: "taken", trafficMin: 2_000, localCreates: 9, localCreators: 6, liveCount: 1, lookalikeCount: 1, newsUrl: "https://news.example/a" });
@@ -74,11 +74,23 @@ describe("GET /api/radar", () => {
     expect(JSON.stringify(r)).not.toContain("createdAt");
   });
 
-  it("is empty before the radar has polled; enabled follows ARGUS_RADAR", () => {
-    expect(get()).toEqual({ enabled: false, trends: [], sources: [], alerts: [], lastGoodPollAt: null, counts: { shown: 0, untokenized: 0 } });
-    process.env.ARGUS_RADAR = "1";
+  it("is empty before the radar has polled; enabled is what the WORKER wrote, never this process's own ARGUS_RADAR", () => {
+    expect(get()).toEqual({ enabled: false, workerTickAt: null, trends: [], sources: [], alerts: [], lastGoodPollAt: null, counts: { shown: 0, untokenized: 0 } });
+    process.env.ARGUS_RADAR = "1"; // the War Room's own environment says nothing
+    expect(get().enabled).toBe(false);
+    expect(getStrip().enabled).toBe(false);
+    const state = { enabled: true, dryRun: false, startedAt: at(60).toISOString(), lastTickAt: null, geos: 8, feeds: 29 };
+    store.radar.recordWorker(state);
+    expect(get()).toMatchObject({ enabled: true, workerTickAt: null });
+    expect(getStrip().enabled).toBe(true);
+    store.radar.recordWorkerTick(at(5));
+    expect(get()).toMatchObject({ enabled: true, workerTickAt: at(5).toISOString() });
+    delete process.env.ARGUS_RADAR; // and a War Room started without it still shows the worker as on
     expect(get().enabled).toBe(true);
-    process.env.ARGUS_RADAR = "true";
+    store.radar.recordWorker({ ...state, enabled: false }); // the worker started with the radar off
+    process.env.ARGUS_RADAR = "1";
+    expect(get().enabled).toBe(false);
+    store.radar.recordWorker({ ...state, dryRun: true }); // a dry run polls nothing: not "on"
     expect(get().enabled).toBe(false);
   });
 
@@ -89,18 +101,18 @@ describe("GET /api/radar", () => {
     expect(getStrip().alerts).toEqual([]);
     store.radar.recordSource("radar:google:US", "backing off", "HTTP 429", at(1));
     store.radar.recordSource("radar:google:GB", "format changed", "the answer is not the feed or has no items", at(90));
-    expect(get().alerts).toEqual([{ source: "radar:google:GB", status: "format changed", reason: "the answer is not the feed or has no items", since: at(90).toISOString(), lastOk: null }]);
+    expect(get().alerts).toEqual([{ source: "radar:google:GB", label: "", status: "format changed", reason: "the answer is not the feed or has no items", since: at(90).toISOString(), lastOk: null }]);
     expect(getStrip().alerts).toHaveLength(1);
   });
 
-  it("returns at most 100 Trends, and 50 lookalikes on one", () => {
+  it("returns at most 30 Trends, and 50 lookalikes on one", () => {
     for (let i = 0; i < 130; i++) addTrend(`Subject ${i}`, `subject${i}`);
     const top = candidate("Top term", "topterm");
     store.radar.touchSeen("topterm", at(1));
     const id = store.radar.createTrend({ key: "topterm", label: "Top term", firstSeen: at(1).toISOString(), score: 99, candidate: top });
     store.radar.recordCheck(id, { side: "untokenized", trace: { at: at(1).toISOString(), phrases: [], live: [], lookalikes: Array.from({ length: 80 }, (_, n) => ({ ...token(`Dead ${n}`, 90_000, 1), reason: "drained" })) }, localCreates: 0, localCreators: 0 }, at(1));
     const r = get();
-    expect(r.trends).toHaveLength(100);
+    expect(r.trends).toHaveLength(30);
     expect(r.counts.shown).toBe(131);
     expect(r.trends[0]).toMatchObject({ term: "Top term", score: 99, lookalikeCount: 80 });
     expect(r.trends[0]!.lookalikes).toHaveLength(50);

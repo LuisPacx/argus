@@ -42,8 +42,8 @@ describe("the skip rule", () => {
 
   it("a term that is a current Meta is not stored as a Trend (kept in the readings only); a different term is", async () => {
     const store = storeWith([aMeta("gta", { label: "GTA 6" })], [aMeta("cloud", { label: "Cloud Cat", themes: [theme("c2", "Sky Kitty")] })]);
-    const read = anOkRead([aCandidate("gta vi", 50_000), aCandidate("Sky Kitty", 20_000), aCandidate("Cloud Cat", 9_000), aCandidate("Zverev", 10_000)]);
-    const job = createRadarJob({ store, settings: { enabled: true, searchesPerTick: 30 }, reader: { read: async () => read }, dex: { search: async () => [] }, now: () => at(0), sleep: async () => {} });
+    const read = anOkRead([aCandidate("gta vi", 50_000), aCandidate("Sky Kitty", 20_000), aCandidate("Cloud Cat", 9_000), aCandidate("Zverev", 25_000)]);
+    const job = createRadarJob({ store, settings: { enabled: true, searchesPerTick: 30 }, reader: { read: async () => read }, geos: ["US"], dex: { search: async () => [] }, now: () => at(0), sleep: async () => {} });
     const r = await job();
     expect(r).toMatchObject({ readings: 4, newTrends: 1, skipped: 3 });
     expect(store.radar.view(at(1)).trends.map((t) => t.term)).toEqual(["Zverev"]);

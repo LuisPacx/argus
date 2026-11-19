@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Example Games News</title>
+    <link>https://games.example/</link>
+    <description>Recorded shape of a games news feed, for tests</description>
+    <item>
+      <title>Zelda movie trailer drops</title>
+      <link>https://games.example/zelda-movie-trailer</link>
+      <guid>https://games.example/?p=101</guid>
+      <pubDate>Thu, 19 Nov 2026 11:50:00 +0000</pubDate>
+      <description><![CDATA[<p>The first trailer.</p>]]></description>
+    </item>
+    <item>
+      <title><![CDATA[GTA VI &amp; the long wait]]></title>
+      <link>https://games.example/gta-vi-wait</link>
+      <guid>https://games.example/?p=100</guid>
+      <pubDate>Thu, 19 Nov 2026 11:20:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>An old story from last week</title>
+      <link>https://games.example/old</link>
+      <guid>https://games.example/?p=90</guid>
+      <pubDate>Thu, 12 Nov 2026 09:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>An item with no date at all</title>
+      <link>https://games.example/undated</link>
+      <guid>https://games.example/?p=89</guid>
+    </item>
+  </channel>
+</rss>

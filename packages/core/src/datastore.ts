@@ -1029,7 +1029,7 @@ export class Datastore {
   }
 
   /** The home page's Radar strip: Trends shown, how many are untokenized and the banners due. READ ONLY. */
-  radarStrip(now: Date = new Date()): { shown: number; untokenized: number; alerts: SourceAlert[] } {
+  radarStrip(now: Date = new Date()): { shown: number; untokenized: number; alerts: SourceAlert[]; enabled: boolean } {
     return this.radar.strip(now);
   }
 

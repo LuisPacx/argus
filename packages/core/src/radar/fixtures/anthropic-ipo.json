@@ -1,0 +1,18 @@
+{
+  "note": "The shape of the 2026-11-05 replay in spec section 1: 13 news feeds carried the Anthropic IPO within a few hours. Titles are written for this fixture (not copied from any feed); minutes are after the first feed's item.",
+  "items": [
+    { "feed": "radar:ign", "minutes": 0, "title": "Anthropic confidentially files for IPO, sources say" },
+    { "feed": "radar:polygon", "minutes": 12, "title": "Anthropic IPO filing: what it means for AI tools" },
+    { "feed": "radar:kotaku", "minutes": 25, "title": "Report: Anthropic prepares IPO" },
+    { "feed": "radar:vgc", "minutes": 31, "title": "Anthropic is reportedly planning an IPO" },
+    { "feed": "radar:gamespot", "minutes": 44, "title": "Anthropic IPO could value the AI lab at record sums" },
+    { "feed": "radar:avclub", "minutes": 58, "title": "Why Anthropic's IPO matters" },
+    { "feed": "radar:pitchfork", "minutes": 66, "title": "Anthropic IPO talk lands in the music business too" },
+    { "feed": "radar:dexerto", "minutes": 80, "title": "Anthropic IPO: everything we know" },
+    { "feed": "radar:den-of-geek", "minutes": 95, "title": "Anthropic IPO reported, with a filing expected soon" },
+    { "feed": "radar:comingsoon", "minutes": 101, "title": "Anthropic IPO filing sends AI stocks moving" },
+    { "feed": "radar:bbc-sport", "minutes": 120, "title": "Anthropic IPO: the sponsor angle for sports" },
+    { "feed": "radar:sky-sports", "minutes": 133, "title": "Anthropic IPO news breaks overnight" },
+    { "feed": "radar:eonline", "minutes": 150, "title": "Anthropic IPO leaves Hollywood talking" }
+  ]
+}

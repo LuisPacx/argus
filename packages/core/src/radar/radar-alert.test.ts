@@ -17,7 +17,7 @@ describe("the source alert", () => {
     store.radar.recordSource("radar:google:US", "backing off", "HTTP 429", at(10));
     expect(store.radar.view(at(10 + 59)).alerts).toEqual([]);
     expect(store.radar.view(at(10 + 60)).alerts).toEqual([]); // exactly an hour is not "more than"
-    expect(store.radar.view(at(10 + 61)).alerts).toEqual([{ source: "radar:google:US", status: "backing off", reason: "HTTP 429", since: at(10).toISOString(), lastOk: at(0).toISOString() }]);
+    expect(store.radar.view(at(10 + 61)).alerts).toEqual([{ source: "radar:google:US", label: "", status: "backing off", reason: "HTTP 429", since: at(10).toISOString(), lastOk: at(0).toISOString() }]);
     expect(store.radarStrip(at(10 + 61)).alerts).toHaveLength(1);
     store.close();
   });
@@ -38,23 +38,24 @@ describe("the source alert", () => {
     const job = createRadarJob({ store, settings: { enabled: true, searchesPerTick: 30 }, reader: new GoogleTrendsReader({ fetchText: async () => "<html>moved</html>", baseUrl: "https://example.invalid/rss" }), dex: { search: async () => [] }, now: () => at(minutes), sleep: async () => {} });
     for (minutes = 0; minutes <= 75; minutes += 15) await job();
     expect(store.radar.sourceStates()[0]).toMatchObject({ status: "format changed", since: at(0).toISOString(), lastOk: null });
-    const [alert] = store.radar.view(at(75)).alerts;
-    expect(alert).toMatchObject({ source: "radar:google:US", status: "format changed", lastOk: null });
+    const alerts = store.radar.view(at(75)).alerts;
+    expect(alerts).toHaveLength(8); // every country of the list is down, and each says so
+    expect(alerts.find((a) => a.source === "radar:google:US")).toMatchObject({ source: "radar:google:US", status: "format changed", lastOk: null });
     expect(store.radar.view(at(75)).trends).toEqual([]);
     store.close();
   });
 
   it("a stretch that moves between not-ok statuses keeps its start, and a source that is ok never alerts", () => {
     const states: SourceState[] = [
-      { source: "a", status: "down", reason: "", lastOk: null, since: at(0).toISOString() },
-      { source: "b", status: "ok", reason: "", lastOk: at(0).toISOString(), since: at(0).toISOString() },
+      { source: "a", label: "", status: "down", reason: "", lastOk: null, since: at(0).toISOString() },
+      { source: "b", label: "", status: "ok", reason: "", lastOk: at(0).toISOString(), since: at(0).toISOString() },
     ];
     expect(sourceAlerts(states, at(61)).map((a) => a.source)).toEqual(["a"]);
     expect(sourceAlerts(states, at(60))).toEqual([]);
   });
 
   it("an unreadable since never alerts and never throws", () => {
-    expect(sourceAlerts([{ source: "a", status: "down", reason: "", lastOk: null, since: "not a date" }], at(600))).toEqual([]);
+    expect(sourceAlerts([{ source: "a", label: "", status: "down", reason: "", lastOk: null, since: "not a date" }], at(600))).toEqual([]);
   });
 
   it("the fixture reader and the store agree on a good poll", async () => {

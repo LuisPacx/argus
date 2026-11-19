@@ -1,0 +1,34 @@
+[
+  { "id": "radar:pitchfork", "label": "Pitchfork", "url": "https://pitchfork.com/feed/feed-news/rss", "group": "entertainment" },
+  { "id": "radar:bbc-entertainment", "label": "BBC Entertainment and Arts", "url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "group": "entertainment" },
+  { "id": "radar:avclub", "label": "The A.V. Club", "url": "https://www.avclub.com/rss", "group": "entertainment" },
+  { "id": "radar:mashable-entertainment", "label": "Mashable Entertainment", "url": "https://mashable.com/feeds/rss/entertainment", "group": "entertainment" },
+  { "id": "radar:bloody-disgusting", "label": "Bloody Disgusting", "url": "https://bloody-disgusting.com/feed/", "group": "entertainment" },
+  { "id": "radar:eonline", "label": "E! News", "url": "https://www.eonline.com/syndication/feeds/rssfeeds/topstories.xml", "group": "entertainment" },
+  { "id": "radar:flickering-myth", "label": "Flickering Myth", "url": "https://www.flickeringmyth.com/feed/", "group": "entertainment" },
+  { "id": "radar:cultured-vultures", "label": "Cultured Vultures", "url": "https://culturedvultures.com/feed/", "group": "entertainment" },
+
+  { "id": "radar:ign", "label": "IGN", "url": "https://feeds.feedburner.com/ign/all", "group": "gaming" },
+  { "id": "radar:gamespot", "label": "GameSpot", "url": "https://www.gamespot.com/feeds/news/", "group": "gaming" },
+  { "id": "radar:polygon", "label": "Polygon", "url": "https://www.polygon.com/rss/index.xml", "group": "gaming" },
+  { "id": "radar:kotaku", "label": "Kotaku", "url": "https://kotaku.com/rss", "group": "gaming" },
+  { "id": "radar:vgc", "label": "VGC", "url": "https://www.videogameschronicle.com/feed/", "group": "gaming" },
+  { "id": "radar:playstation-blog", "label": "PlayStation Blog", "url": "https://blog.playstation.com/feed/", "group": "gaming" },
+  { "id": "radar:xbox-wire", "label": "Xbox Wire", "url": "https://news.xbox.com/en-us/feed/", "group": "gaming" },
+  { "id": "radar:gematsu", "label": "Gematsu", "url": "https://www.gematsu.com/feed", "group": "gaming" },
+  { "id": "radar:siliconera", "label": "Siliconera", "url": "https://www.siliconera.com/feed/", "group": "gaming" },
+  { "id": "radar:giant-bomb", "label": "Giant Bomb", "url": "https://www.giantbomb.com/feeds/news/", "group": "gaming" },
+
+  { "id": "radar:bbc-sport", "label": "BBC Sport", "url": "https://feeds.bbci.co.uk/sport/rss.xml", "group": "sport" },
+  { "id": "radar:sky-sports", "label": "Sky Sports", "url": "https://www.skysports.com/rss/12040", "group": "sport" },
+  { "id": "radar:yahoo-sports", "label": "Yahoo Sports", "url": "https://sports.yahoo.com/rss/", "group": "sport" },
+  { "id": "radar:sporting-news", "label": "Sporting News", "url": "https://www.sportingnews.com/us/rss", "group": "sport" },
+  { "id": "radar:racefans", "label": "RaceFans", "url": "https://www.racefans.net/feed/", "group": "sport" },
+  { "id": "radar:pro-football-talk", "label": "Pro Football Talk", "url": "https://profootballtalk.nbcsports.com/feed/", "group": "sport" },
+  { "id": "radar:abc-au-sport", "label": "ABC News Australia Sport", "url": "https://www.abc.net.au/news/feed/2942460/rss.xml", "group": "sport" },
+
+  { "id": "radar:comingsoon", "label": "ComingSoon.net", "url": "https://www.comingsoon.net/feed", "group": "upcoming" },
+  { "id": "radar:den-of-geek", "label": "Den of Geek", "url": "https://www.denofgeek.com/feed/", "group": "upcoming" },
+  { "id": "radar:dexerto", "label": "Dexerto", "url": "https://www.dexerto.com/feed/", "group": "upcoming" },
+  { "id": "radar:nintendo-everything", "label": "Nintendo Everything", "url": "https://nintendoeverything.com/feed/", "group": "upcoming" }
+]

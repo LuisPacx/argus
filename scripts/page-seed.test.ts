@@ -25,13 +25,18 @@ describe("the seed fixture", () => {
     const radar = store.radarView(NOW);
     const bySide = Object.fromEntries(radar.trends.map((t: { term: string; side: string }) => [t.term, t.side]));
     expect(bySide).toMatchObject({ "SEED Glass Whale": "untokenized", "SEED Iron Moth": "taken", "SEED Quiet Falcon": "not traced", "SEED Copper Heron": "tokenizing" });
-    expect(radar.trends).toHaveLength(5);
+    expect(radar.trends).toHaveLength(7);
+    expect(radar.enabled).toBe(true); // the worker's own word, written by the seed
+    expect(radar.trends.find((t: { term: string }) => t.term === "SEED Crystal Fox")).toMatchObject({ score: 80, side: "contested", why: { geos: ["CA", "GB", "US"] } });
     expect(radar.trends.find((t: { id: number }) => t.id === trend)).toMatchObject({ term: "SEED Glass Whale", lookalikeCount: 1, localCreators: 2 });
     expect(radar.trends.find((t: { term: string }) => t.term === "SEED Quiet Falcon")).toMatchObject({ liveCount: 1, side: "not traced" });
     expect(radar.trends.find((t: { term: string }) => t.term.includes("hostile"))!.term).toContain("<img");
-    expect(radar.sources.map((s: { source: string; status: string }) => [s.source, s.status])).toEqual([["radar:google:AU", "down"], ["radar:google:CA", "format changed"], ["radar:google:GB", "backing off"], ["radar:google:US", "ok"]]);
+    expect(radar.sources.map((s: { source: string; status: string }) => [s.source, s.status])).toEqual([
+      ["radar:evil", "ok"], ["radar:gamespot", "format changed"], ["radar:google:AU", "down"], ["radar:google:CA", "format changed"], ["radar:google:GB", "backing off"], ["radar:google:US", "ok"],
+      ["radar:ign", "ok"], ["radar:kotaku", "backing off"], ["radar:polygon", "down"], ["radar:vgc", "ok"],
+    ]);
     expect(radar.alerts.map((a: { source: string }) => a.source)).toEqual(["radar:google:CA", "radar:google:GB"]);
-    expect(radar.counts).toEqual({ shown: 5, untokenized: 1 });
+    expect(radar.counts).toEqual({ shown: 7, untokenized: 1 });
     // The Moment scanner (moment scanner ticket 01): the rising clip's status ID, a hostile post and the X session stopped by a login wall.
     const view = store.momentsView(NOW);
     expect(view.topic).toBe("SEED Moments topic");
@@ -88,7 +93,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 5, radar_sources: 4 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10 });
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
     expect(store.getProposal(ids.tech)).toMatchObject({ agentCostKind: "unknown" });

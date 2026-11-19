@@ -26,9 +26,18 @@ defineProps<{ view: RadarPageView }>();
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span class="min-w-0 break-words font-semibold" data-test="trend-term">{{ r.term }}</span>
               <span class="pill" :class="{ 'pill-green': r.tone === 'green', 'pill-amber': r.tone === 'amber', 'pill-red': r.tone === 'red', 'pill-outline': r.tone === 'muted' }" :data-side="r.side" data-test="trend-side">{{ r.sideLabel }}</span>
+              <span class="pill pill-outline" data-test="trend-score">Score {{ r.score }}</span>
+              <span v-if="r.changed" class="pill pill-amber" data-test="trend-changed">{{ r.changed }}</span>
               <span class="faint text-xs" data-test="trend-traffic">{{ r.traffic }}</span>
               <span class="faint text-xs" data-test="trend-seen">{{ r.seen }}</span>
             </div>
+            <p v-if="r.whyLine" class="min-w-0 break-words text-sm" data-test="trend-why">{{ r.whyLine }}</p>
+            <details v-if="r.breakdown.length > 0" class="min-w-0 text-xs" data-test="trend-breakdown">
+              <summary class="faint cursor-pointer select-none">Score {{ r.score }}: how it adds up</summary>
+              <ul class="muted mt-1 grid min-w-0 gap-0.5">
+                <li v-for="p in r.breakdown" :key="p.key" class="min-w-0 break-words">{{ p.text }}</li>
+              </ul>
+            </details>
             <p class="min-w-0 break-words text-sm" data-test="trend-coin">
               <UrlLink v-if="r.tokenHref" :href="r.tokenHref" :label="r.coinLine" data-test="trend-token-link" />
               <template v-else>{{ r.coinLine }}</template>
@@ -51,12 +60,17 @@ defineProps<{ view: RadarPageView }>();
     <section class="surface grid min-w-0 gap-2" data-test="radar-sources" aria-label="Sources">
       <h3 class="section-title">Sources</h3>
       <p v-if="view.sources.length === 0" class="faint text-xs" data-test="radar-no-sources">No source has been polled yet.</p>
-      <ul v-else class="grid min-w-0 gap-1 text-sm">
-        <li v-for="s in view.sources" :key="s.key" class="min-w-0 break-words" :data-test="`source-${s.key}`" :data-tone="s.tone">
-          <span class="font-medium">{{ s.label }}:</span> {{ s.text }}
-        </li>
-      </ul>
-      <p class="faint text-xs">Data source: Google Trends. Last good poll of any source: {{ view.lastGood }}.</p>
+      <template v-else>
+        <div v-for="g in view.sourceGroups" :key="g.key" class="grid min-w-0 gap-1" :data-test="`sources-${g.key}`">
+          <h4 class="faint text-xs font-medium">{{ g.title }}</h4>
+          <ul class="grid min-w-0 gap-1 text-sm">
+            <li v-for="s in g.sources" :key="s.key" class="min-w-0 break-words" :data-test="`source-${s.key}`" :data-tone="s.tone">
+              <span class="font-medium">{{ s.label }}:</span> {{ s.text }}
+            </li>
+          </ul>
+        </div>
+      </template>
+      <p class="faint text-xs">Data sources: Google Trends and the news feed list. Last good poll of any source: {{ view.lastGood }}.</p>
     </section>
   </div>
 </template>
