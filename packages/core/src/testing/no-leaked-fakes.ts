@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { registryDirFor, startTicks } from "./run-registry.mjs";
+import { reapDeadRuns, recordGuard, registryDirFor, removeTree, startTicks } from "./run-registry.mjs";
 
 /**
  * Vitest globalSetup: the suite must not leave a fake `claude`, `gh` or `wrangler` (or a grandchild one of them started)
@@ -70,21 +70,25 @@ export function sweepTempRoot(root: string): void {
     // never created
   }
   // Backstop only: a tool child killed at the end of a test may still be finishing a write; the retries ride that out.
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // Tests chmod directories to 000 to check how code copes with them; made writable first so that cannot block the removal.
+  removeTree(root);
   if (left.length > 0) throw new Error(`The test run left ${left.length} temp entr${left.length === 1 ? "y" : "ies"} behind (removed now):\n${left.map((e) => `  ${e}`).join("\n")}`);
 }
 
-function isolateTmpdir(): () => void {
+function isolateTmpdir(): { root: string; restore: () => void } {
   const saved = { NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE };
   const root = mkdtempSync(join(tmpdir(), "argus-test-run-"));
   process.env.TMPDIR = root;
   process.env.NODE_COMPILE_CACHE = COMPILE_CACHE_DIR; // configures Node in the run's processes; nothing in a test looks for state through it
-  return () => {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-    sweepTempRoot(root);
+  return {
+    root,
+    restore: () => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      sweepTempRoot(root);
+    },
   };
 }
 
@@ -222,7 +226,10 @@ async function blockAnthropic(): Promise<{ restore: () => void; hits: string[]; 
 export default async function setup(): Promise<() => Promise<void>> {
   const restoreTelegram = blockTelegram();
   const anthropic = await blockAnthropic();
-  const restoreTmpdir = isolateTmpdir();
+  // Leftovers of runs that were killed before their teardown ran (dead guard): reaped, never a run that is still alive.
+  for (const r of reapDeadRuns()) console.warn(`no-leaked-fakes: reaped a dead run's leftovers (${r.root ?? "no temp root"}, ${r.killed.length} process(es) killed)`);
+  const isolated = isolateTmpdir();
+  const restoreTmpdir = isolated.restore;
   const endAnthropic = async () => {
     anthropic.restore();
     await anthropic.close();
@@ -232,6 +239,7 @@ export default async function setup(): Promise<() => Promise<void>> {
   const dir = registryDirFor(process.pid); // on the home disk, found by the fakes without any env
   rmSync(dir, { recursive: true, force: true }); // a crashed earlier run whose pid was reused
   mkdirSync(dir, { recursive: true });
+  recordGuard(dir, isolated.root); // lets a later run or `pnpm check` reap this run's leftovers if it is killed before teardown
   const restorePath = installClaudeTripwire(dir);
   // Every check runs whatever an earlier one found, so one failure never hides another (a leaked claude, a call that reached the Anthropic tripwire).
   return () =>

@@ -7,7 +7,7 @@ import { ApiBrain, anthropicBaseUrl } from "../api-brain.ts";
 import { ClaudeCodeBrain, killLiveBrainChildren } from "../brain.ts";
 import { FAKE_CLAUDE } from "./fake-claude.ts";
 import { failOnAnthropicCalls, failOnRealClaude, leakedIn, runAll, startAnthropicTripwire, sweepTempRoot, writeClaudeTripwire } from "./no-leaked-fakes.ts";
-import { registryDirFor } from "./run-registry.mjs";
+import { reapDeadRuns, recordGuard, registryDirFor, startTicks } from "./run-registry.mjs";
 import { tempDir } from "./temp.ts";
 import { untilExists } from "./wait.ts";
 
@@ -177,5 +177,61 @@ describe("the leak guard only claims fakes started under its own test run", () =
     mkdirSync(join(leaky, "argus-leftover-abc"));
     expect(() => sweepTempRoot(leaky)).toThrow(/left 1 temp entry behind[\s\S]*argus-leftover-abc/);
     expect(existsSync(leaky)).toBe(false);
+  });
+
+  it("a locked (mode 000) directory in the run's root does not stop the removal", () => {
+    const root = tempDir("argus-test-run-");
+    mkdirSync(join(root, "argus-locked", "inner"), { recursive: true });
+    writeFileSync(join(root, "argus-locked", "inner", "f"), "x");
+    chmodSync(join(root, "argus-locked", "inner"), 0);
+    chmodSync(join(root, "argus-locked"), 0);
+    expect(() => sweepTempRoot(root)).toThrow(/argus-locked/); // it is still reported as a leak
+    expect(existsSync(root)).toBe(false);
+  });
+});
+
+describe("a run killed before its teardown is reaped, a live run never is", () => {
+  it("reaps the dead guard's temp root and live fake, and leaves a live guard's registry alone", async () => {
+    const registry = tempDir("argus-registry-test-");
+    // A dead run: no process has this pid; it recorded a temp root with a locked dir and a live fake.
+    const deadRoot = tempDir("argus-test-run-");
+    mkdirSync(join(deadRoot, "locked"));
+    chmodSync(join(deadRoot, "locked"), 0);
+    const fake = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });
+    const dead = join(registry, "2147483000");
+    mkdirSync(dead);
+    recordGuard(dead, deadRoot);
+    writeFileSync(join(dead, String(fake.pid)), String(startTicks(fake.pid!)));
+    // A live run: this process is its guard.
+    const live = join(registry, String(process.pid));
+    mkdirSync(live);
+    const liveRoot = tempDir("argus-test-run-");
+    recordGuard(live, liveRoot);
+    try {
+      const reaped = reapDeadRuns(registry);
+      expect(reaped.map((r) => r.dir)).toEqual([dead]);
+      expect(reaped[0]?.killed).toEqual([fake.pid]);
+      expect(existsSync(deadRoot)).toBe(false);
+      expect(existsSync(dead)).toBe(false);
+      expect(existsSync(live)).toBe(true);
+      expect(existsSync(liveRoot)).toBe(true);
+      await new Promise((resolve) => fake.once("exit", resolve));
+      expect(fake.signalCode).toBe("SIGKILL");
+    } finally {
+      try {
+        process.kill(fake.pid!, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  });
+
+  it("does not kill a recorded pid that has been reused by another process", () => {
+    const registry = tempDir("argus-registry-test-");
+    const dead = join(registry, "2147483000");
+    mkdirSync(dead);
+    writeFileSync(join(dead, String(process.pid)), "1"); // wrong start time: not the process that was recorded
+    const reaped = reapDeadRuns(registry);
+    expect(reaped[0]?.killed).toEqual([]);
   });
 });

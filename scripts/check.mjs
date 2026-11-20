@@ -3,6 +3,7 @@
 // clean and HEAD's tree unchanged for the whole run (snapshot taken before the first step).
 import { checkEnv } from '../vitest.tiers.mjs';
 import { snapshot, stampIfClean, unstampableReason } from './check-stamp.mjs';
+import { reapDeadRuns } from '../packages/core/src/testing/run-registry.mjs';
 import { holdSlot, killTree, spawnStep } from './test-slot.mjs';
 
 // `pnpm check:fast` (--fast) runs the fast test tier instead and never stamps: a stamp must mean the full suite passed.
@@ -14,6 +15,15 @@ const fast = process.argv.includes('--fast');
 // detached group no longer gets the terminal's Ctrl-C itself) the whole group is signalled and awaited before the slot
 // is released, so a stopped check keeps its slot until the step tree is gone. Bounds: a process that left the group
 // (setsid/setpgid) is not signalled or awaited, and a group that survives SIGKILL for 5 s no longer holds the slot.
+const startedAt = Date.now();
+// A test run that was killed before its teardown (timeout, SIGKILL) leaves its private temp root and any fake it started. Reaps
+// every registry whose vitest guard is dead (never a live run: other agents' runs are untouched) and returns the ones that began
+// during this check, which are this check's own leftovers.
+function reapLeftovers() {
+  const own = reapDeadRuns().filter((r) => r.mtimeMs >= startedAt - 1000);
+  for (const r of own) console.error(`check: a test run left ${r.root ?? 'a registry'} and ${r.killed.length} live fake process(es) behind (removed and killed now)`);
+  return own;
+}
 let child = null;
 let slot = null;
 let stopping = false; // a signal arrived: the signal handler owns the exit (after the tree is gone and the slot released)
@@ -24,7 +34,7 @@ if (!fast) {
       command: 'pnpm check',
       onSignal: (name) => {
         stopping = true;
-        return child && killTree(child, name);
+        return child && killTree(child, name).then(reapLeftovers);
       },
     });
   } catch (err) {
@@ -54,6 +64,10 @@ for (const step of ['typecheck', 'lint', fast ? 'test:fast' : 'test']) {
   child = s.child;
   const status = await s.closed;
   if (stopping) await new Promise(() => {}); // never returns: the signal handler exits
+  if (step === 'test' || step === 'test:fast') {
+    const leftovers = reapLeftovers();
+    if (status === 0 && leftovers.length > 0) process.exit(1);
+  }
   if (status !== 0) process.exit(status); // 'exit' handler releases the slot
 }
 slot?.release();

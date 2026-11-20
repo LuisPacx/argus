@@ -21,6 +21,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { registerFake, registerPid } from "./run-registry.mjs";
 
 registerFake();
+// Never outlive the run: a test run killed without a teardown must not leave a fake behind, even one that ignores SIGTERM
+// (hang-stubborn). Exit when the parent is gone (this process was reparented) and after a hard cap. The timers are unref'd, so
+// they never keep a finished fake alive.
+const parentAtStart = process.ppid;
+setInterval(() => {
+  if (process.ppid !== parentAtStart) process.exit(1);
+}, 1000).unref();
+setTimeout(() => process.exit(1), 10 * 60_000).unref();
 const argv = process.argv.slice(2);
 // FAKE_CLAUDE_SEQUENCE, a JSON array of objects, changes the environment per call: call N (counted from the lines already in
 // FAKE_CLAUDE_LOG) applies entry N as overrides, so a test can fail the first attempt of a Build and let the retry succeed.
@@ -50,7 +58,7 @@ const format = argv[argv.indexOf("--output-format") + 1] ?? "text";
 const straggler = (process.env.FAKE_CLAUDE_MODE ?? "").endsWith("-straggler");
 const mode = (process.env.FAKE_CLAUDE_MODE ?? "success").replace(/-straggler$/, "");
 if (straggler && process.env.FAKE_CLAUDE_GRANDCHILD) {
-  const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
+  const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); setTimeout(() => process.exit(1), 300000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
   writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
 }
 // Field names and values follow real `claude -p` output (checked against a recorded haiku run): `api_error_status` is
@@ -110,7 +118,7 @@ if (mode === "hang" || mode === "hang-stubborn" || mode === "hang-report" || mod
   if (mode === "hang-init") console.log(JSON.stringify({ type: "system", subtype: "init", cwd: process.cwd(), session_id: base.session_id }));
   const hang = () => {
     if (process.env.FAKE_CLAUDE_GRANDCHILD) {
-      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
+      const gc = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); setTimeout(() => process.exit(1), 300000);', import.meta.dirname], { stdio: "ignore" }); registerPid(gc.pid);
       writeFileSync(process.env.FAKE_CLAUDE_GRANDCHILD, String(gc.pid));
     }
     if (process.env.FAKE_CLAUDE_STARTED) writeFileSync(process.env.FAKE_CLAUDE_STARTED, String(process.pid));
