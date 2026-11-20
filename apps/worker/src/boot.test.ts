@@ -28,6 +28,11 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
       await new Promise((r) => setTimeout(r, 50));
     }
     expect(out).toContain("[worker] tick ");
+    // ADR 0017: with the default switches the worker says which automatic agents are off and starts no judge or propose run.
+    expect(out).toContain("[worker] Automatic agents off");
+    expect(out).toContain("research tick off");
+    expect(out).not.toContain("judge tick");
+    expect(out).not.toContain("propose tick");
   } finally {
     child.kill("SIGTERM");
   }

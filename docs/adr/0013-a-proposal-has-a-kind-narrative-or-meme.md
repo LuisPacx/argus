@@ -117,3 +117,7 @@ The review graded all 84 Proposals against the market. argus launched none (its 
 - **Prefer the thing itself.** A character, place, object or event named in the source, in plain words, over jokes about how fans behave (sick day, delay, pre-order, loading screen); at most one such side joke per trio. Why: all 15 automatic GTA ideas were fan-behaviour side jokes, and the market launched that family 81 times in 3 days with 0 bonded; the one side-joke family that bonded did so under the game's own word.
 
 What it leaves alone: argus still launches nothing (ADR 0002); the 6 h trio guard, the 12 h refresh, the Rubric and the copy check are unchanged. The review's other proposals (a bonding-outcome job, pausing Tech Proposals) are separate decisions.
+
+## Amendment 2026-11-20: meme ideas are no longer automatic
+
+The automatic Meta meme-ideas runs (after each Meta tick, and for a news Narrative that failed the buildability gate) are off by default: Claude runs only when the Operator triggers it (ADR 0017; `ARGUS_MEME_IDEAS=1` turns them back on with the caps above). A Meta's ideas come from a per-Meta "Make ideas" button (human-researcher ticket 02). Everything else in this record stands.

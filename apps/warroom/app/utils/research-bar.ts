@@ -19,6 +19,8 @@ export interface ResearchPayload {
   api: { enabled: boolean; capUsd: number; usedUsd: number; runs: number; exhausted: boolean };
   /** The meme ideas task (missed ideas ticket 06): its runs in the same 24 hours (they count in the budget above), its own cap and its switch. */
   memeIdeas?: { enabled: boolean; runs: number; cap: number };
+  /** ADR 0017: the automatic agents and whether each is on; absent from an older server. */
+  agents?: { id: string; label: string; switch: string; on: boolean }[];
 }
 
 export interface ResearchBarView {
@@ -43,6 +45,8 @@ export function researchBar(r: ResearchPayload): ResearchBarView {
   if (r.exhausted) alerts.push("Research budget reached: judging and proposing wait until older runs leave the 24 hours.");
   if (r.newProposals >= r.newProposalsCap) alerts.push("Proposal cap reached; the next waits until an older Proposal is more than 24 h old.");
   if (r.api.exhausted) alerts.push("API daily cap reached: the fallback sends nothing until older spend leaves the 24 hours.");
+  const off = (r.agents ?? []).filter((a) => !a.on);
+  if (off.length > 0) alerts.push(`Automatic agents off (Claude runs only when the Operator triggers it): ${off.map((a) => `${a.label}, ${a.switch}=1 turns it on`).join("; ")}.`);
   const details = [
     "Budget is Est. usage, API-equivalent as reported by claude -p. Runs use the Claude subscription; this is not a charge.",
     `${r.runs} judge and propose ${r.runs === 1 ? "run" : "runs"}, ${Math.round(r.usedShareOfQuota * 100)}% of an assumed $${r.quotaUsd.toFixed(0)} daily quota; the limit is ${Math.round(r.share * 100)}%.`,

@@ -142,6 +142,18 @@ The Cases whose tokens were created in the same calendar week of launch. A lesso
 The evidence-backed lessons the Study has learned, each suggested until the Operator approves it, plus the Rubric changes it suggests. Approved lessons are shown to the research steps; the Operator reviews the Playbook weekly.
 _Avoid_: Insights, model
 
+**Pick**:
+A coin the Operator named by its contract address, with an optional reason and topic, recorded with a snapshot of the coin at that moment (name, ticker, market cap, liquidity, age, bonded yes or no). A Pick is the Operator's label-bearing choice; its label is bonded within 24 hours of the Pick being recorded (ADR 0017).
+
+**Research brief**:
+The stored result of one Operator-triggered research run on a topic: the story, its sources, the existing coins on that topic with market cap and bonded state, and names still free. It is text for the Operator, filed under the topic.
+
+**Shadow pick**:
+The coin or coins the researcher agent chooses from a brief's coin list, made without seeing the Operator's Picks, timestamped when made. Only made on Operator-triggered research. It is tracked like a Pick and never acted on.
+
+**Scoreboard**:
+The comparison of the Operator's and the machine's bonded-within-24h rate over a window (7 days), with the number of Picks on each side. No verdict is drawn while either side has fewer than 20 Picks.
+
 **Organic migration**:
 A token's bonding curve completing and moving to a swap pool, where the buying looks like many independent buyers and not bots or insiders controlling the supply. It is the Study's success label. A migration that fails the bot filter is a bot-driven migration, kept as its own group.
 _Avoid_: Graduation, bonding, success

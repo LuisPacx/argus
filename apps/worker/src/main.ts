@@ -73,6 +73,8 @@ import {
   PumpPortalSource,
   researchConfigFromEnv,
   revisePendingSpecs,
+  automaticAgents,
+  automaticAgentsLine,
   RunCancels,
   runPendingCleanups,
   runPendingBuilds,
@@ -85,6 +87,7 @@ import {
   type Source,
 } from "@argus/core";
 import { reentrant } from "./reentrant.ts";
+import { startResearchSchedule } from "./research-schedule.ts";
 import { SEMANTIC_MODEL, backgroundEmbedder, embedderIdOf, loadSemanticEmbedder, modelCacheDir } from "./semantic-embedder.ts";
 
 const TICK_MS = BUILD_TICK_MS; // the one definition of the tick; the Proposal page says "retried every N s" from it
@@ -534,6 +537,11 @@ const runMetaTick = () =>
     void runMetaSummaryTick();
     void runMemeIdeasTick();
   }, "meta tick");
+// ADR 0017: Claude runs only when the Operator triggers it. The automatic research tick, the automatic Meta meme ideas and the moment scanner are
+// switches, off by default; the worker says so once at start (the War Room shows the same list). The haiku tasks and the plain-code jobs stay on.
+const agents = automaticAgents(process.env);
+const researchTickOn = agents.find((a) => a.id === "research-tick")!.on;
+console.log(`[worker] ${automaticAgentsLine(agents)}`);
 // Research is one sequence: score what changed, then propose from the Scores.
 const runResearchTick = async () => {
   await runJudgeTick();
@@ -584,7 +592,7 @@ if (once) {
   await runTick();
   await runBuildTick();
   await runIngestTick();
-  await runResearchTick();
+  if (researchTickOn) await runResearchTick();
   // A one-shot run lets its notices go out first, for at most 10 s. The cap timer is cleared so a quiet run exits at once
   // instead of idling out the rest of it.
   let cap: ReturnType<typeof setTimeout> | undefined;
@@ -598,7 +606,6 @@ if (once) {
   void runTick();
   void runBuildTick();
   void runIngestTick();
-  void runResearchTick();
   void runMemeAngleTick();
   timer = setInterval(() => {
     void runTick();
@@ -643,7 +650,7 @@ if (once) {
       console.log(`[worker] Meta ranking started: every ${META_TICK_MS / 60_000} min, rank order ${metaConfig.rankOrder.join(" > ")}`);
     }
   }
-  judgeTimer = setInterval(() => void runResearchTick(), JUDGE_TICK_MS);
+  judgeTimer = startResearchSchedule({ enabled: researchTickOn, intervalMs: JUDGE_TICK_MS, run: runResearchTick, log: console.log });
   if (momentSettings.enabled) {
     // The first scan waits out the interval since the last one (a restart does not start an extra scan); then one every interval.
     const last = store.moments.lastScan();

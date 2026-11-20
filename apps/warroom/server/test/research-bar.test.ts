@@ -96,3 +96,22 @@ it("the estimated part of the budget and the daily total across every task (Buil
   expect(researchBar(payload()).daily).toBe("");
   expect(researchBar(payload()).budget).toBe("$1.67 / $6.00");
 });
+
+it("ADR 0017: the bar says which automatic agents are off, and names the switch that turns each on", async () => {
+  const agents = [
+    { id: "research-tick", label: "Research tick (judge and propose)", switch: "ARGUS_RESEARCH_TICK", on: false },
+    { id: "meta-meme-ideas", label: "Meta meme ideas", switch: "ARGUS_MEME_IDEAS", on: true },
+    { id: "moment-scanner", label: "Moment scanner", switch: "ARGUS_MOMENTS", on: false },
+  ];
+  const v = researchBar(payload({ agents }));
+  expect(v.alerts).toHaveLength(1);
+  expect(v.alerts[0]).toContain("Research tick (judge and propose), ARGUS_RESEARCH_TICK=1");
+  expect(v.alerts[0]).toContain("Moment scanner, ARGUS_MOMENTS=1");
+  expect(v.alerts[0]).not.toContain("Meta meme ideas");
+  const html = await draw(payload({ agents }));
+  expect(html).toContain("Automatic agents off");
+  expect(html).toContain("ARGUS_RESEARCH_TICK=1");
+  // All on, or an older server without the field: no such line.
+  expect(researchBar(payload({ agents: agents.map((a) => ({ ...a, on: true })) })).alerts).toEqual([]);
+  expect(researchBar(payload()).alerts).toEqual([]);
+});

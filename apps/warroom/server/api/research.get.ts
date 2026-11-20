@@ -1,4 +1,4 @@
-import { API_DEFAULT_ROUTING, apiFallbackConfigFromEnv, MAX_NEW_PROPOSALS_PER_DAY, memeConfigFromEnv, proposeConfigFromEnv, researchConfigFromEnv, researchUsage } from "@argus/core";
+import { API_DEFAULT_ROUTING, apiFallbackConfigFromEnv, automaticAgents, MAX_NEW_PROPOSALS_PER_DAY, memeConfigFromEnv, proposeConfigFromEnv, researchConfigFromEnv, researchUsage } from "@argus/core";
 
 /**
  * How much of the day's research allowance is used: the shared judge-plus-propose budget in Est. usage (the figure the worker holds
@@ -28,5 +28,6 @@ export default defineEventHandler(() => {
   const api = { enabled: apiConfig.enabled, capUsd: apiConfig.dailyUsd, usedUsd: apiSpent.chargedUsd, runs: apiSpent.runs, exhausted: apiSpent.chargedUsd >= apiConfig.dailyUsd };
   // The meme ideas task counts in the research budget above; its own run count and cap (missed ideas ticket 06) are shown beside it.
   const memeRuns = store.memeIdeasSpendSince(dayAgo).runs;
-  return { ...usage, newProposals: today, newProposalsCap: cap, windowHours: 24, api, memeIdeas: { enabled: meme.enabled, runs: memeRuns, cap: meme.config.maxRunsPerDay } };
+  // ADR 0017: which automatic agents are off (read from this process's environment, like the meme switch above).
+  return { ...usage, newProposals: today, newProposalsCap: cap, windowHours: 24, api, memeIdeas: { enabled: meme.enabled, runs: memeRuns, cap: meme.config.maxRunsPerDay }, agents: automaticAgents(process.env) };
 });

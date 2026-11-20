@@ -16,6 +16,7 @@ export * from "./spec-drafting.ts";
 export * from "./judge.ts";
 export * from "./context-block.ts";
 export * from "./startup-config.ts";
+export * from "./automatic-agents.ts";
 export * from "./research-budget.ts";
 export * from "./propose.ts";
 export * from "./collision.ts";
