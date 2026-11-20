@@ -18,10 +18,18 @@ const fast = process.argv.includes('--fast');
 const startedAt = Date.now();
 // A test run that was killed before its teardown (timeout, SIGKILL) leaves its private temp root and any fake it started. Reaps
 // every registry whose vitest guard is dead (never a live run: other agents' runs are untouched) and returns the ones that began
-// during this check, which are this check's own leftovers.
+// started after this check began AND descend from this check's test child: those are this check's own leftovers and fail it.
+// Other dead runs (another agent's, killed during this window) are reaped and reported but never fail this check.
 function reapLeftovers() {
-  const own = reapDeadRuns().filter((r) => r.mtimeMs >= startedAt - 1000);
-  for (const r of own) console.error(`check: a test run left ${r.root ?? 'a registry'} and ${r.killed.length} live fake process(es) behind (removed and killed now)`);
+  const own = [];
+  for (const r of reapDeadRuns()) {
+    const mine = r.startedMs !== undefined && r.startedMs >= startedAt - 1000 && child && r.ancestors.includes(child.pid);
+    const what = `${r.root ?? 'a registry'} and ${r.killed.length} live fake process(es) behind (removed and killed now)`;
+    if (mine) {
+      console.error(`check: a test run left ${what}`);
+      own.push(r);
+    } else console.error(`check: reaped another run's leftovers, not this check's (${what})`);
+  }
   return own;
 }
 let child = null;

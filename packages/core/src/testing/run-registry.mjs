@@ -64,11 +64,17 @@ export const registerFake = () => registerPid(process.pid);
 
 const GUARD_FILE = "guard"; // the guard's own start ticks: tells a live guard from a reused pid
 const ROOT_FILE = "tmp-root"; // the run's private temp root (argus-test-run-*)
+const STARTED_FILE = "started"; // JSON { startedMs, ancestors }
 
 /** Marks `dir` as the registry of the calling process (the guard) and records its temp root. */
 export function recordGuard(dir, tmpRoot) {
   writeFileSync(join(dir, GUARD_FILE), String(startTicks(process.pid)));
   writeFileSync(join(dir, ROOT_FILE), tmpRoot);
+  // Wall-clock start and the ancestor pids: `pnpm check` uses them to tell its own run from another agent's (directory mtime moves
+  // whenever a fake registers, so it cannot say when a run began).
+  const ancestors = [];
+  for (let pid = process.ppid, n = 0; pid > 1 && n < 64; pid = parentOf(pid), n++) ancestors.push(pid);
+  writeFileSync(join(dir, STARTED_FILE), JSON.stringify({ startedMs: Date.now(), ancestors }));
 }
 
 /** Makes every directory under `path` (and itself) readable and writable so a removal cannot hit EACCES. Never follows symlinks. */
@@ -147,8 +153,15 @@ export function reapDeadRuns(registryRoot = REGISTRY_ROOT) {
     }
     if (root && basename(root).startsWith("argus-test-run-") && existsSync(root)) removeTree(root);
     else root = undefined;
+    let startedMs;
+    let ancestors = [];
+    try {
+      ({ startedMs, ancestors } = JSON.parse(readFileSync(join(dir, STARTED_FILE), "utf8")));
+    } catch {
+      // older-format registry: unknown start and ancestry
+    }
     rmSync(dir, { recursive: true, force: true });
-    reaped.push({ dir, mtimeMs, killed, root });
+    reaped.push({ dir, mtimeMs, startedMs, ancestors, killed, root });
   }
   return reaped;
 }

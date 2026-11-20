@@ -226,6 +226,19 @@ describe("a run killed before its teardown is reaped, a live run never is", () =
     }
   });
 
+  it("a reaped run reports its wall-clock start and ancestor pids, which a later registry write does not move", () => {
+    const registry = tempDir("argus-registry-test-");
+    const dead = join(registry, "2147483000");
+    mkdirSync(dead);
+    const before = Date.now();
+    recordGuard(dead, join(registry, "no-such-root"));
+    writeFileSync(join(dead, "99999"), "1"); // a fake registering later moves the directory's mtime, not the start time
+    const [run] = reapDeadRuns(registry);
+    expect(run?.startedMs).toBeGreaterThanOrEqual(before);
+    expect(run?.startedMs).toBeLessThanOrEqual(Date.now());
+    expect(run?.ancestors).toContain(process.ppid);
+  });
+
   it("does not kill a recorded pid that has been reused by another process", () => {
     const registry = tempDir("argus-registry-test-");
     const dead = join(registry, "2147483000");

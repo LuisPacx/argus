@@ -8,6 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { makeWritable } from '../packages/core/src/testing/run-registry.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPORT_NAME = 'verify-parent-report.json';
@@ -128,6 +129,7 @@ async function main() {
   const doCleanup = async () => {
     await stopActive();
     if (created) {
+      makeWritable(path.join(wt, '.verify-tmp')); // a leaked locked dir (mode 000) would make the removal fail with EACCES
       let r;
       for (let attempt = 0; attempt < 5; attempt++) {
         r = spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: ROOT, encoding: 'utf8' });
@@ -174,7 +176,11 @@ async function main() {
       fs.writeFileSync(path.join(wt, f), content);
     }
     const reportPath = path.join(wt, REPORT_NAME);
-    await run('pnpm', ['exec', 'vitest', 'run', '--reporter=default', '--reporter=json', `--outputFile.json=${reportPath}`, ...files, ...infoFiles], wt);
+    // The parent's own test setup may leak its argus-test-run-* temp dirs (older teardown). Give the run a TMPDIR inside the
+    // throwaway worktree so anything it leaves is removed with it (cleanup makes the tree writable first), whatever the parent does.
+    const runTmp = path.join(wt, '.verify-tmp');
+    fs.mkdirSync(runTmp);
+    await run('pnpm', ['exec', 'vitest', 'run', '--reporter=default', '--reporter=json', `--outputFile.json=${reportPath}`, ...files, ...infoFiles], wt, { ...process.env, TMPDIR: runTmp });
     if (!fs.existsSync(reportPath)) {
       console.error('vitest produced no JSON report');
       return 2;

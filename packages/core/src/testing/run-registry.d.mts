@@ -8,6 +8,9 @@ export function removeTree(path: string): void;
 export interface ReapedRun {
   dir: string;
   mtimeMs: number;
+  /** Wall-clock start of the run's guard, and its ancestor pids; undefined / empty for an older-format registry. */
+  startedMs: number | undefined;
+  ancestors: number[];
   killed: number[];
   root: string | undefined;
 }
