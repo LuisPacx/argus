@@ -17,6 +17,8 @@ import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type Me
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
+import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type ResearchPick } from "./research/picks.ts";
+import type { PickSnapshot } from "./research/picks.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -591,6 +593,8 @@ export function migrate(db: DatabaseSync): void {
   migrateMeme(db);
   // The Operator's angle (meta redesign ticket 11): one request table and one nullable Proposal column, both additive.
   migrateAngles(db);
+  // The Operator's Picks (human researcher ticket 03): one additive table, never updated.
+  migratePicks(db);
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
@@ -759,6 +763,8 @@ export type WarRoomStore = Pick<
   | "memeIdeasSpendSince"
   | "requestMemeAngle"
   | "memeAngleRequests"
+  | "recordPick"
+  | "listPicks"
   | "getCommand"
   | "listCommands"
   | "pendingCommands"
@@ -1313,6 +1319,31 @@ export class Datastore {
   getAngleRequest(id: number): AngleRequest | undefined {
     const r = this.db.prepare("SELECT * FROM meme_angle_requests WHERE id = ?").get(id) as Record<string, string | number | null> | undefined;
     return r && toAngleRequest(r);
+  }
+
+  /**
+   * The War Room's one write for a Pick (human researcher ticket 03, insert only): the coin's snapshot with the Operator's cleaned reason and
+   * topic, stamped with the moment of recording. The same CA picked again inside 24 hours is refused with `PickRepeatError`; after that it is a new Pick.
+   */
+  recordPick(input: { snapshot: PickSnapshot; reason: string; topic: string }, opts: { now?: Date } = {}): ResearchPick {
+    const now = opts.now ?? new Date();
+    const s = input.snapshot;
+    return this.inTransaction(() => {
+      const prior = this.db.prepare("SELECT id, created_at FROM picks WHERE ca = ? AND created_at > ? ORDER BY id DESC LIMIT 1").get(s.ca, new Date(now.getTime() - PICK_DUPLICATE_MS).toISOString()) as { id: number; created_at: string } | undefined;
+      if (prior) {
+        const hours = Math.max(1, Math.round((now.getTime() - Date.parse(prior.created_at)) / 3_600_000));
+        throw new PickRepeatError(`Already picked ${hours === 1 ? "within the last hour or so" : `${hours} hours ago`} (Pick ${prior.id}); a coin can be picked again after 24 hours`);
+      }
+      const res = this.db
+        .prepare("INSERT INTO picks (ca, name, symbol, market_cap_usd, liquidity_usd, pair_created_at, age_minutes, bonded, reason, topic, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(s.ca, s.name, s.symbol, s.marketCapUsd, s.liquidityUsd, s.pairCreatedAt, s.ageMinutes, s.bonded ? 1 : 0, input.reason, input.topic, now.toISOString());
+      return toPick(this.db.prepare("SELECT * FROM picks WHERE id = ?").get(Number(res.lastInsertRowid)) as Record<string, string | number | null>);
+    });
+  }
+
+  /** The newest Picks (`PICK_LIST_LIMIT`), newest first. READ ONLY. */
+  listPicks(): ResearchPick[] {
+    return (this.db.prepare("SELECT * FROM picks ORDER BY id DESC LIMIT ?").all(PICK_LIST_LIMIT) as Record<string, string | number | null>[]).map(toPick);
   }
 
   /** Whether any angle request is waiting or running: the worker's fast tick reads this and does nothing more when it is false. READ ONLY. */

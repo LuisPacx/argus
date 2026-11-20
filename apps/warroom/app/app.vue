@@ -3,6 +3,7 @@ const route = useRoute();
 const NAV = [
   { to: "/", label: "Proposals" },
   { to: "/narratives", label: "Narratives" },
+  { to: "/research", label: "Research" },
   { to: "/meta", label: "Meta" },
   { to: "/moments", label: "Moments" },
   { to: "/radar", label: "Radar" },

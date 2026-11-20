@@ -40,6 +40,7 @@ export * from "./meta/new-meta.ts";
 export * from "./meta/new-meta-api.ts";
 export * from "./meme/types.ts";
 export * from "./meme/angle.ts";
+export * from "./research/picks.ts";
 export * from "./meme/store.ts";
 export * from "./meme/ideas.ts";
 export * from "./meme/pass.ts";

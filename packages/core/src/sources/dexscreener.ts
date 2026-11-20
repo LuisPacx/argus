@@ -32,6 +32,8 @@ export interface DexPair {
   symbol: string;
   /** An https DexScreener link, or empty. */
   url: string;
+  /** The exchange id DexScreener gave the pair (`pumpfun` while on the curve, `pumpswap` or `raydium` after bonding), when it gave one. */
+  dexId?: string;
   liquidityUsd: number;
   volume24hUsd: number;
   priceChange24hPct: number;
@@ -146,6 +148,7 @@ export class DexScreenerClient {
       const chainId = str(entry.chainId, 32);
       const tokenAddress = str(base.address, 80);
       if (strictIds && (!CHAIN_RE.test(chainId) || !ADDRESS_RE.test(tokenAddress))) continue;
+      const dexId = str(entry.dexId, 32).toLowerCase();
       const createdAt = num(entry.pairCreatedAt);
       const marketCap = num(entry.marketCap);
       const fdv = num(entry.fdv);
@@ -157,6 +160,7 @@ export class DexScreenerClient {
         name: str(base.name, MAX_NAME_CHARS),
         symbol: str(base.symbol, MAX_SYMBOL_CHARS),
         url: safeUrl(str(entry.url, 2_001)),
+        ...(/^[a-z0-9-]{1,32}$/.test(dexId) ? { dexId } : {}),
         liquidityUsd: liquidity ?? 0,
         volume24hUsd: volume ?? 0,
         ...(liquidity === undefined && volume === undefined && marketCap === undefined && fdv === undefined ? { unpriced: true as const } : {}),

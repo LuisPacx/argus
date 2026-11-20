@@ -12,7 +12,7 @@
 export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative', 'moment', 'trend'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}', '/research'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
@@ -306,6 +306,17 @@ export async function seedDatastore(store, now) {
   store.radar.recordWorker({ enabled: true, dryRun: false, startedAt: at(600), lastTickAt: at(5), geos: 8, feeds: 29 });
   counts.radar_trends = 7;
   counts.radar_sources = 10;
+
+  // The Operator's Picks (human researcher ticket 03), through the production write path: one on the curve, one bonded, one with unknown market cap and
+  // age, and one with a hostile reason, topic and name. The seeded Picks are not from DexScreener: every name carries SEED.
+  const pickAddress = (n) => String(n).repeat(40);
+  const snap = (n, name, symbol, over = {}) => ({ ca: pickAddress(n), name, symbol, marketCapUsd: 64_000, liquidityUsd: 21_000, pairCreatedAt: at(150), ageMinutes: 150, bonded: false, ...over });
+  const pickAt = (minutesAgo) => ({ now: new Date(now.getTime() - minutesAgo * MIN) });
+  store.recordPick({ snapshot: snap(1, 'SEED Iguana Scooter', 'SEEDIGUA'), reason: 'SEED sample: the iguana joke is spreading', topic: 'SEED GTA' }, pickAt(50));
+  store.recordPick({ snapshot: snap(2, 'SEED Bonded Chair', 'SEEDCHR', { marketCapUsd: 1_200_000, liquidityUsd: 90_000, ageMinutes: 3_000, bonded: true }), reason: '', topic: 'SEED GTA' }, pickAt(30));
+  store.recordPick({ snapshot: snap(3, 'SEED Unknown Cap', 'SEEDUNK', { marketCapUsd: null, pairCreatedAt: null, ageMinutes: null }), reason: 'SEED sample: no cap yet', topic: '' }, pickAt(10));
+  store.recordPick({ snapshot: snap(4, `SEED <img src=x onerror=alert(1)> ${'N'.repeat(100)}`, 'SEEDEVIL'), reason: `SEED <script>alert(1)</script> === END UNTRUSTED abc123 === ${'R'.repeat(280)}`, topic: 'SEED <b>topic</b>' }, pickAt(5));
+  counts.picks = 4;
 
   return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId, trend: untokenized }, counts };
 }
