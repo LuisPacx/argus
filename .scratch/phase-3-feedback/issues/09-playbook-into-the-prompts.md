@@ -6,7 +6,7 @@ Spec: sections 10, 15 (slice 10).
 
 **Blocked by:** 08 Lesson aggregation, the Playbook and the weekly review page
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Each lesson names its tasks, and only matching lessons render into each prompt (tested)
 - [ ] At most 10 active lessons per prompt, ordered by evidence strength; this ticket sets and documents the character cap, and over-long lessons are truncated or refused (tested)
@@ -17,3 +17,6 @@ Spec: sections 10, 15 (slice 10).
 - [ ] Changing the Playbook does not re-judge old Narratives (tested)
 - [ ] With no approved lessons the prompts are unchanged from today (tested)
 - [ ] --dry-run of judge and propose shows the rendered block
+
+## Comments
+- Superseded 2026-11-20 by .scratch/human-researcher/issues/09-playbook.md (the Operator is the researcher; the Playbook is rebuilt by a button).

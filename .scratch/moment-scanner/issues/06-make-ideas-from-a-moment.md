@@ -3,7 +3,7 @@
 
 **What to build:** on each Moment of the Moments page (judged, not in the folded list), a "Make ideas" button. It writes one request row. The worker runs the `meme-ideas` path with the Moment's post, counts, phrases and traced clones in place of a Meta block, and files three ordinary `meme` Proposals. Each Proposal shows where it came from (the Moment, its best post link, its numbers, its coin-side state). Useful alone: the Operator goes from a flagged Moment to three named ideas in one press, with the names already checked against the clones the trace found.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 **Blocked by:** 03, 04
 
@@ -35,3 +35,4 @@
 - Commit subject `Moment scanner ticket 06: Make ideas from a Moment`, body ends with `Ticket: .scratch/moment-scanner/issues/06-make-ideas-from-a-moment.md`.
 
 ## Comments
+- Superseded 2026-11-20 by .scratch/human-researcher/issues/01-adr-operator-is-the-researcher.md (the moment scanner is switched off).
