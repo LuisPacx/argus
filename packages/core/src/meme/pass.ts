@@ -28,14 +28,14 @@ import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, n
  *   or its last started try is `MEME_REFRESH_MS` (12 h) old, or it was never tried; a failed try is due again after `failedRetryMinutes`.
  *   An event bypasses the 12 h gap but not the 6 h trio guard (`MEME_WINDOW_MS`), so a Meta that leaves and comes back is not run twice;
  * - the order spends the cap well: New Meta events first (oldest first), then refreshes by oldest last try;
- * - its own cap of `maxRunsPerDay` runs (8) in any rolling 24 hours (refused and failed ones included, the retry included), counting only
+ * - its own cap of `maxRunsPerDay` runs (24) in any rolling 24 hours (refused and failed ones included, the retry included), counting only
  *   automatic runs (the Operator's angle runs have a separate allowance of 5, below), taken from the shared research budget: a reached cap is recorded once per slot with its reason, logs what waits, and ends the pass without error;
  * - an `in-flight` brain_runs row exists before the child is spawned and the run's cost is recorded the moment it returns;
  * - the answer is untrusted: it must fit `parseMemeOutput` exactly, and no name may copy a token of the Meta's group or one DexScreener
  *   lists (the distinct-name rule); a copy goes back once with the copied names listed, then fails closed with nothing stored;
  * - a rate limit, a budget stop or a shutdown ends the pass at once; three transient failures in a row end it too.
  * After the Metas the same pass serves news stories (proposal-routing ticket 04, ADR 0013 amendment): a news Narrative that failed the
- * buildability gate and passed the floors (`narrativesToMeme`) gets one trio too, from the same `meme-ideas` task, the same 8 a day and the
+ * buildability gate and passed the floors (`narrativesToMeme`) gets one trio too, from the same `meme-ideas` task, the same 24 a day and the
  * same research budget, Metas first. A story that names a current Meta or Watching subject is left to that Meta; a story has one trio ever.
  * A third kind of job, the Operator's angle (meta redesign ticket 11, `runMemeAngles`): a pending `meme_angle_requests` row is run through this
  * same loop (the same `mayRun`, `ask`, `check`, collision checks and `createMemeProposals`), with the angle as a fenced block of the prompt. It is
@@ -61,6 +61,14 @@ export function dailyMemeRunLimit(kind: "automatic" | "angle", maxRunsPerDay: nu
   return kind === "angle" ? Math.min(MAX_ANGLE_DAILY_MEME_RUNS, angleAllowance) : Math.min(MAX_MEME_RUNS_PER_DAY, maxRunsPerDay);
 }
 
+/**
+ * The live-Metas rule (ticket 17): a refresh is skipped when the Meta had fewer than `MEME_LIVE_MIN_CREATES` creates in its `MEME_LIVE_WINDOW`
+ * counts (the last 6 h, the Meta's own stored counts). A New Meta event is never skipped by it. Review 2026-11-19: 18 Proposals went to Metas with
+ * 0 creates in 6 h while the cap refused Metas with hundreds of copiers.
+ */
+export const MEME_LIVE_MIN_CREATES = 10;
+export const MEME_LIVE_WINDOW = "6h" as const;
+
 export interface MemeConfig {
   /** Most meme-ideas runs started in any rolling 24 hours (the retry for a copied name included); at most `MAX_MEME_RUNS_PER_DAY`. */
   maxRunsPerDay: number;
@@ -72,12 +80,15 @@ export interface MemeConfig {
   maxConsecutiveFailures: number;
 }
 
-/** 8 runs a day (Operator, 2026-11-15): three Metas refreshed every 12 h is 6, with room for new Metas and a retry. */
-export const DEFAULT_MEME_CONFIG: MemeConfig = { maxRunsPerDay: 8, maxPerPass: 3, failedRetryMinutes: 30, maxConsecutiveFailures: 3 };
+/**
+ * 24 runs a day (ticket 17, from the proposal review of 2026-11-19; was 8 from 2026-11-15): the live-Metas rule below drops the dead refreshes,
+ * so the runs go to Metas with a copy flow; 8 runs cost about $0.33. The 3x attempt cap (`angleAttemptCap`) belongs to the angle allowance and is unchanged (30).
+ */
+export const DEFAULT_MEME_CONFIG: MemeConfig = { maxRunsPerDay: 24,maxPerPass: 3, failedRetryMinutes: 30, maxConsecutiveFailures: 3 };
 
 /**
  * ARGUS_MEME_IDEAS (`1` turns the pass on; unset, empty or `0` leave it off; anything else is an error) and ARGUS_MEME_MAX_PER_DAY (a
- * whole number from 1 to the hard ceiling of 40, which may lower or raise the default of 8). An invalid value is an error and never a
+ * whole number from 1 to the hard ceiling of 40, which may lower or raise the default of 24). An invalid value is an error and never a
  * fallback, as for the other ARGUS_* caps.
  */
 export function memeConfigFromEnv(env: Record<string, string | undefined>): { enabled: boolean; config: MemeConfig } {
@@ -266,17 +277,22 @@ export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<stri
   for (const meta of metas) {
     const last = lastTry(meta.key);
     const event = events.get(meta.key);
+    // Ticket 17: a refresh of a Meta with no copy flow is not worth a run; a New Meta event is never skipped here.
+    const live = meta.counts[MEME_LIVE_WINDOW].tokens >= MEME_LIVE_MIN_CREATES;
     if (event && (!last || last.at < event.raisedAt)) {
       due.push({ meta, kind: "new-meta", eventAt: event.raisedAt, since: event.raisedAt });
     } else if (last?.outcome === "failed") {
       if (now.getTime() - Date.parse(last.at) < config.failedRetryMinutes * 60_000) continue;
-      due.push({ meta, kind: event?.raisedAt === last.eventAt ? "new-meta" : "refresh", eventAt: last.eventAt, since: last.eventAt });
+      const kind = event?.raisedAt === last.eventAt ? "new-meta" : "refresh";
+      if (kind === "refresh" && !live) continue;
+      due.push({ meta, kind, eventAt: last.eventAt, since: last.eventAt });
     } else if (!last) {
+      if (!live) continue;
       due.push({ meta, kind: "refresh", eventAt: meta.enteredAt, since: meta.enteredAt });
     } else {
       // The 12 h counts running time: recorded worker downtime after the last try holds the refresh (ticket 10).
       const slot = Date.parse(last.at) + MEME_REFRESH_MS + heldMs(last.at, MEME_REFRESH_MS);
-      if (now.getTime() >= slot) due.push({ meta, kind: "refresh", eventAt: new Date(slot).toISOString(), since: last.at });
+      if (now.getTime() >= slot && live) due.push({ meta, kind: "refresh", eventAt: new Date(slot).toISOString(), since: last.at });
     }
   }
   const rank = (d: MemeDue) => (d.kind === "new-meta" ? 0 : 1);

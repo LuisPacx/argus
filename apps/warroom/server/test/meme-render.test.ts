@@ -123,8 +123,8 @@ describe("the routes", () => {
     const id = store.startBrainRun({ proposalId: 0, task: "meme-ideas", backend: "claude-code", model: "sonnet" });
     store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.1, exitStatus: "success" });
     const r = research() as never as Parameters<typeof researchBar>[0];
-    expect(r).toMatchObject({ runs: 1, memeIdeas: { enabled: false, runs: 1, cap: 8 } });
-    expect(researchBar(r).details.join(" ")).toContain("Meme ideas: 1 of 8 runs in the last 24 h (counted in the budget above); off until ARGUS_MEME_IDEAS=1.");
+    expect(r).toMatchObject({ runs: 1, memeIdeas: { enabled: false, runs: 1, cap: 24 } });
+    expect(researchBar(r).details.join(" ")).toContain("Meme ideas: 1 of 24 runs in the last 24 h (counted in the budget above); off until ARGUS_MEME_IDEAS=1.");
   });
 });
 

@@ -11,7 +11,7 @@ import type { DexPair } from "../sources/dexscreener.ts";
 import { aMeta, saveCurrentRun } from "../testing/meta-current.ts";
 import { tempDir } from "../testing/temp.ts";
 import { ANGLE_ATTEMPT_CAP_FACTOR, angleAttemptCap, parseAngle } from "./angle.ts";
-import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
+import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, MEME_LIVE_MIN_CREATES, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
 import { MEME_REFRESH_MS } from "./types.ts";
 
 const NOW = Date.parse("2026-11-12T20:00:00.000Z");
@@ -44,7 +44,8 @@ const JENSEN_NAMES = ["Jensen", "JENSEN", "$Jensen", "Jensen!", "Jensen", "jense
 /** The `meta_current` Meta of a launch-theme row: the row's counts and top tokens, led by a $2.4M token. */
 const metaOf = (row: { key: string; label: string; counts: CurrentMeta["counts"]; topTokens: CurrentMeta["topTokens"] }, over: Partial<CurrentMeta> = {}): CurrentMeta => ({
   ...aMeta(row.key, { label: row.label, cap: 2_400_000, leaderName: "Jensen Huang", leaderSymbol: "JENSEN", enteredAt: at(0).toISOString() }),
-  counts: row.counts,
+  // A live Meta (ticket 17: a refresh needs at least 10 creates in 6 h); the live-Metas tests below set their own counts.
+  counts: { ...row.counts, "6h": { ...row.counts["6h"], tokens: Math.max(row.counts["6h"].tokens, MEME_LIVE_MIN_CREATES) } },
   topTokens: row.topTokens,
   ...over,
 });
@@ -158,14 +159,14 @@ describe("the switch", () => {
     expect(memes(store)).toHaveLength(3);
   });
 
-  it("is parsed strictly: 1 is on, 0 and unset are off, anything else is an error; the cap defaults to 8 and may be raised to the hard ceiling of 40", () => {
+  it("is parsed strictly: 1 is on, 0 and unset are off, anything else is an error; the cap defaults to 24 and may be raised to the hard ceiling of 40", () => {
     expect(memeConfigFromEnv({}).enabled).toBe(false);
     expect(memeConfigFromEnv({ ARGUS_MEME_IDEAS: "" }).enabled).toBe(false);
     expect(memeConfigFromEnv({ ARGUS_MEME_IDEAS: "0" }).enabled).toBe(false);
     expect(memeConfigFromEnv({ ARGUS_MEME_IDEAS: "1" }).enabled).toBe(true);
     for (const bad of ["yes", "true", "2", "on"]) expect(() => memeConfigFromEnv({ ARGUS_MEME_IDEAS: bad })).toThrow(/ARGUS_MEME_IDEAS/);
-    expect(memeConfigFromEnv({}).config.maxRunsPerDay).toBe(8);
-    expect(DEFAULT_MEME_CONFIG.maxRunsPerDay).toBe(8);
+    expect(memeConfigFromEnv({}).config.maxRunsPerDay).toBe(24);
+    expect(DEFAULT_MEME_CONFIG.maxRunsPerDay).toBe(24);
     expect(memeConfigFromEnv({ ARGUS_MEME_MAX_PER_DAY: "5" }).config.maxRunsPerDay).toBe(5);
     expect(memeConfigFromEnv({ ARGUS_MEME_MAX_PER_DAY: "10" }).config.maxRunsPerDay).toBe(10); // above the default: allowed now
     expect(memeConfigFromEnv({ ARGUS_MEME_MAX_PER_DAY: "40" }).config.maxRunsPerDay).toBe(MAX_MEME_RUNS_PER_DAY);
@@ -292,7 +293,7 @@ describe("the 2026-11-12 case: the jensen Meta, its news and a New Meta event gi
 
   it("a Meta whose leader is not in the last 24 h of launches (it outlived its launch wave) still gets ideas, led by that leader", async () => {
     const store = Datastore.open(":memory:");
-    const meta = { ...aMeta("jensen", { label: "Jensen", cap: 2_400_000, leaderName: "Jensen Huang", leaderSymbol: "JENSEN", enteredAt: at(-300).toISOString() }), counts: { "6h": { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 }, "24h": { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 } } };
+    const meta = { ...aMeta("jensen", { label: "Jensen", cap: 2_400_000, leaderName: "Jensen Huang", leaderSymbol: "JENSEN", enteredAt: at(-300).toISOString() }), counts: { "6h": { tokens: MEME_LIVE_MIN_CREATES, creators: 0, migrations: 0, migrationsAfter60s: 0 }, "24h": { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 } } };
     saveCurrentRun(store, at(0), { metas: [meta] });
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
     expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // never tried: a refresh
@@ -466,6 +467,31 @@ describe("order: new Metas first (oldest event first), then refreshes by oldest 
     expect(due.find((x) => x.meta.key === "b")!.eventAt).toBe(at(-50).toISOString());
   });
 
+  it("only live Metas are refreshed (ticket 17): fewer than 10 creates in 6 h is skipped, 10 is due, and a New Meta is never skipped", () => {
+    const withCreates = (key: string, tokens: number): CurrentMeta => {
+      const m = meta(key);
+      return { ...m, counts: { ...m.counts, "6h": { ...m.counts["6h"], tokens } } };
+    };
+    const never = withCreates("never", MEME_LIVE_MIN_CREATES - 1);
+    const neverLive = withCreates("never-live", MEME_LIVE_MIN_CREATES);
+    const slot = withCreates("slot", 0);
+    const slotLive = withCreates("slot-live", MEME_LIVE_MIN_CREATES);
+    const failed = withCreates("failed", 3);
+    const fresh = withCreates("fresh", 0);
+    const old = at(-13 * HOUR).toISOString();
+    const last: Record<string, { at: string; outcome: "stored" | "failed"; eventAt: string }> = {
+      slot: { at: old, outcome: "stored", eventAt: "x" },
+      "slot-live": { at: old, outcome: "stored", eventAt: "x" },
+      failed: { at: at(-60).toISOString(), outcome: "failed", eventAt: "x" },
+    };
+    const events = new Map([["fresh", { raisedAt: at(-5).toISOString() }]]);
+    const due = dueMetas([never, neverLive, slot, slotLive, failed, fresh], events, (k) => last[k], at(0), { failedRetryMinutes: 30 });
+    expect(due.map((x) => [x.meta.key, x.kind]).sort()).toEqual([["fresh", "new-meta"], ["never-live", "refresh"], ["slot-live", "refresh"]]);
+    // a failed New Meta try is retried whatever the flow
+    const events2 = new Map([["failed", { raisedAt: "x" }]]);
+    expect(dueMetas([failed], events2, (k) => last[k], at(0), { failedRetryMinutes: 30 }).map((x) => x.kind)).toEqual(["new-meta"]);
+  });
+
   it("an event newer than the last try is a new Meta even if the last try failed 5 minutes ago; an old event with a try after it is not due", () => {
     const [a, b] = ["a", "b"].map(meta) as [CurrentMeta, CurrentMeta];
     const last = { a: { at: at(-5).toISOString(), outcome: "failed" as const, eventAt: at(-100).toISOString() }, b: { at: at(-5).toISOString(), outcome: "stored" as const, eventAt: at(-100).toISOString() } };
@@ -507,7 +533,7 @@ describe("order: new Metas first (oldest event first), then refreshes by oldest 
   });
 });
 
-describe("the daily cap: 8 runs a day, taken from the research budget", () => {
+describe("the daily cap: 24 runs a day, taken from the research budget", () => {
   function seedRuns(store: Datastore, n: number, task = "meme-ideas", cost = 0.01) {
     for (let i = 0; i < n; i++) {
       const id = store.startBrainRun({ proposalId: 0, task, backend: "claude-code", model: "sonnet" }, at(-30 - i));
@@ -515,12 +541,12 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     }
   }
 
-  it("the 8th run is allowed and the 9th is refused with the reason recorded once per slot; the pass ends without error", async () => {
+  it("the 24th run is allowed and the 25th is refused with the reason recorded once per slot; the pass ends without error", async () => {
     const { store } = await seedJensen();
-    seedRuns(store, 7);
+    seedRuns(store, 23);
     const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
     expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 });
-    expect(store.memeIdeasSpendSince(at(-24 * HOUR).toISOString()).runs).toBe(8);
+    expect(store.memeIdeasSpendSince(at(-24 * HOUR).toISOString()).runs).toBe(24);
 
     // A second Meta that is new too, and a refresh that is due: the 9th run is refused.
     const second = Datastore.open(":memory:");
@@ -529,7 +555,7 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     const runId = saveCurrentRun(second, at(0), { metas: [a, b] });
     raise(second, a, 0, runId);
     second.meme.record({ key: "lambda", eventAt: at(-40 * HOUR).toISOString(), at: at(-14 * HOUR).toISOString(), outcome: "stored", detail: "3 ideas", runs: 1 });
-    seedRuns(second, 8);
+    seedRuns(second, 24);
     const lines: string[] = [];
     const b2 = fakeBrain([JENSEN_ANSWER]);
     const r = await pass(second, b2.brain, { lines });
@@ -538,8 +564,8 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     const attempts = second.meme.since(at(-60).toISOString());
     expect(attempts).toHaveLength(1);
     expect(attempts[0]).toMatchObject({ key: "kappa", eventAt: at(0).toISOString(), outcome: "daily-cap" });
-    expect(attempts[0]!.detail).toMatch(/daily cap of 8 meme-ideas runs reached \(8 runs/);
-    expect(lines.join("\n")).toMatch(/daily cap of 8/);
+    expect(attempts[0]!.detail).toMatch(/daily cap of 24 meme-ideas runs reached \(24 runs/);
+    expect(lines.join("\n")).toMatch(/daily cap of 24/);
     expect(lines.join("\n")).toMatch(/"Kappa" waits, and so does "Lambda"/); // what waited is logged
     expect(prompts).toHaveLength(1);
     // Looking again at the next pass records nothing more (one row per slot), and the cap does not count as a try.
@@ -553,7 +579,7 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     const store = Datastore.open(":memory:");
     const meta = aMeta("kappa", { label: "Kappa", enteredAt: at(-40 * HOUR).toISOString() });
     store.meme.record({ key: "kappa", eventAt: at(-40 * HOUR).toISOString(), at: at(-13 * HOUR).toISOString(), outcome: "stored", detail: "3 ideas", runs: 1 });
-    seedRuns(store, 8);
+    seedRuns(store, 24);
     const { brain } = fakeBrain([JENSEN_ANSWER]);
     for (const minutes of [1, 20, 40]) {
       tick(store, minutes - 1, [meta]);
@@ -574,12 +600,12 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     expect(await pass(other, brain, { config: { maxRunsPerDay: 1000 } })).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
   });
 
-  it("with the default config the 9th run in 24 h is refused whatever the Metas, and a cap raised by the environment lets it through", async () => {
+  it("with the default config the 25th run in 24 h is refused whatever the Metas, and a cap raised by the environment lets it through", async () => {
     const { store } = await seedJensen();
-    seedRuns(store, 8);
+    seedRuns(store, 24);
     const { brain } = fakeBrain([JENSEN_ANSWER]);
     expect(await pass(store, brain, { config: memeConfigFromEnv({}).config })).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
-    expect(await pass(store, brain, { config: memeConfigFromEnv({ ARGUS_MEME_MAX_PER_DAY: "12" }).config })).toMatchObject({ called: 1, stored: 1 });
+    expect(await pass(store, brain, { config: memeConfigFromEnv({ ARGUS_MEME_MAX_PER_DAY: "30" }).config })).toMatchObject({ called: 1, stored: 1 });
   });
 
   it("runs older than 24 h do not count", async () => {
@@ -592,9 +618,9 @@ describe("the daily cap: 8 runs a day, taken from the research budget", () => {
     expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 });
   });
 
-  it("a name-copy retry is one more run under the same cap: at 7 runs the retry is refused and nothing is stored", async () => {
+  it("a name-copy retry is one more run under the same cap: at 23 runs the retry is refused and nothing is stored", async () => {
     const { store, meta } = await seedJensen();
-    seedRuns(store, 7);
+    seedRuns(store, 23);
     const { brain, prompts } = fakeBrain([COPY_ANSWER, OTHER_ANSWER]);
     expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 0, refused: 1 });
     expect(prompts).toHaveLength(1);
@@ -1192,15 +1218,15 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
 
   it("regular runs cannot use the angle allowance, and angle runs do not count against the regular cap", async () => {
     const { store } = await seedJensen();
-    seedRuns(store, 8, true);
+    seedRuns(store, 24, true);
     const { brain } = fakeBrain([JENSEN_ANSWER]);
-    expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // 8 angle runs (the size of the regular cap) do not stop an automatic run
-    // 8 regular runs stop an automatic one with the regular message, whatever the angle allowance has left
+    expect(await pass(store, brain)).toMatchObject({ called: 1, stored: 1 }); // 24 angle runs (the size of the regular cap) do not stop an automatic run
+    // 24 regular runs stop an automatic one with the regular message, whatever the angle allowance has left
     const second = await seedJensen();
-    seedRuns(second.store, 8, false);
+    seedRuns(second.store, 24, false);
     const lines: string[] = [];
     expect(await pass(second.store, fakeBrain([JENSEN_ANSWER]).brain, { lines })).toMatchObject({ called: 0, stoppedBy: "daily-cap" });
-    expect(lines.join("\n")).toMatch(/daily cap of 8 meme-ideas runs reached/);
+    expect(lines.join("\n")).toMatch(/daily cap of 24 meme-ideas runs reached/);
   });
 
   it("the limits are one named function: 10 filed angle runs a day, never past 10, the regular cap untouched, and 3 times the allowance as the hard cap on attempts", () => {

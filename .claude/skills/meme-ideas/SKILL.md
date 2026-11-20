@@ -14,13 +14,15 @@ The Meta block (a label, counts, token names, tickers and descriptions, and the 
 ## What to write
 
 - Three different angles on the same Meta, not three spellings of one joke. Each is a joke or a take that works because of what is happening now, and the angle says why.
+- Prefer the thing itself: a character, place, object or event named in the source, in plain words. Do not default to side jokes about how fans behave (a sick day, a delay, a pre-order, a loading screen, a trailer wait); others launch those by the hundred and they almost never bond. At most one idea of the three may be such a side joke.
 - A name and a ticker that are new. Never reuse, or differ by one letter, case, punctuation, a "$" or an emoji from, a token name or ticker in the Meta block or in the names to avoid. Argus also refuses a name or ticker that copies a live token on DexScreener (one with real liquidity: at least $5,000, and a market cap of at most 100 times that). On a copy it asks once more, then drops the whole answer. A name that only a dead or drained token uses is not refused: argus stores the idea with a short note for the Operator ("name also used by a dead token: ..."), so do not give up a plain name because a dead coin once used it.
 - Naming, for the name and the ticker:
   - When an angle rides a specific object, character or moment, name it with the plain words people already use for it, or the game's or story's own proper name for it, never an invented synonym. The name must still be new against the Meta block and the names to avoid. If the plain name is already taken, use another plain word people use for it, not a variant or a suffix.
   - Prefer a plain description of what is shown over a pun, a joke phrase or a quoted line.
-  - Keep the name to 1 to 3 words, with no filler suffixes such as "Coin", "Inu" or "Cult".
+  - Name inside the Meta, not around it: at least one idea of the three uses the Meta's own word (for a game, its title or a character) or the in-game or proper name of the thing. A parody name that uses the subject's word is allowed by the Rubric's legitimacy rule as long as it does not claim to be official. Do not make a name different from the leading tokens' names for the sake of it; only the copy rule above applies.
+  - Keep the name to 1 to 3 words, with no filler suffixes such as "Coin", "Inu" or "Cult". Argus refuses a name of 4 or more words (it is sent back once, see the output contract).
   - When a proper name exists, it is the best ticker, still within the ticker rule below.
-- How the idea differs from the Meta's leading tokens, in a sentence.
+- What the angle adds beyond the Meta's leading tokens, in a sentence (the `difference` field).
 - A short description, a first post for X, and what the image would show, all as plain text.
 - Risk labels: short plain labels for what the Operator should weigh, for example `real person`. When the Meta is about a named real person, set `subject.isRealPerson` to true and give every idea the label `real person`; the answer is refused otherwise.
 - The legitimacy rule is the Rubric's, quoted in the prompt. Follow it as written; do not restate or soften it.
@@ -33,6 +35,7 @@ Argus refuses (stores nothing) anything that is not exactly one JSON object `{"s
 
 - Every text is plain text on one line, within the length the prompt states, with no markup (`<`, `>`, backticks, markdown links), no URL and no control or invisible characters.
 - `ticker` is 2 to 10 upper-case letters or digits, starting with a letter. Keep it short: a long name needs a shorter ticker (use `MUSCLE`, not `MUSCLEMOMMY`, which is 11 characters).
+- `name` is 1 to 3 words.
 - `riskLabels` is an array of at most five short strings, or `[]`.
 - Exactly three ideas, none a copy of an existing name or of each other.
 

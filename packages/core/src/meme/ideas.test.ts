@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { avoidLabels, copiedNames, memeIdeasPromptFor, MEME_LIMITS, newsMemePromptFor, parseMemeOutput, REAL_PERSON_LABEL, type MemeIdea, type MemePromptInput } from "./ideas.ts";
 
 // Three names that are far from each other: names one edit apart are refused, and "Idea Name 1" and "Idea Name 2" are.
-const NAMES = ["Leather Jackpot", "Chip Off The Block", "Moonbeam Ledger", "Frosty Tuna"];
+const NAMES = ["Leather Jackpot", "Chip Off Block", "Moonbeam Ledger", "Frosty Tuna"];
 const TICKERS = ["JACKPOT", "CHIPOFF", "MOONBM", "TUNA"];
 const idea = (n: number, over: Record<string, unknown> = {}) => ({
   name: NAMES[n - 1],
@@ -36,6 +36,12 @@ describe("parseMemeOutput", () => {
   it("trims leading and trailing spaces of a field and keeps what it says", () => {
     const r = parseMemeOutput(answer({}, [idea(1, { name: "  Spaced Name  " }), idea(2), idea(3)]));
     expect(r.ok && r.ideas[0]!.name).toBe("Spaced Name");
+  });
+
+  it("accepts a name of 1 to 3 words and refuses one of 4 or more (ticket 17), naming the field", () => {
+    for (const name of ["Kraken", "Giant Kraken", "Giant Kraken Egg"]) expect(parseMemeOutput(answer({}, [idea(1, { name }), idea(2), idea(3)])).ok).toBe(true);
+    const r = parseMemeOutput(answer({}, [idea(1), idea(2, { name: "Sleepy  Dog   Of The  Moon" }), idea(3)]));
+    expect(r).toMatchObject({ ok: false, problem: "`ideas[1].name` has 5 words; a name is 1 to 3 words" });
   });
 
   it.each([
@@ -370,10 +376,22 @@ describe("memeIdeasPromptFor: untrusted text stays inside its boundary", () => {
     expect(avoidLabels([{ name: "Jensen", symbol: "JENSEN" }, { name: " jensen ", symbol: "$J" }, { name: "", symbol: "" }, { name: "Bad\nName", symbol: "X" }])).toEqual(["Jensen", "$J", "Bad Name", "X"]);
   });
 
-  it("without an angle the prompt is what it was before ticket 11: the same text once the random boundaries are fixed", () => {
+  it("without an angle the prompt has no angle block: the same text once the random boundaries are fixed (hash recorded at ticket 17, the naming and angle rules)", () => {
     const fixed = memeIdeasPromptFor(base()).replace(/BOUNDARY-[0-9a-f]{24}/g, "BOUNDARY-X");
-    expect(createHash("sha256").update(fixed).digest("hex")).toBe("30e2ebc6f8164c144738c2f4c128c330cde0cf4e5afabbdb1b40f48c029a241e"); // recorded from the prompt of the commit before ticket 11
+    expect(createHash("sha256").update(fixed).digest("hex")).toBe("0c152dfde2dde5eb33f4aed0fa53fb9b264aa78ae1f4a82c4e3e6184e260c051");
     expect(fixed).not.toContain("operator angle");
+  });
+
+  it("names inside the Meta and prefers the thing itself (ticket 17), for a Meta and for a story, and no longer asks for a name different from the leader", () => {
+    const story: Parameters<typeof newsMemePromptFor>[0] = { title: "T", summary: "", signalCount: 1, lastSignalAt: "2026-11-11T20:00:00.000Z", news: [], market: [], score: { total: 4, scores: {}, rationale: "", gateMin: 5 }, legitimacy: "L" };
+    for (const p of [memeIdeasPromptFor(base()), newsMemePromptFor(story)]) {
+      expect(p).toMatch(/at least one idea must be named with the (Meta|story)'s own word, or the in-game or proper name of the thing, in 1 to 3 words/);
+      expect(p).toContain("a name of 4 or more words is refused");
+      expect(p).toContain("parody name that uses the subject's word is allowed");
+      expect(p).toContain("at most one idea may be such a side joke");
+      expect(p).toContain("a name that only uses the subject's word is fine");
+      expect(p).not.toContain("pick a different word or joke instead of a copy");
+    }
   });
 });
 

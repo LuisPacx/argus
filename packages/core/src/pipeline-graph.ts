@@ -14,7 +14,7 @@ import { EXPIRY_MS, MEME_EXPIRY_MS } from "./expiry.ts";
 import { DEFAULT_JUDGE_CONFIG, judgeConfigFromEnv } from "./judge.ts";
 import { ANGLE_ATTEMPT_CAP_FACTOR, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, memeAngleConfigFromEnv } from "./meme/angle.ts";
 import { LIVE_TOKEN_MAX_CAP_LIQUIDITY_RATIO, LIVE_TOKEN_MIN_LIQUIDITY_USD } from "./meme/live-token.ts";
-import { DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, memeConfigFromEnv } from "./meme/pass.ts";
+import { DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, MEME_LIVE_MIN_CREATES, memeConfigFromEnv } from "./meme/pass.ts";
 import { MEME_REFRESH_MS, MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS } from "./meme/types.ts";
 import { META_RULE, META_WINDOWS, metaConfigFromEnv, metaIntervalMinutes } from "./meta/config.ts";
 import { DEFAULT_META_GROUP_CONFIG, metaGroupConfigFromEnv } from "./meta/group-pass.ts";
@@ -399,6 +399,7 @@ export const PIPELINE: PipelineGraph = {
         { label: "Ideas per run", key: "MEME_TRIO_SIZE", ref: () => MEME_TRIO_SIZE, unit: "count" },
         { label: "A Meta gets ideas again every", key: "MEME_REFRESH_MS", ref: () => MEME_REFRESH_MS, unit: "ms", diagram: true },
         { label: "A new trio is refused within (of the last one)", key: "MEME_WINDOW_MS", ref: () => MEME_WINDOW_MS, unit: "ms" },
+        { label: "A refresh is skipped when the Meta had fewer creates than this in the last 6 h (a new Meta is never skipped)", key: "MEME_LIVE_MIN_CREATES", ref: () => MEME_LIVE_MIN_CREATES, unit: "count" },
         { label: "Runs per day", key: "DEFAULT_MEME_CONFIG.maxRunsPerDay", ref: () => DEFAULT_MEME_CONFIG.maxRunsPerDay, unit: "count", diagram: true, live: (env) => memeConfigFromEnv(env).config.maxRunsPerDay },
         { label: "Runs per day, hard cap", key: "MAX_MEME_RUNS_PER_DAY", ref: () => MAX_MEME_RUNS_PER_DAY, unit: "count" },
         { label: "Operator angle requests per day (waiting, running or done; a refused one does not spend it; own allowance apart from the runs above)", key: "DEFAULT_MEME_ANGLE_PER_DAY", ref: () => DEFAULT_MEME_ANGLE_PER_DAY, unit: "count", live: (env) => memeAngleConfigFromEnv(env).maxPerDay },
@@ -473,7 +474,7 @@ export const PIPELINE: PipelineGraph = {
     { id: "meta-warroom", from: "meta", to: "warroom", label: "New Meta" },
     { id: "meta-judge", from: "meta", to: "judge", label: "Meta block in the prompt" },
     { id: "meta-proposals", from: "meta", to: "proposals", label: "Meta block in the prompt" },
-    { id: "meta-meme", from: "meta", to: "meme", label: "new Meta, then every 12 h, cap 8 a day, room-left as a reason" },
+    { id: "meta-meme", from: "meta", to: "meme", label: "new Meta, then every 12 h while it is copied, cap 24 a day, room-left as a reason" },
     { id: "meme-proposals", from: "meme", to: "proposals", label: "3 meme Proposals per run", metric: "memes_created" },
     // Off the page: what the old hand-drawn overview also showed.
     { id: "proposals-warroom", from: "proposals", to: "warroom", label: "list" },

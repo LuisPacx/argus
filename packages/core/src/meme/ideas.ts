@@ -13,7 +13,9 @@ import { MEME_TRIO_SIZE, type MemeSnapshotTriggerKind, type SnapshotNews, type S
 /** What the model writes; limits are characters of one line. Over a limit the answer is refused, never cut. */
 export const MEME_LIMITS = { name: 40, angle: 300, difference: 300, description: 200, hook: 280, imageIdea: 300, subject: 60, riskLabel: 30, riskLabels: 5 } as const;
 
-const TICKER_RE = /^[A-Z][A-Z0-9]{1,9}$/;
+/** A name is 1 to 3 words: 4+ word names bonded at 0.64% against about 1.26% (proposal review 2026-11-19, ticket 17). */
+export const MEME_NAME_MAX_WORDS = 3;
+const TICKER_RE =/^[A-Z][A-Z0-9]{1,9}$/;
 // oxlint-disable-next-line no-control-regex
 const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 /** Control (C0 and C1), format (zero-width, bidirectional, BOM), line separator and paragraph separator characters. */
@@ -127,6 +129,8 @@ export function parseMemeOutput(output: string, existing: readonly ExistingToken
     for (const f of Object.values(fields)) if (typeof f !== "string") return { ok: false, problem: f.problem };
     const f = fields as Record<keyof typeof fields, string>;
     if (!TICKER_RE.test(f.ticker)) return { ok: false, problem: `\`${at}.ticker\` must be 2 to 10 upper-case letters and digits, starting with a letter` };
+    const words = f.name.split(/\s+/).filter((w) => w !== "").length;
+    if (words > MEME_NAME_MAX_WORDS) return { ok: false, problem: `\`${at}.name\` has ${words} words; a name is 1 to ${MEME_NAME_MAX_WORDS} words` };
     const labels = r.riskLabels;
     if (!Array.isArray(labels) || labels.length > MEME_LIMITS.riskLabels) return { ok: false, problem: `\`${at}.riskLabels\` must be an array of at most ${MEME_LIMITS.riskLabels} labels` };
     const riskLabels: string[] = [];
@@ -256,6 +260,14 @@ function outputContract(subjectOf: "Meta" | "story", rivals: string): string {
 }
 
 /**
+ * The naming and angle rules (ticket 17, from the proposal review of 2026-11-19: names with the Meta's word bond more often, 4+ word names half as
+ * often, and fan-behaviour side jokes launched 81 times by others never bonded). The same text for a Meta and a story.
+ */
+function namingRules(subjectOf: "Meta" | "story"): string {
+  return `Name inside the ${subjectOf}, not around it: at least one idea must be named with the ${subjectOf}'s own word, or the in-game or proper name of the thing, in 1 to 3 words (a name of 4 or more words is refused). A parody name that uses the subject's word is allowed by the legitimacy rule as long as it does not claim to be official. Prefer the thing itself (a character, place, object or event named in the source, in plain words) over jokes about how fans behave (a sick day, a delay, a pre-order, a loading screen); at most one idea may be such a side joke. Do not make a name different from the leading tokens' names for the sake of it.`;
+}
+
+/**
  * The prompt for one Meta. The output contract and the rules sit outside; the Meta (its label, counts, token names, tickers and
  * descriptions, all written by token creators) goes in as data: one line each, whitespace and control characters flattened, every field
  * cut, inside a block that ends only at a boundary line of fresh random bytes, which text written before the call cannot contain. The
@@ -287,7 +299,7 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
     "",
     outputContract("Meta", "the Meta's leading tokens"),
     "",
-    `The three ideas must be three different ${angleText !== "" ? "jokes on the Operator's angle" : "angles on the Meta"}. Each name and ticker must be new: it must not be, or differ by one letter, case, punctuation, a "$" or an emoji from, any token name or ticker in the Meta block or in the list of names to avoid; pick a different word or joke instead of a copy. An idea that copies a name is refused.`,
+    `The three ideas must be three different ${angleText !== "" ? "takes on the Operator's angle" : "angles on the Meta"}, not three spellings of one joke. ${namingRules("Meta")} Each name and ticker must not be, or differ by one letter, case, punctuation, a "$" or an emoji from, any token name or ticker in the Meta block or in the list of names to avoid (a name that only uses the subject's word is fine); pick another plain word instead of a copy. An idea that copies a name is refused.`,
     `Legitimacy (from the Rubric, the one place this rule is written): ${oneLine(input.legitimacy, 1000)}`,
     `When the Meta is about a named real person, set "isRealPerson" to true and give every idea the label "${REAL_PERSON_LABEL}".`,
     `Room left, from plain code (a reason to weigh, not a limit on what you may write): ${oneLine(input.roomLeft, 400)}`,
@@ -378,7 +390,7 @@ export function newsMemePromptFor(input: NewsMemePromptInput): string {
     "",
     outputContract("story", "the tokens already riding the story (the market Signals in the story block)"),
     "",
-    `The three ideas must be three different angles on the story. Each name and ticker must be new: it must not be, or differ by one letter, case, punctuation, a "$" or an emoji from, any token name or ticker in the story block; pick a different word or joke instead of a copy. An idea that copies a name is refused.`,
+    `The three ideas must be three different angles on the story, not three spellings of one joke. ${namingRules("story")} Each name and ticker must not be, or differ by one letter, case, punctuation, a "$" or an emoji from, any token name or ticker in the story block (a name that only uses the subject's word is fine); pick another plain word instead of a copy. An idea that copies a name is refused.`,
     `Legitimacy (from the Rubric, the one place this rule is written): ${oneLine(input.legitimacy, 1000)}`,
     `When the story is about a named real person, set "isRealPerson" to true and give every idea the label "${REAL_PERSON_LABEL}".`,
     `Rubric scores for this story, written by plain code from the Score: ${scoreLine(input.score)}.`,
