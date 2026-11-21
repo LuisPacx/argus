@@ -48,6 +48,8 @@ export * from "./research/x-read.ts";
 export * from "./research/dry-run.ts";
 export * from "./research/shadow.ts";
 export * from "./research/scoreboard.ts";
+export * from "./research/playbook.ts";
+export * from "./research/playbook-run.ts";
 export * from "./meme/store.ts";
 export * from "./meme/ideas.ts";
 export * from "./meme/pass.ts";

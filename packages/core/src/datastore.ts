@@ -20,9 +20,10 @@ import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_S
 import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
-import { loadShadowPicks, migrateShadow, pickSettledAt, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
+import { loadShadowPicks, migrateShadow, pickSettledAt, type PlaybookSource, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
 import { loadScoreboard, type Scoreboard } from "./research/scoreboard.ts";
-import { insertResearchRequest, listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
+import { countFinishedPicks, insertPlaybookRequest, latestPlaybook, loadPlaybookPicks, loadPlaybookState, loadPlaybookVersions, migratePlaybook, toPlaybookRequest, type PlaybookPick, type PlaybookRequest, type PlaybookState, type PlaybookStatus } from "./research/playbook.ts";
+import { insertResearchRequest,listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -72,6 +73,8 @@ export interface Proposal {
   meme: MemeFields | null;
   /** The Operator's angle the idea was made for (ticket 11; operator-typed text, untrusted); null on every other Proposal. */
   operatorAngle: OperatorAngle | null;
+  /** The Playbook version (ticket 09) the prompt that made this idea carried, or null (none existed, or a run that does not read it). */
+  playbookVersion: string | null;
   status: ProposalStatus;
   narrativeSummary: string;
   techOneLiner: string;
@@ -242,7 +245,7 @@ const cleanPollError = (message: string): string =>
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId" | "costSource"> & { costSource?: CostSource };
 
 /** Tasks whose runs that end with no reported cost are charged at their route's per-run cap (`spendSince`). */
-const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "spec", "spec-revise"] as const;
+const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "spec", "spec-revise"] as const;
 
 /** A run with no recorded cost that `spendSince` charges at its route's cap: it ended abnormally (or is still open), so it may have spent up to the cap. Mirrors the SQL there. */
 function chargedAtCap(r: { exit_status: string; session_id: string | null }): boolean {
@@ -607,6 +610,10 @@ export function migrate(db: DatabaseSync): void {
   migrateShadow(db);
   // The Operator's topic requests and the Research briefs the worker makes of them (human researcher ticket 05): two additive tables.
   migrateResearch(db);
+  // The Playbook (ticket 09): its request and version tables, and the version in use recorded on each brief and each Proposal made with it.
+  migratePlaybook(db);
+  ensureColumn(db, "research_briefs", "playbook_version", "TEXT");
+  ensureColumn(db, "proposals", "playbook_version", "TEXT");
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
@@ -639,6 +646,7 @@ interface Row {
   meme_risk_labels: string;
   meme_copy_note: string;
   operator_angle: string | null;
+  playbook_version?: string | null;
   status: ProposalStatus;
   narrative_summary: string;
   tech_one_liner: string;
@@ -723,6 +731,7 @@ function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
     metaSnapshot: parseSnapshot(r.meta_snapshot ?? null),
     meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels), ...(r.meme_copy_note ? { copyNote: r.meme_copy_note } : {}) } : null,
     operatorAngle: parseOperatorAngle(r.operator_angle),
+    playbookVersion: r.playbook_version ?? null,
     status: r.status,
     narrativeSummary: r.narrative_summary,
     techOneLiner: r.tech_one_liner,
@@ -784,6 +793,8 @@ export type WarRoomStore = Pick<
   | "scoreboard"
   | "requestResearch"
   | "researchRequests"
+  | "requestPlaybook"
+  | "playbookState"
   | "migrationOf"
   | "getCommand"
   | "listCommands"
@@ -1218,8 +1229,8 @@ export class Datastore {
             .prepare(
               `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
                  narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
-                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle, meme_copy_note)
-               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle, meme_copy_note, playbook_version)
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               slug,
@@ -1246,6 +1257,7 @@ export class Datastore {
               now,
               operatorAngle,
               idea.copyNote ?? "",
+              input.playbookVersion ?? null,
             );
         } catch (e) {
           if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) throw new MemeTrioExistsError(input.metaKey);
@@ -1480,8 +1492,8 @@ export class Datastore {
       const open = this.db.prepare("SELECT 1 FROM research_requests WHERE id = ? AND status IN ('pending', 'running')").get(id);
       if (!open) return false;
       this.db
-        .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt);
+        .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at, playbook_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt, brief.playbookVersion ?? null);
       this.db.prepare("UPDATE research_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`${brief.coins.length} coins, ${brief.sources.length} sources, ${brief.freeNames.length} free names`, now.toISOString(), id);
       for (const s of shadow) {
         try {
@@ -1518,6 +1530,97 @@ export class Datastore {
   /** WORKER ONLY. Puts requests a dead worker left `running` back to `pending`; returns how many. */
   requeueRunningResearchRequests(): number {
     return Number(this.db.prepare("UPDATE research_requests SET status = 'pending' WHERE status = 'running'").run().changes);
+  }
+
+  // ---------------------------------------------------------------- the Playbook (human researcher ticket 09)
+
+  /**
+   * The War Room's one write for a rebuild (insert only): a `pending` row the worker takes. Refused with `PlaybookRequestRefusedError`, before any model
+   * call: one already waiting, fewer than `PLAYBOOK_MIN_PICKS` finished Picks, or too many in 24 hours. It writes no version.
+   */
+  requestPlaybook(opts: { now?: Date } = {}): PlaybookRequest {
+    return this.inTransaction(() => insertPlaybookRequest(this.db, opts.now ?? new Date()));
+  }
+
+  /** The versions, the latest requests with their cost and whether a press would be accepted (ticket 09). READ ONLY. */
+  playbookState(): PlaybookState {
+    return loadPlaybookState(this.db);
+  }
+
+  /** Where the Shadow pick reads Playbook versions from (ticket 08's seam): every version, newest first, with its Pick ids and settle cutoff. READ ONLY. */
+  playbookSource(): PlaybookSource {
+    return { versions: () => loadPlaybookVersions(this.db) };
+  }
+
+  /** The newest Playbook version, or null: what Make ideas carries (ticket 09). READ ONLY. */
+  latestPlaybook(): { id: string; text: string } | null {
+    return latestPlaybook(this.db);
+  }
+
+  /** How many of the Operator's Picks have a finished bonded or not-bonded result. READ ONLY. */
+  countFinishedPicks(): number {
+    return countFinishedPicks(this.db);
+  }
+
+  /** The finished Picks a rebuild reads (newest `PLAYBOOK_PICKS_MAX`), with their outcomes. READ ONLY. */
+  playbookPicks(): PlaybookPick[] {
+    return loadPlaybookPicks(this.db);
+  }
+
+  /** Whether any rebuild is waiting or running: the worker's fast tick reads this. READ ONLY. */
+  hasOpenPlaybookRequests(): boolean {
+    return this.db.prepare("SELECT 1 FROM playbook_requests WHERE status IN ('pending', 'running') LIMIT 1").get() !== undefined;
+  }
+
+  /** The rebuilds waiting for the worker, oldest first. READ ONLY. */
+  pendingPlaybookRequests(): PlaybookRequest[] {
+    return (this.db.prepare("SELECT * FROM playbook_requests WHERE status = 'pending' ORDER BY id").all() as Record<string, string | number | null>[]).map(toPlaybookRequest);
+  }
+
+  /** WORKER ONLY. Takes a pending rebuild (`running`); false when it is not pending any more. */
+  claimPlaybookRequest(id: number): boolean {
+    return this.db.prepare("UPDATE playbook_requests SET status = 'running' WHERE id = ? AND status = 'pending'").run(id).changes === 1;
+  }
+
+  /** WORKER ONLY. Notes that a `brain_runs` row belongs to the rebuild, the moment the run is opened. */
+  attachPlaybookRun(id: number, runId: number): void {
+    this.inTransaction(() => {
+      const row = this.db.prepare("SELECT run_ids FROM playbook_requests WHERE id = ?").get(id) as { run_ids: string } | undefined;
+      if (!row) return;
+      const ids = toPlaybookRequest({ id, status: "running", detail: "", created_at: "", done_at: null, run_ids: row.run_ids }).runIds;
+      this.db.prepare("UPDATE playbook_requests SET run_ids = ? WHERE id = ?").run(JSON.stringify([...ids, runId]), id);
+    });
+  }
+
+  /** WORKER ONLY. Ends a rebuild that is waiting or running as `failed`, `capped` or `refused`, with the reason; one already ended is left as it is. */
+  resolvePlaybookRequest(id: number, done: { status: Exclude<PlaybookStatus, "pending" | "running" | "done">; detail: string }, now: Date = new Date()): void {
+    this.db.prepare("UPDATE playbook_requests SET status = ?, detail = ?, done_at = ? WHERE id = ? AND status IN ('pending', 'running')").run(done.status, done.detail.slice(0, 300), now.toISOString(), id);
+  }
+
+  /** WORKER ONLY. Gives a `running` rebuild back to `pending` (a rate limit, a shutdown or a dry run stopped it). */
+  releasePlaybookRequest(id: number): void {
+    this.db.prepare("UPDATE playbook_requests SET status = 'pending' WHERE id = ? AND status = 'running'").run(id);
+  }
+
+  /** WORKER ONLY. Puts rebuilds a dead worker left `running` back to `pending`. */
+  requeueRunningPlaybookRequests(): number {
+    return Number(this.db.prepare("UPDATE playbook_requests SET status = 'pending' WHERE status = 'running'").run().changes);
+  }
+
+  /**
+   * WORKER ONLY. Stores a new Playbook version and ends the request `done`, in one transaction. The version records the ids of the Picks it was built from and
+   * the latest time any of them settled (`settleCutoff`), which is what the Shadow pick's leak guard checks. A request already ended stores nothing. Returns the
+   * version id (text), or undefined.
+   */
+  savePlaybookVersion(requestId: number, v: { text: string; pickIds: readonly number[]; settleCutoff: string }, now: Date = new Date()): string | undefined {
+    return this.inTransaction(() => {
+      const open = this.db.prepare("SELECT 1 FROM playbook_requests WHERE id = ? AND status IN ('pending', 'running')").get(requestId);
+      if (!open) return undefined;
+      const res = this.db.prepare("INSERT INTO playbook_versions (request_id, text, pick_ids, settle_cutoff, created_at) VALUES (?, ?, ?, ?, ?)").run(requestId, v.text, JSON.stringify([...v.pickIds]), v.settleCutoff, now.toISOString());
+      const id = String(Number(res.lastInsertRowid));
+      this.db.prepare("UPDATE playbook_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`version ${id} from ${v.pickIds.length} Picks`, now.toISOString(), requestId);
+      return id;
+    });
   }
 
   /** Whether any angle request is waiting or running: the worker's fast tick reads this and does nothing more when it is false. READ ONLY. */
@@ -2410,7 +2513,12 @@ export class Datastore {
 
   /** What research (judge, propose, the Meta summary line, the Meta grouping, the meme ideas and the Operator's topic research) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook"], since, caps);
+  }
+
+  /** What the Playbook rebuild (human researcher ticket 09) has spent since `since` (ISO), as for `judgeSpendSince`: the figure its own daily cap is held to. */
+  playbookSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["playbook"], since, caps);
   }
 
   /**
@@ -2420,13 +2528,13 @@ export class Datastore {
    * still running shows what it has streamed so far.
    */
   dailySpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "spec", "spec-revise", "build"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "spec", "spec-revise", "build"], since, caps);
   }
 
   /** The start times (ISO, oldest first) of the runs `dailySpendSince` counts, so the moment the rolling window frees up can be found. */
   dailyRunStartsSince(since: string): string[] {
     const rows = this.db
-      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'researcher', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
+      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'researcher', 'playbook', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
       .all(since) as { created_at: string }[];
     return rows.map((r) => r.created_at);
   }

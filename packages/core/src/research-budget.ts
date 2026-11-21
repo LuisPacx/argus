@@ -52,7 +52,7 @@ export function researchConfigFromEnv(env: Record<string, string | undefined>): 
  */
 export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor">): RunCaps {
   // The subscription's caps, even while the API fallback is serving: Est. usage is charged at the subscription's per-run cap.
-  const route = (task: "judge" | "propose" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher" | "spec") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
+  const route = (task: "judge" | "propose" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher" | "playbook" | "spec") => (brain.primaryRouteFor ?? brain.routeFor).call(brain, task);
   return {
     // Spec drafts and revisions are no research (the research budget sums the five tasks below only) but count in the daily total, where
     // a draft that ended with no cost (the shutdown, a cancel) is charged at its cap (hardening ticket 10).
@@ -68,6 +68,8 @@ export function researchRunCaps(brain: Pick<Brain, "routeFor" | "primaryRouteFor
     "meme-ideas": route("meme-ideas").maxBudgetUsd ?? DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd,
     // And the Operator's topic research (human researcher ticket 05): its own daily caps sit inside this budget too.
     researcher: route("researcher").maxBudgetUsd ?? DEFAULT_ROUTING.researcher.maxBudgetUsd,
+    // The Playbook rebuild (human researcher ticket 09): one run a button press, inside the research budget too.
+    playbook: route("playbook").maxBudgetUsd ?? DEFAULT_ROUTING.playbook.maxBudgetUsd,
   };
 }
 
@@ -80,6 +82,7 @@ export const DEFAULT_RESEARCH_RUN_CAPS: RunCaps = {
   "meta-group": DEFAULT_ROUTING["meta-group"].maxBudgetUsd,
   "meme-ideas": DEFAULT_ROUTING["meme-ideas"].maxBudgetUsd,
   researcher: DEFAULT_ROUTING.researcher.maxBudgetUsd,
+  playbook: DEFAULT_ROUTING.playbook.maxBudgetUsd,
 };
 
 export interface ResearchUsage {

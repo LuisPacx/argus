@@ -285,7 +285,7 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       }
       shadow.push({ snapshot: snap.snapshot, reason: cleanLine(k.reason, BRIEF_LIMITS.pickReason), topic: cleanTopic(req.topic), playbookVersion: playbook?.id ?? null });
     }
-    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, createdAt: madeAt.toISOString() };
+    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, createdAt: madeAt.toISOString(), playbookVersion: playbook?.id ?? null };
     if (store.saveResearchBrief(req.id, brief, madeAt, shadow)) {
       out.done++;
       log(`[worker] research: request ${req.id} done, ${coins.length} coins, ${brief.sources.length} sources, ${freeNames.length} free names, ${shadow.length} shadow pick(s); ${x.note}`);

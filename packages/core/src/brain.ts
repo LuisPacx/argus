@@ -6,7 +6,7 @@ import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import { streamSpendOf, type CostSource, type StreamSpendTotal } from "./run-cost.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
-export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher";
+export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher" | "playbook";
 export type BrainBackend = "claude-code" | "api";
 
 /** What a task needs to run: free-form text handed to the skill. */
@@ -158,6 +158,9 @@ export const DEFAULT_ROUTING: Routing = {
   // reached by the model: argus supplies them. A run may spend at most $0.75 (research/brief.ts holds the same cap and passes it down, so a routing
   // override cannot raise it), runs at most 6 times a day, and waits out a rate limit (no API fallback).
   researcher: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.75, timeoutMs: 10 * MINUTE, tools: ["WebSearch", "WebFetch"] },
+  // The Playbook rebuild (human researcher ticket 09): one short JSON object of lessons from the Operator's finished Picks, sonnet, no tools (its input is
+  // Operator-typed reasons and creator-written coin names), no API fallback. Pressed by the Operator only; research/playbook.ts holds the same $0.25 cap.
+  playbook: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.25, timeoutMs: 5 * MINUTE, tools: [] },
   build: {
     backend: "claude-code",
     model: "sonnet",

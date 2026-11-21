@@ -208,4 +208,6 @@ export interface NewMemeTrio {
    * 6 h window (`meme_window` is the request id, negated), so it neither blocks nor is blocked by the Meta's automatic trio.
    */
   operatorAngle?: OperatorAngle;
+  /** The Playbook version (human researcher ticket 09) the prompt of the run carried, stored on each Proposal so a change in behaviour can be traced. */
+  playbookVersion?: string;
 }

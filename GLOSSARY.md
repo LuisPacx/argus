@@ -140,6 +140,7 @@ The Cases whose tokens were created in the same calendar week of launch. A lesso
 
 **Playbook**:
 The evidence-backed lessons the Study has learned, each suggested until the Operator approves it, plus the Rubric changes it suggests. Approved lessons are shown to the research steps; the Operator reviews the Playbook weekly.
+Since ADR 0017 the Playbook is built from the Operator's own Picks instead: one summarising run, started only by the Operator's Rebuild playbook button on the Research page (never on a timer, and refused with fewer than 10 Picks that have a finished bonded or not-bonded result), condenses his Picks, his reasons and their outcomes into a short text of what tends to bond and what does not. Each rebuild is a new, unchangeable version that records the Picks it was built from and the time the last of them settled; research and Make ideas read the latest version as an untrusted fenced block, and the Shadow pick reads only a version whose Picks all settled before its research request started. The version used is recorded on each Research brief, Shadow pick and Proposal made with it.
 _Avoid_: Insights, model
 
 **Pick**:

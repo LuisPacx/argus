@@ -35,6 +35,9 @@ const LEFT_OUT: Record<string, string> = {
   researcher: "the researcher task belongs to the Research page, not a pipeline stage (human researcher ticket 05, ADR 0017)",
   "DEFAULT_ROUTING.researcher.maxBudgetUsd": "the researcher's per-run cap is held in research/brief.ts and shown on the Research page's runs, not drawn here (human researcher ticket 05)",
   "DEFAULT_ROUTING.researcher.timeoutMs": "the researcher's wall clock, below this picture (human researcher ticket 05)",
+  playbook: "the playbook task belongs to the Research page's Rebuild playbook button, not a pipeline stage (human researcher ticket 09, ADR 0017)",
+  "DEFAULT_ROUTING.playbook.maxBudgetUsd": "the playbook run's per-run cap is held in research/playbook.ts and shown on the Research page's requests, not drawn here (human researcher ticket 09)",
+  "DEFAULT_ROUTING.playbook.timeoutMs": "the playbook run's wall clock, below this picture (human researcher ticket 09)",
   "DEFAULT_CLUSTER_CONFIG.batchSize": "per-pass pacing of the clustering pass, below this picture",
   BackoffSource: "wraps another Source for retries; it is not a Source of its own",
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
@@ -150,7 +153,7 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(r.ticks).toEqual(["buildTick", "chainTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "pickOutcomeTick", "proposeTick", "radarTick", "researchRequestTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
-    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "researcher", "build"]);
+    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "build"]);
     expect(Object.keys(r.config).length).toBeGreaterThan(30);
   });
 

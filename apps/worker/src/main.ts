@@ -27,6 +27,7 @@ import {
   spawnMomentRunner,
   generateMemeIdeas,
   runMemeAngles,
+  runPlaybookRequests,
   runResearchRequests,
   memeConfigFromEnv,
   metaConfigFromEnv,
@@ -468,8 +469,19 @@ const researchXRunner = spawnMomentRunner();
 let researchHoldUntil = 0;
 const researchRequestTick = reentrant(
   async () => {
-    if (dryRun || Date.now() < researchHoldUntil || !store.hasOpenResearchRequests()) return;
-    const r = await runResearchRequests(store, brain, { dex: researchDex, xRunner: researchXRunner, notifier, research: researchBudget, xLoadsPerDay: momentSettings.loadsPerDay, log: console.log, signal: shutdown.signal });
+    if (dryRun || Date.now() < researchHoldUntil) return;
+    // The Playbook rebuild (human researcher ticket 09): only the Operator's button writes a request, so with nothing waiting this reads one table.
+    if (store.hasOpenPlaybookRequests()) {
+      const p = await runPlaybookRequests(store, brain, { research: researchBudget, log: console.log, signal: shutdown.signal });
+      if (p.called > 0 || p.capped > 0 || p.refused > 0 || p.stoppedBy) console.log(`[worker] playbook: ${p.done} done, ${p.failed} failed, ${p.capped} capped, ${p.refused} refused, ${p.called} run(s)${p.stoppedBy ? `, stopped: ${p.stoppedBy}` : ""}`);
+      if (p.stoppedBy === "rate-limited" || p.stoppedBy === "interrupted") {
+        researchHoldUntil = Date.now() + META_TICK_MS;
+        return;
+      }
+    }
+    if (!store.hasOpenResearchRequests()) return;
+    // The Shadow pick reads Playbook versions through `playbook` (ticket 09; each records its Pick ids and settle cutoff, which the leak guard checks).
+    const r = await runResearchRequests(store, brain, { dex: researchDex, xRunner: researchXRunner, notifier, research: researchBudget, xLoadsPerDay: momentSettings.loadsPerDay, playbook: store.playbookSource(), log: console.log, signal: shutdown.signal });
     if (r.called > 0 || r.capped > 0 || r.stoppedBy) console.log(`[worker] research: ${r.done} done, ${r.failed} failed, ${r.capped} capped, ${r.called} run(s)${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
     if (r.stoppedBy === "rate-limited" || r.stoppedBy === "interrupted") researchHoldUntil = Date.now() + META_TICK_MS;
   },

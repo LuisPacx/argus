@@ -148,5 +148,7 @@ async function submit() {
     <PickList :view="view" />
 
     <ResearchScoreboard />
+
+    <PlaybookPanel />
   </div>
 </template>
