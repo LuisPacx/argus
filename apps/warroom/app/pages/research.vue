@@ -5,6 +5,7 @@
 import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
 import { canSubmitTopic, researchRequestsView, RESEARCH_TOPIC_MAX_CHARS, submitTopic, submitTopicIdeas, type TopicAccepted } from "../utils/research-brief.ts";
 import type { AngleAccepted } from "../utils/angle.ts";
+import { suggestionsView } from "../utils/research-suggestions.ts";
 
 const { data, refresh } = await useFetch("/api/picks", { default: () => [] });
 const { data: outcomes, refresh: refreshOutcomes } = await useFetch("/api/pick-outcomes", { default: () => null });
@@ -12,6 +13,9 @@ const { data: outcomes, refresh: refreshOutcomes } = await useFetch("/api/pick-o
 const { data: requests, refresh: refreshRequests } = await useFetch("/api/research-requests", { key: "research-requests", default: () => [] });
 // The Make ideas requests under the briefs (human researcher ticket 06): the same request table as a Meta's Make ideas, read by the brief's `topic:<id>` key.
 const { data: angles, refresh: refreshAngles } = await useFetch("/api/meme-angle", { key: "meme-angle", default: () => null });
+// The radar's live Trends as topic suggestions (ticket 07): read only.
+const { data: radar } = await useFetch("/api/radar", { key: "research-radar", default: () => null });
+const suggestions = computed(() => suggestionsView(radar.value));
 const nowMs = useNowMs();
 const view = computed(() => picksView(data.value, nowMs.value, outcomes.value));
 const briefs = computed(() => researchRequestsView(requests.value, nowMs.value, angles.value));
@@ -99,6 +103,7 @@ async function submit() {
         <input id="research-topic" v-model="researchTopic" class="field min-w-0 flex-1 text-sm" type="text" :maxlength="RESEARCH_TOPIC_MAX_CHARS" data-test="research-topic-input" placeholder="For example GTA" />
         <button type="submit" class="btn btn-primary" :disabled="!canResearch" data-test="research-submit">{{ researchBusy ? "Sending…" : "Research" }}</button>
       </div>
+      <RadarSuggestions :view="suggestions" @pick="(t) => (researchTopic = t)" />
       <p v-if="researchError" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="research-error">{{ researchError }}</p>
       <p v-if="researchNote" class="muted min-w-0 break-words text-xs" role="status" data-test="research-note">{{ researchNote }}</p>
     </form>
