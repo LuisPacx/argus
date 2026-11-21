@@ -20,6 +20,7 @@ import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_S
 import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
+import { insertResearchRequest, listResearchRequests, migrateResearch, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -239,7 +240,7 @@ const cleanPollError = (message: string): string =>
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId" | "costSource"> & { costSource?: CostSource };
 
 /** Tasks whose runs that end with no reported cost are charged at their route's per-run cap (`spendSince`). */
-const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "spec", "spec-revise"] as const;
+const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "spec", "spec-revise"] as const;
 
 /** A run with no recorded cost that `spendSince` charges at its route's cap: it ended abnormally (or is still open), so it may have spent up to the cap. Mirrors the SQL there. */
 function chargedAtCap(r: { exit_status: string; session_id: string | null }): boolean {
@@ -598,6 +599,8 @@ export function migrate(db: DatabaseSync): void {
   migratePicks(db);
   // What became of each Pick (ticket 04): two additive tables keyed on the Pick id; the picks table itself stays immutable.
   migratePickOutcomes(db);
+  // The Operator's topic requests and the Research briefs the worker makes of them (human researcher ticket 05): two additive tables.
+  migrateResearch(db);
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
@@ -769,6 +772,8 @@ export type WarRoomStore = Pick<
   | "recordPick"
   | "listPicks"
   | "pickOutcomes"
+  | "requestResearch"
+  | "researchRequests"
   | "migrationOf"
   | "getCommand"
   | "listCommands"
@@ -1372,6 +1377,74 @@ export class Datastore {
   /** When Argus's own Study saw the mint migrate (ISO), or null when it never did or never saw the mint. READ ONLY. */
   migrationOf(mint: string): string | null {
     return this.study.getToken(mint)?.migratedAt ?? null;
+  }
+
+  /**
+   * The War Room's one write for a topic (human researcher ticket 05, insert only like `enqueueCommand`): a `pending` row the worker takes. The
+   * topic must already be the cleaned text (`parseTopic`); at most 20 requests in 24 hours and one waiting at a time. Refused with
+   * `ResearchRequestRefusedError`. It writes no brief and no Proposal.
+   */
+  requestResearch(topic: string, opts: { now?: Date } = {}): ResearchRequest {
+    return this.inTransaction(() => insertResearchRequest(this.db, topic, opts.now ?? new Date()));
+  }
+
+  /** The newest research requests with the cost of their runs (from `brain_runs`) and their brief, newest first. READ ONLY. */
+  researchRequests(): ResearchRequestView[] {
+    return listResearchRequests(this.db);
+  }
+
+  /** Whether any research request is waiting or running: the worker's fast tick reads this and does nothing more when it is false. READ ONLY. */
+  hasOpenResearchRequests(): boolean {
+    return this.db.prepare("SELECT 1 FROM research_requests WHERE status IN ('pending', 'running') LIMIT 1").get() !== undefined;
+  }
+
+  /** The research requests waiting for the worker, oldest first. READ ONLY. */
+  pendingResearchRequests(): ResearchRequest[] {
+    return (this.db.prepare("SELECT * FROM research_requests WHERE status = 'pending' ORDER BY id").all() as Record<string, string | number | null>[]).map(toResearchRequest);
+  }
+
+  /** WORKER ONLY. Takes a pending request (`running`); undefined when it is not pending any more. */
+  claimResearchRequest(id: number): ResearchRequest | undefined {
+    const res = this.db.prepare("UPDATE research_requests SET status = 'running' WHERE id = ? AND status = 'pending'").run(id);
+    return res.changes === 1 ? toResearchRequest(this.db.prepare("SELECT * FROM research_requests WHERE id = ?").get(id) as Record<string, string | number | null>) : undefined;
+  }
+
+  /** WORKER ONLY. Notes that a `brain_runs` row belongs to the request, the moment the run is opened, so its cost is shown even if the worker dies mid-run. */
+  attachResearchRun(id: number, runId: number): void {
+    this.inTransaction(() => {
+      const row = this.db.prepare("SELECT run_ids FROM research_requests WHERE id = ?").get(id) as { run_ids: string } | undefined;
+      if (!row) return;
+      const ids = toResearchRequest({ id, topic: "", status: "running", detail: "", created_at: "", done_at: null, run_ids: row.run_ids }).runIds;
+      this.db.prepare("UPDATE research_requests SET run_ids = ? WHERE id = ?").run(JSON.stringify([...ids, runId]), id);
+    });
+  }
+
+  /** WORKER ONLY. Ends a request that is waiting or running as `failed` or `capped`, with the reason; one already ended is left as it is. */
+  resolveResearchRequest(id: number, done: { status: Exclude<ResearchStatus, "pending" | "running" | "done">; detail: string }, now: Date = new Date()): void {
+    this.db.prepare("UPDATE research_requests SET status = ?, detail = ?, done_at = ? WHERE id = ? AND status IN ('pending', 'running')").run(done.status, done.detail.slice(0, 300), now.toISOString(), id);
+  }
+
+  /** WORKER ONLY. Stores the brief and ends the request `done`, in one transaction, so a `done` request always has its brief. A request already ended stores nothing. */
+  saveResearchBrief(id: number, brief: ResearchBrief, now: Date = new Date()): boolean {
+    return this.inTransaction(() => {
+      const open = this.db.prepare("SELECT 1 FROM research_requests WHERE id = ? AND status IN ('pending', 'running')").get(id);
+      if (!open) return false;
+      this.db
+        .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt);
+      this.db.prepare("UPDATE research_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`${brief.coins.length} coins, ${brief.sources.length} sources, ${brief.freeNames.length} free names`, now.toISOString(), id);
+      return true;
+    });
+  }
+
+  /** WORKER ONLY. Gives a `running` request back to `pending` (a rate limit, a shutdown or a dry run stopped it before it ended). */
+  releaseResearchRequest(id: number): void {
+    this.db.prepare("UPDATE research_requests SET status = 'pending' WHERE id = ? AND status = 'running'").run(id);
+  }
+
+  /** WORKER ONLY. Puts requests a dead worker left `running` back to `pending`; returns how many. */
+  requeueRunningResearchRequests(): number {
+    return Number(this.db.prepare("UPDATE research_requests SET status = 'pending' WHERE status = 'running'").run().changes);
   }
 
   /** Whether any angle request is waiting or running: the worker's fast tick reads this and does nothing more when it is false. READ ONLY. */
@@ -2257,9 +2330,14 @@ export class Datastore {
     return this.spendSince(["meta-group"], since, caps);
   }
 
-  /** What research (judge, propose, the Meta summary line, the Meta grouping and the meme ideas) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
+  /** What the researcher task (the Operator's topic research, human researcher ticket 05) has spent since `since` (ISO), as for `judgeSpendSince`: the figure its own daily cap is held to. */
+  researcherSpendSince(since: string, caps?: RunCaps): Spend {
+    return this.spendSince(["researcher"], since, caps);
+  }
+
+  /** What research (judge, propose, the Meta summary line, the Meta grouping, the meme ideas and the Operator's topic research) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher"], since, caps);
   }
 
   /**
@@ -2269,13 +2347,13 @@ export class Datastore {
    * still running shows what it has streamed so far.
    */
   dailySpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "spec", "spec-revise", "build"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "spec", "spec-revise", "build"], since, caps);
   }
 
   /** The start times (ISO, oldest first) of the runs `dailySpendSince` counts, so the moment the rolling window frees up can be found. */
   dailyRunStartsSince(since: string): string[] {
     const rows = this.db
-      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
+      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'researcher', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
       .all(since) as { created_at: string }[];
     return rows.map((r) => r.created_at);
   }

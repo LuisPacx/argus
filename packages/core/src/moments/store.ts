@@ -171,9 +171,14 @@ export class MomentStore {
     return (this.db.prepare("SELECT COALESCE(SUM(loads), 0) AS n FROM moment_scans WHERE at >= ?").get(since) as { n: number }).n;
   }
 
-  /** The newest scan, or undefined. READ ONLY. */
+  /** Page loads the Operator's topic research made (scans whose topic starts with `research: `, human researcher ticket 05) at or after `since` (ISO). They count in `loadsSince` too. READ ONLY. */
+  researchLoadsSince(since: string): number {
+    return (this.db.prepare("SELECT COALESCE(SUM(loads), 0) AS n FROM moment_scans WHERE at >= ? AND substr(topic, 1, 10) = 'research: '").get(since) as { n: number }).n;
+  }
+
+  /** The newest scanner scan, or undefined. A research read of the Operator's topic (ticket 05) is not a scan of the scanner's topic and is left out. READ ONLY. */
   lastScan(): ScanRow | undefined {
-    const r = this.db.prepare("SELECT * FROM moment_scans ORDER BY id DESC LIMIT 1").get() as Row | undefined;
+    const r = this.db.prepare("SELECT * FROM moment_scans WHERE substr(topic, 1, 10) != 'research: ' ORDER BY id DESC LIMIT 1").get() as Row | undefined;
     return r && toScan(r);
   }
 
@@ -184,7 +189,7 @@ export class MomentStore {
 
   /** The time of the newest `ok` scan, or null. READ ONLY. */
   lastGoodScanAt(): string | null {
-    return ((this.db.prepare("SELECT at FROM moment_scans WHERE status = 'ok' ORDER BY id DESC LIMIT 1").get() as Row | undefined)?.at as string | undefined) ?? null;
+    return ((this.db.prepare("SELECT at FROM moment_scans WHERE status = 'ok' AND substr(topic, 1, 10) != 'research: ' ORDER BY id DESC LIMIT 1").get() as Row | undefined)?.at as string | undefined) ?? null;
   }
 
   /**

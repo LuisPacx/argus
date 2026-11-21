@@ -3,11 +3,40 @@
 // DexScreener and records a Pick with a snapshot of it. The form posts `{ text, reason, topic }` to POST /api/picks and shows what the server said for
 // each line; the server does every check. The list below is GET /api/picks. Everything shown is text.
 import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
+import { canSubmitTopic, researchRequestsView, RESEARCH_TOPIC_MAX_CHARS, submitTopic, type TopicAccepted } from "../utils/research-brief.ts";
 
 const { data, refresh } = await useFetch("/api/picks", { default: () => [] });
 const { data: outcomes, refresh: refreshOutcomes } = await useFetch("/api/pick-outcomes", { default: () => null });
+// The Operator's topic requests and their briefs (human researcher ticket 05). Polled while the page is open, so a brief appears when the worker is done.
+const { data: requests, refresh: refreshRequests } = await useFetch("/api/research-requests", { key: "research-requests", default: () => [] });
 const nowMs = useNowMs();
 const view = computed(() => picksView(data.value, nowMs.value, outcomes.value));
+const briefs = computed(() => researchRequestsView(requests.value, nowMs.value));
+const researchTopic = ref("");
+const researchBusy = ref(false);
+const researchError = ref<string | null>(null);
+const researchNote = ref<string | null>(null);
+const canResearch = computed(() => canSubmitTopic(researchTopic.value) && !researchBusy.value);
+async function research() {
+  if (!canResearch.value) return;
+  researchBusy.value = true;
+  researchError.value = null;
+  researchNote.value = null;
+  const r = await submitTopic((body) => $fetch<TopicAccepted>("/api/research-requests", { method: "POST", body }), researchTopic.value);
+  researchBusy.value = false;
+  if (!r.ok) {
+    researchError.value = r.message;
+    return;
+  }
+  researchNote.value = r.note;
+  researchTopic.value = "";
+  await refreshRequests();
+}
+let requestTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  requestTimer = setInterval(() => void refreshRequests(), 10_000);
+});
+onBeforeUnmount(() => clearInterval(requestTimer));
 
 const text = ref("");
 const reason = ref("");
@@ -39,6 +68,25 @@ async function submit() {
 <template>
   <div class="grid gap-6">
     <h2 class="page-title">Research</h2>
+    <p class="note muted">
+      Type a topic (for example GTA) and press Research. The worker reads the open web, reads X through the logged-in Argus session, looks coins up on DexScreener and files a Research brief below: the story, its sources, the coins on the topic with market cap and
+      bonded state, and names still free. It runs only when you press the button, and every run shows its cost.
+    </p>
+
+    <form class="surface grid min-w-0 gap-3" data-test="research-form" @submit.prevent="research">
+      <label for="research-topic" class="text-sm font-medium">Topic</label>
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <input id="research-topic" v-model="researchTopic" class="field min-w-0 flex-1 text-sm" type="text" :maxlength="RESEARCH_TOPIC_MAX_CHARS" data-test="research-topic-input" placeholder="For example GTA" />
+        <button type="submit" class="btn btn-primary" :disabled="!canResearch" data-test="research-submit">{{ researchBusy ? "Sending…" : "Research" }}</button>
+      </div>
+      <p v-if="researchError" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="research-error">{{ researchError }}</p>
+      <p v-if="researchNote" class="muted min-w-0 break-words text-xs" role="status" data-test="research-note">{{ researchNote }}</p>
+    </form>
+
+    <h3 class="section-title">Research briefs</h3>
+    <ResearchBriefs :view="briefs" />
+
+    <h3 class="section-title">Picks</h3>
     <p class="note muted">
       Paste the contract address of a coin you think is valuable. Argus looks it up on DexScreener and records a Pick with the coin as it is right now: name, ticker, market cap, liquidity, age and whether it has bonded. One address per line or
       separated by spaces. The same coin can be picked again after 24 hours. No model is called here.

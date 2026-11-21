@@ -6,7 +6,7 @@ import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import { streamSpendOf, type CostSource, type StreamSpendTotal } from "./run-cost.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
-export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas";
+export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher";
 export type BrainBackend = "claude-code" | "api";
 
 /** What a task needs to run: free-form text handed to the skill. */
@@ -153,6 +153,11 @@ export const DEFAULT_ROUTING: Routing = {
   // Three meme ideas for a current Meta (missed ideas ticket 06, ADR 0013, amended by meta redesign ticket 03): one short JSON object from a sonnet run with no tools (its
   // input is untrusted token and news text), and no API fallback (it waits out a rate limit). A run of that size costs about ten cents.
   "meme-ideas": { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.3, timeoutMs: 5 * MINUTE, tools: [] },
+  // The Operator's topic research (human researcher ticket 05, ADR 0017): one Brain run per request that reads the open web (WebSearch, WebFetch, like
+  // propose) and writes one JSON brief. The topic, the X posts and the coin names are untrusted data in fenced blocks. X and DexScreener are never
+  // reached by the model: argus supplies them. A run may spend at most $0.75 (research/brief.ts holds the same cap and passes it down, so a routing
+  // override cannot raise it), runs at most 6 times a day, and waits out a rate limit (no API fallback).
+  researcher: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.75, timeoutMs: 10 * MINUTE, tools: ["WebSearch", "WebFetch"] },
   build: {
     backend: "claude-code",
     model: "sonnet",

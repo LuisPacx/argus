@@ -27,6 +27,7 @@ import {
   spawnMomentRunner,
   generateMemeIdeas,
   runMemeAngles,
+  runResearchRequests,
   memeConfigFromEnv,
   metaConfigFromEnv,
   metaGroupConfigFromEnv,
@@ -457,6 +458,23 @@ const memeAngleTick = reentrant(
   },
   () => {}, // the previous pass is still waiting on claude: the next tick picks up what is left
 );
+// The Operator's topic research (human researcher ticket 05, ADR 0017): a request the War Room wrote on /research becomes a Research brief. One
+// `researcher` Brain run per request (sonnet, WebSearch and WebFetch, at most $0.75 a run, 6 runs and $3 a day in code, inside the research budget);
+// the coin lookups are plain code on the declared DexScreener client; X is read only through the scanner's child process (the logged-in profile,
+// ARGUS_CHROME_BIN, the shared session gate and load caps). Operator-triggered, so it runs with every automatic switch off. With nothing waiting
+// it reads one table and returns; a rate limit or shutdown leaves the request waiting, and the hold keeps the fast tick from probing a limit every 30 s.
+const researchDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });
+const researchXRunner = spawnMomentRunner();
+let researchHoldUntil = 0;
+const researchRequestTick = reentrant(
+  async () => {
+    if (dryRun || Date.now() < researchHoldUntil || !store.hasOpenResearchRequests()) return;
+    const r = await runResearchRequests(store, brain, { dex: researchDex, xRunner: researchXRunner, notifier, research: researchBudget, xLoadsPerDay: momentSettings.loadsPerDay, log: console.log, signal: shutdown.signal });
+    if (r.called > 0 || r.capped > 0 || r.stoppedBy) console.log(`[worker] research: ${r.done} done, ${r.failed} failed, ${r.capped} capped, ${r.called} run(s)${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
+    if (r.stoppedBy === "rate-limited" || r.stoppedBy === "interrupted") researchHoldUntil = Date.now() + META_TICK_MS;
+  },
+  () => {}, // the previous request is still waiting on claude: the next tick picks up what is left
+);
 // The Moment scanner (moment scanner ticket 01, ADR 0009 as amended 2026-11-19): every ARGUS_MOMENT_INTERVAL_MIN minutes (30 by default, 15 at
 // least) one child process loads the topic's two search pages on the dedicated logged-in profile and stores the posts and their counts. No Claude,
 // no Brain. OFF unless ARGUS_MOMENTS=1 (and then ARGUS_MOMENT_TOPIC must be set). Caps are in code: 8 loads a scan and 100 a day
@@ -543,6 +561,7 @@ const runChainTick = () => track(chainTick, "chain creates");
 const runMetaSummaryTick = () => track(metaSummaryTick, "meta summary");
 const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
+const runResearchRequestTick = () => track(researchRequestTick, "research requests");
 const runMomentTick = () => track(momentTick, "moment scan");
 const runRadarTick = () => track(radarTick, "radar tick");
 const runPickOutcomeTick = () => track(pickOutcomeTick, "pick outcomes");
@@ -624,9 +643,11 @@ if (once) {
   void runBuildTick();
   void runIngestTick();
   void runMemeAngleTick();
+  void runResearchRequestTick();
   timer = setInterval(() => {
     void runTick();
     void runMemeAngleTick();
+    void runResearchRequestTick();
     void runBuildTick();
   }, TICK_MS);
   // Commands are also applied on their own timer: the tick above waits for a Spec run (up to the brain timeout), and an Undo shortlist

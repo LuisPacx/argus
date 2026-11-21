@@ -93,7 +93,10 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 5, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 4 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 9, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 4, research_requests: 5 });
+    // The Operator's topic research (human researcher ticket 05): a done brief, a failed, a capped, a hostile one and one waiting, each with its cost.
+    expect(store.researchRequests().map((r) => [r.status, r.runs, r.brief !== null])).toEqual([["pending", 0, false], ["done", 1, true], ["capped", 0, false], ["failed", 2, false], ["done", 1, true]]);
+    expect(store.researchRequests().find((r) => r.status === "failed")!.costUsd).toBeCloseTo(0.7999, 4);
     expect(store.listPicks().map((p: { name: string }) => p.name.slice(0, 12))).toEqual(["SEED <img sr", "SEED Unknown", "SEED Bonded ", "SEED Iguana "]);
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
