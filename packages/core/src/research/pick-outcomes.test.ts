@@ -1,15 +1,17 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
 import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 import { bondingStats, OUTCOME_GIVE_UP_MS, SAMPLE_GRACE_MS, trackPickOutcomes } from "./pick-outcomes.ts";
-import type { PickLookup, PickSnapshot } from "./picks.ts";
+import type { PickLookup, PickSnapshot, PickSource } from "./picks.ts";
 
 const T0 = new Date("2026-11-20T12:00:00.000Z");
 const at = (minutes: number) => () => new Date(T0.getTime() + minutes * 60_000);
 const H = 60;
 const CA_A = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 const CA_B = `${"1".repeat(36)}pump`;
+/** The source of the Picks the scenarios record and read back; set by `describe.each` below. */
+let SOURCE: PickSource = "operator";
 
 const curve = (ca: string, mc: number | undefined): DexPair => ({ chainId: "solana", tokenAddress: ca, name: "Coin", symbol: "CN", url: "", dexId: "pumpfun", liquidityUsd: 12_000, volume24hUsd: 1, priceChange24hPct: 0, marketCapUsd: mc });
 const graduated = (ca: string, mc: number): DexPair => ({ ...curve(ca, mc), dexId: "pumpswap", liquidityUsd: 60_000 });
@@ -36,13 +38,18 @@ function fakeDex() {
 const snap = (ca: string, over: Partial<PickSnapshot> = {}): PickSnapshot => ({ ca, name: "Coin", symbol: "CN", marketCapUsd: 50_000, liquidityUsd: 12_000, pairCreatedAt: null, ageMinutes: 10, bondedAtPick: false, bondedBasis: "", venue: "pumpfun", ...over });
 function setup(over: Partial<PickSnapshot> = {}, ca = CA_B) {
   const store = Datastore.open(":memory:");
-  const pick = store.recordPick({ snapshot: snap(ca, over), reason: "", topic: "" }, { now: T0 });
+  const pick = store.recordPick({ snapshot: snap(ca, over), reason: "", topic: "", source: SOURCE }, { now: T0 });
   return { store, pick, ...fakeDex() };
 }
 const run = (s: ReturnType<typeof setup>, minutes: number) => trackPickOutcomes(s.store, s.dex, { now: at(minutes) });
-const outcome = (s: ReturnType<typeof setup>, minutes = 25 * H) => s.store.pickOutcomes(at(minutes)(), "operator").outcomes[0]!;
+const outcome = (s: ReturnType<typeof setup>, minutes = 25 * H) => s.store.pickOutcomes(at(minutes)(), SOURCE).outcomes[0]!;
 
-describe("pick outcomes", () => {
+// Human researcher ticket 08: a Shadow pick gets the same outcome job as an Operator Pick, so every scenario below runs once per source.
+describe.each(["operator", "shadow"] as const)("pick outcomes (%s Picks)", (source) => {
+  beforeEach(() => {
+    SOURCE = source;
+  });
+
   it("reads pending before 24 hours, then bonded yes with the peaks at +1h, +6h and +24h", async () => {
     const s = setup();
     s.answers.set(CA_B, [curve(CA_B, 60_000)]);
@@ -62,7 +69,7 @@ describe("pick outcomes", () => {
       { mark: "6h", state: "sampled", peakUsd: 90_000 },
       { mark: "24h", state: "sampled", peakUsd: 90_000 },
     ]);
-    expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toMatchObject({ bonded: 1, finished: 1, rate: 1 });
+    expect(s.store.pickOutcomes(at(25 * H)(), SOURCE).all).toMatchObject({ bonded: 1, finished: 1, rate: 1 });
   });
 
   it("a coin still on the curve at the deadline is not bonded; one that is pending before then stays pending", async () => {
@@ -74,7 +81,7 @@ describe("pick outcomes", () => {
     expect(outcome(s)).toMatchObject({ result: "pending", over: true }); // not decided inside the settle time after the deadline
     await run(s, 24 * H + 11);
     expect(outcome(s)).toMatchObject({ result: "not-bonded", over: true });
-    expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toMatchObject({ bonded: 0, finished: 1, rate: 0 });
+    expect(s.store.pickOutcomes(at(25 * H)(), SOURCE).all).toMatchObject({ bonded: 0, finished: 1, rate: 0 });
   });
 
   it("a coin already bonded at the Pick is left out of the rate and counted on its own", async () => {
@@ -83,7 +90,7 @@ describe("pick outcomes", () => {
     await run(s, 5);
     await run(s, 24 * H + 1);
     expect(outcome(s)).toMatchObject({ result: "already-bonded" });
-    expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toEqual({ bonded: 0, finished: 0, rate: null, alreadyBonded: 1, unknown: 0, pending: 0 });
+    expect(s.store.pickOutcomes(at(25 * H)(), SOURCE).all).toEqual({ bonded: 0, finished: 0, rate: null, alreadyBonded: 1, unknown: 0, pending: 0 });
   });
 
   it("a coin the Study saw migrate inside the window is bonded at that time, even when found late", async () => {
@@ -152,7 +159,7 @@ describe("pick outcomes", () => {
 
   it("a failing lookup that is not a cut (an outage, a 429) makes exactly one call per chunk per tick", async () => {
     const s = setup({}, CA_B);
-    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
+    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "", source: SOURCE }, { now: T0 });
     s.answers.set(CA_A, new Error("HTTP 429"));
     s.answers.set(CA_B, new Error("HTTP 429"));
     const r = await run(s, 5);
@@ -164,7 +171,7 @@ describe("pick outcomes", () => {
 
   it("a cut batch never decides a coin: it is split, and only a coin whose own answer fails waits", async () => {
     const s = setup({}, CA_B);
-    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
+    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "", source: SOURCE }, { now: T0 });
     s.answers.set(CA_A, [curve(CA_A, 1)]);
     s.answers.set(CA_B, [graduated(CA_B, 1)]);
     const asked: string[][] = [];
@@ -189,7 +196,7 @@ describe("pick outcomes", () => {
     s.answers.set(CA_B, []);
     await run(s, 24 * H + 11);
     expect(outcome(s)).toMatchObject({ result: "unknown" });
-    expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toEqual({ bonded: 0, finished: 0, rate: null, alreadyBonded: 0, unknown: 1, pending: 0 });
+    expect(s.store.pickOutcomes(at(25 * H)(), SOURCE).all).toEqual({ bonded: 0, finished: 0, rate: null, alreadyBonded: 0, unknown: 1, pending: 0 });
   });
 
   it("lookups that keep failing for a further 24 hours end unknown", async () => {
@@ -229,17 +236,17 @@ describe("pick outcomes", () => {
     await run(s, 6 * H + 1);
     await run(s, 24 * H + 1);
     await run(s, 25 * H);
-    const before = JSON.stringify(s.store.pickOutcomes(at(26 * H)(), "operator"));
+    const before = JSON.stringify(s.store.pickOutcomes(at(26 * H)(), SOURCE));
     s.calls.length = 0;
     const r = await run(s, 30 * H);
     expect(r).toEqual({ open: 0, failed: 0, sampled: 0, missed: 0, decided: 0, finished: 0 });
     expect(s.calls).toEqual([]);
-    expect(JSON.stringify(s.store.pickOutcomes(at(26 * H)(), "operator"))).toBe(before);
+    expect(JSON.stringify(s.store.pickOutcomes(at(26 * H)(), SOURCE))).toBe(before);
   });
 
   it("the picks table is never written (its update trigger would refuse it) and lookups are batched", async () => {
     const s = setup({}, CA_B);
-    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
+    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "", source: SOURCE }, { now: T0 });
     s.answers.set(CA_A, [curve(CA_A, 1)]);
     s.answers.set(CA_B, [curve(CA_B, 1)]);
     await run(s, 5);

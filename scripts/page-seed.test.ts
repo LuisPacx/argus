@@ -77,11 +77,11 @@ describe("the seed fixture", () => {
     expect(angle.operatorAngle!.angle).toContain("<img");
     expect(angle.metaSnapshot).toMatchObject({ version: 2, trigger: { kind: "operator-angle" } });
     // Make ideas under the seeded brief (human researcher ticket 06): the request ended done, and its trio carries the topic source marker and a version 4 snapshot.
-    expect(store.memeAngleRequests().map((r) => [r.metaKey, r.status])).toEqual([["seed-cloud", "pending"], ["topic:1", "done"], ["seed-lobster", "capped"], ["seed-chair", "done"]]);
+    expect(store.memeAngleRequests().map((r) => [r.metaKey, r.status])).toEqual([["seed-cloud", "pending"], ["topic:2", "done"], ["seed-lobster", "capped"], ["seed-chair", "done"]]);
     expect(store.memeAngleRequests()[3]!.proposalIds).toHaveLength(3);
     const topicMeme = store.getProposal(ids.topicMeme)!;
-    expect(topicMeme).toMatchObject({ kind: "meme", metaKey: "topic:1", metaLabel: "SEED GTA", operatorAngle: { source: "topic", researchRequestId: 1 } });
-    expect(topicMeme.metaSnapshot).toMatchObject({ version: 4, kind: "topic", topic: { requestId: 1 } });
+    expect(topicMeme).toMatchObject({ kind: "meme", metaKey: "topic:2", metaLabel: "SEED GTA", operatorAngle: { source: "topic", researchRequestId: 2 } });
+    expect(topicMeme.metaSnapshot).toMatchObject({ version: 4, kind: "topic", topic: { requestId: 2 } });
     expect(store.memeAngleRequests()[1]!.proposalIds).toHaveLength(3);
 
     expect(store.liveMemeProposals()).toHaveLength(12);
@@ -98,11 +98,14 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 13, brain_runs: 9, angle_requests: 4, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 4, research_requests: 5 });
-    // The Operator's topic research (human researcher ticket 05): a done brief, a failed, a capped, a hostile one and one waiting, each with its cost.
-    expect(store.researchRequests().map((r) => [r.status, r.runs, r.brief !== null])).toEqual([["pending", 0, false], ["done", 1, true], ["capped", 0, false], ["failed", 2, false], ["done", 1, true]]);
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 13, brain_runs: 9, angle_requests: 4, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 5, research_requests: 6 });
+    // The Operator's topic research (human researcher ticket 05): a done brief, a failed, a capped, a hostile one and one waiting, each with its cost; and (ticket 08) an older brief for the Scoreboard.
+    expect(store.researchRequests().map((r) => [r.status, r.runs, r.brief !== null])).toEqual([["pending", 0, false], ["done", 1, true], ["capped", 0, false], ["failed", 2, false], ["done", 1, true], ["done", 0, true]]);
+    // The Scoreboard (ticket 08): one settled Shadow pick and one settled Operator Pick on the same topic and brief list, one Shadow pick still inside its 24 hours.
+    expect(store.listShadowPicks().map((p) => [p.name.slice(0, 12), p.requestId])).toEqual([["SEED Iguana ", 2], ["SEED Older C", 1]]);
+    expect(store.scoreboard(NOW)).toMatchObject({ topics: ["SEED GTA"], operator: { finished: 1, bonded: 1 }, machine: { finished: 1, bonded: 0, pending: 1 }, verdict: { kind: "not-enough" } });
     expect(store.researchRequests().find((r) => r.status === "failed")!.costUsd).toBeCloseTo(0.7999, 4);
-    expect(store.listPicks().map((p: { name: string }) => p.name.slice(0, 12))).toEqual(["SEED <img sr", "SEED Unknown", "SEED Bonded ", "SEED Iguana "]);
+    expect(store.listPicks().map((p: { name: string }) => p.name.slice(0, 12))).toEqual(["SEED Older W", "SEED <img sr", "SEED Unknown", "SEED Bonded ", "SEED Iguana "]);
     // One run of each cost kind, so the pages show exact, estimated and unknown (hardening ticket 10).
     expect(store.brainRunsFor(ids.tech).map((r) => [r.task, r.costSource])).toEqual([["spec", "exact"], ["build", "estimated"], ["build", "unknown"]]);
     expect(store.getProposal(ids.tech)).toMatchObject({ agentCostKind: "unknown" });

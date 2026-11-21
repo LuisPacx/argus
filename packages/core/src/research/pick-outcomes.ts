@@ -275,14 +275,22 @@ export function bondingStats(items: readonly { over: boolean; result: OutcomeRes
   return s;
 }
 
+/**
+ * The outcome of one Pick row joined with its outcome (`o_result`, `bonded_at_pick`, `created_at`): the stored result, or `already-bonded` / `pending` when the
+ * job has not written one. The one place both the Picks list and the Scoreboard read a result, so Operator and Shadow picks are scored by the same code.
+ */
+export function pickItemOf(r: Row, nowMs: number): { createdMs: number; over: boolean; result: OutcomeResult } {
+  const createdMs = Date.parse(r.created_at as string);
+  const result: OutcomeResult = (r.o_result as OutcomeResult | null) ?? (r.bonded_at_pick === 1 ? "already-bonded" : "pending");
+  return { createdMs, over: nowMs >= createdMs + OUTCOME_WINDOW_MS, result };
+}
+
 /** All Picks of one source read directly (no cap) for the rate; the outcome rows for the `limit` newest. READ ONLY. */
 export function loadOutcomeView(db: DatabaseSync, source: PickSource, now: Date, limit: number): PickOutcomeView {
   const rows = db.prepare("SELECT p.id, p.created_at, p.bonded_at_pick, o.result AS o_result, o.bonded_at AS o_bonded_at FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE p.source = ? ORDER BY p.id DESC").all(source) as Row[];
   const nowMs = now.getTime();
   const items = rows.map((r) => {
-    const createdMs = Date.parse(r.created_at as string);
-    const result: OutcomeResult = (r.o_result as OutcomeResult | null) ?? (r.bonded_at_pick === 1 ? "already-bonded" : "pending");
-    return { id: r.id as number, createdMs, over: nowMs >= createdMs + OUTCOME_WINDOW_MS, result, bondedAt: (r.o_bonded_at as string | null) ?? null };
+    return { id: r.id as number, ...pickItemOf(r, nowMs), bondedAt: (r.o_bonded_at as string | null) ?? null };
   });
   const newest = items.slice(0, limit);
   const samples = newest.length === 0 ? [] : (db.prepare(`SELECT * FROM pick_samples WHERE pick_id IN (${newest.map(() => "?").join(",")})`).all(...newest.map((i) => i.id)) as Row[]);

@@ -46,6 +46,8 @@ export * from "./research/brief.ts";
 export * from "./research/researcher.ts";
 export * from "./research/x-read.ts";
 export * from "./research/dry-run.ts";
+export * from "./research/shadow.ts";
+export * from "./research/scoreboard.ts";
 export * from "./meme/store.ts";
 export * from "./meme/ideas.ts";
 export * from "./meme/pass.ts";

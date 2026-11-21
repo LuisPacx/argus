@@ -8,7 +8,8 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type Re
 import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 import type { Notifier } from "../telegram.ts";
 import { BRIEF_LIMITS, parseBriefOutput, RESEARCH_CANDIDATES_MAX, RESEARCH_MAX_DAILY_USD, RESEARCH_MAX_RUNS_PER_DAY, RESEARCH_RUN_MAX_USD, researchPromptFor, type BriefCoin, type FreeName, type PromptCandidate, type ResearchBrief, type ResearchRequest } from "./brief.ts";
-import { decideBonded, isCa } from "./picks.ts";
+import { cleanTopic, decideBonded, isCa, snapshotFromPairs } from "./picks.ts";
+import { eligiblePlaybook, type PlaybookSource, type ShadowPickInput } from "./shadow.ts";
 import { readXForTopic } from "./x-read.ts";
 
 /**
@@ -20,7 +21,11 @@ import { readXForTopic } from "./x-read.ts";
  *  4. one `researcher` run is opened in `brain_runs` before the child starts and its cost recorded the moment it returns;
  *  5. the answer must fit `parseBriefOutput`; a miss goes back once with the exact error, a second miss ends the request `failed` with the reason;
  *  6. the coins in the brief are the model's chosen candidates with cap and bonded state taken from DexScreener by code, and each free name is checked
- *     against DexScreener (a name a live token uses is dropped).
+ *     against DexScreener (a name a live token uses is dropped);
+ *  7. the same answer holds the Shadow picks (ticket 08): at most two of its own coins, which `parseBriefOutput` refuses otherwise (so a coin outside the list
+ *     ends in the repair retry). They are snapshotted from the complete DexScreener answer, stamped with the moment they are made, and written in the same
+ *     transaction as the brief. The prompt holds nothing of the Operator's Picks; its one Operator-derived input is the Playbook version `eligiblePlaybook`
+ *     lets through (settled before the request started), whose id is recorded on each Shadow pick. Nothing else in the repo writes a Shadow pick.
  * A rate limit, a shutdown or a dry run leaves the request waiting for the next pass. Nothing here launches, signs or spends anything (ADR 0002).
  */
 
@@ -43,6 +48,8 @@ export interface ResearchOptions {
   research?: ResearchBudgetConfig;
   /** The shared daily cap on X page loads (the scanner's setting). */
   xLoadsPerDay?: number;
+  /** Where Playbook versions come from (ticket 09). Absent, no Playbook is read and every Shadow pick records "none". */
+  playbook?: PlaybookSource;
   now?: () => Date;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -201,7 +208,9 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       ageMinutes: pair.pairCreatedAt !== undefined ? Math.max(0, Math.floor((now.getTime() - pair.pairCreatedAt) / 60_000)) : null,
     }));
     const ids = candidates.map((c) => c.id);
-    const promptFor = (retryProblem?: string) => researchPromptFor({ topic: req.topic, candidates: promptCandidates, posts: x.posts, xNote: x.note, ...(retryProblem !== undefined ? { retryProblem } : {}) });
+    // The leak guard: only a Playbook version built from Picks that settled before this request started (the Operator pressed the button), chosen once for both tries.
+    const playbook = eligiblePlaybook(opts.playbook, (ids) => store.pickSettledAt(ids), new Date(req.createdAt));
+    const promptFor = (retryProblem?: string) => researchPromptFor({ topic: req.topic, candidates: promptCandidates, posts: x.posts, xNote: x.note, ...(playbook !== null ? { playbook: { id: playbook.id, text: playbook.text } } : {}), ...(retryProblem !== undefined ? { retryProblem } : {}) });
 
     const first = await ask(req, promptFor());
     if (first.kind === "stop") {
@@ -259,10 +268,27 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
         log(`[worker] research: could not check the name "${cleanLine(n.name, 40)}" on DexScreener, so it is left out: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, createdAt: clock().toISOString() };
-    if (store.saveResearchBrief(req.id, brief, clock())) {
+    // The Shadow picks, made now: each from the complete DexScreener answer for its coin (a coin whose lookup failed or was cut is not guessed, it is skipped).
+    const madeAt = clock();
+    const shadow: ShadowPickInput[] = [];
+    for (const k of parsed.brief.picks) {
+      const cand = candidates.find((c) => c.id === k.id);
+      const pairs = cand ? complete.get(cand.pair.tokenAddress) : undefined;
+      if (!cand || pairs === undefined) {
+        log(`[worker] research: request ${req.id}: no complete DexScreener answer for pick ${k.id}, so it is not recorded`);
+        continue;
+      }
+      const snap = snapshotFromPairs(cand.pair.tokenAddress, pairs, madeAt, store.migrationOf(cand.pair.tokenAddress));
+      if (!snap.ok) {
+        log(`[worker] research: request ${req.id}: pick ${k.id} not recorded: ${snap.message}`);
+        continue;
+      }
+      shadow.push({ snapshot: snap.snapshot, reason: cleanLine(k.reason, BRIEF_LIMITS.pickReason), topic: cleanTopic(req.topic), playbookVersion: playbook?.id ?? null });
+    }
+    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, createdAt: madeAt.toISOString() };
+    if (store.saveResearchBrief(req.id, brief, madeAt, shadow)) {
       out.done++;
-      log(`[worker] research: request ${req.id} done, ${coins.length} coins, ${brief.sources.length} sources, ${freeNames.length} free names; ${x.note}`);
+      log(`[worker] research: request ${req.id} done, ${coins.length} coins, ${brief.sources.length} sources, ${freeNames.length} free names, ${shadow.length} shadow pick(s); ${x.note}`);
     }
   }
   return out;

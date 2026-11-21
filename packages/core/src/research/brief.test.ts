@@ -15,6 +15,7 @@ const answer = (over: Record<string, unknown> = {}) =>
     sources: [{ title: "Studio page", url: "https://example.com/trailer" }],
     coins: [{ id: "c1", note: "named after the clip" }],
     freeNames: [{ name: "Leonida Lizard", ticker: "LIZARD", why: "the animal" }],
+    picks: [],
     ...over,
   });
 
@@ -113,7 +114,7 @@ describe("the model's answer", () => {
 
   it("a good answer is read as it is", () => {
     const r = parseBriefOutput(answer(), ids);
-    expect(r).toEqual({ ok: true, brief: { story: "A trailer clip of an iguana is spreading.", sources: [{ title: "Studio page", url: "https://example.com/trailer" }], coins: [{ id: "c1", note: "named after the clip" }], freeNames: [{ name: "Leonida Lizard", ticker: "LIZARD", why: "the animal" }] } });
+    expect(r).toEqual({ ok: true, brief: { story: "A trailer clip of an iguana is spreading.", sources: [{ title: "Studio page", url: "https://example.com/trailer" }], coins: [{ id: "c1", note: "named after the clip" }], freeNames: [{ name: "Leonida Lizard", ticker: "LIZARD", why: "the animal" }], picks: [] } });
   });
 
   it("keeps a source's link only if it is http or https", () => {

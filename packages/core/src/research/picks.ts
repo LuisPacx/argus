@@ -205,6 +205,9 @@ export function migratePicks(db: DatabaseSync): void {
   db.exec("CREATE INDEX IF NOT EXISTS picks_at ON picks (created_at)");
   db.exec(`CREATE TRIGGER IF NOT EXISTS picks_immutable BEFORE UPDATE ON picks
     BEGIN SELECT RAISE(ABORT, 'a Pick is never changed'); END`);
+  // Ticket 08: a Shadow pick keeps the time it was made, so no Pick of either source can be removed and made again later.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS picks_no_delete BEFORE DELETE ON picks
+    BEGIN SELECT RAISE(ABORT, 'a Pick is never removed'); END`);
 }
 
 type Row = Record<string, string | number | null>;

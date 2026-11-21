@@ -20,6 +20,8 @@ import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_S
 import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
+import { loadShadowPicks, migrateShadow, pickSettledAt, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
+import { loadScoreboard, type Scoreboard } from "./research/scoreboard.ts";
 import { insertResearchRequest, listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -601,6 +603,8 @@ export function migrate(db: DatabaseSync): void {
   migratePicks(db);
   // What became of each Pick (ticket 04): two additive tables keyed on the Pick id; the picks table itself stays immutable.
   migratePickOutcomes(db);
+  // The Shadow picks' request and Playbook version (ticket 08): one additive write-once table.
+  migrateShadow(db);
   // The Operator's topic requests and the Research briefs the worker makes of them (human researcher ticket 05): two additive tables.
   migrateResearch(db);
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
@@ -777,6 +781,7 @@ export type WarRoomStore = Pick<
   | "recordPick"
   | "listPicks"
   | "pickOutcomes"
+  | "scoreboard"
   | "requestResearch"
   | "researchRequests"
   | "migrationOf"
@@ -1464,8 +1469,13 @@ export class Datastore {
     this.db.prepare("UPDATE research_requests SET status = ?, detail = ?, done_at = ? WHERE id = ? AND status IN ('pending', 'running')").run(done.status, done.detail.slice(0, 300), now.toISOString(), id);
   }
 
-  /** WORKER ONLY. Stores the brief and ends the request `done`, in one transaction, so a `done` request always has its brief. A request already ended stores nothing. */
-  saveResearchBrief(id: number, brief: ResearchBrief, now: Date = new Date()): boolean {
+  /**
+   * WORKER ONLY. Stores the brief and ends the request `done`, in one transaction, so a `done` request always has its brief. A request already ended stores nothing.
+   * The Shadow picks of the run (human researcher ticket 08) are written in the same transaction, stamped `now`, the moment they are made and before any
+   * outcome row exists: a brief never exists without them, and they are only ever written from here, i.e. only for a request the Operator made. A pick of a coin the
+   * machine already picked in the last 24 hours is skipped (the Pick rule); the others are written.
+   */
+  saveResearchBrief(id: number, brief: ResearchBrief, now: Date = new Date(), shadow: readonly ShadowPickInput[] = []): boolean {
     return this.inTransaction(() => {
       const open = this.db.prepare("SELECT 1 FROM research_requests WHERE id = ? AND status IN ('pending', 'running')").get(id);
       if (!open) return false;
@@ -1473,8 +1483,31 @@ export class Datastore {
         .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt);
       this.db.prepare("UPDATE research_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`${brief.coins.length} coins, ${brief.sources.length} sources, ${brief.freeNames.length} free names`, now.toISOString(), id);
+      for (const s of shadow) {
+        try {
+          const pick = this.recordPick({ snapshot: s.snapshot, reason: s.reason, topic: s.topic, source: "shadow" }, { now });
+          this.db.prepare("INSERT INTO shadow_picks (pick_id, request_id, playbook_version) VALUES (?, ?, ?)").run(pick.id, id, s.playbookVersion);
+        } catch (e) {
+          if (!(e instanceof PickRepeatError)) throw e;
+        }
+      }
       return true;
     });
+  }
+
+  /** The newest Shadow picks (`PICK_LIST_LIMIT`) with the request each came from and the Playbook version it used (null: none). READ ONLY. */
+  listShadowPicks(): ShadowPick[] {
+    return loadShadowPicks(this.db, PICK_LIST_LIMIT);
+  }
+
+  /** When each Pick's outcome settled (`finished_at`), null while open or not tracked yet: the leak guard of the Shadow pick reads it. READ ONLY. */
+  pickSettledAt(ids: readonly number[]): Map<number, string | null> {
+    return pickSettledAt(this.db, ids);
+  }
+
+  /** The Scoreboard as of `now`: Operator against machine over the last 7 days (ticket 08). READ ONLY. */
+  scoreboard(now: Date = new Date()): Scoreboard {
+    return loadScoreboard(this.db, now);
   }
 
   /** WORKER ONLY. Gives a `running` request back to `pending` (a rate limit, a shutdown or a dry run stopped it before it ended). */

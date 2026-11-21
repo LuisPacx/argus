@@ -329,6 +329,22 @@ export async function seedDatastore(store, now) {
     counts.brain_runs += 1;
   };
   const researchCoin = (n, name, symbol, bonded, note, over = {}) => ({ ca: pickAddress(n), name, symbol, marketCapUsd: 310_000, liquidityUsd: 38_000, bonded, note, ...over });
+  // The Scoreboard (ticket 08): an older brief whose Shadow pick settled (not bonded), and the Operator's Pick of another coin of its list, which bonded. The
+  // pick is written through `saveResearchBrief`, the one write path. The newer brief below carries a Shadow pick that is still inside its 24 hours.
+  const older = store.requestResearch('SEED GTA', { now: researchAt(1900) });
+  store.saveResearchBrief(older.id, {
+    story: 'SEED sample: an older run on the same topic.',
+    sources: [],
+    coins: [researchCoin(9, 'SEED Older Coin', 'SEEDOLD', 'no', 'SEED sample: on the curve then'), researchCoin(10, 'SEED Older Winner', 'SEEDWIN', 'no', 'SEED sample: the Operator took this one')],
+    freeNames: [],
+    xNote: 'X was not read: sample',
+    createdAt: researchAt(1896).toISOString(),
+  }, researchAt(1896), [{ snapshot: snap(9, 'SEED Older Coin', 'SEEDOLD'), reason: 'SEED sample: the machine took the first of the list', topic: 'SEED GTA', playbookVersion: null }]);
+  const finished = (result, minutesAgo) => ({ outcome: { result, bondedAt: result === 'bonded' ? at(minutesAgo) : null, bondedBasis: result === 'bonded' ? 'dexscreener' : '', peakUsd: 90_000, lastOkAt: at(minutesAgo), finishedAt: at(minutesAgo) }, samples: [] });
+  store.applyPickProgress(store.listShadowPicks()[0].id, finished('not-bonded', 400));
+  const winner = store.recordPick({ snapshot: snap(10, 'SEED Older Winner', 'SEEDWIN'), reason: 'SEED sample: the Operator took this one', topic: 'SEED GTA' }, pickAt(1800));
+  store.applyPickProgress(winner.id, finished('bonded', 300));
+  counts.picks += 1;
   const done = store.requestResearch('SEED GTA', { now: researchAt(200) });
   researchRun(done.id, 199, 0.2143, 'success');
   store.saveResearchBrief(done.id, {
@@ -338,7 +354,7 @@ export async function seedDatastore(store, now) {
     freeNames: [{ name: 'SEED Leonida Lizard', ticker: 'SEEDLIZ', why: 'SEED sample: the plain name of the animal', note: '' }],
     xNote: 'X was read: 2 pages, 17 posts found, the 15 most viewed shown',
     createdAt: researchAt(196).toISOString(),
-  }, researchAt(196));
+  }, researchAt(196), [{ snapshot: snap(5, 'SEED Iguana Scooter', 'SEEDIGUA'), reason: 'SEED sample: the clip names it and it is still on the curve', topic: 'SEED GTA', playbookVersion: null }]);
   const failed = store.requestResearch('SEED failed topic', { now: researchAt(150) });
   researchRun(failed.id, 149, 0.4012, 'invalid-output');
   researchRun(failed.id, 147, 0.3987, 'invalid-output');
@@ -357,7 +373,7 @@ export async function seedDatastore(store, now) {
     createdAt: researchAt(56).toISOString(),
   }, researchAt(56));
   store.requestResearch('SEED waiting topic', { now: researchAt(2) });
-  counts.research_requests = 5;
+  counts.research_requests = 6;
 
   // Make ideas under the finished brief (human researcher ticket 06), through the production write paths: the request, then the topic trio (snapshot
   // version 4, the source marker on each idea) and the request ended done, so the brief shows "3 ideas filed" with links and the card shows its source.

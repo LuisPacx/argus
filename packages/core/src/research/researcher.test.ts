@@ -22,6 +22,7 @@ const good = (over: Record<string, unknown> = {}) =>
     sources: [{ title: "Studio page", url: "https://example.com/trailer" }, { title: "Odd link", url: "javascript:alert(1)" }],
     coins: [{ id: "c1", note: "named after the clip" }, { id: "c2", note: "the chair" }],
     freeNames: [{ name: "Leonida Lizard", ticker: "LIZARD", why: "the animal" }],
+    picks: [],
     ...over,
   });
 
