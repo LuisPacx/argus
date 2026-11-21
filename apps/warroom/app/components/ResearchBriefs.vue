@@ -27,11 +27,14 @@ const emit = defineEmits<{ make: [researchRequestId: number] }>();
         <div v-if="r.brief" class="grid min-w-0 gap-2" data-test="brief">
           <p class="min-w-0 break-words text-sm" data-test="brief-story">{{ r.brief.story }}</p>
           <div class="grid min-w-0 gap-1">
-            <p class="text-xs font-semibold">Sources</p>
+            <p class="text-xs font-semibold">Sources the researcher says it read</p>
+            <p class="faint text-xs" data-test="brief-sources-note">Argus has not opened these pages. Read the address beside a link before you click it.</p>
             <ul v-if="r.brief.sources.length > 0" class="grid min-w-0 gap-0.5" data-test="brief-sources">
               <li v-for="(s, i) in r.brief.sources" :key="i" class="min-w-0 break-all text-xs" data-test="brief-source">
-                <a v-if="s.href" :href="s.href" class="underline" target="_blank" rel="noopener noreferrer nofollow">{{ s.title }}</a>
+                <a v-if="s.href" :href="s.href" class="underline" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer">{{ s.title }}</a>
                 <template v-else>{{ s.title }}</template>
+                <span v-if="s.host" class="muted font-mono" data-test="brief-source-host"> ({{ s.host }})</span>
+                <span v-else class="faint" data-test="brief-source-no-link"> (no web link, shown as text)</span>
               </li>
             </ul>
             <p v-else class="faint text-xs" data-test="brief-no-sources">The model named no source.</p>

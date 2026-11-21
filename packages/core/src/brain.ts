@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { fetchDenyRules, fetchGuardSettings } from "./research/fetch-guard.ts";
 import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import { streamSpendOf, type CostSource, type StreamSpendTotal } from "./run-cost.ts";
 import type { SandboxRun } from "./sandbox.ts";
@@ -102,6 +104,9 @@ export interface TaskRoute {
 export type Routing = Record<BrainTask, TaskRoute>;
 
 const MINUTE = 60_000;
+
+/** The script the PreToolUse hook on WebFetch runs (human researcher ticket 12). */
+const FETCH_GUARD_HOOK = fileURLToPath(new URL("./research/fetch-guard-hook.ts", import.meta.url));
 
 /**
  * What the build child may run without a prompt. Unattended, anything not listed is denied. The shell is scoped to what
@@ -418,6 +423,11 @@ export class ClaudeCodeBrain implements Brain {
     args.push("--tools", route.tools.join(","));
     const allowed = route.allowedTools ?? route.tools;
     if (allowed.length > 0) args.push("--allowedTools", allowed.join(","));
+    // A task that can fetch a page may not fetch this machine's own network (human researcher ticket 12): the CLI deny rules and the guard hook are added
+    // here, to every such task whatever its route says, so a routing override cannot drop them. See research/fetch-guard.ts.
+    if (route.tools.includes("WebFetch") || allowed.some((t) => t.startsWith("WebFetch"))) {
+      args.push("--disallowedTools", fetchDenyRules().join(","), "--settings", fetchGuardSettings(process.execPath, FETCH_GUARD_HOOK));
+    }
     if (route.permissionMode) args.push("--permission-mode", route.permissionMode);
     if (outputFormat === "stream-json") args.push("--verbose");
     if (opts.resume) args.push("--resume", opts.resume);

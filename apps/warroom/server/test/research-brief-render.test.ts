@@ -53,9 +53,68 @@ describe("the Research briefs list", () => {
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
 
-  it("source links open in a new tab with noopener noreferrer nofollow", async () => {
+  it("source links open in a new tab with no opener and no referrer", async () => {
     const html = await draw([row()]);
-    expect(html).toContain('href="https://example.com/trailer" class="underline" target="_blank" rel="noopener noreferrer nofollow"');
+    expect(html).toContain('href="https://example.com/trailer" class="underline" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"');
+    for (const [tag] of html.matchAll(/<a [^>]*>/g)) {
+      expect(tag, tag).toContain('target="_blank"');
+      expect(tag, tag).toMatch(/rel="[^"]*noopener[^"]*noreferrer/);
+    }
+  });
+
+  // Ticket 12 (a): where a source goes is plain text beside the link, and nothing calls a source verified.
+  const sourcesOf = (urls: Array<[string, string | null]>) => draw([row({ brief: { ...row().brief!, sources: urls.map(([title, url]) => ({ title, url })) } })]);
+  const hostsOf = (html: string) => [...html.matchAll(/data-test="brief-source-host"[^>]*>([^<]*)</g)].map((m) => m[1]!.trim());
+
+  it("shows each source's host as plain text beside its link", async () => {
+    const html = await sourcesOf([["Studio page", "https://example.com/trailer"], ["Forum", "http://forum.example.org:8080/t/1?x=2"], ["Bare address", "https://93.184.216.34/a"]]);
+    expect(hostsOf(html)).toEqual(["(example.com)", "(forum.example.org:8080)", "(93.184.216.34)"]);
+    expect(html).toMatch(/<a [^>]*href="https:\/\/example.com\/trailer"[^>]*>Studio page<\/a>\s*<span[^>]*data-test="brief-source-host"/);
+  });
+
+  it("a host written to look like another shows what it really is", async () => {
+    const html = await sourcesOf([
+      ["Looks like a bank", "https://paypal.com.evil.example/login"],
+      ["Look-alike letters", "https://аpple.com/"], // a Cyrillic "a"
+      ["Title that names another host", "https://evil.example/"],
+    ]);
+    expect(hostsOf(html)).toEqual(["(paypal.com.evil.example)", "(xn--pple-43d.com)", "(evil.example)"]);
+  });
+
+  it("a source that tries to hide behind credentials, an odd scheme or markup is not a link", async () => {
+    const html = await sourcesOf([
+      ["creds", "https://paypal.com@evil.example/"],
+      ["js", "javascript:alert(1)"],
+      ["data", "data:text/html,<script>alert(1)</script>"],
+      ["ftp", "ftp://example.com/file"],
+      ["file", "file:///etc/passwd"],
+      ["none", null],
+      ["<img src=x onerror=alert(1)>", "not a url at all"],
+    ]);
+    expect(hrefs(html).filter((h) => !h!.startsWith("https://dexscreener.com/solana/"))).toEqual([]); // the coins' own links are not sources
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain('data-test="brief-source-host"');
+    expect([...html.matchAll(/data-test="brief-source-no-link"/g)]).toHaveLength(7);
+  });
+
+  it("a very long host is cut at the front so the end that names the owner stays, and a very long title is cut", async () => {
+    const long = `paypal.com.${"a".repeat(200)}.evil.example`;
+    const html = await sourcesOf([["T".repeat(500), ["https", `${long}/x`].join("://")]]);
+    const [host] = hostsOf(html);
+    expect(host!.startsWith("(…")).toBe(true);
+    expect(host!.endsWith("a.evil.example)")).toBe(true);
+    expect(host!.length).toBeLessThan(70);
+    expect(html).not.toContain("T".repeat(130));
+  });
+
+  it("no wording anywhere in a brief says a source is verified, checked or trusted", async () => {
+    const html = await draw([row()]);
+    const text = html.replace(/<[^>]*>/g, " ");
+    expect(text).not.toMatch(/verif|trust|checked|safe|vetted|confirmed|validated|authentic|legit|official/i);
+    expect(text).toContain("Sources the researcher says it read");
+    const source = readFileSync(new URL("../../app/components/ResearchBriefs.vue", import.meta.url), "utf8");
+    const template = source.slice(source.indexOf("<template>"));
+    expect(template).not.toMatch(/verif|trust|checked|safe|vetted|authentic|legit|official/i);
   });
 
   it("reads every status in words, with the reason, and shows no cost for a request that never ran", async () => {

@@ -88,6 +88,31 @@ describe("GET /api/moments", () => {
     expect(r.session).toMatchObject({ status: "stopped", reason: "login_wall", stoppedAt: at(9), probeDue: false });
   });
 
+  // Human researcher ticket 12 (c): a research run's X loads are rows in the same table (cost and rate accounting read them) and never show as moments.
+  const researchScan = (minutes: number, status: "ok" | "stopped" | "error" = "ok", topic = "GTA") => store.moments.recordScan({ at: at(minutes), topic: `research: ${topic}`, status, loads: 2, signals: [], reason: status === "ok" ? "" : "a page was not read" });
+
+  it("a newer research scan is stored but is neither the last scan, nor the last good scan, nor the topic, and brings no post", () => {
+    const s = scan(60);
+    store.moments.recordPosts(s, at(59), [post(1, 600_000, { text: "the iguana" })]);
+    researchScan(10);
+    researchScan(5, "error");
+    researchScan(2, "stopped");
+    const r = get();
+    expect(r.topic).toBe("GTA VI");
+    expect(r.scanner).toMatchObject({ lastScanAt: at(60), lastStatus: "ok", lastReason: "", lastGoodScanAt: at(60) });
+    expect(r.posts.map((p) => p.text)).toEqual(["the iguana"]);
+    expect(JSON.stringify(r)).not.toContain("research:");
+    // still recorded, still counted for the load caps
+    expect(store.moments.scans().map((x) => x.topic)).toEqual(["research: GTA", "research: GTA", "research: GTA", "GTA VI"]);
+    expect(store.moments.loadsSince(at(61))).toBe(8);
+    expect(store.moments.researchLoadsSince(at(61))).toBe(6);
+  });
+
+  it("with only research scans the page reads as if nothing had been scanned", () => {
+    researchScan(10);
+    expect(get()).toMatchObject({ topic: null, scanner: { lastScanAt: null, lastStatus: null, lastReason: "", lastLoads: 0, lastGoodScanAt: null }, posts: [] });
+  });
+
   it("hostile post text arrives flattened, cut and without angle brackets, and its link is built from the handle and the ID, never from the text", () => {
     const s = scan(5);
     store.moments.recordPosts(s, at(4), [post(2, 900_000, { text: `<img src=x onerror=1>\nhttps://evil.example/ javascript:alert(1) ${"A".repeat(100_000)}` })]);

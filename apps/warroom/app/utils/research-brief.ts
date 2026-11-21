@@ -50,7 +50,8 @@ export interface BriefCoinView {
 }
 export interface BriefView {
   story: string;
-  sources: { title: string; href: string | null }[];
+  /** `host` is where a clickable source goes, as plain text (null when the source has no web link). */
+  sources: { title: string; href: string | null; host: string | null }[];
   coins: BriefCoinView[];
   noCoins: string;
   freeNames: { label: string; why: string; note: string }[];
@@ -106,6 +107,25 @@ const BONDED: Record<string, { label: string; pill: string }> = {
   unknown: { label: "Bonded: unknown", pill: "pill-amber" },
 };
 
+const HOST_CLAMP = 60;
+
+/**
+ * The host a source link goes to, from the already normalised address (human researcher ticket 12): what the browser would connect to, port included.
+ * An address written with look-alike letters is shown in its ASCII (punycode) form. A long host is cut at the front, never the end, because the end
+ * is the part that says whose it is (`paypal.com.aaaa…aaaa.example.net` must not read as `paypal.com`).
+ */
+export function hostOf(href: string): string | null {
+  let host: string;
+  try {
+    host = new URL(href).host;
+  } catch {
+    return null;
+  }
+  const flat = clampText(host, 1_000);
+  const chars = [...flat];
+  return chars.length > HOST_CLAMP ? `…${chars.slice(-HOST_CLAMP).join("")}` : flat;
+}
+
 function briefView(b: BriefPayload): BriefView {
   const coins = (Array.isArray(b.coins) ? b.coins : []).filter((c) => typeof c === "object" && c !== null).map((c) => {
     const ca = clampText(c.ca, 60);
@@ -124,7 +144,10 @@ function briefView(b: BriefPayload): BriefView {
   const free = (Array.isArray(b.freeNames) ? b.freeNames : []).filter((n) => typeof n === "object" && n !== null);
   return {
     story: clampText(b.story, STORY_CLAMP),
-    sources: (Array.isArray(b.sources) ? b.sources : []).filter((s) => typeof s === "object" && s !== null).map((s) => ({ title: clampText(s.title, TITLE_CLAMP) || "(untitled)", href: safeHttpUrl(s.url) })),
+    sources: (Array.isArray(b.sources) ? b.sources : []).filter((s) => typeof s === "object" && s !== null).map((s) => {
+      const href = safeHttpUrl(s.url);
+      return { title: clampText(s.title, TITLE_CLAMP) || "(untitled)", href, host: href === null ? null : hostOf(href) };
+    }),
     coins,
     noCoins: coins.length === 0 ? "No coin on this topic was found or chosen." : "",
     freeNames: free.map((n) => ({ label: `${clampText(n.name, NAME_CLAMP)} ($${clampText(n.ticker, SYMBOL_CLAMP)})`, why: clampText(n.why, NOTE_CLAMP), note: clampText(n.note, NOTE_CLAMP) })),
