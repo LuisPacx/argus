@@ -1,5 +1,8 @@
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Datastore, META_RULE, type CurrentMeta, type NewMetaRun } from "@argus/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { tempDir } from "../../../../packages/core/src/testing/temp.ts";
 
 /**
  * POST and GET /api/meme-angle (meta redesign ticket 11), the real route handlers over a seeded in-memory store, called with the exact body
@@ -41,14 +44,28 @@ const noProposals = () => {
   expect(store.listProposals()).toEqual([]);
   expect(store.pendingCommands()).toEqual([]);
 };
+let file: string;
+/** Every row of every table, by table, so a change can be named. */
+function tables(): Record<string, string> {
+  const raw = new DatabaseSync(file);
+  try {
+    const names = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'sqlite_sequence' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
+    return Object.fromEntries(names.map((t) => [t, JSON.stringify(raw.prepare(`SELECT * FROM "${t}"`).all())]));
+  } finally {
+    raw.close();
+  }
+}
+const changed = (a: Record<string, string>, b: Record<string, string>) => Object.keys(b).filter((t) => a[t] !== b[t]);
 let saved: string | undefined;
 beforeEach(() => {
   saved = process.env.ARGUS_MEME_ANGLE_MAX_PER_DAY;
   delete process.env.ARGUS_MEME_ANGLE_MAX_PER_DAY;
-  store = Datastore.open(":memory:");
+  file = path.join(tempDir("warroom-angle-"), "argus.db");
+  store = Datastore.open(file);
   saveRun([subject("gta", "GTA 6"), subject("jensen", "Jensen")], [subject("watch", "Watch me")]);
 });
 afterEach(() => {
+  store.close();
   if (saved === undefined) delete process.env.ARGUS_MEME_ANGLE_MAX_PER_DAY;
   else process.env.ARGUS_MEME_ANGLE_MAX_PER_DAY = saved;
 });
@@ -67,6 +84,15 @@ describe("POST /api/meme-angle", () => {
     expect(r).toEqual({ id: 1, status: "pending", sourceUrl: null, urlDropped: false });
     expect(store.getAngleRequest(1)).toMatchObject({ metaKey: "gta", metaLabel: "GTA 6", angle: "", status: "pending" });
     noProposals();
+  });
+
+  it("a press, with or without an angle, changes no table except meme_angle_requests (human researcher ticket 02)", async () => {
+    for (const b of [{ metaKey: "gta" }, body({ metaKey: "jensen" })]) {
+      const before = tables();
+      await post({ body: b });
+      expect(changed(before, tables())).toEqual(["meme_angle_requests"]);
+      store.resolveAngleRequest(store.memeAngleRequests()[0]!.id, { status: "done", detail: "" }); // the worker's part: lets the next press in
+    }
   });
 
   it("Make ideas on a Meta that is not current is a 400 with the reason, and a second press while one waits is a 429", async () => {

@@ -33,9 +33,9 @@ watch(() => route.path, () => showActive(true));
 <template>
   <UApp>
     <div class="mx-auto w-full max-w-[1240px] px-5 pb-16 pt-8 sm:px-8 xl:px-0">
-      <header class="mb-10 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+      <header class="mb-10 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 xl:grid xl:grid-cols-[1fr_auto_1fr]">
         <NuxtLink to="/" class="text-lg font-bold tracking-tight">Argus War Room</NuxtLink>
-        <nav class="order-last w-full min-w-0 max-w-full rounded-full bg-white shadow-[var(--wr-shadow)] lg:order-none lg:w-auto" aria-label="Main">
+        <nav class="order-last w-full min-w-0 max-w-full rounded-full bg-white shadow-[var(--wr-shadow)] xl:order-none xl:w-auto" aria-label="Main">
           <div ref="nav" @focusin="onFocusin" class="nav-scroll flex gap-1 overflow-x-auto rounded-full p-1.5">
             <NuxtLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-pill" :class="{ 'is-active': active(item.to) }" :aria-current="active(item.to) ? 'page' : undefined">
               {{ item.label }}

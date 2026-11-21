@@ -8,6 +8,7 @@ export const SLOW_TESTS = [
   "scripts/supervise.test.ts", // spawns the supervisor and stand-in processes
   "apps/worker/src/api-fallback.test.ts", // spawned worker
   "apps/worker/src/boot.test.ts", // spawned worker
+  "apps/worker/src/default-schedules.test.ts", // spawned worker
   "apps/worker/src/ingest.test.ts", // spawned worker
   "apps/worker/src/telegram.test.ts", // spawned worker
   "scripts/rubric-v3-replay.test.ts", // spawns the script as a child process

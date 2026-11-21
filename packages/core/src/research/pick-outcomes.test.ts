@@ -247,12 +247,9 @@ describe("pick outcomes", () => {
     expect(s.calls[0]).toHaveLength(2);
   });
 
-  it("makes no Claude call: the job has no Brain and the module never mentions one", async () => {
-    const brain = new Proxy({}, { get: () => { throw new Error("the Brain was touched"); } });
-    const s = setup();
-    s.answers.set(CA_B, [curve(CA_B, 1)]);
-    await run(s, 5);
-    void brain;
+  // The job takes only a store and a DexScreener lookup, so it has no seam for a Brain. That no Claude call happens when it runs in the worker
+  // is tested with a fake claude binary in apps/worker/src/default-schedules.test.ts; this guards the module itself.
+  it("the module never mentions a Brain, claude or a spawn", async () => {
     const src = readFileSync(new URL("./pick-outcomes.ts", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(src).not.toMatch(/brain|claude|spawn/i);
   });

@@ -80,7 +80,7 @@ for (const step of ['typecheck', 'lint', fast ? 'test:fast' : 'test']) {
 }
 slot?.release();
 if (fast) {
-  console.log('check:fast: passed (fast tier only, not stamped; run pnpm check before committing)');
+  console.log('check:fast: passed (fast tier only, not stamped; commit first, then run pnpm check on the clean tree)');
   process.exit(0);
 }
 try {
