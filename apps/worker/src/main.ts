@@ -514,7 +514,7 @@ const radarFeeds = radarSettings.enabled ? loadRadarFeeds(process.env.ARGUS_RADA
 const radarJob = createRadarJob({
   store,
   settings: radarSettings,
-  reader: new GoogleTrendsReader(),
+  reader: new GoogleTrendsReader({ baseUrl: process.env.ARGUS_RADAR_GOOGLE_URL || undefined }), // the override exists for tests and local mirrors
   feedReader: new RssFeedReader(),
   feeds: radarFeeds,
   dex: new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined }),

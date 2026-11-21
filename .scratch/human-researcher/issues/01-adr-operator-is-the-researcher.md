@@ -10,7 +10,7 @@
 - [x] A new ADR (0017, or the next free number) states the principle "Claude runs only when the Operator triggers it", lists the exceptions kept automatic, and amends ADR 0011 and ADR 0013 with a dated pointer in each.
 - [x] With the switches at their defaults, the worker starts no judge, propose or Meta meme-ideas run and no moment scan, and writes one line at start saying so (tested with fake clocks and a fake Brain: no Brain call in a full simulated day).
 - [x] Turning each switch on restores the old behaviour with its existing caps (tested); no code or table is deleted.
-- [ ] Meta ranking, ingest, radar counting, meta-group, meta-summary and radar-name still run on their schedules (tested).
+- [ ] Meta ranking, ingest, meta-group and meta-summary still run on their schedules at the defaults (tested); radar counting runs when ARGUS_RADAR=1 (its default stays off); radar-name is not built yet (trend-radar ticket 04) and is tested there.
 - [x] The War Room shows which automatic agents are off (render test).
 - [x] `GLOSSARY.md` gains Pick, Research brief, Shadow pick and Scoreboard, using the definitions in the spec.
 - [x] Existing tests that assumed the automatic runs are updated, not deleted; type-check, `pnpm lint` and `pnpm check` are green.
