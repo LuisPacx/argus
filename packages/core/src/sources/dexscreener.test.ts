@@ -269,3 +269,20 @@ describe("DexScreenerClient retries", () => {
     expect(empty.calls()).toBe(1);
   });
 });
+
+describe("DexScreenerClient.tokenPairs with failIfTruncated", () => {
+  const entry = (i: number) => ({ chainId: "solana", url: "", baseToken: { address: `${"A".repeat(30)}${String(i).padStart(4, "0")}`, name: "x", symbol: "X" }, volume: { h24: 1 } });
+  const body = (n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => entry(i)));
+  const MINT = "ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump";
+
+  it("throws when the answer is as long as the cut, so a missing pair cannot be read as absent", async () => {
+    const client = new DexScreenerClient({ fetchText: async () => body(100), retries: 0 });
+    await expect(client.tokenPairs("solana", [MINT], { failIfTruncated: true })).rejects.toThrow("may be cut");
+    expect(await client.tokenPairs("solana", [MINT])).toHaveLength(100); // other callers are unchanged
+  });
+
+  it("returns a shorter answer whole", async () => {
+    const client = new DexScreenerClient({ fetchText: async () => body(99), retries: 0 });
+    expect(await client.tokenPairs("solana", [MINT], { failIfTruncated: true })).toHaveLength(99);
+  });
+});

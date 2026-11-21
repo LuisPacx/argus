@@ -122,7 +122,7 @@ export function snapshotFromPairs(ca: string, pairs: readonly DexPair[], now: Da
 
 /** The slice of the DexScreener client a lookup needs (tests pass a fake). */
 export interface PickLookup {
-  tokenPairs(chainId: string, addresses: string[]): Promise<DexPair[]>;
+  tokenPairs(chainId: string, addresses: string[], opts?: { failIfTruncated?: boolean }): Promise<DexPair[]>;
 }
 
 /** What the store must offer: the one write (`recordPick`, which refuses a repeat). */

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { DexPair } from "../sources/dexscreener.ts";
-import { decideBonded, toPick, type PickLookup, type PickSource, type ResearchPick } from "./picks.ts";
+import { decideBonded, LAUNCHPAD_MINT_SUFFIX, toPick, type PickLookup, type PickSource, type ResearchPick } from "./picks.ts";
 
 /**
  * Pick outcomes (human researcher ticket 04): what became of each Pick, from plain code only (no Claude, no Brain). A scheduled job looks the coin
@@ -27,6 +27,8 @@ export const OUTCOME_GIVE_UP_MS = 2 * OUTCOME_WINDOW_MS;
 export const OUTCOME_TICK_MS = 5 * 60_000;
 /** DexScreener's token lookup takes at most this many addresses a request. */
 const LOOKUP_BATCH = 30;
+/** A decision from what DexScreener shows after the deadline waits this long, so a pool opened in the last minutes is indexed by then. */
+export const BOND_SETTLE_MS = 10 * 60_000;
 export const OUTCOME_WEEK_MS = 7 * 24 * HOUR_MS;
 
 /** `pending` until decided; `already-bonded` when the coin had bonded before the Pick (never counted in the rate); `unknown` when the coin vanished or could not be checked. */
@@ -92,10 +94,18 @@ export function advancePick(o: OpenPick, pairs: readonly DexPair[] | undefined, 
   const nowIso = new Date(nowMs).toISOString();
   const prev = o.outcome;
   const st: OutcomeState = { result: prev?.result ?? "pending", bondedAt: prev?.bondedAt ?? null, bondedBasis: prev?.bondedBasis ?? "", peakUsd: prev?.peakUsd ?? null, lastOkAt: prev?.lastOkAt ?? null, finishedAt: null };
-  const prevOkMs = st.lastOkAt !== null ? Date.parse(st.lastOkAt) : null;
   const have = new Set(o.samples.map((s) => s.mark));
   const samples: OutcomeSample[] = [];
   let changed = false;
+
+  // Argus's own migration record decides without any lookup (so DexScreener being down never loses it): before the Pick it was already bonded,
+  // inside the 24 hours it bonded, after them it did not.
+  if (st.result === "pending") {
+    const m = migratedAt !== null ? Date.parse(migratedAt) : null;
+    if (p.bondedAtPick || (m !== null && m <= created)) st.result = "already-bonded";
+    else if (m !== null && m <= deadline) Object.assign(st, { result: "bonded", bondedAt: migratedAt, bondedBasis: "argus-migration" });
+    else if (m !== null && nowMs >= deadline) st.result = "not-bonded";
+  }
 
   if (pairs !== undefined) {
     changed = true;
@@ -103,18 +113,21 @@ export function advancePick(o: OpenPick, pairs: readonly DexPair[] | undefined, 
     const deepest = usable.reduce<DexPair | undefined>((a, b) => (a === undefined || b.liquidityUsd > a.liquidityUsd ? b : a), undefined);
     const mc = deepest?.marketCapUsd !== undefined && deepest.marketCapUsd > 0 ? deepest.marketCapUsd : null;
     st.peakUsd = maxOf(st.peakUsd, p.marketCapUsd, mc);
-    st.lastOkAt = nowIso;
+    // An empty answer is "the coin was not there", not "seen": it never counts as a sighting.
+    if (usable.length > 0) st.lastOkAt = nowIso;
     if (st.result === "pending") {
-      const m = migratedAt !== null ? Date.parse(migratedAt) : null;
-      const d = decideBonded(p.ca, usable, migratedAt);
-      if (p.bondedAtPick || (m !== null && m <= created)) st.result = "already-bonded";
-      else if (m !== null && m > deadline) st.result = "not-bonded";
-      else if (d.bonded && (m !== null || nowMs <= deadline)) Object.assign(st, { result: "bonded", bondedAt: m !== null ? migratedAt : nowIso, bondedBasis: d.basis });
-      else if (nowMs >= deadline) {
-        // Bonding never undoes: a coin that is not bonded now did not bond within the window. A coin that is bonded now, with no record of when,
-        // is only counted as not bonded when the lookup just before the deadline still showed it on the curve.
-        if (d.bonded) st.result = prevOkMs !== null && prevOkMs >= deadline - SAMPLE_GRACE_MS ? "not-bonded" : "unknown";
-        else st.result = usable.length === 0 ? "unknown" : "not-bonded";
+      const d = decideBonded(p.ca, usable, null);
+      if (d.bonded) {
+        // No record of when it bonded: inside the window the sighting is the time; after it, the coin may have bonded before or after the deadline, which
+        // cannot be told, so it is unknown (left out of the rate) rather than guessed either way.
+        if (nowMs <= deadline) Object.assign(st, { result: "bonded", bondedAt: nowIso, bondedBasis: d.basis });
+        else if (nowMs >= deadline + BOND_SETTLE_MS) st.result = "unknown";
+      } else if (nowMs >= deadline + BOND_SETTLE_MS) {
+        // Bonding never undoes, so a coin clearly still on the curve a little after the deadline did not bond within the window (the settle lets
+        // DexScreener index a pool opened in the last minutes). Clearly: it has a pair, and a launchpad mint shows its curve pair. Anything else waits.
+        const onCurve = usable.some((x) => x.dexId === "pumpfun");
+        if (usable.length > 0 && (onCurve || !p.ca.endsWith(LAUNCHPAD_MINT_SUFFIX))) st.result = "not-bonded";
+        else if (usable.length === 0) st.result = "unknown"; // a complete answer with no pair for the coin: it vanished
       }
     }
     for (const { key, hours } of OUTCOME_MARKS) {
@@ -144,15 +157,20 @@ export async function trackPickOutcomes(store: OutcomeStore, dex: PickLookup, op
   const report: OutcomeTickReport = { open: open.length, failed: 0, sampled: 0, missed: 0, decided: 0, finished: 0 };
   const answers = new Map<string, DexPair[]>();
   const cas = [...new Set(open.map((o) => o.pick.ca))];
-  for (let i = 0; i < cas.length; i += LOOKUP_BATCH) {
-    const chunk = cas.slice(i, i + LOOKUP_BATCH);
+  // A batch the client says may be cut (or that fails for any reason) is split in half and each half asked again; a single coin whose answer
+  // still fails is retried next tick. So a cut answer never decides a coin: only complete answers reach `answers`.
+  const lookup = async (chunk: string[]): Promise<void> => {
     try {
-      const pairs = await dex.tokenPairs("solana", chunk);
+      const pairs = await dex.tokenPairs("solana", chunk, { failIfTruncated: true });
       for (const ca of chunk) answers.set(ca, pairs.filter((x) => x.tokenAddress === ca));
     } catch {
-      // The chunk's Picks are tried again on the next tick.
+      if (chunk.length === 1) return;
+      const mid = Math.ceil(chunk.length / 2);
+      await lookup(chunk.slice(0, mid));
+      await lookup(chunk.slice(mid));
     }
-  }
+  };
+  for (let i = 0; i < cas.length; i += LOOKUP_BATCH) await lookup(cas.slice(i, i + LOOKUP_BATCH));
   const nowMs = (opts.now ?? (() => new Date()))().getTime();
   for (const o of open) {
     const pairs = answers.get(o.pick.ca);

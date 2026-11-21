@@ -121,10 +121,14 @@ export class DexScreenerClient {
   }
 
   /** Pairs trading the given tokens on one chain (up to 30 addresses). Unsafe ids are dropped, never sent. */
-  async tokenPairs(chainId: string, addresses: string[]): Promise<DexPair[]> {
+  async tokenPairs(chainId: string, addresses: string[], opts: { failIfTruncated?: boolean } = {}): Promise<DexPair[]> {
     const safe = addresses.filter((a) => ADDRESS_RE.test(a)).slice(0, MAX_LOOKUP);
     if (!CHAIN_RE.test(chainId) || safe.length === 0) return [];
-    return this.pairs(await this.json(`/tokens/v1/${chainId}/${safe.join(",")}`));
+    const data = await this.json(`/tokens/v1/${chainId}/${safe.join(",")}`);
+    // Only the first MAX_ENTRIES entries are read, so an answer that long may have lost pairs (a graduation pool). A caller that decides something
+    // from the absence of a pair asks for an error instead and splits the batch.
+    if (opts.failIfTruncated === true && Array.isArray(data) && data.length >= MAX_ENTRIES) throw new Error(`DexScreener: the answer has ${MAX_ENTRIES} or more entries and may be cut`);
+    return this.pairs(data);
   }
 
   /**

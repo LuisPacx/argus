@@ -71,6 +71,8 @@ describe("pick outcomes", () => {
     await run(s, 10 * H);
     expect(outcome(s, 10 * H)).toMatchObject({ result: "pending", over: false });
     await run(s, 24 * H + 1);
+    expect(outcome(s)).toMatchObject({ result: "pending", over: true }); // not decided inside the settle time after the deadline
+    await run(s, 24 * H + 11);
     expect(outcome(s)).toMatchObject({ result: "not-bonded", over: true });
     expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toMatchObject({ bonded: 0, finished: 1, rate: 0 });
   });
@@ -109,14 +111,71 @@ describe("pick outcomes", () => {
     expect(first.failed).toBe(1);
     expect(outcome(s)).toMatchObject({ result: "pending", over: true });
     s.answers.set(CA_B, [curve(CA_B, 50_000)]);
-    await run(s, 24 * H + 6);
+    await run(s, 24 * H + 16);
     expect(outcome(s)).toMatchObject({ result: "not-bonded" });
+  });
+
+  it("an in-window migration record decides bonded with DexScreener failing the whole 48 hours", async () => {
+    const s = setup();
+    const migrated = new Date(T0.getTime() + 5 * H * 60_000).toISOString();
+    const withStudy = { openPickOutcomes: () => s.store.openPickOutcomes(), applyPickProgress: s.store.applyPickProgress.bind(s.store), migrationOf: () => migrated };
+    s.answers.set(CA_B, new Error("down"));
+    await trackPickOutcomes(withStudy, s.dex, { now: at(48 * H + 1) });
+    expect(outcome(s, 49 * H)).toMatchObject({ result: "bonded", bondedAt: migrated });
+  });
+
+  it("an empty answer is not a sighting", async () => {
+    const s = setup();
+    s.answers.set(CA_B, []);
+    await run(s, 5);
+    expect(s.store.openPickOutcomes()[0]!.outcome!.lastOkAt).toBeNull();
+    s.answers.set(CA_B, [curve(CA_B, 5)]);
+    await run(s, 10);
+    expect(s.store.openPickOutcomes()[0]!.outcome!.lastOkAt).toBe(at(10)().toISOString());
+  });
+
+  it("a coin seen bonded after the deadline with no record is unknown, not guessed either way", async () => {
+    const s = setup();
+    s.answers.set(CA_B, [curve(CA_B, 60_000)]);
+    await run(s, 24 * H - 5); // last seen on the curve 5 minutes before the deadline
+    s.answers.set(CA_B, [graduated(CA_B, 70_000)]);
+    await run(s, 24 * H + 15);
+    expect(outcome(s)).toMatchObject({ result: "unknown" });
+  });
+
+  it("a pump coin with no curve pair shown is not clearly on the curve: it waits instead of becoming not bonded", async () => {
+    const s = setup();
+    s.answers.set(CA_B, [{ ...curve(CA_B, 60_000), dexId: "pumpswap", liquidityUsd: 100 }]);
+    await run(s, 24 * H + 15);
+    expect(outcome(s)).toMatchObject({ result: "pending" });
+  });
+
+  it("a cut batch never decides a coin: it is split, and only a coin whose own answer fails waits", async () => {
+    const s = setup({}, CA_B);
+    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
+    s.answers.set(CA_A, [curve(CA_A, 1)]);
+    s.answers.set(CA_B, [graduated(CA_B, 1)]);
+    const asked: string[][] = [];
+    const cutting: PickLookup = {
+      async tokenPairs(_c, addresses, o) {
+        asked.push(addresses);
+        if (o?.failIfTruncated !== true) throw new Error("the job must ask for truncation errors");
+        if (addresses.length > 1) throw new Error("answer may be cut"); // what the real client does at 100 entries
+        return s.dex.tokenPairs("solana", addresses);
+      },
+    };
+    const r = await trackPickOutcomes(s.store, cutting, { now: at(24 * H - 30) });
+    expect(asked.map((a) => a.length)).toEqual([2, 1, 1]);
+    expect(r.failed).toBe(0);
+    s.answers.set(CA_A, new Error("always cut"));
+    const r2 = await trackPickOutcomes(s.store, cutting, { now: at(24 * H - 25) });
+    expect(r2.failed).toBe(1);
   });
 
   it("a coin that vanished ends unknown and is left out of the rate, with its count", async () => {
     const s = setup();
     s.answers.set(CA_B, []);
-    await run(s, 24 * H + 1);
+    await run(s, 24 * H + 11);
     expect(outcome(s)).toMatchObject({ result: "unknown" });
     expect(s.store.pickOutcomes(at(25 * H)(), "operator").all).toEqual({ bonded: 0, finished: 0, rate: null, alreadyBonded: 0, unknown: 1, pending: 0 });
   });
