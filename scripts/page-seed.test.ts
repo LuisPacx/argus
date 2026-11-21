@@ -19,7 +19,7 @@ describe("the seed fixture", () => {
     const store = fresh();
     const { ids, counts } = await seedDatastore(store, NOW);
     const { narrative, moment, trend, ...proposalIds } = ids;
-    expect(new Set(Object.values(proposalIds)).size).toBe(5);
+    expect(new Set(Object.values(proposalIds)).size).toBe(6);
     // The trend radar (trend radar ticket 01): an untokenized Trend with a drained-pool lookalike, a taken one, a not-traced one that keeps its last
     // good trace, one being tokenized, a hostile term, and every source status (two over the hour, so the banner shows).
     const radar = store.radarView(NOW);
@@ -76,10 +76,15 @@ describe("the seed fixture", () => {
     expect(angle.operatorAngle!.angle).toBe(HOSTILE_ANGLE);
     expect(angle.operatorAngle!.angle).toContain("<img");
     expect(angle.metaSnapshot).toMatchObject({ version: 2, trigger: { kind: "operator-angle" } });
-    expect(store.memeAngleRequests().map((r) => [r.metaKey, r.status])).toEqual([["seed-cloud", "pending"], ["seed-lobster", "capped"], ["seed-chair", "done"]]);
-    expect(store.memeAngleRequests()[2]!.proposalIds).toHaveLength(3);
+    // Make ideas under the seeded brief (human researcher ticket 06): the request ended done, and its trio carries the topic source marker and a version 4 snapshot.
+    expect(store.memeAngleRequests().map((r) => [r.metaKey, r.status])).toEqual([["seed-cloud", "pending"], ["topic:1", "done"], ["seed-lobster", "capped"], ["seed-chair", "done"]]);
+    expect(store.memeAngleRequests()[3]!.proposalIds).toHaveLength(3);
+    const topicMeme = store.getProposal(ids.topicMeme)!;
+    expect(topicMeme).toMatchObject({ kind: "meme", metaKey: "topic:1", metaLabel: "SEED GTA", operatorAngle: { source: "topic", researchRequestId: 1 } });
+    expect(topicMeme.metaSnapshot).toMatchObject({ version: 4, kind: "topic", topic: { requestId: 1 } });
+    expect(store.memeAngleRequests()[1]!.proposalIds).toHaveLength(3);
 
-    expect(store.liveMemeProposals()).toHaveLength(9);
+    expect(store.liveMemeProposals()).toHaveLength(12);
     const current = store.currentMetas(NOW.toISOString())!;
     expect(current.metas.map((m: { key: string; holding: boolean }) => [m.key, m.holding])).toEqual([
       ["seed-chair", false],
@@ -93,7 +98,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 10, brain_runs: 9, angle_requests: 3, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 4, research_requests: 5 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 13, brain_runs: 9, angle_requests: 4, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 4, research_requests: 5 });
     // The Operator's topic research (human researcher ticket 05): a done brief, a failed, a capped, a hostile one and one waiting, each with its cost.
     expect(store.researchRequests().map((r) => [r.status, r.runs, r.brief !== null])).toEqual([["pending", 0, false], ["done", 1, true], ["capped", 0, false], ["failed", 2, false], ["done", 1, true]]);
     expect(store.researchRequests().find((r) => r.status === "failed")!.costUsd).toBeCloseTo(0.7999, 4);

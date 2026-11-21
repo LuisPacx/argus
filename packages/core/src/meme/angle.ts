@@ -51,7 +51,19 @@ export interface AngleRequest {
   doneAt: string | null;
   /** The Proposals the run filed, in slot order. */
   proposalIds: number[];
+  /**
+   * Set when the request is a Make ideas on a Research brief (human researcher ticket 06) and not on a Meta: the id of the research request whose
+   * brief is the subject. `metaKey` is then `topic:<id>` and `metaLabel` the topic. Null on a Meta's request, so older rows read as before.
+   */
+  researchRequestId: number | null;
 }
+
+/** The `meta_key` of a topic's ideas (a Proposal made from a Research brief): `topic:<research request id>`. */
+export const TOPIC_KEY_PREFIX = "topic:";
+export const topicKey = (researchRequestId: number): string => `${TOPIC_KEY_PREFIX}${researchRequestId}`;
+
+/** The angle text stored for a Make ideas with no angle typed (Meta button, ticket 02): the card words its source by this text. */
+export const MAKE_IDEAS_ANGLE_TEXT = "Pressed Make ideas (no angle typed)";
 
 /** What `GET /api/meme-angle` returns per row: the status and the ids, never the angle text or the link. */
 export interface AngleRequestRow {
@@ -71,6 +83,12 @@ export interface OperatorAngle {
   angle: string;
   sourceUrl: string | null;
   urlDropped: boolean;
+  /**
+   * The source marker readers branch on (human researcher ticket 06): `"topic"` on an idea made from a Research brief (`angle` is then the topic and
+   * `researchRequestId` the brief's request); absent on every idea made from a Meta, so older Proposals read as before.
+   */
+  source?: "topic";
+  researchRequestId?: number;
 }
 
 export type AngleParse = { ok: true; angle: string; sourceUrl: string | null; urlDropped: boolean } | { ok: false; problem: string };
@@ -158,6 +176,7 @@ export function toAngleRequest(r: Row): AngleRequest {
     createdAt: r.created_at as string,
     doneAt: (r.done_at as string | null) ?? null,
     proposalIds: ids(r.proposal_ids),
+    researchRequestId: Number.isSafeInteger(r.research_request_id) ? (r.research_request_id as number) : null,
   };
 }
 

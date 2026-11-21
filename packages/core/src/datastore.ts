@@ -16,11 +16,11 @@ import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RAT
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
-import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
+import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, topicKey, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
-import { insertResearchRequest, listResearchRequests, migrateResearch, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
+import { insertResearchRequest, listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -342,9 +342,9 @@ export class MemeTrioExistsError extends DomainError {
   }
 }
 
-/** Why an angle request was not stored (ticket 11). The War Room maps the code to a status: `unknown-meta` and `invalid` 400, `duplicate` 409, `daily-cap` and `pending` 429. */
+/** Why an angle request was not stored (ticket 11; `unknown-brief` is ticket 06). The War Room maps the code to a status: `unknown-meta`, `unknown-brief` and `invalid` 400, `duplicate` 409, `daily-cap` and `pending` 429. */
 export class MemeAngleRefusedError extends DomainError {
-  readonly code: "unknown-meta" | "invalid" | "duplicate" | "daily-cap" | "pending";
+  readonly code: "unknown-meta" | "unknown-brief" | "invalid" | "duplicate" | "daily-cap" | "pending";
   constructor(code: MemeAngleRefusedError["code"], message: string) {
     super(message);
     this.name = "MemeAngleRefusedError";
@@ -595,6 +595,8 @@ export function migrate(db: DatabaseSync): void {
   migrateMeme(db);
   // The Operator's angle (meta redesign ticket 11): one request table and one nullable Proposal column, both additive.
   migrateAngles(db);
+  // Make ideas on a Research brief (human researcher ticket 06): the request names the research request whose brief is the subject.
+  ensureColumn(db, "meme_angle_requests", "research_request_id", "INTEGER");
   // The Operator's Picks (human researcher ticket 03): one additive table, never updated.
   migratePicks(db);
   // What became of each Pick (ticket 04): two additive tables keyed on the Pick id; the picks table itself stays immutable.
@@ -678,7 +680,8 @@ function parseSnapshot(text: string | null): MetaSnapshot | null {
   try {
     const v = JSON.parse(text) as unknown;
     const version = typeof v === "object" && v !== null ? (v as { version?: unknown }).version : undefined;
-    return version === 1 || version === 2 || (version === 3 && (v as { kind?: unknown }).kind === "narrative") ? (v as MetaSnapshot) : null;
+    const kind = (v as { kind?: unknown }).kind;
+    return version === 1 || version === 2 || (version === 3 && kind === "narrative") || (version === 4 && kind === "topic") ? (v as MetaSnapshot) : null;
   } catch {
     return null;
   }
@@ -699,7 +702,8 @@ function parseOperatorAngle(text: string | null | undefined): OperatorAngle | nu
   try {
     const v = JSON.parse(text) as Partial<OperatorAngle> | null;
     if (typeof v !== "object" || v === null || !Number.isSafeInteger(v.requestId) || typeof v.angle !== "string") return null;
-    return { requestId: v.requestId as number, angle: v.angle, sourceUrl: typeof v.sourceUrl === "string" ? v.sourceUrl : null, urlDropped: v.urlDropped === true };
+    const topic = v.source === "topic" && Number.isSafeInteger(v.researchRequestId) ? ({ source: "topic", researchRequestId: v.researchRequestId as number } as const) : {};
+    return { requestId: v.requestId as number, angle: v.angle, sourceUrl: typeof v.sourceUrl === "string" ? v.sourceUrl : null, urlDropped: v.urlDropped === true, ...topic };
   } catch {
     return null;
   }
@@ -768,6 +772,7 @@ export type WarRoomStore = Pick<
   | "liveMemeProposals"
   | "memeIdeasSpendSince"
   | "requestMemeAngle"
+  | "requestTopicIdeas"
   | "memeAngleRequests"
   | "recordPick"
   | "listPicks"
@@ -1186,7 +1191,7 @@ export class Datastore {
     const evidenceLinks = normalizeEvidenceLinks(input.evidenceLinks);
     const snapshot = JSON.stringify(input.snapshot);
     const angle = input.operatorAngle;
-    const operatorAngle = angle ? JSON.stringify({ requestId: angle.requestId, angle: angle.angle, sourceUrl: angle.sourceUrl, urlDropped: angle.urlDropped }) : null;
+    const operatorAngle = angle ? JSON.stringify({ requestId: angle.requestId, angle: angle.angle, sourceUrl: angle.sourceUrl, urlDropped: angle.urlDropped, ...(angle.source === "topic" && angle.researchRequestId !== undefined ? { source: "topic", researchRequestId: angle.researchRequestId } : {}) }) : null;
     // An angle trio lives in its own "window", the request's id negated (real windows are positive), so the unique index of live trios
     // neither blocks nor is blocked by the Meta's automatic trio; one trio per request, whatever the clock says.
     const window = angle ? -angle.requestId : Math.floor(nowDate.getTime() / MEME_WINDOW_MS);
@@ -1301,7 +1306,7 @@ export class Datastore {
     const angle = input.angle;
     // An empty angle is the "Make ideas" button (human researcher ticket 02): no text, so no duplicate rule (the allowance and the one waiting request bound it).
     if (typeof angle !== "string" || (angle !== "" && angle.trim() === "") || angle !== angle.trim() || [...angle].length > ANGLE_MAX_CHARS || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(angle)) {
-      throw new MemeAngleRefusedError("invalid", `The angle must be 1 to ${ANGLE_MAX_CHARS} characters of plain text on one line`);
+      throw new MemeAngleRefusedError("invalid", `An angle, when there is one, must be 1 to ${ANGLE_MAX_CHARS} characters of plain text on one line`);
     }
     return this.inTransaction(() => {
       const current = this.currentMetas();
@@ -1310,15 +1315,50 @@ export class Datastore {
       // One window serves both rules (`ANGLE_WINDOW_MS` and `ANGLE_DUPLICATE_MS` are both 24 h).
       const recent = this.db.prepare("SELECT meta_key, angle, status FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { meta_key: string; angle: string; status: AngleStatus }[];
       if (angle !== "" && recent.some((r) => r.meta_key === input.metaKey && angleKey(r.angle) === angleKey(angle))) throw new MemeAngleRefusedError("duplicate", "You already asked this angle for this Meta in the last 24 hours");
-      const spent = recent.filter((r) => ANGLE_SPENDING_STATUSES.includes(r.status)).length;
-      if (spent >= max) throw new MemeAngleRefusedError("daily-cap", `${spent} angle requests in 24 hours is the most (${max}); try again later`);
-      if (recent.length >= angleAttemptCap(max)) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours, refused ones included, is the most (3 times the allowance of ${max}); try again later`);
-      if (this.db.prepare("SELECT 1 FROM meme_angle_requests WHERE status IN ('pending', 'running')").get()) throw new MemeAngleRefusedError("pending", "One request is waiting for the worker; wait until it is done");
+      this.checkAngleAllowance(recent, max);
       const res = this.db
         .prepare("INSERT INTO meme_angle_requests (meta_key, meta_label, angle, source_url, url_dropped, status, detail, created_at, proposal_ids) VALUES (?, ?, ?, ?, ?, 'pending', '', ?, '[]')")
         .run(subject.key, subject.label, angle, input.sourceUrl ?? null, input.urlDropped === true ? 1 : 0, now.toISOString());
       return this.getAngleRequest(Number(res.lastInsertRowid))!;
     });
+  }
+
+  /** The caps every angle request meets, a Meta's and a topic's alike: the allowance (spending statuses), the hard cap on all attempts, and one request waiting at a time. Inside a transaction. */
+  private checkAngleAllowance(recent: readonly { status: AngleStatus }[], max: number): void {
+    const spent = recent.filter((r) => ANGLE_SPENDING_STATUSES.includes(r.status)).length;
+    if (spent >= max) throw new MemeAngleRefusedError("daily-cap", `${spent} angle requests in 24 hours is the most (${max}); try again later`);
+    if (recent.length >= angleAttemptCap(max)) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours, refused ones included, is the most (3 times the allowance of ${max}); try again later`);
+    if (this.db.prepare("SELECT 1 FROM meme_angle_requests WHERE status IN ('pending', 'running')").get()) throw new MemeAngleRefusedError("pending", "One request is waiting for the worker; wait until it is done");
+  }
+
+  /**
+   * The War Room's one write for the "Make ideas" button under a Research brief (human researcher ticket 06, insert only): a `pending` row of the same
+   * table and the same caps as a Meta's Make ideas (`requestMemeAngle`), naming the brief's research request, so the same worker pass runs it. The
+   * request must be a `done` one with its brief (else `unknown-brief`). A second request for the same brief inside 24 hours is refused (`duplicate`)
+   * unless the earlier one ended refused, failed or capped (it filed nothing and does not spend the allowance). The row's `meta_key` is
+   * `topic:<id>` and its label the topic. Refused with `MemeAngleRefusedError`.
+   */
+  requestTopicIdeas(researchRequestId: number, opts: { now?: Date; maxPerDay?: number } = {}): AngleRequest {
+    const now = opts.now ?? new Date();
+    const max = Math.min(MAX_MEME_ANGLE_PER_DAY, opts.maxPerDay ?? DEFAULT_MEME_ANGLE_PER_DAY);
+    if (!Number.isSafeInteger(researchRequestId) || researchRequestId < 1) throw new MemeAngleRefusedError("invalid", "The research request must be a whole number");
+    return this.inTransaction(() => {
+      const brief = this.db.prepare("SELECT r.topic AS topic FROM research_requests r JOIN research_briefs b ON b.request_id = r.id WHERE r.id = ? AND r.status = 'done'").get(researchRequestId) as { topic: string } | undefined;
+      if (!brief) throw new MemeAngleRefusedError("unknown-brief", "That research request has no finished Research brief");
+      const recent = this.db.prepare("SELECT status, research_request_id FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { status: AngleStatus; research_request_id: number | null }[];
+      if (recent.some((r) => r.research_request_id === researchRequestId && ANGLE_SPENDING_STATUSES.includes(r.status))) throw new MemeAngleRefusedError("duplicate", "You already pressed Make ideas for this brief in the last 24 hours");
+      this.checkAngleAllowance(recent, max);
+      const res = this.db
+        .prepare("INSERT INTO meme_angle_requests (meta_key, meta_label, angle, source_url, url_dropped, status, detail, created_at, proposal_ids, research_request_id) VALUES (?, ?, '', NULL, 0, 'pending', '', ?, '[]', ?)")
+        .run(topicKey(researchRequestId), brief.topic, now.toISOString(), researchRequestId);
+      return this.getAngleRequest(Number(res.lastInsertRowid))!;
+    });
+  }
+
+  /** The topic and the stored Research brief of a research request, or undefined when it has none. READ ONLY. */
+  researchBriefOf(researchRequestId: number): { topic: string; brief: ResearchBrief } | undefined {
+    const r = this.db.prepare("SELECT r.topic AS topic, b.* FROM research_requests r JOIN research_briefs b ON b.request_id = r.id WHERE r.id = ?").get(researchRequestId) as Record<string, string | number | null> | undefined;
+    return r && { topic: r.topic as string, brief: toResearchBrief(r) };
   }
 
   /** The last `ANGLE_LIST_LIMIT` angle requests, newest first, with their status and Proposal ids: no angle text, no link. READ ONLY. */

@@ -9,10 +9,10 @@
 // `narrative` is the id of the Tech Proposal's Narrative (its verdict history and Proposal link), not a Proposal id.
 // `moment` is the status ID of the seeded rising clip, as text (it is longer than a safe integer): `/moments#post-{moment}` names its row.
 // `trend` is the id of the seeded untokenized Trend: `/radar#trend-{trend}` names its row.
-export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'narrative', 'moment', 'trend'];
+export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'topicMeme', 'narrative', 'moment', 'trend'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}', '/research'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/proposals/{topicMeme}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}', '/research'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
@@ -146,8 +146,8 @@ export async function seedDatastore(store, now) {
   store.resolveAngleRequest(doneRequest.id, { status: 'done', detail: '3 ideas', proposalIds: angleTrio.map((p) => p.id) }, new Date(now.getTime() - 25 * MIN));
   const cappedRequest = store.requestMemeAngle({ metaKey: lobster.key, angle: 'SEED sample angle on the lobster hat', sourceUrl: null }, { now: new Date(now.getTime() - 20 * MIN) });
   store.resolveAngleRequest(cappedRequest.id, { status: 'capped', detail: 'daily cap of 8 meme-ideas runs reached (8 runs, $0.4000 in 24 h)' }, new Date(now.getTime() - 19 * MIN));
-  store.requestMemeAngle({ metaKey: cloud.key, angle: 'SEED sample angle on the cloud cat', sourceUrl: null }, { now: new Date(now.getTime() - 3 * MIN) });
-  counts.angle_requests += 3;
+  // The third request (a Watching subject, still waiting for the worker) is made last, after the Make ideas under the seeded brief: one request waits at a time.
+  counts.angle_requests += 2;
 
   // Two news Narratives: one gets a Tech Proposal, the other fails the buildability gate and gets a news meme trio (snapshot version 3).
   store.recordSourcePoll({ sourceId: 'rss:seed', label: 'SEED Wire' }, new Date(now.getTime() - 60 * MIN));
@@ -359,5 +359,40 @@ export async function seedDatastore(store, now) {
   store.requestResearch('SEED waiting topic', { now: researchAt(2) });
   counts.research_requests = 5;
 
-  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, narrative: techNarrative, moment: risingId, trend: untokenized }, counts };
+  // Make ideas under the finished brief (human researcher ticket 06), through the production write paths: the request, then the topic trio (snapshot
+  // version 4, the source marker on each idea) and the request ended done, so the brief shows "3 ideas filed" with links and the card shows its source.
+  const briefOf = store.researchBriefOf(done.id);
+  const topicRequest = store.requestTopicIdeas(done.id, { now: researchAt(190) });
+  const topicTrio = store.createMemeProposals(
+    {
+      metaKey: `topic:${done.id}`,
+      metaLabel: briefOf.topic,
+      snapshot: {
+        version: 4,
+        kind: 'topic',
+        capturedAt: researchAt(185).toISOString(),
+        topic: { requestId: done.id, text: briefOf.topic },
+        brief: {
+          story: briefOf.brief.story,
+          coins: briefOf.brief.coins.map((c) => ({ ca: c.ca, name: c.name, symbol: c.symbol, marketCapUsd: c.marketCapUsd, bonded: c.bonded })),
+          freeNames: briefOf.brief.freeNames.map((n) => ({ name: n.name, ticker: n.ticker })),
+          createdAt: briefOf.brief.createdAt,
+        },
+        trigger: { kind: 'operator-topic', reason: 'Topic "SEED GTA": 3 coins, 1 free names in the Research brief', at: researchAt(190).toISOString() },
+      },
+      reason: 'Operator pressed Make ideas on a Research brief: Topic "SEED GTA": 3 coins, 1 free names in the Research brief',
+      summary: 'From a Research brief on "SEED GTA": SEED sample: a trailer showed an iguana walking past a scooter.',
+      evidenceLinks: [`https://dexscreener.com/solana/${briefOf.brief.coins[0].ca}`, 'https://example.com/trailer'],
+      ideas: [idea('SEED Leonida Lizard', 'SEEDLZ1', 'SEED sample: the topic is the joke.'), idea('SEED Trailer Scooter', 'SEEDLZ2', 'SEED sample: the topic, again.'), idea('SEED Vice Iguana', 'SEEDLZ3', 'SEED sample: the topic, once more.')],
+      operatorAngle: { requestId: topicRequest.id, angle: briefOf.topic, sourceUrl: null, urlDropped: false, source: 'topic', researchRequestId: done.id },
+    },
+    { now: researchAt(185) },
+  );
+  counts.proposals += topicTrio.length;
+  store.claimAngleRequest(topicRequest.id);
+  store.resolveAngleRequest(topicRequest.id, { status: 'done', detail: '3 ideas', proposalIds: topicTrio.map((p) => p.id) }, researchAt(185));
+  store.requestMemeAngle({ metaKey: cloud.key, angle: 'SEED sample angle on the cloud cat', sourceUrl: null }, { now: new Date(now.getTime() - 3 * MIN) });
+  counts.angle_requests += 2;
+
+  return { ids: { tech: tech.id, metaMeme: metaTrio[0].id, newsMeme: newsTrio[0].id, hostile: metaTrio[1].id, angle: angleTrio[0].id, topicMeme: topicTrio[0].id, narrative: techNarrative, moment: risingId, trend: untokenized }, counts };
 }

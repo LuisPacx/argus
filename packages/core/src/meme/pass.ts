@@ -15,11 +15,11 @@ import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type Re
 import type { DexPair } from "../sources/dexscreener.ts";
 import { sourceClass } from "../sources/source-class.ts";
 import type { LaunchedToken } from "../study/store.ts";
-import { avoidLabels, cleanLine, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
+import { avoidLabels, cleanLine, memeIdeasPromptFor, MEME_PROMPT_MARKET_SIGNALS, MEME_PROMPT_NEWS, MEME_PROMPT_TOKENS, newsMemePromptFor, parseMemeOutput, topicMemePromptFor, type MemeIdea, type MemeParse, type MemePromptToken } from "./ideas.ts";
 import { deadTokenNotes } from "./live-token.ts";
 import type { MemeAttempt, MemeOutcome } from "./store.ts";
-import { angleAttemptCap, type AngleRequest } from "./angle.ts";
-import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeSnapshotTriggerKind, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews } from "./types.ts";
+import { angleAttemptCap, MAKE_IDEAS_ANGLE_TEXT, topicKey, type AngleRequest } from "./angle.ts";
+import { MEME_REFRESH_MS, MEME_WINDOW_MS, NEWS_MEME_FLOORS, NEWS_MEME_LIVE_MS, newsMemeKey, type MemeSnapshotTriggerKind, type MemeTriggerKind, type MetaSnapshotV2, type NarrativeSnapshotV3, type NewMemeIdea, type SnapshotNews, type TopicSnapshotV4 } from "./types.ts";
 
 /**
  * The meme ideas pass (ADR 0013, amended by meta redesign ticket 03): for each current Meta (ADR 0014; a Watching subject never), one
@@ -630,7 +630,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
                 summary: req.angle !== "" ? `Operator angle on ${cleanLine(meta.label, 60)}: ${cleanLine(req.angle, 160)}` : `Operator pressed Make ideas on ${cleanLine(meta.label, 60)}`,
                 evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
                 ideas,
-                operatorAngle: { requestId: req.id, angle: req.angle !== "" ? req.angle : "Pressed Make ideas (no angle typed)", sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
+                operatorAngle: { requestId: req.id, angle: req.angle !== "" ? req.angle : MAKE_IDEAS_ANGLE_TEXT, sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
               },
               { now: at, attachRunId: runIds },
             );
@@ -641,8 +641,69 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
     };
   };
 
+  /**
+   * Make ideas under a Research brief as a job (human researcher ticket 06): the same request table, loop, caps, name checks and storage as an
+   * angle on a Meta, with the topic and the brief as the subject. The topic and the brief go in as one fenced untrusted block; the brief's coins are
+   * the names to avoid. The request ends `refused` before any cap or run when the brief is gone.
+   */
+  const topicJob = (req: AngleRequest): Job => {
+    const researchRequestId = req.researchRequestId as number;
+    const found = store.researchBriefOf(researchRequestId);
+    return {
+      key: `angle:${req.id}`,
+      label: req.metaLabel,
+      eventAt: req.createdAt,
+      angle: { requestId: req.id },
+      guarded: () => store.angleTrioProposalIds(req.id).length > 0,
+      refusal: () => (found ? undefined : "the Research brief is gone"),
+      capReason: (now) => (store.researchProposalsSince(new Date(now.getTime() - DAY_MS).toISOString()) >= MAX_NEW_PROPOSALS_PER_DAY ? `daily cap of ${MAX_NEW_PROPOSALS_PER_DAY} new Proposals reached` : undefined),
+      prepare: (): Prepared => {
+        const { topic, brief } = found as NonNullable<typeof found>; // `refusal` ended the request before this runs when the brief is gone
+        const existing: ExistingToken[] = brief.coins.map((c) => ({ name: c.name, symbol: c.symbol }));
+        const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
+        const reason = `Topic "${cleanLine(topic, 60)}": ${brief.coins.length} coins, ${brief.freeNames.length} free names in the Research brief`;
+        return {
+          existing,
+          promptFor: (retry) => topicMemePromptFor({ topic, story: brief.story, coins: brief.coins, freeNames: brief.freeNames, avoid: avoidLabels(existing), legitimacy, ...retryFields(retry) }),
+          create: (ideas, at, runIds) => {
+            const snapshot: TopicSnapshotV4 = {
+              version: 4,
+              kind: "topic",
+              capturedAt: at.toISOString(),
+              topic: { requestId: researchRequestId, text: topic },
+              brief: {
+                story: brief.story,
+                coins: brief.coins.map((c) => ({ ca: c.ca, name: c.name, symbol: c.symbol, marketCapUsd: c.marketCapUsd, bonded: c.bonded })),
+                freeNames: brief.freeNames.map((n) => ({ name: n.name, ticker: n.ticker })),
+                createdAt: brief.createdAt,
+              },
+              trigger: { kind: "operator-topic", reason, at: req.createdAt },
+            };
+            return store.createMemeProposals(
+              {
+                metaKey: topicKey(researchRequestId),
+                metaLabel: topic,
+                snapshot,
+                reason: `Operator pressed Make ideas on a Research brief: ${reason}`,
+                summary: `From a Research brief on "${cleanLine(topic, 80)}": ${cleanLine(brief.story, 120)}`,
+                evidenceLinks: evidenceFor(
+                  brief.coins.map((c) => ({ mint: c.ca })),
+                  brief.sources.flatMap((s) => (s.url !== null ? [{ title: s.title, sourceLabel: "", url: s.url, publishedAt: "" }] : [])),
+                ),
+                ideas,
+                operatorAngle: { requestId: req.id, angle: topic, sourceUrl: null, urlDropped: false, source: "topic", researchRequestId },
+              },
+              { now: at, attachRunId: runIds },
+            );
+          },
+          doneLine: (made) => `${made.length} ideas for the Research brief on "${cleanLine(topic, 60)}" (request ${req.id}; proposals ${made.map((p) => p.id).join(", ")})`,
+        };
+      },
+    };
+  };
+
   // Metas first, then the stories (Q8): a story is tried only when the Metas left room in this pass. The angle pass has only the Operator's requests.
-  const jobs: Job[] = anglesOnly ? angleQueue.map(angleJob) : [...(current ? metaQueue.map((d) => metaJob(d, current)) : []), ...newsQueue.map(newsJob)];
+  const jobs: Job[] = anglesOnly ? angleQueue.map((r) => (r.researchRequestId !== null ? topicJob(r) : angleJob(r))) :[...(current ? metaQueue.map((d) => metaJob(d, current)) : []), ...newsQueue.map(newsJob)];
 
   for (const [index, job] of jobs.entries()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };

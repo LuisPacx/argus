@@ -13,17 +13,30 @@ defineProps<{ view: MemeView }>();
 
 <template>
   <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5" data-test="meme-card">
-    <section v-if="view.operatorAngle" class="surface rise" style="--i: 0" data-test="meme-operator-angle">
-      <h3 class="section-title">Operator angle</h3>
+    <section v-if="view.operatorAngle && view.operatorAngle.kind !== 'topic'" class="surface rise" style="--i: 0" data-test="meme-operator-angle">
+      <h3 class="section-title">{{ view.operatorAngle.kind === "button" ? "Make ideas" : "Operator angle" }}</h3>
       <div class="mt-4 grid min-w-0 gap-2 text-sm">
-        <p class="faint text-xs">The angle you typed on the Meta page. The ideas below are about it.</p>
-        <p class="min-w-0 break-words font-semibold leading-relaxed" data-test="meme-operator-angle-text">{{ view.operatorAngle.text }}</p>
+        <p v-if="view.operatorAngle.kind === 'button'" class="faint text-xs" data-test="meme-operator-angle-intro">You pressed Make ideas on the Meta page; no angle was typed. The ideas below are about the Meta.</p>
+        <p v-else class="faint text-xs" data-test="meme-operator-angle-intro">The angle you typed on the Meta page. The ideas below are about it.</p>
+        <p v-if="view.operatorAngle.kind === 'typed'" class="min-w-0 break-words font-semibold leading-relaxed" data-test="meme-operator-angle-text">{{ view.operatorAngle.text }}</p>
         <p v-if="view.operatorAngle.sourceText" class="min-w-0 break-words text-xs" data-test="meme-operator-angle-source">
           Source:
           <UrlLink v-if="view.operatorAngle.href" :href="view.operatorAngle.href" :label="view.operatorAngle.sourceText" />
           <span v-else>{{ view.operatorAngle.sourceText }}</span>
         </p>
         <p v-else-if="view.operatorAngle.dropped" class="faint text-xs" data-test="meme-operator-angle-dropped">The link in the text was dropped: it was not a plain http or https address.</p>
+      </div>
+    </section>
+
+    <section v-if="view.fromTopic" class="surface rise" style="--i: 0" data-test="meme-from-topic">
+      <h3 class="section-title">From a topic</h3>
+      <div class="mt-4 grid min-w-0 gap-2 text-sm">
+        <p class="faint text-xs">You pressed Make ideas under the Research brief on this topic. The ideas below are about it.</p>
+        <p class="min-w-0 break-words font-semibold" data-test="meme-from-topic-topic">From topic: {{ view.fromTopic.topic }}</p>
+        <p class="text-xs" data-test="meme-from-topic-link">
+          <NuxtLink v-if="view.fromTopic.href" :to="view.fromTopic.href" class="link font-medium">{{ view.fromTopic.linkText }}</NuxtLink>
+          <span v-else class="faint">{{ view.fromTopic.linkText }}</span>
+        </p>
       </div>
     </section>
 
@@ -48,7 +61,7 @@ defineProps<{ view: MemeView }>();
           <p class="min-w-0 break-words leading-relaxed">{{ view.angle }}</p>
         </div>
         <div v-if="view.difference" data-test="meme-difference">
-          <p class="eyebrow mb-1.5">{{ view.source === "news" ? "How it differs from the tokens already riding the story" : "How it differs from the leader" }}</p>
+          <p class="eyebrow mb-1.5">{{ view.source === "news" ? "How it differs from the tokens already riding the story" : view.source === "topic" ? "How it differs from the coins already on the topic" : "How it differs from the leader" }}</p>
           <p class="min-w-0 break-words leading-relaxed">{{ view.difference }}</p>
         </div>
         <div v-if="view.description" data-test="meme-description">
@@ -78,7 +91,7 @@ defineProps<{ view: MemeView }>();
     </section>
 
     <section class="surface rise" style="--i: 2" data-test="meme-meta">
-      <h3 class="section-title">{{ view.source === "news" ? "The story when the idea was made" : "The Meta when the idea was made" }}</h3>
+      <h3 class="section-title">{{ view.source === "news" ? "The story when the idea was made" : view.source === "topic" ? "The Research brief when the idea was made" : "The Meta when the idea was made" }}</h3>
       <div class="mt-4 grid min-w-0 gap-2 text-sm">
         <p v-if="view.meta.label" class="min-w-0 break-words font-semibold" data-test="meme-meta-label">{{ view.meta.label }}</p>
         <p v-if="view.meta.summary" class="muted min-w-0 break-words leading-relaxed" data-test="meme-meta-summary">{{ view.meta.summary }}</p>

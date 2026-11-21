@@ -39,12 +39,15 @@ export interface MemeProposalPayload {
   metaLabel?: string | null;
   /** Set on a news meme (version 3 snapshot): the Narrative the story is. Null on a Meta's idea. */
   narrativeId?: number | null;
-  /** The stored versions: 1 (a launch-theme row and a Hot now event, kept as it was made), 2 (a Meta, its leader and its trigger) and 3 (a news Narrative that failed the buildability gate, with its Score). */
+  /** The stored versions: 1 (a launch-theme row and a Hot now event, kept as it was made), 2 (a Meta, its leader and its trigger), 3 (a news Narrative that failed the buildability gate, with its Score) and 4 (a topic and its Research brief). */
   metaSnapshot?: {
     version?: number;
     capturedAt?: string;
-    /** Version 3 only. */
+    /** Versions 3 (`narrative`) and 4 (`topic`). */
     kind?: string;
+    /** Version 4 only: the topic as typed and the Research brief as it was. Untrusted text. */
+    topic?: { requestId?: number; text?: string };
+    brief?: { story?: string; coins?: Array<{ ca?: string; name?: string; symbol?: string; marketCapUsd?: number | null; bonded?: string }>; freeNames?: Array<{ name?: string; ticker?: string }>; createdAt?: string };
     narrative?: { id?: number; title?: string; summary?: string; signalCount?: number; createdAt?: string; lastSignalAt?: string };
     score?: { id?: number; total?: number; scores?: Record<string, number>; rationale?: string; gateMin?: number; createdAt?: string };
     meta?: { label?: string; rank?: number; firstSeenAt?: string; counts?: { "6h"?: Counts; "24h"?: Counts }; topTokens?: Array<{ mint?: string; name?: string; symbol?: string; marketCapUsd?: number }>; summary?: string };
@@ -60,7 +63,7 @@ export interface MemeProposalPayload {
   } | null;
   meme?: { difference?: string; hook?: string; imageIdea?: string; riskLabels?: string[]; copyNote?: string } | null;
   /** Set on an idea made from the Operator's angle (ticket 11): the text the Operator typed, and its link when there was a plain one. Operator-typed, so untrusted. */
-  operatorAngle?: { requestId?: number; angle?: string; sourceUrl?: string | null; urlDropped?: boolean } | null;
+  operatorAngle?: { requestId?: number; angle?: string; sourceUrl?: string | null; urlDropped?: boolean; source?: string; researchRequestId?: number } | null;
 }
 
 interface Counts {
@@ -98,13 +101,32 @@ export interface OperatorAngleView {
   sourceText: string | null;
   /** True when the text had a link that was not a plain http(s) address and so was dropped when the request was stored. */
   dropped: boolean;
+  /**
+   * How the idea was asked for: `typed` (an angle the Operator wrote on the Meta page), `button` (Make ideas on a Meta, no angle typed) or `topic` (Make ideas
+   * under a Research brief; human researcher ticket 06). The card words its source by this, so a button-made idea never claims a typed angle.
+   */
+  kind: "typed" | "button" | "topic";
+  /** The pill on the page and the list: "Angle", "Make ideas" or "Topic", with its hover text. */
+  pill: string;
+  pillTitle: string;
+  /** "/research#research-12" for a topic idea made from a whole-number research request id, else null. */
+  briefHref: string | null;
+}
+
+/** A topic idea's source: the topic and a link back to the Research brief it was made from (all text cut; the link is a numeric id only). */
+export interface FromTopicView {
+  topic: string;
+  href: string | null;
+  linkText: string;
 }
 
 export interface MemeView {
   /** The Operator's angle this idea was made for (ticket 11); null on every other idea. */
   operatorAngle: OperatorAngleView | null;
-  /** `news` for an idea made from a news story (version 3 snapshot), else `meta`. */
-  source: "meta" | "news";
+  /** `news` for an idea made from a news story (version 3 snapshot), `topic` for one made from a Research brief (version 4), else `meta`. */
+  source: "meta" | "news" | "topic";
+  /** The "from topic: <topic>" part of an idea made from a Research brief; null on every other idea. */
+  fromTopic: FromTopicView | null;
   /** The "from news: <headline>" part of a news meme; null on a Meta's idea. */
   fromNews: FromNewsView | null;
   /** The two-line card title pieces. */
@@ -158,6 +180,8 @@ export function riskLabelsOf(meme: MemeProposalPayload["meme"]): string[] {
 }
 
 const ANGLE_TEXT_CHARS = 600;
+/** The text the worker stores for a Make ideas with no angle typed (core's `MAKE_IDEAS_ANGLE_TEXT`; a server test holds the two equal). */
+export const MAKE_IDEAS_ANGLE_TEXT = "Pressed Make ideas (no angle typed)";
 const SOURCE_TEXT_CHARS = 80;
 
 /** The Operator's angle as the card and the list draw it: text clamped to one line, the source a link only through `safeHttpUrl`. Null when the Proposal has none. */
@@ -166,7 +190,19 @@ export function operatorAngleView(a: MemeProposalPayload["operatorAngle"]): Oper
   const text = clampText(a.angle, ANGLE_TEXT_CHARS);
   if (text === "") return null;
   const href = safeHttpUrl(a.sourceUrl);
-  return { text, href, sourceText: href !== null ? bareUrl(href) : typeof a.sourceUrl === "string" && a.sourceUrl !== "" ? clampText(a.sourceUrl, SOURCE_TEXT_CHARS) : null, dropped: a.urlDropped === true };
+  const topic = a.source === "topic";
+  const kind = topic ? "topic" : text === MAKE_IDEAS_ANGLE_TEXT ? "button" : "typed";
+  const pill = { typed: ["Angle", "Made from an angle the Operator typed on the Meta page"], button: ["Make ideas", "Made by the Make ideas button on the Meta page: no angle was typed"], topic: ["Topic", "Made by the Make ideas button under a Research brief on the Research page"] }[kind];
+  return {
+    text,
+    href,
+    sourceText: href !== null ? bareUrl(href) : typeof a.sourceUrl === "string" && a.sourceUrl !== "" ? clampText(a.sourceUrl, SOURCE_TEXT_CHARS) : null,
+    dropped: a.urlDropped === true,
+    kind,
+    pill: pill[0]!,
+    pillTitle: pill[1]!,
+    briefHref: topic && Number.isSafeInteger(a.researchRequestId) && (a.researchRequestId as number) > 0 ? `/research#research-${a.researchRequestId}` : null,
+  };
 }
 
 /** The whole card of a meme Proposal. Everything is optional in the payload and a missing piece is simply absent. */
@@ -184,12 +220,13 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   if (finite(c24?.migrationsAfter60s)) numbers.push(`${c24.migrationsAfter60s} after 60 s`);
   // What triggered it: a version 2 snapshot says "New Meta" or "Meta refresh", a version 1 snapshot (a Hot now idea) keeps its old wording.
   const fromStory = snap?.version === 3 && snap.kind === "narrative";
-  const trig = snap?.version === 2 || fromStory ? snap.trigger : undefined;
+  const fromBrief = snap?.version === 4 && snap.kind === "topic";
+  const trig = snap?.version === 2 || fromStory || fromBrief ? snap.trigger : undefined;
   const triggerAt = trig?.at ?? snap?.hot?.raisedAt;
   const triggerAge = typeof triggerAt === "string" ? ageText(triggerAt, nowMs) : null;
   const triggerReason = clampText(trig?.reason ?? snap?.hot?.reason, REASON_CHARS);
-  const triggerName = fromStory ? "News meme" : trig ? (trig.kind === "operator-angle" ? "Operator angle" : trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
-  const triggerVerb = fromStory ? "scored" : trig?.kind === "operator-angle" ? "asked" : trig?.kind === "refresh" ? "refreshed" : "raised";
+  const triggerName = fromStory ? "News meme" : fromBrief ? "Topic" : trig ? (trig.kind === "operator-angle" ? "Operator angle" : trig.kind === "refresh" ? "Meta refresh" : "New Meta") : "Hot now";
+  const triggerVerb = fromStory ? "scored" : fromBrief || trig?.kind === "operator-angle" ? "asked" : trig?.kind === "refresh" ? "refreshed" : "raised";
   if (fromStory) {
     const story = snap.narrative;
     if (finite(story?.signalCount)) numbers.push(plural(story.signalCount, "Signal"));
@@ -207,15 +244,37 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
       }
     : null;
   const rankingAge = typeof snap?.run?.computedAt === "string" ? ageText(snap.run.computedAt, nowMs) : null;
+  // A topic idea: the brief's coins stand where a Meta's tokens stand, each linked to its DexScreener page only for a plain address.
+  const briefCoins = fromBrief && Array.isArray(snap.brief?.coins) ? snap.brief.coins : [];
   const tokens = tokenViews(
-    (Array.isArray(meta?.topTokens) ? meta.topTokens : []).map((t) => ({
-      name: t?.name ?? "",
-      symbol: t?.symbol ?? "",
-      ...(finite(t?.marketCapUsd) ? { marketCapUsd: t.marketCapUsd } : {}),
-      // The same page the Meta list links, only for a plain address.
-      ...(typeof t?.mint === "string" && BASE58.test(t.mint) ? { url: `https://dexscreener.com/solana/${t.mint}` } : {}),
-    })),
+    fromBrief
+      ? briefCoins.map((c) => ({
+          name: c?.name ?? "",
+          symbol: c?.symbol ?? "",
+          ...(finite(c?.marketCapUsd) ? { marketCapUsd: c.marketCapUsd } : {}),
+          ...(typeof c?.ca === "string" && BASE58.test(c.ca) ? { url: `https://dexscreener.com/solana/${c.ca}` } : {}),
+        }))
+      : (Array.isArray(meta?.topTokens) ? meta.topTokens : []).map((t) => ({
+          name: t?.name ?? "",
+          symbol: t?.symbol ?? "",
+          ...(finite(t?.marketCapUsd) ? { marketCapUsd: t.marketCapUsd } : {}),
+          // The same page the Meta list links, only for a plain address.
+          ...(typeof t?.mint === "string" && BASE58.test(t.mint) ? { url: `https://dexscreener.com/solana/${t.mint}` } : {}),
+        })),
   );
+  if (fromBrief) {
+    numbers.push(plural(briefCoins.length, "coin"));
+    const free = Array.isArray(snap.brief?.freeNames) ? snap.brief.freeNames.length : 0;
+    if (free > 0) numbers.push(`${plural(free, "free name")} offered`);
+  }
+  const requestId = fromBrief ? snap.topic?.requestId : undefined;
+  const fromTopic: FromTopicView | null = fromBrief
+    ? {
+        topic: clampText(snap.topic?.text ?? p.metaLabel, META_LABEL_CHARS),
+        href: typeof requestId === "number" && Number.isSafeInteger(requestId) && requestId > 0 ? `/research#research-${requestId}` : null,
+        linkText: typeof requestId === "number" && Number.isSafeInteger(requestId) && requestId > 0 ? `Research brief ${requestId}` : "Research brief",
+      }
+    : null;
   const news = (Array.isArray(snap?.news) ? snap.news : []).slice(0, NEWS_SHOWN).flatMap((n): MemeNewsView[] => {
     const title = clampText(n?.title, HEADLINE_CHARS);
     if (title === "") return [];
@@ -225,7 +284,8 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
   });
   return {
     operatorAngle: operatorAngleView(p.operatorAngle),
-    source: fromStory ? "news" : "meta",
+    source: fromStory ? "news" : fromBrief ? "topic" : "meta",
+    fromTopic,
     fromNews,
     name: clampText(p.name, NAME_CHARS),
     ticker: clampText(p.ticker, TICKER_CHARS),
@@ -244,7 +304,7 @@ export function memeView(p: MemeProposalPayload, nowMs: number): MemeView {
       trigger: triggerReason !== "" ? `${triggerName}: ${triggerReason}${triggerAge !== null ? `, ${triggerVerb} ${triggerAge}` : ""}` : null,
       ranking: rankingAge !== null ? `ranking from ${rankingAge}` : null,
       roomLeft: present(snap?.roomLeft?.text, ROOM_LEFT_CHARS),
-      summary: fromStory ? present(snap.narrative?.summary, 200) : present(meta?.summary, 200),
+      summary: fromStory ? present(snap.narrative?.summary, 200) : fromBrief ? present(snap.brief?.story, 300) : present(meta?.summary, 200),
       tokens,
     },
     news,
@@ -262,10 +322,14 @@ export interface MemeRowView {
   riskLabels: string[];
   /** True for an idea made from the Operator's angle (the list row's "Angle" pill; ticket 11). */
   fromOperatorAngle: boolean;
+  /** The pill's words ("Angle", "Make ideas" or "Topic"; empty when `fromOperatorAngle` is false) and its hover text. */
+  sourcePill: string;
+  sourcePillTitle: string;
 }
 
 export function memeRowView(p: MemeProposalPayload): MemeRowView {
-  return { metaLine: clampText(p.narrativeSummary, 200), angle: clampText(p.whyNow, ANGLE_CHARS), riskLabels: riskLabelsOf(p.meme), fromOperatorAngle: operatorAngleView(p.operatorAngle) !== null };
+  const from = operatorAngleView(p.operatorAngle);
+  return { metaLine: clampText(p.narrativeSummary, 200), angle: clampText(p.whyNow, ANGLE_CHARS), riskLabels: riskLabelsOf(p.meme), fromOperatorAngle: from !== null, sourcePill: from?.pill ?? "", sourcePillTitle: from?.pillTitle ?? "" };
 }
 
 /** An idea under a Meta on /meta (the API's `ideas`): a link to its card by its numeric id only, never by anything written by the model. */

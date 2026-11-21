@@ -65,7 +65,28 @@ export interface SnapshotToken extends MetaTopToken {
  * version 2 (a Meta, its leader token and what triggered the run) and version 3 (a news Narrative that failed the buildability gate, with its
  * Score and news; proposal-routing ticket 04). Readers branch on `version`.
  */
-export type MetaSnapshot = MetaSnapshotV1 | MetaSnapshotV2 | NarrativeSnapshotV3;
+export type MetaSnapshot = MetaSnapshotV1 | MetaSnapshotV2 | NarrativeSnapshotV3 | TopicSnapshotV4;
+
+/**
+ * A topic as the ideas saw it (human researcher ticket 06, version 4): the topic the Operator typed and the Research brief the Operator pressed
+ * Make ideas under, as they were. The topic is Operator-typed and the brief is model-written from web pages, X posts and DexScreener names, so
+ * all of it is untrusted text. Readers branch on `version` and `kind`.
+ */
+export interface TopicSnapshotV4 {
+  version: 4;
+  kind: "topic";
+  capturedAt: string;
+  /** The research request the brief belongs to (`/research#research-<id>`), and the topic as typed (cleaned). */
+  topic: { requestId: number; text: string };
+  brief: {
+    story: string;
+    coins: { ca: string; name: string; symbol: string; marketCapUsd: number | null; bonded: "yes" | "no" | "unknown" }[];
+    freeNames: { name: string; ticker: string }[];
+    createdAt: string;
+  };
+  /** Code-written: `reason` names the topic and the brief's counts; `at` is when the Operator pressed the button. */
+  trigger: { kind: "operator-topic"; reason: string; at: string };
+}
 
 /**
  * A news Narrative as the ideas saw it (proposal-routing ticket 04, version 3): a news story that failed the buildability gate and passed

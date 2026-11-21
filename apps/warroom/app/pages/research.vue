@@ -3,15 +3,32 @@
 // DexScreener and records a Pick with a snapshot of it. The form posts `{ text, reason, topic }` to POST /api/picks and shows what the server said for
 // each line; the server does every check. The list below is GET /api/picks. Everything shown is text.
 import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
-import { canSubmitTopic, researchRequestsView, RESEARCH_TOPIC_MAX_CHARS, submitTopic, type TopicAccepted } from "../utils/research-brief.ts";
+import { canSubmitTopic, researchRequestsView, RESEARCH_TOPIC_MAX_CHARS, submitTopic, submitTopicIdeas, type TopicAccepted } from "../utils/research-brief.ts";
+import type { AngleAccepted } from "../utils/angle.ts";
 
 const { data, refresh } = await useFetch("/api/picks", { default: () => [] });
 const { data: outcomes, refresh: refreshOutcomes } = await useFetch("/api/pick-outcomes", { default: () => null });
 // The Operator's topic requests and their briefs (human researcher ticket 05). Polled while the page is open, so a brief appears when the worker is done.
 const { data: requests, refresh: refreshRequests } = await useFetch("/api/research-requests", { key: "research-requests", default: () => [] });
+// The Make ideas requests under the briefs (human researcher ticket 06): the same request table as a Meta's Make ideas, read by the brief's `topic:<id>` key.
+const { data: angles, refresh: refreshAngles } = await useFetch("/api/meme-angle", { key: "meme-angle", default: () => null });
 const nowMs = useNowMs();
 const view = computed(() => picksView(data.value, nowMs.value, outcomes.value));
-const briefs = computed(() => researchRequestsView(requests.value, nowMs.value));
+const briefs = computed(() => researchRequestsView(requests.value, nowMs.value, angles.value));
+const ideasBusyId = ref<number | null>(null);
+const ideasError = ref<string | null>(null);
+const ideasNote = ref<string | null>(null);
+async function makeIdeas(researchRequestId: number) {
+  if (ideasBusyId.value !== null) return;
+  ideasBusyId.value = researchRequestId;
+  ideasError.value = null;
+  ideasNote.value = null;
+  const r = await submitTopicIdeas((body) => $fetch<AngleAccepted>("/api/meme-angle", { method: "POST", body }), researchRequestId);
+  ideasBusyId.value = null;
+  if (r.ok) ideasNote.value = r.note;
+  else ideasError.value = r.message;
+  await refreshAngles();
+}
 const researchTopic = ref("");
 const researchBusy = ref(false);
 const researchError = ref<string | null>(null);
@@ -34,7 +51,10 @@ async function research() {
 }
 let requestTimer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  requestTimer = setInterval(() => void refreshRequests(), 10_000);
+  requestTimer = setInterval(() => {
+    void refreshRequests();
+    void refreshAngles();
+  }, 10_000);
 });
 onBeforeUnmount(() => clearInterval(requestTimer));
 
@@ -84,7 +104,9 @@ async function submit() {
     </form>
 
     <h3 class="section-title">Research briefs</h3>
-    <ResearchBriefs :view="briefs" />
+    <p v-if="ideasError" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="ideas-error">{{ ideasError }}</p>
+    <p v-if="ideasNote" class="muted min-w-0 break-words text-xs" role="status" data-test="ideas-note">{{ ideasNote }}</p>
+    <ResearchBriefs :view="briefs" :busy-id="ideasBusyId" @make="makeIdeas" />
 
     <h3 class="section-title">Picks</h3>
     <p class="note muted">

@@ -6,7 +6,10 @@
 // server/test/research-render.test.ts, which renders it): view.
 import type { ResearchRequestsView } from "../utils/research-brief.ts";
 
-defineProps<{ view: ResearchRequestsView }>();
+// Under each brief a "Make ideas" button (human researcher ticket 06): it only emits `make` with the research request id; the page posts it. The status
+// line and the links are the newest Make ideas request of that brief, as `researchRequestsView` made them (text; a link is a numeric Proposal id only).
+defineProps<{ view: ResearchRequestsView; busyId?: number | null }>();
+const emit = defineEmits<{ make: [researchRequestId: number] }>();
 </script>
 
 <template>
@@ -61,6 +64,16 @@ defineProps<{ view: ResearchRequestsView }>();
             <p v-else class="faint text-xs" data-test="brief-no-free-names">{{ r.brief.noFreeNames }}</p>
           </div>
           <p class="faint min-w-0 break-words text-xs" data-test="brief-x-note">{{ r.brief.xNote }}</p>
+        </div>
+        <div v-if="r.ideas" class="grid min-w-0 gap-1.5 border-t border-[var(--wr-line)] pt-2" data-test="brief-ideas">
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" class="btn btn-primary min-h-11" :disabled="busyId === r.id || r.ideas.waiting" data-test="brief-make-ideas" @click="emit('make', r.id)">{{ busyId === r.id ? "Sending…" : "Make ideas" }}</button>
+            <span class="faint text-xs">Three meme ideas about this topic, from this brief. Runs only when you press it.</span>
+          </div>
+          <p v-if="r.ideas.status" class="note min-w-0 break-words text-xs" :class="r.ideas.status.tone === 'bad' ? 'note-amber' : r.ideas.status.tone === 'ok' ? 'note-green' : 'muted'" :data-tone="r.ideas.status.tone" data-test="brief-ideas-status">{{ r.ideas.status.text }}</p>
+          <ul v-if="r.ideas.links.length > 0" class="flex flex-wrap gap-x-3 gap-y-1 text-xs" data-test="brief-ideas-links">
+            <li v-for="l in r.ideas.links" :key="l.href"><NuxtLink :to="l.href" class="link font-medium">{{ l.text }}</NuxtLink></li>
+          </ul>
         </div>
       </li>
     </ul>

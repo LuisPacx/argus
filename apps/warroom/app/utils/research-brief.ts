@@ -2,6 +2,7 @@
 // is typed by the Operator; the story, the source titles and the coin notes are written by a model that read web pages and X posts; coin names come from
 // DexScreener. All of it is untrusted: every field is cut to a line and shown as text only. A link is a source address that passes `safeHttpUrl`, or the
 // DexScreener page of a coin whose address passed the base58 test. Never an element, never `v-html`.
+import { angleStatusFor, failureReason, type AngleAccepted, type AngleRequestPayload, type AngleStatusView } from "./angle.ts";
 import { failureMessage } from "./research.ts";
 import { ageText, clampText, fmtUsd } from "./meta.ts";
 import { safeHttpUrl } from "./safe-link.ts";
@@ -66,6 +67,16 @@ export interface ResearchRowView {
   /** "cost $0.1234", "cost $0.1234 (an estimate)" or "no run, no cost". Always there: the Operator sees what each request cost. */
   cost: string;
   brief: BriefView | null;
+  /** The "Make ideas" button under the brief (human researcher ticket 06); null while there is no brief. */
+  ideas: IdeasView | null;
+}
+/** What sits under a brief: the status of its newest Make ideas request (the same request table and status words as a Meta's) and the Proposals it filed. */
+export interface IdeasView {
+  status: AngleStatusView | null;
+  /** Links to the Proposals the request filed, by their numeric ids only. */
+  links: { text: string; href: string }[];
+  /** True while the worker has the request (pending or running): the button waits. */
+  waiting: boolean;
 }
 export interface ResearchRequestsView {
   empty: string | null;
@@ -122,7 +133,25 @@ function briefView(b: BriefPayload): BriefView {
   };
 }
 
-export function researchRequestsView(rows: readonly ResearchRequestPayload[] | null | undefined, nowMs: number): ResearchRequestsView {
+/** The `meta_key` the worker gives the ideas of a brief (core's `topicKey`): the status line of a brief is the newest Make ideas request with this key. */
+export const topicKeyOf = (researchRequestId: number): string => `topic:${researchRequestId}`;
+
+function ideasView(r: ResearchRequestPayload, angles: readonly AngleRequestPayload[] | null | undefined, nowMs: number): IdeasView | null {
+  if (!r.brief || typeof r.brief !== "object") return null;
+  const key = topicKeyOf(r.id);
+  const status = angleStatusFor(angles, key, nowMs);
+  const rows: readonly AngleRequestPayload[] = Array.isArray(angles) ? angles : [];
+  const newest = rows.find((x) => x?.metaKey === key);
+  const ids = newest?.status === "done" && Array.isArray(newest.proposalIds) ? newest.proposalIds.filter((n) => Number.isSafeInteger(n) && n > 0) : [];
+  return {
+    status,
+    links: ids.map((id, i) => ({ text: `Idea ${i + 1}`, href: `/proposals/${id}` })),
+    waiting: newest?.status === "pending" || newest?.status === "running",
+  };
+}
+
+/** `angles` is GET /api/meme-angle (the newest Make ideas requests, a Meta's and a brief's alike); without it no brief has a status line. */
+export function researchRequestsView(rows: readonly ResearchRequestPayload[] | null | undefined, nowMs: number, angles?: readonly AngleRequestPayload[] | null): ResearchRequestsView {
   const list: ResearchRequestPayload[] = Array.isArray(rows) ? rows.filter((r) => typeof r === "object" && r !== null && Number.isSafeInteger(r.id)) : [];
   if (list.length === 0) return { empty: "No research yet. Type a topic above and press Research.", rows: [] };
   return {
@@ -138,6 +167,7 @@ export function researchRequestsView(rows: readonly ResearchRequestPayload[] | n
         asked: `asked ${(typeof r.createdAt === "string" ? ageText(r.createdAt, nowMs) : null) ?? "at an unknown time"}`,
         cost: costText(r.runs, r.costUsd, r.costEstimated),
         brief: r.brief && typeof r.brief === "object" ? briefView(r.brief) : null,
+        ideas: ideasView(r, angles, nowMs),
       };
     }),
   };
@@ -159,5 +189,15 @@ export async function submitTopic(post: (body: { topic: string }) => Promise<Top
     return { ok: true, note: "Sent. The worker researches it next: this can take a few minutes." };
   } catch (e) {
     return { ok: false, message: failureMessage(e) };
+  }
+}
+
+/** The "Make ideas" button under a brief (human researcher ticket 06): one POST /api/meme-angle with the research request id and no other key. Never throws. */
+export async function submitTopicIdeas(post: (body: { researchRequestId: number }) => Promise<AngleAccepted>, researchRequestId: number): Promise<{ ok: true; note: string } | { ok: false; message: string }> {
+  try {
+    await post({ researchRequestId });
+    return { ok: true, note: "Sent. The worker will write three ideas next." };
+  } catch (e) {
+    return { ok: false, message: failureReason(e) };
   }
 }

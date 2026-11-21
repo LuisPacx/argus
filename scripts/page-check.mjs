@@ -197,7 +197,7 @@ async function runKeys(page, steps, watch) {
   return log;
 }
 
-const USAGE = 'usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...\n       pnpm page:check --seed (--all | <path>...) [--port N] [--out DIR]   (private War Room on sample data; paths may use {tech} {metaMeme} {newsMeme} {hostile} {angle})';
+const USAGE = 'usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...\n       pnpm page:check --seed (--all | <path>...) [--port N] [--out DIR]   (private War Room on sample data; paths may use {tech} {metaMeme} {newsMeme} {hostile} {angle} {topicMeme})';
 
 export async function main(argv) {
   let opts;
