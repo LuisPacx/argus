@@ -5,13 +5,14 @@
 
 **Blocked by:** 01 (same code: the automatic Meta trio is what 01 switches off)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The button on `/meta` writes one request row with no angle text; the worker files three meme Proposals marked as pressed by the Operator (tested with a fake Brain).
-- [ ] A Meta that is no longer current is refused with the reason before any model call; a second press while one waits is refused (tests).
-- [ ] The angle allowance, the research budget and the 30-a-day new Proposals cap apply and end a request `capped` with the reason, never left waiting (tests).
+- [x] The button on `/meta` writes one request row with no angle text; the worker files three meme Proposals marked as pressed by the Operator (tested with a fake Brain).
+- [x] A Meta that is no longer current is refused with the reason before any model call; a second press while one waits is refused (tests).
+- [x] The angle allowance, the research budget and the 30-a-day new Proposals cap apply and end a request `capped` with the reason, never left waiting (tests).
 - [ ] The War Room writes only the request row (test that no Proposal or other table changes on the press).
-- [ ] Render check with `pnpm page:check /meta` at 1240 and 390 px, keyboard focus on the button.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Render check with `pnpm page:check /meta` at 1240 and 390 px, keyboard focus on the button.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-20 cos: merged f409a64. Reviewer SHIP; verifier PASS 222 files / 3525 tests stamped c1bceb7f7e; page:check /meta exit 0 at 1240/390 with focus. Box 'writes only the request row' open: test covers Proposals/commands only.

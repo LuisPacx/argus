@@ -9,11 +9,13 @@
 
 **Status:** ready-for-agent
 
-- [ ] After 24 hours a Pick has a bonded yes or no, and the peak market caps at +1h, +6h and +24h; before that its outcome reads "pending" (tested with fake clocks and a fake DexScreener).
-- [ ] A coin that was already bonded at Pick time (`bonded_at_pick`) is excluded from "bonded within 24h" and reported separately with its own count, so it cannot inflate the rate (tested).
-- [ ] A lookup that fails is retried on the next tick and never marks a Pick as not bonded (tested); a Pick whose coin vanished ends `unknown` and is left out of the rate with its count shown.
-- [ ] The rate on the page is `bonded / finished` with n, for all time and for the last 7 days; an empty set reads "no finished Picks yet", not 0% (render test).
+- [x] After 24 hours a Pick has a bonded yes or no, and the peak market caps at +1h, +6h and +24h; before that its outcome reads "pending" (tested with fake clocks and a fake DexScreener).
+- [x] A coin that was already bonded at Pick time (`bonded_at_pick`) is excluded from "bonded within 24h" and reported separately with its own count, so it cannot inflate the rate (tested).
+- [x] A lookup that fails is retried on the next tick and never marks a Pick as not bonded (tested); a Pick whose coin vanished ends `unknown` and is left out of the rate with its count shown.
+- [x] The rate on the page is `bonded / finished` with n, for all time and for the last 7 days; an empty set reads "no finished Picks yet", not 0% (render test).
 - [ ] The job makes no Claude call (test that the Brain fake is never touched) and is a no-op on a second run over finished Picks.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-20 cos: merged ad62d4e, 86f41c3, d7979b2 (two review rounds: label bias + request storm). Verifier PASS 223 files / 3551 tests; new tests fail on parent; page:check /research exit 0.
+- Open: 'The job makes no Claude call ... no-op on a second run'. The no-op half is covered by 'a second run over finished Picks looks nothing up and writes nothing' (pick-outcomes.test.ts). The no-Brain half is not: the Brain Proxy in 'makes no Claude call' is created and never passed to the job (`void brain`), so it asserts nothing about a fake; only a source grep for brain/claude/spawn runs. Needs the fake wired into run() and asserted untouched. Status stays ready-for-agent.
