@@ -10,15 +10,11 @@ import { buildScoreboard, SCOREBOARD_MIN_PICKS, scoreTopicKey, verdictOf, type S
 const CA = (n: number) => `${String(n % 9 + 1)}${"A".repeat(30)}${String(n).padStart(3, "1")}`;
 let seq = 0;
 const item = (source: "operator" | "shadow", topic: string, result: OutcomeResult, ca = CA(++seq)): ScoreItem => ({ source, ca, topic, over: result !== "pending", result });
-/** `n` Picks of one source on one topic with `bonded` of them bonded (the rest not bonded); every coin is in the topic's brief list. */
-function many(source: "operator" | "shadow", topic: string, n: number, bonded: number, lists: Map<string, Set<string>>): ScoreItem[] {
-  return Array.from({ length: n }, (_v, i) => {
-    const it = item(source, topic, i < bonded ? "bonded" : "not-bonded");
-    const key = scoreTopicKey(topic);
-    lists.set(key, (lists.get(key) ?? new Set()).add(it.ca));
-    return it;
-  });
-}
+/** The topics of research requests in these tests (keys). */
+const REQ: ReadonlySet<string> = new Set(["gta", "chess", "cats"].map(scoreTopicKey));
+/** `n` Picks of one source on one topic with `bonded` of them bonded (the rest not bonded). */
+const many = (source: "operator" | "shadow", topic: string, n: number, bonded: number): ScoreItem[] => Array.from({ length: n }, (_v, i) => item(source, topic, i < bonded ? "bonded" : "not-bonded"));
+const build = (items: ScoreItem[]) => buildScoreboard(items, REQ);
 
 describe("the verdict threshold", () => {
   it("is 20 Picks per side, in code", () => {
@@ -26,9 +22,8 @@ describe("the verdict threshold", () => {
   });
 
   it("names no winner while either side has fewer than 20 finished Picks, however lopsided the rates", () => {
-    const lists = new Map<string, Set<string>>();
     for (const [o, m] of [[19, 19], [19, 40], [40, 19], [0, 30], [20, 0]] as const) {
-      const b = buildScoreboard([...many("operator", "GTA", o, 0, lists), ...many("shadow", "GTA", m, m, lists)], lists);
+      const b = build([...many("operator", "GTA", o, 0), ...many("shadow", "GTA", m, m)]);
       expect(b.verdict.kind, `${o}/${m}`).toBe("not-enough");
       expect(b.verdict.text).toContain("Not enough Picks yet");
       expect(b.verdict.text).toContain(`${SCOREBOARD_MIN_PICKS} finished Picks on each side`);
@@ -36,23 +31,17 @@ describe("the verdict threshold", () => {
   });
 
   it("names the leader, or a tie, at 20 on each side", () => {
-    const lists = new Map<string, Set<string>>();
-    const win = buildScoreboard([...many("operator", "GTA", 20, 5, lists), ...many("shadow", "GTA", 20, 8, lists)], lists);
+    const win = build([...many("operator", "GTA", 20, 5), ...many("shadow", "GTA", 20, 8)]);
     expect(win.verdict).toMatchObject({ kind: "machine" });
     expect(win.verdict.text).toContain("40% against 25%");
     expect(win.operator).toMatchObject({ finished: 20, bonded: 5, rate: 0.25 });
     expect(win.machine).toMatchObject({ finished: 20, bonded: 8, rate: 0.4 });
-    const l2 = new Map<string, Set<string>>();
-    expect(buildScoreboard([...many("operator", "GTA", 20, 9, l2), ...many("shadow", "GTA", 20, 4, l2)], l2).verdict.kind).toBe("operator");
-    const l3 = new Map<string, Set<string>>();
-    expect(buildScoreboard([...many("operator", "GTA", 20, 6, l3), ...many("shadow", "GTA", 20, 6, l3)], l3).verdict.kind).toBe("level");
+    expect(build([...many("operator", "GTA", 20, 9), ...many("shadow", "GTA", 20, 4)]).verdict.kind).toBe("operator");
+    expect(build([...many("operator", "GTA", 20, 6), ...many("shadow", "GTA", 20, 6)]).verdict.kind).toBe("level");
   });
 
   it("n counts only Picks that count in the rate: pending, already-bonded and unknown ones do not reach 20", () => {
-    const lists = new Map<string, Set<string>>();
-    const items = [...many("operator", "GTA", 20, 3, lists), ...many("shadow", "GTA", 19, 3, lists), item("shadow", "GTA", "pending"), item("shadow", "GTA", "already-bonded"), item("shadow", "GTA", "unknown")];
-    for (const i of items.filter((x) => x.source === "shadow")) lists.get("gta")!.add(i.ca);
-    const b = buildScoreboard(items, lists);
+    const b = build([...many("operator", "GTA", 20, 3), ...many("shadow", "GTA", 19, 3), item("shadow", "GTA", "pending"), item("shadow", "GTA", "already-bonded"), item("shadow", "GTA", "unknown")]);
     expect(b.machine).toMatchObject({ finished: 19, pending: 1, alreadyBonded: 1, unknown: 1 });
     expect(b.verdict.kind).toBe("not-enough");
   });
@@ -64,28 +53,35 @@ describe("the verdict threshold", () => {
 });
 
 describe("like with like", () => {
-  it("compares only topics where both sides picked, and an Operator Pick only when its coin was in a brief's list for that topic", () => {
-    const lists = new Map<string, Set<string>>();
-    const inGta = many("operator", "GTA", 3, 2, lists); // in the GTA list
-    const machineGta = many("shadow", "gta", 2, 1, lists); // same topic, other case
-    const stray = item("operator", "GTA", "bonded"); // the Operator's coin was never in a GTA brief
-    const noTopic = item("operator", "", "bonded");
-    const onlyOperatorTopic = many("operator", "Chess", 2, 2, lists); // the machine never researched Chess
-    const onlyMachineTopic = many("shadow", "Cats", 2, 0, lists); // the Operator picked nothing on Cats
-    const b = buildScoreboard([...inGta, ...machineGta, stray, noTopic, ...onlyOperatorTopic, ...onlyMachineTopic], lists);
+  it("counts every Operator Pick on a compared topic, also a coin no brief listed (a stray one), in the Operator's rate and n", () => {
+    const listed = many("operator", "GTA", 3, 2);
+    const stray = item("operator", "GTA", "bonded", "Z".repeat(32)); // no brief's coin list holds it: nothing here knows of lists any more
+    const b = build([...listed, stray, ...many("shadow", "GTA", 2, 1)]);
+    expect(b.operator).toMatchObject({ finished: 4, bonded: 3, rate: 0.75 });
+    expect(b.operatorOutside.finished).toBe(0);
+  });
+
+  it("matches topics ignoring letter case and surrounding space, not a different word, and a Pick with no topic is never compared", () => {
+    const b = build([item("operator", "  GtA ", "bonded"), item("shadow", "gta", "not-bonded"), item("operator", "GTA 6", "bonded"), item("shadow", "GTA 6", "bonded"), item("operator", "", "bonded"), item("shadow", "", "bonded")]);
+    expect(b.topics).toEqual(["GtA"]);
+    expect(b.operator.finished).toBe(1);
+    expect(b.machine.finished).toBe(1);
+    // "GTA 6" is no request's topic here, so the Operator's Pick on it and the no-topic Picks stay apart.
+    expect(b.operatorOutside).toMatchObject({ finished: 2 });
+  });
+
+  it("compares only topics where both sides picked, and counts both sides over exactly those topics", () => {
+    const b = build([...many("operator", "GTA", 3, 2), ...many("shadow", "gta", 2, 1), item("operator", "", "bonded"), ...many("operator", "Chess", 2, 2), ...many("shadow", "Cats", 2, 0)]);
     expect(b.topics).toEqual(["GTA"]);
     expect(b.operator).toMatchObject({ finished: 3, bonded: 2 });
     expect(b.machine).toMatchObject({ finished: 2, bonded: 1 });
     // The rest is shown on its own and never in the comparison.
-    expect(b.operatorOutside).toMatchObject({ finished: 4, bonded: 4 });
+    expect(b.operatorOutside).toMatchObject({ finished: 3, bonded: 3 });
     expect(b.machineOutside).toMatchObject({ finished: 2, bonded: 0 });
   });
 
   it("an already-bonded coin is left out of both sides by the one rule", () => {
-    const lists = new Map<string, Set<string>>();
-    const items = [item("operator", "GTA", "already-bonded"), item("shadow", "GTA", "already-bonded"), item("operator", "GTA", "bonded"), item("shadow", "GTA", "not-bonded")];
-    for (const i of items) lists.set("gta", (lists.get("gta") ?? new Set()).add(i.ca));
-    const b = buildScoreboard(items, lists);
+    const b = build([item("operator", "GTA", "already-bonded"), item("shadow", "GTA", "already-bonded"), item("operator", "GTA", "bonded"), item("shadow", "GTA", "not-bonded")]);
     expect(b.operator).toMatchObject({ finished: 1, alreadyBonded: 1, rate: 1 });
     expect(b.machine).toMatchObject({ finished: 1, alreadyBonded: 1, rate: 0 });
   });
@@ -116,6 +112,26 @@ describe("the Scoreboard from the database", () => {
     expect(s.machine).toMatchObject({ finished: 1, bonded: 0, rate: 0 });
     expect(s.operatorOutside.finished + s.operatorOutside.pending).toBe(0); // the 9 day old Pick is outside the window altogether
     expect(s.verdict.kind).toBe("not-enough");
+  });
+
+  it("counts an Operator Pick of a coin in no brief list, matches the topic by cleaned text and case, skips a withdrawn Pick, and is read only", () => {
+    const store = Datastore.open(":memory:");
+    const req = store.requestResearch("GTA", { now: new Date(NOW.getTime() - 3 * DAY) });
+    store.saveResearchBrief(req.id, brief([CA(2)]), new Date(NOW.getTime() - 3 * DAY), [{ snapshot: snap(CA(2)), reason: "r", topic: "GTA", playbookVersion: null }]);
+    const stray = store.recordPick({ snapshot: snap(CA(5)), reason: "stray", topic: "  gta " }, { now: new Date(NOW.getTime() - DAY) }); // in no brief's list
+    const withdrawn = store.recordPick({ snapshot: snap(CA(6)), reason: "typo", topic: "GTA" }, { now: new Date(NOW.getTime() - DAY) });
+    store.withdrawPick(withdrawn.id, new Date(NOW.getTime() - DAY + 60_000));
+    store.recordPick({ snapshot: snap(CA(7)), reason: "other word", topic: "GTA 6" }, { now: new Date(NOW.getTime() - DAY) });
+    finish(store, stray.id, "bonded");
+    finish(store, withdrawn.id, "bonded");
+    finish(store, store.listShadowPicks()[0]!.id, "not-bonded");
+    const db = (store as unknown as { db: import("node:sqlite").DatabaseSync }).db;
+    const before = (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+    const s = store.scoreboard(NOW);
+    expect((db.prepare("SELECT total_changes() AS n").get() as { n: number }).n).toBe(before);
+    expect(s.operator).toMatchObject({ finished: 1, bonded: 1 });
+    expect(s.machine).toMatchObject({ finished: 1, bonded: 0 });
+    expect(s.operatorOutside.finished + s.operatorOutside.pending).toBe(1); // "GTA 6" only
   });
 
   it("with no Picks at all the Scoreboard is empty and not enough", () => {

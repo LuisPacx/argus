@@ -18,6 +18,7 @@ onBeforeUnmount(() => clearInterval(timer));
   <section class="surface grid min-w-0 gap-3" data-test="scoreboard">
     <h3 class="section-title" data-test="scoreboard-title">{{ view.title }}</h3>
     <p class="muted min-w-0 break-words text-xs" data-test="scoreboard-window">{{ view.window }} {{ view.rule }}</p>
+    <p class="muted min-w-0 break-words text-xs" data-test="scoreboard-counted">{{ view.counted }}</p>
     <div class="grid min-w-0 gap-3 sm:grid-cols-2">
       <div v-for="s in view.compared" :key="s.label" class="grid min-w-0 gap-0.5" :data-test="`scoreboard-side-${s.label.toLowerCase()}`">
         <p class="text-xs font-semibold">{{ s.label }}</p>

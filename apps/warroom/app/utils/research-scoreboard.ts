@@ -6,6 +6,7 @@ import { clampText } from "./meta.ts";
 /** Mirror of core's `SCOREBOARD_MIN_PICKS`, only for the empty state before the first answer; the real number always comes in the payload. */
 const FALLBACK_MIN_PICKS = 20;
 const TOPIC_CLAMP = 60;
+const COUNTED = "Counted: every Operator Pick on those topics (withdrawn ones left out), against the machine's picks from the brief lists.";
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 interface StatsPayload {
@@ -41,6 +42,8 @@ export interface ScoreboardView {
   title: string;
   window: string;
   rule: string;
+  /** The one line saying what is counted. */
+  counted: string;
   compared: ScoreSideView[];
   topics: string;
   outside: ScoreSideView[];
@@ -77,8 +80,9 @@ export function scoreboardView(p: ScoreboardPayload | null | undefined): Scorebo
     window: `Bonded within 24 hours of the Pick, last ${days} days.`,
     rule: `No verdict is drawn until each side has ${min} finished Picks.`,
     compared: [sideView("Operator", p?.operator), sideView("Machine", p?.machine)],
-    topics: topics.length > 0 ? `Topics compared (both sides picked, Operator coins from a brief's list): ${topics.join(", ")}` : "No topic has Picks from both sides yet.",
-    outside: [sideView("Operator, not compared", p?.operatorOutside), sideView("Machine, topics the Operator did not pick on", p?.machineOutside)],
+    counted: COUNTED,
+    topics: topics.length > 0 ? `Topics compared (both sides picked): ${topics.join(", ")}` : "No topic has Picks from both sides yet.",
+    outside: [sideView("Operator, no topic or a topic the machine did not pick on", p?.operatorOutside), sideView("Machine, topics the Operator did not pick on", p?.machineOutside)],
     verdict: decided && p ? { text: p.verdict.text, kind, decided: true } : { text: `Not enough Picks yet: a verdict needs ${min} finished Picks on each side.`, kind: "not-enough", decided: false },
   };
 }

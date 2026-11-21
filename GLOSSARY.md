@@ -153,7 +153,7 @@ The stored result of one Operator-triggered research run on a topic: the story, 
 The coin or coins the researcher agent chooses from a brief's coin list, made without seeing the Operator's Picks, timestamped when made. Only made on Operator-triggered research. It is tracked like a Pick and never acted on.
 
 **Scoreboard**:
-The comparison of the Operator's and the machine's bonded-within-24h rate over a window (7 days), with the number of Picks on each side. No verdict is drawn while either side has fewer than 20 Picks.
+The comparison of the Operator's and the machine's bonded-within-24h rate over a window (7 days), with the number of Picks on each side. It counts every non-withdrawn Operator Pick on a topic both sides picked on, listed by the researcher or not, against the machine's picks from the brief lists. No verdict is drawn while either side has fewer than 20 Picks.
 
 **Organic migration**:
 A token's bonding curve completing and moving to a swap pool, where the buying looks like many independent buyers and not bots or insiders controlling the supply. It is the Study's success label. A migration that fails the bot filter is a bot-driven migration, kept as its own group.

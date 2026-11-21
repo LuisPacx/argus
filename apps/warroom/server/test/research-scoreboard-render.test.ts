@@ -36,7 +36,12 @@ const kindOf = (html: string) => /data-kind="([^"]+)"/.exec(html)?.[1];
 describe("the Scoreboard", () => {
   it("shows each side's rate with its n, the topics compared, the rows left out, the window and the 20 Pick rule, and the verdict at 20 each", async () => {
     const html = await draw(board());
-    for (const text of ["Scoreboard: Operator against machine", "Bonded within 24 hours of the Pick, last 7 days.", `No verdict is drawn until each side has ${SCOREBOARD_MIN_PICKS} finished Picks.`, "25%", "n=20 (5 bonded)", "40%", "n=20 (8 bonded)", "Topics compared", "GTA, Chess", "Operator, not compared: 33%, n=3 (1 bonded)", "2 not finished yet", "The machine is ahead: 40% against 25%."]) expect(html, text).toContain(text);
+    for (const text of ["Scoreboard: Operator against machine", "Bonded within 24 hours of the Pick, last 7 days.", `No verdict is drawn until each side has ${SCOREBOARD_MIN_PICKS} finished Picks.`, "25%", "n=20 (5 bonded)", "40%", "n=20 (8 bonded)", "Topics compared", "GTA, Chess", "Operator, no topic or a topic the machine did not pick on: 33%, n=3 (1 bonded)", "2 not finished yet", "The machine is ahead: 40% against 25%."]) expect(html, text).toContain(text);
+    // One line says what is counted; the old "outside the brief lists" row and wording are gone.
+    expect(html).toContain("Counted: every Operator Pick on those topics (withdrawn ones left out), against the machine&#39;s picks from the brief lists.");
+    expect(html.match(/data-test="scoreboard-counted"/g)).toHaveLength(1);
+    expect(html).not.toContain("Operator, not compared");
+    expect(html).not.toContain("from a brief&#39;s list");
     expect(kindOf(html)).toBe("machine");
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
