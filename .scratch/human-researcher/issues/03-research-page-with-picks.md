@@ -5,14 +5,15 @@
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The page `/research` exists and is linked from the War Room navigation; pasting two valid CAs records two Picks with their snapshots (tested with a fake DexScreener).
-- [ ] A malformed CA, an unknown CA, a CA with no pair and a DexScreener failure each give a plain message on that line and record nothing for it (tests); a failure does not lose the other lines.
-- [ ] The same CA picked twice inside 24 hours is refused the second time with the reason; after 24 hours it is a new Pick (tested).
-- [ ] Reason and topic are cut to a length limit, flattened and rendered as escaped text; a hostile reason with markup or a forged boundary line stays one escaped line (render test).
-- [ ] The Pick time is the moment of recording, stored, and never changed afterwards (test that an update is refused).
-- [ ] Render check with `pnpm page:check /research` at 1240 and 390 px; keyboard: focus the form, submit with Enter.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] The page `/research` exists and is linked from the War Room navigation; pasting two valid CAs records two Picks with their snapshots (tested with a fake DexScreener).
+- [x] A malformed CA, an unknown CA, a CA with no pair and a DexScreener failure each give a plain message on that line and record nothing for it (tests); a failure does not lose the other lines.
+- [x] The same CA picked twice inside 24 hours is refused the second time with the reason; after 24 hours it is a new Pick (tested).
+- [x] Reason and topic are cut to a length limit, flattened and rendered as escaped text; a hostile reason with markup or a forged boundary line stays one escaped line (render test).
+- [x] The Pick time is the moment of recording, stored, and never changed afterwards (test that an update is refused).
+- [x] Render check with `pnpm page:check /research` at 1240 and 390 px; keyboard: focus the form, submit with Enter.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-20 cos: merged 6e1b655 + c715f4c (bonded rule follow-up after review FIX). Reviewer SHIP; verifier PASS 222 files / 3519 tests stamped 6562e40f88; page:check exit 0 at 1240/390 with Enter.
