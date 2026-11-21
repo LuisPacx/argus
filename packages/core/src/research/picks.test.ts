@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
 import { DexScreenerClient, type DexPair } from "../sources/dexscreener.ts";
-import { cleanReason, cleanTopic, PICK_MAX_CAS, PICK_REASON_MAX_CHARS, PICK_TOPIC_MAX_CHARS, recordPicks, splitCas, type PickLookup } from "./picks.ts";
+import { BONDED_MIN_LIQUIDITY_USD, cleanReason, cleanTopic, PICK_MAX_CAS, PICK_REASON_MAX_CHARS, PICK_TOPIC_MAX_CHARS, recordPicks, splitCas, type PickLookup } from "./picks.ts";
 
 const T0 = new Date("2026-11-20T12:00:00.000Z");
 const hoursAfter = (h: number) => new Date(T0.getTime() + h * 3_600_000);
 const CA_A = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-const CA_B = "So11111111111111111111111111111111111111112";
+const CA_B = `${"1".repeat(36)}pump`;
 
 const pair = (ca: string, over: Partial<DexPair> = {}): DexPair => ({
   chainId: "solana",
@@ -45,8 +45,8 @@ describe("recordPicks", () => {
     expect(r.lines.map((l) => l.ok)).toEqual([true, true]);
     const picks = store.listPicks();
     expect(picks).toHaveLength(2);
-    expect(picks[1]).toMatchObject({ ca: CA_A, name: "Iguana Scooter", symbol: "IGUA", marketCapUsd: 64_000, liquidityUsd: 21_000, ageMinutes: 90, bonded: false, reason: "the iguana is funny", topic: "GTA", createdAt: T0.toISOString() });
-    expect(picks[0]).toMatchObject({ ca: CA_B, name: "Bonded Coin", marketCapUsd: 900_000, ageMinutes: 3 * 1_440, bonded: true });
+    expect(picks[1]).toMatchObject({ ca: CA_A, name: "Iguana Scooter", symbol: "IGUA", marketCapUsd: 64_000, liquidityUsd: 21_000, ageMinutes: 90, bondedAtPick: false, bondedBasis: "", venue: "pumpfun", source: "operator", reason: "the iguana is funny", topic: "GTA", createdAt: T0.toISOString() });
+    expect(picks[0]).toMatchObject({ ca: CA_B, name: "Bonded Coin", marketCapUsd: 900_000, ageMinutes: 3 * 1_440, bondedAtPick: true, bondedBasis: "dexscreener", venue: "pumpswap" });
   });
 
   it("a malformed address, an unknown one, one with no price and a DexScreener failure each give a message, and the others still record", async () => {
@@ -111,13 +111,61 @@ describe("recordPicks", () => {
   });
 });
 
+describe("bonded at pick", () => {
+  const PUMP = `${"2".repeat(36)}pump`;
+  const bondedOf = async (ca: string, pairs: DexPair[], store = open()) => {
+    await recordPicks(store, fakeDex({ [ca]: pairs }), { text: ca }, { now: () => T0 });
+    return store.listPicks()[0]!;
+  };
+
+  it("a launchpad mint with a deep pool on a graduation venue is bonded, and the venue is stored", async () => {
+    const p = await bondedOf(PUMP, [pair(PUMP, { dexId: "pumpswap", liquidityUsd: 40_000 })]);
+    expect(p).toMatchObject({ bondedAtPick: true, bondedBasis: "dexscreener", venue: "pumpswap" });
+    for (const dexId of ["raydium", "meteora"]) expect((await bondedOf(PUMP, [pair(PUMP, { dexId, liquidityUsd: BONDED_MIN_LIQUIDITY_USD })])).bondedAtPick, dexId).toBe(true);
+  });
+
+  it("false positives: a coin that never launched there, a tiny pool, another venue, and the curve itself are not bonded", async () => {
+    // never on the launchpad (address has no pump suffix), however deep its pool
+    expect((await bondedOf(CA_A, [pair(CA_A, { dexId: "raydium", liquidityUsd: 900_000 })])).bondedAtPick).toBe(false);
+    // a tiny pool anyone can open for a mint still on the curve
+    expect((await bondedOf(PUMP, [pair(PUMP, { dexId: "raydium", liquidityUsd: BONDED_MIN_LIQUIDITY_USD - 1 }), pair(PUMP, { dexId: "pumpfun", liquidityUsd: 30_000 })])).bondedAtPick).toBe(false);
+    // a venue that is not a graduation venue
+    expect((await bondedOf(PUMP, [pair(PUMP, { dexId: "orca", liquidityUsd: 50_000 })])).bondedAtPick).toBe(false);
+    // still on the curve
+    const onCurve = await bondedOf(PUMP, [pair(PUMP, { dexId: "pumpfun", liquidityUsd: 30_000 })]);
+    expect(onCurve).toMatchObject({ bondedAtPick: false, bondedBasis: "", venue: "pumpfun" });
+    // no exchange id at all
+    expect((await bondedOf(PUMP, [{ ...pair(PUMP), dexId: undefined } as unknown as DexPair])).bondedAtPick).toBe(false);
+  });
+
+  it("Argus's own migration record wins, even for a thin or missing graduation pool", async () => {
+    const store = open();
+    store.study.recordTokenEvent({ kind: "migrate", mint: PUMP, receivedAt: "2026-11-20T11:00:00.000Z", signature: "s", name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
+    const p = await bondedOf(PUMP, [pair(PUMP, { dexId: "pumpfun" })], store);
+    expect(p).toMatchObject({ bondedAtPick: true, bondedBasis: "argus-migration" });
+    expect(store.migrationOf(CA_A)).toBeNull();
+  });
+});
+
+describe("Pick source", () => {
+  it("defaults to the operator; the 24 h rule and the list are per source", async () => {
+    const store = open();
+    const snap = { ca: CA_A, name: "n", symbol: "s", marketCapUsd: 1, liquidityUsd: 1, pairCreatedAt: null, ageMinutes: null, bondedAtPick: false, bondedBasis: "" as const, venue: "" };
+    store.recordPick({ snapshot: snap, reason: "", topic: "" }, { now: T0 });
+    store.recordPick({ snapshot: snap, reason: "", topic: "", source: "shadow" }, { now: hoursAfter(1) });
+    expect(() => store.recordPick({ snapshot: snap, reason: "", topic: "", source: "shadow" }, { now: hoursAfter(2) })).toThrow(/Already picked/);
+    expect(store.listPicks().map((p) => p.source)).toEqual(["operator"]);
+    expect(store.listPicks("shadow").map((p) => p.source)).toEqual(["shadow"]);
+  });
+});
+
 describe("a Pick is never changed", () => {
   it("stores the moment of recording and refuses every update", async () => {
     const store = open();
     await recordPicks(store, fakeDex({ [CA_A]: [pair(CA_A)] }), { text: CA_A, reason: "r" }, { now: () => T0 });
     const db = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown } } }).db;
     expect(() => db.prepare("UPDATE picks SET created_at = ? WHERE id = 1").run(hoursAfter(1).toISOString())).toThrow(/never changed/);
-    expect(() => db.prepare("UPDATE picks SET bonded = 1, reason = 'x'").run()).toThrow(/never changed/);
+    expect(() => db.prepare("UPDATE picks SET bonded_at_pick = 1, reason = 'x'").run()).toThrow(/never changed/);
     expect(store.listPicks()[0]!.createdAt).toBe(T0.toISOString());
   });
 });

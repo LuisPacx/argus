@@ -22,7 +22,8 @@ export interface PickPayload {
   liquidityUsd: number;
   pairCreatedAt: string | null;
   ageMinutes: number | null;
-  bonded: boolean;
+  bondedAtPick: boolean;
+  venue?: string;
   reason: string;
   topic: string;
   createdAt: string;
@@ -71,6 +72,7 @@ export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs
         finite(r.marketCapUsd) ? `market cap ${fmtUsd(r.marketCapUsd)}` : "market cap unknown",
         finite(r.liquidityUsd) ? `liquidity ${fmtUsd(r.liquidityUsd)}` : "liquidity unknown",
         finite(r.ageMinutes) ? `age ${ageSpan(r.ageMinutes)} at the Pick` : "age unknown",
+        ...(clampText(r.venue, 32) ? [`on ${clampText(r.venue, 32)}`] : []),
       ];
       return {
         id: r.id,
@@ -80,8 +82,8 @@ export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs
         topic: clampText(r.topic, TOPIC_MAX_CHARS),
         reason: clampText(r.reason, LINE_CLAMP),
         facts,
-        bonded: r.bonded === true,
-        bondedLabel: r.bonded === true ? "Bonded" : "Not bonded",
+        bonded: r.bondedAtPick === true,
+        bondedLabel: r.bondedAtPick === true ? "Bonded at pick" : "Not bonded at pick",
         picked: `picked ${(typeof r.createdAt === "string" ? ageText(r.createdAt, nowMs) : null) ?? "at an unknown time"}`,
       };
     }),

@@ -49,11 +49,42 @@ export interface PickSnapshot {
   pairCreatedAt: string | null;
   /** The coin's age in minutes at the Pick, or null when the pair's age is unknown. */
   ageMinutes: number | null;
-  /** True when the coin has left its launchpad curve for an exchange pool. */
-  bonded: boolean;
+  /**
+   * True when the coin had already bonded at the moment of the Pick (see `decideBonded`). Ticket 04's "bonded within 24 hours" must
+   * exclude or separate such Picks: a coin that was bonded at the Pick did not bond because of it.
+   */
+  bondedAtPick: boolean;
+  /** Where `bondedAtPick` came from: Argus's own migration record, a graduation pool DexScreener showed, or "" when not bonded. */
+  bondedBasis: "argus-migration" | "dexscreener" | "";
+  /** The exchange id of the pair the snapshot was read from (or of the graduation pool that made it bonded), "" when DexScreener gave none. */
+  venue: string;
 }
 
+/** Venues a launchpad coin graduates to (the DexScreener `dexId` strings; pumpswap and raydium are in the recorded fixtures). Any other venue never makes a coin bonded. */
+export const GRADUATION_VENUES: readonly string[] = ["pumpswap", "raydium", "meteora"];
+/** A graduation pool shallower than this (USD) is not proof of bonding: anyone can open a tiny pool for a mint that is still on the curve. */
+export const BONDED_MIN_LIQUIDITY_USD = 5_000;
+/** A launchpad mint ends in this (the vanity suffix of its address). Coins that never launched there cannot be "bonded". */
+export const LAUNCHPAD_MINT_SUFFIX = "pump";
+
+/**
+ * Whether a coin had bonded at the Pick. Argus's own migration record for the mint (the PumpPortal migrate event the Study keeps) wins. Without one,
+ * the coin counts as bonded only when its address is a launchpad mint AND DexScreener shows a pair on a graduation venue with at least
+ * `BONDED_MIN_LIQUIDITY_USD`. A non-launchpad coin, a pool on another venue and a tiny pool are all "not bonded".
+ */
+export function decideBonded(ca: string, pairs: readonly DexPair[], migratedAt: string | null): { bonded: boolean; basis: PickSnapshot["bondedBasis"]; venue: string } {
+  const graduation = pairs.filter((p) => p.dexId !== undefined && GRADUATION_VENUES.includes(p.dexId) && p.liquidityUsd >= BONDED_MIN_LIQUIDITY_USD);
+  const deepestGraduation = graduation.reduce<DexPair | undefined>((a, b) => (a === undefined || b.liquidityUsd > a.liquidityUsd ? b : a), undefined);
+  if (migratedAt !== null) return { bonded: true, basis: "argus-migration", venue: deepestGraduation?.dexId ?? "" };
+  if (ca.endsWith(LAUNCHPAD_MINT_SUFFIX) && deepestGraduation !== undefined) return { bonded: true, basis: "dexscreener", venue: deepestGraduation.dexId ?? "" };
+  return { bonded: false, basis: "", venue: "" };
+}
+
+/** Who made the Pick. `operator` is the Operator's (this ticket); `shadow` is the researcher agent's (ticket 08), tracked like a Pick and never acted on. */
+export type PickSource = "operator" | "shadow";
+
 export interface ResearchPick extends PickSnapshot {
+  source: PickSource;
   id: number;
   reason: string;
   topic: string;
@@ -64,13 +95,14 @@ export interface ResearchPick extends PickSnapshot {
 export type SnapshotResult = { ok: true; snapshot: PickSnapshot } | { ok: false; message: string };
 
 /** The snapshot of one coin from the pairs DexScreener gave for its address; a plain message when there is no usable pair. */
-export function snapshotFromPairs(ca: string, pairs: readonly DexPair[], now: Date): SnapshotResult {
+export function snapshotFromPairs(ca: string, pairs: readonly DexPair[], now: Date, migratedAt: string | null = null): SnapshotResult {
   const mine = pairs.filter((p) => p.tokenAddress === ca);
   if (mine.length === 0) return { ok: false, message: "DexScreener does not know this address" };
   const usable = mine.filter((p) => p.unpriced !== true);
   if (usable.length === 0) return { ok: false, message: "DexScreener has a pair for this address but no price or liquidity yet" };
   const deepest = usable.reduce((a, b) => (b.liquidityUsd > a.liquidityUsd ? b : a));
   const created = deepest.pairCreatedAt !== undefined && Number.isFinite(deepest.pairCreatedAt) ? deepest.pairCreatedAt : undefined;
+  const bonded = decideBonded(ca, usable, migratedAt);
   return {
     ok: true,
     snapshot: {
@@ -81,8 +113,9 @@ export function snapshotFromPairs(ca: string, pairs: readonly DexPair[], now: Da
       liquidityUsd: deepest.liquidityUsd,
       pairCreatedAt: created !== undefined ? new Date(created).toISOString() : null,
       ageMinutes: created !== undefined ? Math.max(0, Math.floor((now.getTime() - created) / 60_000)) : null,
-      // On the launchpad curve the pair's exchange is `pumpfun`; any other pool (pumpswap, raydium, ...) means the coin bonded.
-      bonded: usable.some((p) => p.dexId !== undefined && p.dexId !== "pumpfun"),
+      bondedAtPick: bonded.bonded,
+      bondedBasis: bonded.basis,
+      venue: bonded.venue || deepest.dexId || "",
     },
   };
 }
@@ -94,7 +127,9 @@ export interface PickLookup {
 
 /** What the store must offer: the one write (`recordPick`, which refuses a repeat). */
 export interface PickWriter {
-  recordPick(input: { snapshot: PickSnapshot; reason: string; topic: string }, opts?: { now?: Date }): ResearchPick;
+  recordPick(input: { snapshot: PickSnapshot; reason: string; topic: string; source?: PickSource }, opts?: { now?: Date }): ResearchPick;
+  /** When Argus's own Study saw this mint migrate (ISO), or null. */
+  migrationOf(mint: string): string | null;
 }
 
 /** The outcome for one pasted line. `text` is what the Operator pasted, cleaned and cut, for display only. */
@@ -132,7 +167,7 @@ export async function recordPicks(store: PickWriter, dex: PickLookup, input: { t
       continue;
     }
     const now = clock();
-    const snap = snapshotFromPairs(ca, pairs, now);
+    const snap = snapshotFromPairs(ca, pairs, now, store.migrationOf(ca));
     if (!snap.ok) {
       lines.push({ text, ok: false, message: snap.message });
       continue;
@@ -158,7 +193,10 @@ export function migratePicks(db: DatabaseSync): void {
     liquidity_usd REAL NOT NULL,
     pair_created_at TEXT,
     age_minutes INTEGER,
-    bonded INTEGER NOT NULL,
+    bonded_at_pick INTEGER NOT NULL,
+    bonded_basis TEXT NOT NULL DEFAULT '',
+    venue TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'operator',
     reason TEXT NOT NULL DEFAULT '',
     topic TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
@@ -181,7 +219,10 @@ export function toPick(r: Row): ResearchPick {
     liquidityUsd: r.liquidity_usd as number,
     pairCreatedAt: (r.pair_created_at as string | null) ?? null,
     ageMinutes: (r.age_minutes as number | null) ?? null,
-    bonded: r.bonded === 1,
+    bondedAtPick: r.bonded_at_pick === 1,
+    bondedBasis: r.bonded_basis as ResearchPick["bondedBasis"],
+    venue: r.venue as string,
+    source: r.source as PickSource,
     reason: r.reason as string,
     topic: r.topic as string,
     createdAt: r.created_at as string,

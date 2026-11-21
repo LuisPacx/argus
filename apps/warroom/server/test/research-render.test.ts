@@ -8,7 +8,7 @@ import { picksView, resultLines, type PickPayload } from "../../app/utils/resear
 /** The Picks list: the real PickList.vue template, server-rendered over rows typed as the API's own response. */
 const NOW = Date.parse("2026-11-20T16:00:00.000Z");
 const CA = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-const pick = (over: Partial<PickPayload> = {}): PickPayload => ({ id: 3, ca: CA, name: "Iguana Scooter", symbol: "IGUA", marketCapUsd: 64_000, liquidityUsd: 21_000, pairCreatedAt: "2026-11-20T14:30:00.000Z", ageMinutes: 90, bonded: false, reason: "funny", topic: "GTA", createdAt: "2026-11-20T15:00:00.000Z", ...over });
+const pick = (over: Partial<PickPayload> = {}): PickPayload => ({ id: 3, ca: CA, name: "Iguana Scooter", symbol: "IGUA", marketCapUsd: 64_000, liquidityUsd: 21_000, pairCreatedAt: "2026-11-20T14:30:00.000Z", ageMinutes: 90, bondedAtPick: false, venue: "pumpfun", reason: "funny", topic: "GTA", createdAt: "2026-11-20T15:00:00.000Z", ...over });
 
 type Render = (ctx: unknown, cache: unknown[]) => unknown;
 async function load(file: string): Promise<Render> {
@@ -22,7 +22,7 @@ const draw = (rows: PickPayload[] | null, nowMs = NOW) => renderToString(createS
 describe("the Picks list", () => {
   it("shows a Pick with its snapshot, topic, reason, bonded state and age, and links the coin's DexScreener page", async () => {
     const html = await draw([pick()]);
-    for (const text of ["Iguana Scooter ($IGUA)", "Not bonded", "GTA", "funny", "market cap $64K", "liquidity $21K", "age 1 hour at the Pick", "picked 1 hour ago", CA]) expect(html, text).toContain(text);
+    for (const text of ["Iguana Scooter ($IGUA)", "Not bonded at pick", "on pumpfun", "GTA", "funny", "market cap $64K", "liquidity $21K", "age 1 hour at the Pick", "picked 1 hour ago", CA]) expect(html, text).toContain(text);
     expect([...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual([`https://dexscreener.com/solana/${CA}`]);
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
@@ -45,10 +45,10 @@ describe("the Picks list", () => {
   });
 
   it("shows unknown values as words, never as null or NaN", async () => {
-    const html = await draw([pick({ marketCapUsd: null, ageMinutes: null, bonded: true })]);
+    const html = await draw([pick({ marketCapUsd: null, ageMinutes: null, bondedAtPick: true })]);
     expect(html).toContain("market cap unknown");
     expect(html).toContain("age unknown");
-    expect(html).toContain("Bonded");
+    expect(html).toContain("Bonded at pick");
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
 });

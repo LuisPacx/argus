@@ -25,7 +25,7 @@ const post = (await import("../api/picks.post.ts")).default as unknown as (e: Ev
 const list = (await import("../api/picks.get.ts")).default as unknown as () => Array<Record<string, unknown>>;
 
 const CA_A = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-const CA_B = "So11111111111111111111111111111111111111112";
+const CA_B = `${"1".repeat(36)}pump`;
 const CA_C = "4".repeat(40);
 const pair = (ca: string, over: Partial<DexPair> = {}): DexPair => ({ chainId: "solana", tokenAddress: ca, name: `Coin ${ca.slice(0, 4)}`, symbol: "CN", url: "", dexId: "pumpfun", liquidityUsd: 12_000, volume24hUsd: 1, priceChange24hPct: 0, marketCapUsd: 50_000, pairCreatedAt: Date.now() - 600_000, ...over });
 const status = async (p: Promise<unknown>) => ((await p.then(() => ({ statusCode: 200 }), (e: { statusCode: number }) => e)) as { statusCode: number }).statusCode;
@@ -42,7 +42,7 @@ describe("POST /api/picks", () => {
       { text: CA_A, ok: true, pickId: 1 },
       { text: CA_B, ok: true, pickId: 2 },
     ]);
-    expect(list().map((p) => [p.id, p.bonded, p.topic])).toEqual([[2, true, "GTA"], [1, false, "GTA"]]);
+    expect(list().map((p) => [p.id, p.bondedAtPick, p.topic])).toEqual([[2, true, "GTA"], [1, false, "GTA"]]);
   });
 
   it("a failing line does not lose the others, and a repeat is refused with the reason", async () => {
