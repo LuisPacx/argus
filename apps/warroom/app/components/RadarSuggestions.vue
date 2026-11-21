@@ -14,7 +14,7 @@ defineEmits<{ pick: [topic: string] }>();
     <p v-if="view.empty" class="muted min-w-0 break-words text-sm" data-test="suggestions-empty">{{ view.empty }}</p>
     <ul v-else class="flex min-w-0 flex-wrap gap-2">
       <li v-for="s in view.rows" :key="s.key" class="min-w-0 max-w-full">
-        <button type="button" class="btn block min-w-0 max-w-full whitespace-normal break-all text-left" :data-test="`suggestion-${s.key}`" @click="$emit('pick', s.topic)">
+        <button type="button" class="btn block min-w-0 max-w-full whitespace-normal break-all text-left" :data-test="`suggestion-${s.key}`" @click="$emit('pick', s.pick)">
           <span class="break-words font-medium" data-test="suggestion-topic">{{ s.topic }}</span>
           <span class="faint ml-2 text-xs" data-test="suggestion-score">Score {{ s.score }}</span>
           <span v-if="s.sources" class="faint ml-2 break-words text-xs" data-test="suggestion-sources">{{ s.sources }}</span>

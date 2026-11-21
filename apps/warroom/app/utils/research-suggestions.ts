@@ -9,8 +9,10 @@ const SOURCES_CLAMP = 80;
 
 export interface SuggestionView {
   key: string;
-  /** What the topic box is set to: the Trend's plain subject, one line, at most the topic box's length. */
+  /** What the button shows: the subject on one line, cut with "…" when long. */
   topic: string;
+  /** What the topic box is set to: the plain subject on one line, cut to the box's length, no "…". */
+  pick: string;
   score: number;
   /** "Google Trends (US, GB) and 3 news feeds", or "". */
   sources: string;
@@ -22,7 +24,14 @@ export interface SuggestionsView {
   empty: string | null;
 }
 
-const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+/** One line, control characters and runs of space flattened, cut to the topic box's length with no ellipsis. */
+function plainSubject(term: unknown): string {
+  if (typeof term !== "string") return "";
+  const flat = term.slice(0, RESEARCH_TOPIC_MAX_CHARS * 4).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ").trim();
+  return [...flat].slice(0, RESEARCH_TOPIC_MAX_CHARS).join("").trimEnd();
+}
+
+const plural =(n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 
 /** The live named Trends, newest first (first seen), with their score and sources. */
 export function suggestionsView(payload: Pick<RadarPayload, "trends"> | null | undefined): SuggestionsView {
@@ -40,6 +49,7 @@ export function suggestionsView(payload: Pick<RadarPayload, "trends"> | null | u
       return {
         key: String(Math.trunc(Number(t.id))),
         topic: clampText(t.term, RESEARCH_TOPIC_MAX_CHARS),
+        pick: plainSubject(t.term),
         score: Number.isFinite(t.score) ? Math.trunc(t.score) : 0,
         sources: clampText(bits.join(" and "), SOURCES_CLAMP),
       };

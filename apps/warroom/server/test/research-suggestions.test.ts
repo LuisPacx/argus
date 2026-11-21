@@ -92,6 +92,19 @@ describe("radar suggestions", () => {
     expect(dump()).toBe(before);
   });
 
+  it("a 100-character subject is shown cut with an ellipsis, but the emitted value is the plain subject, at most 80 characters, no ellipsis", () => {
+    const long = "a".repeat(50) + " " + "b".repeat(49);
+    addTrend(long, "long", 5);
+    const v = view();
+    expect(v.rows[0]!.topic).toContain("…");
+    const emitted: unknown[][] = [];
+    clickHandlers(render({ view: v, $emit: (...a: unknown[]) => emitted.push(a) }, []))[0]!();
+    const value = emitted[0]![1] as string;
+    expect(value.length).toBeLessThanOrEqual(RESEARCH_TOPIC_MAX_CHARS);
+    expect(value).not.toContain("…");
+    expect(long.startsWith(value)).toBe(true);
+  });
+
   it("a hostile subject is one escaped line, cut to the topic box length", async () => {
     const hostile = `<img src=x onerror=alert(1)>\n"><script>alert(2)</script>${"x".repeat(300)}`;
     addTrend(hostile, "hostile", 5);
