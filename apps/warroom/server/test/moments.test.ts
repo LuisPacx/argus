@@ -22,7 +22,8 @@ type Payload = {
 };
 const get = (await import("../api/moments.get.ts")).default as unknown as () => Payload;
 
-const NOW = Date.now();
+// Pinned mid-day UTC: the X session's probeDue turns true once the clock passes the next 00:00 UTC after the stop, so a real clock within 9 minutes after midnight flipped it.
+const NOW = Date.parse("2026-06-15T12:00:00.000Z");
 const at = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 const idAt = (minutes: number, seq: number) => ((BigInt(NOW - minutes * 60_000 - 1_288_834_974_657) << 22n) | BigInt(seq)).toString();
 const post = (seq: number, views: number | null, over: Record<string, unknown> = {}) => ({ statusId: idAt(180, seq), handle: "alice", text: `clip ${seq}`, hasVideo: true, counts: { replies: 1, reposts: 2, likes: 300, bookmarks: 4, views }, ...over });
@@ -40,12 +41,15 @@ function dump(): string {
 
 let savedEnv: string | undefined;
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   savedEnv = process.env.ARGUS_MOMENTS;
   delete process.env.ARGUS_MOMENTS;
   file = path.join(tempDir("warroom-moments-"), "argus.db");
   store = Datastore.open(file);
 });
 afterEach(() => {
+  vi.useRealTimers();
   store.close();
   if (savedEnv === undefined) delete process.env.ARGUS_MOMENTS;
   else process.env.ARGUS_MOMENTS = savedEnv;
