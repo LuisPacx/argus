@@ -4,6 +4,7 @@ import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import type { PickOutcomeView } from "@argus/core";
+import { safeHttpUrl } from "../../app/utils/safe-link.ts";
 import { picksView, resultLines, type PickPayload } from "../../app/utils/research.ts";
 
 /** The Picks list: the real PickList.vue template, server-rendered over rows typed as the API's own response. */
@@ -18,7 +19,7 @@ async function load(file: string): Promise<Render> {
   return new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} from "vue"/, (_m, names: string) => `const {${names.replaceAll(" as ", ": ")}} = Vue`).replace("export function render", "return function render")}`)(await import("vue")) as Render;
 }
 const renderList = await load("PickList.vue");
-const draw = (rows: PickPayload[] | null, nowMs = NOW, outcomes?: PickOutcomeView) => renderToString(createSSRApp({ render: () => renderList({ view: picksView(rows, nowMs, outcomes) }, []) as ReturnType<typeof h> }));
+const draw = (rows: PickPayload[] | null, nowMs = NOW, outcomes?: PickOutcomeView) => renderToString(createSSRApp({ render: () => renderList({ view: picksView(rows, nowMs, outcomes), safeHttpUrl }, []) as ReturnType<typeof h> }));
 
 describe("the Picks list", () => {
   it("shows a Pick with its snapshot, topic, reason, bonded state and age, and links the coin's DexScreener page", async () => {

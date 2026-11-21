@@ -4,6 +4,7 @@
 // and names still free. Text only: the topic, the story, the notes and the coin names are untrusted and are shown through {{ }}, cut to a line by
 // researchRequestsView. A link is a source address that passed safeHttpUrl, or a coin's DexScreener page. Template-only on purpose (for
 // server/test/research-render.test.ts, which renders it): view.
+import { safeHttpUrl } from "../utils/safe-link.ts";
 import type { ResearchRequestsView } from "../utils/research-brief.ts";
 
 // Under each brief a "Make ideas" button (human researcher ticket 06): it only emits `make` with the research request id; the page posts it. The status
@@ -31,7 +32,7 @@ const emit = defineEmits<{ make: [researchRequestId: number] }>();
             <p class="faint text-xs" data-test="brief-sources-note">Argus has not opened these pages. Read the address beside a link before you click it.</p>
             <ul v-if="r.brief.sources.length > 0" class="grid min-w-0 gap-0.5" data-test="brief-sources">
               <li v-for="(s, i) in r.brief.sources" :key="i" class="min-w-0 break-all text-xs" data-test="brief-source">
-                <a v-if="s.href" :href="s.href" class="underline" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer">{{ s.title }}</a>
+                <a v-if="safeHttpUrl(s.href)" :href="safeHttpUrl(s.href) ?? undefined" class="underline" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer">{{ s.title }}</a>
                 <template v-else>{{ s.title }}</template>
                 <span v-if="s.host" class="muted font-mono" data-test="brief-source-host"> ({{ s.host }})</span>
                 <span v-else class="faint" data-test="brief-source-no-link"> (no web link, shown as text)</span>
@@ -50,7 +51,7 @@ const emit = defineEmits<{ make: [researchRequestId: number] }>();
                 </div>
                 <p v-if="c.note" class="muted min-w-0 break-words text-xs" data-test="brief-coin-note">{{ c.note }}</p>
                 <p class="faint min-w-0 break-all text-xs" data-test="brief-coin-ca">
-                  <a v-if="c.href" :href="c.href" class="underline" target="_blank" rel="noopener noreferrer">{{ c.ca }}</a>
+                  <a v-if="safeHttpUrl(c.href)" :href="safeHttpUrl(c.href) ?? undefined" class="underline" target="_blank" rel="noopener noreferrer">{{ c.ca }}</a>
                   <template v-else>{{ c.ca }}</template>
                 </p>
               </li>

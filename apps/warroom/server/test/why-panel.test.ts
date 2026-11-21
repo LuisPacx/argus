@@ -89,7 +89,7 @@ const render = new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} 
 
 async function panel(p: ReturnType<typeof seed>): Promise<string> {
   const view = whyView(get({ params: { id: String(p.id) } }));
-  const app = createSSRApp({ render: () => render({ view }, []) as ReturnType<typeof h> });
+  const app = createSSRApp({ render: () => render({ view, safeHttpUrl }, []) as ReturnType<typeof h> });
   app.component("ScoreBars", { props: ["scores"], render() { return h("div", { "data-test": "score-bars" }, Object.keys(this.scores).join(",")); } });
   return renderToString(app);
 }

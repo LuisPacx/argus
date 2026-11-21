@@ -3,6 +3,7 @@
 // the Operator's topic and reason, and whether it had bonded. Text only: the name, address, reason and topic are untrusted and are shown through
 // {{ }}, cut to a line by picksView. The only link is the coin's DexScreener page. Template-only on purpose (for server/test/research-render.test.ts,
 // which renders it): view.
+import { safeHttpUrl } from "../utils/safe-link.ts";
 import type { PicksView } from "../utils/research.ts";
 
 defineProps<{ view: PicksView }>();
@@ -34,7 +35,7 @@ defineEmits<{ withdraw: [id: number] }>();
         <p v-if="r.outcome.marks.length > 0" class="muted min-w-0 break-words text-xs" data-test="pick-marks">{{ r.outcome.marks.join(", ") }}</p>
         <p v-if="r.reason"class="min-w-0 break-words text-sm" data-test="pick-reason">{{ r.reason }}</p>
         <p class="faint min-w-0 break-all text-xs" data-test="pick-ca">
-          <a v-if="r.href" :href="r.href" class="underline" target="_blank" rel="noopener noreferrer">{{ r.ca }}</a>
+          <a v-if="safeHttpUrl(r.href)" :href="safeHttpUrl(r.href) ?? undefined" class="underline" target="_blank" rel="noopener noreferrer">{{ r.ca }}</a>
           <template v-else>{{ r.ca }}</template>
         </p>
       </li>

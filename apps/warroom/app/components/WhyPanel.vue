@@ -2,6 +2,7 @@
 // "Why this Proposal": reason, interaction, top Signals, per-dimension scores with the judge rationale, and evidence, in one place.
 // Everything in `view` is untrusted model or source text: interpolated as text only (no raw-HTML directive), and links only where
 // `whyView` produced an http(s) href. Template-only on purpose: server/test/why-panel.test.ts renders it.
+import { safeHttpUrl } from "../utils/safe-link.ts";
 import type { WhyView } from "../utils/why.ts";
 defineProps<{ view: WhyView }>();
 </script>
@@ -25,7 +26,7 @@ defineProps<{ view: WhyView }>();
         <ul v-if="view.signals.length > 0" class="grid gap-2">
           <li v-for="(s, i) in view.signals" :key="i" class="inset flex min-w-0 items-center gap-3 px-4 py-3 text-sm">
             <span class="pill pill-outline shrink-0">{{ s.source }}</span>
-            <a v-if="s.href" class="url-link grow" :href="s.href" :title="s.href" target="_blank" rel="noopener noreferrer"><span>{{ s.title }}</span></a>
+            <a v-if="safeHttpUrl(s.href)" class="url-link grow" :href="safeHttpUrl(s.href) ?? undefined" :title="safeHttpUrl(s.href) ?? undefined" target="_blank" rel="noopener noreferrer"><span>{{ s.title }}</span></a>
             <span v-else class="min-w-0 grow truncate" :title="s.title">{{ s.title }}</span>
             <time class="faint shrink-0 text-xs" :datetime="s.whenIso" :title="s.whenIso">{{ s.when }}</time>
           </li>
@@ -45,7 +46,7 @@ defineProps<{ view: WhyView }>();
         <p class="eyebrow mb-1.5">Evidence</p>
         <ul v-if="view.evidence.length > 0" class="grid gap-2">
           <li v-for="(e, i) in view.evidence" :key="i" class="inset flex min-w-0 items-center px-4 py-3 text-sm">
-            <a v-if="e.href" class="url-link" :href="e.href" :title="e.href" target="_blank" rel="noopener noreferrer"><span>{{ e.text }}</span></a>
+            <a v-if="safeHttpUrl(e.href)" class="url-link" :href="safeHttpUrl(e.href) ?? undefined" :title="safeHttpUrl(e.href) ?? undefined" target="_blank" rel="noopener noreferrer"><span>{{ e.text }}</span></a>
             <span v-else class="min-w-0 truncate">{{ e.text }}</span>
           </li>
         </ul>

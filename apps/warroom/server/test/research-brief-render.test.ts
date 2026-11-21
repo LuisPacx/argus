@@ -4,6 +4,7 @@ import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import type { ResearchRequestView } from "@argus/core";
+import { safeHttpUrl } from "../../app/utils/safe-link.ts";
 import { canSubmitTopic, costText, researchRequestsView, submitTopic, type ResearchRequestPayload } from "../../app/utils/research-brief.ts";
 
 /** The Research briefs list: the real ResearchBriefs.vue template, server-rendered over rows typed as the API's own response (core's `ResearchRequestView`). */
@@ -42,7 +43,7 @@ async function load(file: string): Promise<Render> {
   return new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} from "vue"/, (_m, names: string) => `const {${names.replaceAll(" as ", ": ")}} = Vue`).replace("export function render", "return function render")}`)(await import("vue")) as Render;
 }
 const renderList = await load("ResearchBriefs.vue");
-const draw = (rows: Row[] | null, nowMs = NOW) => renderToString(createSSRApp({ render: () => renderList({ view: researchRequestsView(rows as ResearchRequestPayload[] | null, nowMs) }, []) as ReturnType<typeof h> }));
+const draw = (rows: Row[] | null, nowMs = NOW) => renderToString(createSSRApp({ render: () => renderList({ view: researchRequestsView(rows as ResearchRequestPayload[] | null, nowMs), safeHttpUrl }, []) as ReturnType<typeof h> }));
 const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
 
 describe("the Research briefs list", () => {
@@ -113,7 +114,8 @@ describe("the Research briefs list", () => {
     expect(text).not.toMatch(/verif|trust|checked|safe|vetted|confirmed|validated|authentic|legit|official/i);
     expect(text).toContain("Sources the researcher says it read");
     const source = readFileSync(new URL("../../app/components/ResearchBriefs.vue", import.meta.url), "utf8");
-    const template = source.slice(source.indexOf("<template>"));
+    // The helper's name (safeHttpUrl, ticket 02) is code, not wording a reader sees.
+    const template = source.slice(source.indexOf("<template>")).replaceAll("safeHttpUrl", "");
     expect(template).not.toMatch(/verif|trust|checked|safe|vetted|authentic|legit|official/i);
   });
 

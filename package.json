@@ -6,7 +6,7 @@
   "engines": { "node": ">=22.18" },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
-    "lint": "oxlint",
+    "lint": "oxlint && node scripts/lint-links.mjs",
     "test": "ARGUS_TEST_TIER=full vitest run",
     "test:fast": "ARGUS_TEST_TIER=fast vitest run",
     "check": "node scripts/check.mjs",

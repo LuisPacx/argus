@@ -4,6 +4,7 @@ import { createSSRApp, h } from "vue";
 import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { safeHttpUrl } from "../../app/utils/safe-link.ts";
 import { MAKE_IDEAS_ANGLE_TEXT as VIEW_MAKE_IDEAS_TEXT, memeRowView, memeView, type MemeProposalPayload } from "../../app/utils/meme.ts";
 import { researchRequestsView, submitTopicIdeas, topicKeyOf, type ResearchRequestPayload } from "../../app/utils/research-brief.ts";
 import type { AngleRequestPayload } from "../../app/utils/angle.ts";
@@ -95,7 +96,7 @@ async function load(file: string): Promise<Render> {
 const renderCard = await load("MemeCard.vue");
 const renderBriefs = await load("ResearchBriefs.vue");
 async function draw(render: Render, ctx: Record<string, unknown>): Promise<string> {
-  const app = createSSRApp({ render: () => render(ctx, []) as ReturnType<typeof h> });
+  const app = createSSRApp({ render: () => render({ safeHttpUrl, ...ctx }, []) as ReturnType<typeof h> });
   app.component("UrlLink", { props: ["href", "label"], render() { return h("a", { class: "url-link", href: this.href }, this.label); } });
   app.component("NuxtLink", { props: ["to"], render() { return h("a", { class: "nuxt-link", href: this.to }, this.$slots.default?.()); } });
   return renderToString(app);
