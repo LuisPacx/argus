@@ -71,3 +71,23 @@ describe("POST /api/picks", () => {
     expect(store.pendingCommands()).toEqual([]);
   });
 });
+
+/** POST /api/picks/:id/withdraw (ticket 10), the real handler; the server's own clock decides the 10 minutes. */
+vi.stubGlobal("getRouterParam", (e: { id?: string }) => e.id);
+const withdraw = (await import("../api/picks/[id]/withdraw.post.ts")).default as unknown as (e: { id: string }) => unknown;
+const snapOf = (ca: string) => ({ ca, name: "Coin", symbol: "CN", marketCapUsd: 50_000, liquidityUsd: 12_000, pairCreatedAt: null, ageMinutes: 10, bondedAtPick: false, bondedBasis: "" as const, venue: "pumpfun" });
+
+describe("POST /api/picks/:id/withdraw", () => {
+  it("withdraws a fresh Operator Pick; after 10 minutes, twice, a Shadow pick and an unknown id are refused", async () => {
+    const fresh = store.recordPick({ snapshot: snapOf(CA_A), reason: "", topic: "" });
+    const old = store.recordPick({ snapshot: snapOf(CA_B), reason: "", topic: "" }, { now: new Date(Date.now() - 11 * 60_000) });
+    const shadow = store.recordPick({ snapshot: snapOf(CA_C), reason: "", topic: "GTA", source: "shadow" });
+    expect(await withdraw({ id: String(fresh.id) })).toEqual({ pickId: fresh.id, withdrawn: true });
+    expect(await status(Promise.resolve().then(() => withdraw({ id: String(fresh.id) })))).toBe(409);
+    expect(await status(Promise.resolve().then(() => withdraw({ id: String(old.id) })))).toBe(409);
+    expect(await status(Promise.resolve().then(() => withdraw({ id: String(shadow.id) })))).toBe(409);
+    expect(await status(Promise.resolve().then(() => withdraw({ id: "999" })))).toBe(404);
+    expect(await status(Promise.resolve().then(() => withdraw({ id: "abc" })))).toBe(400);
+    expect(list().map((p) => [p.id, p.withdrawnAt === null || p.withdrawnAt === undefined ? "no" : "yes"])).toEqual([[old.id, "no"], [fresh.id, "yes"]]);
+  });
+});

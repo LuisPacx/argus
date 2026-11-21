@@ -27,9 +27,18 @@ export interface PickPayload {
   reason: string;
   topic: string;
   createdAt: string;
+  source?: string;
+  withdrawnAt?: string | null;
 }
 
+/** How long the Withdraw button stays (core's `PICK_WITHDRAW_MS`; the server is the check). */
+export const WITHDRAW_WINDOW_MS = 10 * 60_000;
+
 export interface PickRowView {
+  /** The Operator withdrew it: shown struck through. */
+  withdrawn: boolean;
+  /** The Withdraw button shows: an Operator Pick, not withdrawn, younger than 10 minutes. */
+  canWithdraw: boolean;
   id: number;
   title: string;
   ca: string;
@@ -151,7 +160,11 @@ export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs
         finite(r.ageMinutes) ? `age ${ageSpan(r.ageMinutes)} at the Pick` : "age unknown",
         ...(clampText(r.venue, 32) ? [`on ${clampText(r.venue, 32)}`] : []),
       ];
+      const withdrawn = typeof r.withdrawnAt === "string";
+      const madeMs = typeof r.createdAt === "string" ? Date.parse(r.createdAt) : Number.NaN;
       return {
+        withdrawn,
+        canWithdraw: !withdrawn && r.source !== "shadow" && Number.isFinite(madeMs) && nowMs - madeMs < WITHDRAW_WINDOW_MS,
         id: r.id,
         title: `${name || "(no name)"}${symbol ? ` ($${symbol})` : ""}`,
         ca,
@@ -166,6 +179,16 @@ export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs
       };
     }),
   };
+}
+
+/** Sends the withdrawal of one Pick (the page's `$fetch`). Never throws. */
+export async function submitWithdraw(post: () => Promise<unknown>): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await post();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: failureMessage(e) };
+  }
 }
 
 /** What came back from a good POST /api/picks. */

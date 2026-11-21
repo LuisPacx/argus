@@ -90,6 +90,8 @@ export interface ResearchPick extends PickSnapshot {
   topic: string;
   /** The moment of recording (ISO). Never changed. */
   createdAt: string;
+  /** When the Operator withdrew it (ISO), null if not; only set by the list read. */
+  withdrawnAt?: string | null;
 }
 
 export type SnapshotResult = { ok: true; snapshot: PickSnapshot } | { ok: false; message: string };
@@ -210,6 +212,41 @@ export function migratePicks(db: DatabaseSync): void {
     BEGIN SELECT RAISE(ABORT, 'a Pick is never removed'); END`);
 }
 
+/** How long after making it the Operator may withdraw his own Pick (a mistyped address). */
+export const PICK_WITHDRAW_MS = 10 * 60_000;
+
+/** The SQL that keeps a withdrawn Pick (alias `p`) out of a count, a rate, a Playbook input and the outcome job. */
+export const NOT_WITHDRAWN = "NOT EXISTS (SELECT 1 FROM pick_withdrawals w WHERE w.pick_id = p.id)";
+
+/** Why a withdrawal was refused: `unknown` is a 404, the rest a 409. */
+export class PickWithdrawRefusedError extends Error {
+  readonly code: "unknown" | "shadow" | "too-late" | "already";
+  constructor(code: "unknown" | "shadow" | "too-late" | "already", message: string) {
+    super(message);
+    this.name = "PickWithdrawRefusedError";
+    this.code = code;
+  }
+}
+
+/** Additive and idempotent. A withdrawal is its own write-once row: the Pick row is never touched, and a withdrawal cannot be changed or removed either. */
+export function migratePickWithdrawals(db: DatabaseSync): void {
+  db.exec("CREATE TABLE IF NOT EXISTS pick_withdrawals (pick_id INTEGER PRIMARY KEY REFERENCES picks(id), withdrawn_at TEXT NOT NULL)");
+  db.exec(`CREATE TRIGGER IF NOT EXISTS pick_withdrawals_immutable BEFORE UPDATE ON pick_withdrawals
+    BEGIN SELECT RAISE(ABORT, 'a withdrawal is never changed'); END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS pick_withdrawals_no_delete BEFORE DELETE ON pick_withdrawals
+    BEGIN SELECT RAISE(ABORT, 'a withdrawal is never removed'); END`);
+}
+
+/** Records the withdrawal of one Operator Pick made less than `PICK_WITHDRAW_MS` ago; refuses an unknown id, a Shadow pick, a late withdrawal and a second one. Writes only the withdrawal row. */
+export function withdrawPick(db: DatabaseSync, id: number, now: Date): void {
+  const p = db.prepare("SELECT source, created_at FROM picks WHERE id = ?").get(id) as { source: string; created_at: string } | undefined;
+  if (!p) throw new PickWithdrawRefusedError("unknown", "No such Pick");
+  if (p.source !== "operator") throw new PickWithdrawRefusedError("shadow", "Only the Operator's own Picks can be withdrawn");
+  if (db.prepare("SELECT 1 FROM pick_withdrawals WHERE pick_id = ?").get(id)) throw new PickWithdrawRefusedError("already", "This Pick is already withdrawn");
+  if (now.getTime() - Date.parse(p.created_at) >= PICK_WITHDRAW_MS) throw new PickWithdrawRefusedError("too-late", "A Pick can only be withdrawn within 10 minutes of making it");
+  db.prepare("INSERT INTO pick_withdrawals (pick_id, withdrawn_at) VALUES (?, ?)").run(id, now.toISOString());
+}
+
 type Row = Record<string, string | number | null>;
 
 export function toPick(r: Row): ResearchPick {
@@ -229,5 +266,6 @@ export function toPick(r: Row): ResearchPick {
     reason: r.reason as string,
     topic: r.topic as string,
     createdAt: r.created_at as string,
+    ...("withdrawn_at" in r ? { withdrawnAt: (r.withdrawn_at as string | null) ?? null } : {}),
   };
 }

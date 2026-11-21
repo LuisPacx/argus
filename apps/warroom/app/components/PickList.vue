@@ -6,6 +6,7 @@
 import type { PicksView } from "../utils/research.ts";
 
 defineProps<{ view: PicksView }>();
+defineEmits<{ withdraw: [id: number] }>();
 </script>
 
 <template>
@@ -19,9 +20,11 @@ defineProps<{ view: PicksView }>();
     <p v-if="view.empty" class="surface muted min-w-0 break-words text-sm" data-test="picks-empty">{{ view.empty }}</p>
     <p v-else class="faint min-w-0 break-words text-xs" data-test="picks-summary">{{ view.summary }}</p>
     <ul class="grid min-w-0 gap-3">
-      <li v-for="r in view.rows" :id="`pick-${r.id}`" :key="r.id" class="row row-static grid min-w-0 gap-1.5" :data-test="`pick-${r.id}`">
+      <li v-for="r in view.rows" :id="`pick-${r.id}`" :key="r.id" class="row row-static grid min-w-0 gap-1.5" :data-test="`pick-${r.id}`" :data-withdrawn="r.withdrawn">
         <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <span class="min-w-0 break-words font-semibold" data-test="pick-title">{{ r.title }}</span>
+          <span class="min-w-0 break-words font-semibold" :class="{ 'line-through': r.withdrawn }" data-test="pick-title">{{ r.title }}</span>
+          <span v-if="r.withdrawn" class="pill pill-outline" data-test="pick-withdrawn">Withdrawn</span>
+          <button v-if="r.canWithdraw" type="button" class="btn btn-outline" data-test="pick-withdraw" @click="$emit('withdraw', r.id)">Withdraw</button>
           <span class="pill" :class="r.bonded ? 'pill-green' : 'pill-outline'" data-test="pick-bonded">{{ r.bondedLabel }}</span>
           <span v-if="r.topic" class="pill pill-outline min-w-0 break-words" data-test="pick-topic">{{ r.topic }}</span>
           <span class="faint text-xs" data-test="pick-picked">{{ r.picked }}</span>

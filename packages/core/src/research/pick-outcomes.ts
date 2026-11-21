@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
-import { decideBonded, LAUNCHPAD_MINT_SUFFIX, toPick, type PickLookup, type PickSource, type ResearchPick } from "./picks.ts";
+import { decideBonded, LAUNCHPAD_MINT_SUFFIX, NOT_WITHDRAWN, toPick, type PickLookup, type PickSource, type ResearchPick } from "./picks.ts";
 
 /**
  * Pick outcomes (human researcher ticket 04): what became of each Pick, from plain code only (no Claude, no Brain). A scheduled job looks the coin
@@ -215,8 +215,8 @@ const toSample = (r: Row): OutcomeSample => ({ mark: r.mark as MarkKey, state: r
 
 /** Every Pick (any source) whose outcome is not finished, oldest first, with what is stored so far. Reads the picks table directly: no list cap. */
 export function loadOpenPicks(db: DatabaseSync): OpenPick[] {
-  const rows = db.prepare("SELECT p.*, o.result AS o_result, o.bonded_at AS o_bonded_at, o.bonded_basis AS o_bonded_basis, o.peak_usd AS o_peak_usd, o.last_ok_at AS o_last_ok_at FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE o.finished_at IS NULL ORDER BY p.id").all() as Row[];
-  const samples = db.prepare("SELECT * FROM pick_samples WHERE pick_id IN (SELECT p.id FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE o.finished_at IS NULL)").all() as Row[];
+  const rows = db.prepare(`SELECT p.*, o.result AS o_result, o.bonded_at AS o_bonded_at, o.bonded_basis AS o_bonded_basis, o.peak_usd AS o_peak_usd, o.last_ok_at AS o_last_ok_at FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE o.finished_at IS NULL AND ${NOT_WITHDRAWN} ORDER BY p.id`).all() as Row[];
+  const samples = db.prepare(`SELECT * FROM pick_samples WHERE pick_id IN (SELECT p.id FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE o.finished_at IS NULL AND ${NOT_WITHDRAWN})`).all() as Row[];
   return rows.map((r) => ({
     pick: toPick(r),
     outcome: typeof r.o_result !== "string" ? null : toOutcome({ result: r.o_result,bonded_at: r.o_bonded_at ?? null, bonded_basis: r.o_bonded_basis ?? "", peak_usd: r.o_peak_usd ?? null, last_ok_at: r.o_last_ok_at ?? null, finished_at: null }),
@@ -287,11 +287,13 @@ export function pickItemOf(r: Row, nowMs: number): { createdMs: number; over: bo
 
 /** All Picks of one source read directly (no cap) for the rate; the outcome rows for the `limit` newest. READ ONLY. */
 export function loadOutcomeView(db: DatabaseSync, source: PickSource, now: Date, limit: number): PickOutcomeView {
-  const rows = db.prepare("SELECT p.id, p.created_at, p.bonded_at_pick, o.result AS o_result, o.bonded_at AS o_bonded_at FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE p.source = ? ORDER BY p.id DESC").all(source) as Row[];
+  const rows = db.prepare("SELECT p.id, p.created_at, p.bonded_at_pick, o.result AS o_result, o.bonded_at AS o_bonded_at, EXISTS (SELECT 1 FROM pick_withdrawals w WHERE w.pick_id = p.id) AS withdrawn FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE p.source = ? ORDER BY p.id DESC").all(source) as Row[];
   const nowMs = now.getTime();
   const items = rows.map((r) => {
-    return { id: r.id as number, ...pickItemOf(r, nowMs), bondedAt: (r.o_bonded_at as string | null) ?? null };
+    return { id: r.id as number, ...pickItemOf(r, nowMs), bondedAt: (r.o_bonded_at as string | null) ?? null, withdrawn: r.withdrawn === 1 };
   });
+  // A withdrawn Pick stays in the list but counts in no rate.
+  const counted = items.filter((i) => !i.withdrawn);
   const newest = items.slice(0, limit);
   const samples = newest.length === 0 ? [] : (db.prepare(`SELECT * FROM pick_samples WHERE pick_id IN (${newest.map(() => "?").join(",")})`).all(...newest.map((i) => i.id)) as Row[]);
   return {
@@ -305,7 +307,7 @@ export function loadOutcomeView(db: DatabaseSync, source: PickSource, now: Date,
         return { mark: key, state: s ? (s.state as SampleState) : ("waiting" as const), peakUsd: s ? ((s.peak_usd as number | null) ?? null) : null };
       }),
     })),
-    all: bondingStats(items),
-    week: bondingStats(items.filter((i) => nowMs - i.createdMs <= OUTCOME_WEEK_MS)),
+    all: bondingStats(counted),
+    week: bondingStats(counted.filter((i) => nowMs - i.createdMs <= OUTCOME_WEEK_MS)),
   };
 }

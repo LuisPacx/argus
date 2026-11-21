@@ -145,7 +145,7 @@ export function latestPlaybook(db: DatabaseSync): { id: string; text: string } |
   return r ? { id: String(r.id), text: r.text as string } : null;
 }
 
-const FINISHED = "p.source = 'operator' AND o.finished_at IS NOT NULL AND o.result IN ('bonded', 'not-bonded')";
+const FINISHED = "p.source = 'operator' AND NOT EXISTS (SELECT 1 FROM pick_withdrawals w WHERE w.pick_id = p.id) AND o.finished_at IS NOT NULL AND o.result IN ('bonded', 'not-bonded')";
 
 /** How many of the Operator's Picks have a finished bonded or not-bonded result. READ ONLY. */
 export function countFinishedPicks(db: DatabaseSync): number {

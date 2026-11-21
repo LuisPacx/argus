@@ -102,3 +102,22 @@ describe("resultLines", () => {
     expect(resultLines(null)).toEqual({ lines: [], note: null });
   });
 });
+
+/** Ticket 10: the Withdraw button and the struck-through withdrawn Pick. */
+describe("withdrawing on the page", () => {
+  const FRESH = "2026-11-20T15:55:00.000Z"; // 5 minutes before NOW
+  it("shows the button only on an Operator Pick younger than 10 minutes", async () => {
+    expect(await draw([pick({ createdAt: FRESH })])).toContain('data-test="pick-withdraw"');
+    expect(await draw([pick({ createdAt: "2026-11-20T15:49:00.000Z" })])).not.toContain("pick-withdraw"); // 11 minutes
+    expect(await draw([pick({ createdAt: FRESH, source: "shadow" })])).not.toContain("pick-withdraw");
+    expect(await draw([pick({ createdAt: FRESH })], NOW + 6 * 60_000)).not.toContain("pick-withdraw"); // the page ticking past 10 minutes
+  });
+
+  it("shows a withdrawn Pick struck through and with no button", async () => {
+    const html = await draw([pick({ createdAt: FRESH, withdrawnAt: "2026-11-20T15:56:00.000Z" })]);
+    expect(html).toContain("line-through");
+    expect(html).toContain("Withdrawn");
+    expect(html).not.toContain("pick-withdraw\"");
+    expect(await draw([pick({ createdAt: FRESH })])).not.toContain("line-through");
+  });
+});

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { bondingStats, OUTCOME_WEEK_MS, pickItemOf, type BondingStats, type OutcomeResult } from "./pick-outcomes.ts";
-import { cleanTopic, type PickSource } from "./picks.ts";
+import { cleanTopic, NOT_WITHDRAWN, type PickSource } from "./picks.ts";
 
 /**
  * The Scoreboard (human researcher ticket 08, ADR 0017): the Operator's and the machine's bonded-within-24h rate over the last 7 days, each with n.
@@ -101,7 +101,7 @@ type Row = Record<string, string | number | null>;
 export function loadScoreboard(db: DatabaseSync, now: Date): Scoreboard {
   const nowMs = now.getTime();
   const rows = db
-    .prepare("SELECT p.ca, p.source, p.topic, p.created_at, p.bonded_at_pick, o.result AS o_result FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE p.created_at > ?")
+    .prepare("SELECT p.ca, p.source, p.topic, p.created_at, p.bonded_at_pick, o.result AS o_result FROM picks p LEFT JOIN pick_outcomes o ON o.pick_id = p.id WHERE p.created_at > ? AND " + NOT_WITHDRAWN)
     .all(new Date(nowMs - SCOREBOARD_WINDOW_MS).toISOString()) as Row[];
   const items: ScoreItem[] = rows.map((r) => {
     const { over, result } = pickItemOf(r, nowMs);

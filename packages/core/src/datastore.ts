@@ -17,7 +17,7 @@ import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type Me
 import { MemeStore, migrateMeme } from "./meme/store.ts";
 import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, topicKey, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
-import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
+import { migratePicks, migratePickWithdrawals, NOT_WITHDRAWN, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, withdrawPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
 import { loadShadowPicks, migrateShadow, pickSettledAt, type PlaybookSource, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
@@ -604,6 +604,8 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "meme_angle_requests", "research_request_id", "INTEGER");
   // The Operator's Picks (human researcher ticket 03): one additive table, never updated.
   migratePicks(db);
+  // Ticket 10: a withdrawal is its own write-once row; the Pick stays as it was.
+  migratePickWithdrawals(db);
   // What became of each Pick (ticket 04): two additive tables keyed on the Pick id; the picks table itself stays immutable.
   migratePickOutcomes(db);
   // The Shadow picks' request and Playbook version (ticket 08): one additive write-once table.
@@ -788,6 +790,7 @@ export type WarRoomStore = Pick<
   | "requestTopicIdeas"
   | "memeAngleRequests"
   | "recordPick"
+  | "withdrawPick"
   | "listPicks"
   | "pickOutcomes"
   | "scoreboard"
@@ -1399,7 +1402,8 @@ export class Datastore {
     const source = input.source ?? "operator";
     return this.inTransaction(() => {
       // The 24 h rule is per source: the researcher agent's pick of a coin never blocks the Operator's, and the other way round.
-      const prior = this.db.prepare("SELECT id, created_at FROM picks WHERE ca = ? AND source = ? AND created_at > ? ORDER BY id DESC LIMIT 1").get(s.ca, source, new Date(now.getTime() - PICK_DUPLICATE_MS).toISOString()) as { id: number; created_at: string } | undefined;
+      // A withdrawn Pick does not block: it no longer counts anywhere.
+      const prior = this.db.prepare(`SELECT id, created_at FROM picks p WHERE ca = ? AND source = ? AND created_at > ? AND ${NOT_WITHDRAWN} ORDER BY id DESC LIMIT 1`).get(s.ca, source, new Date(now.getTime() - PICK_DUPLICATE_MS).toISOString()) as { id: number; created_at: string } | undefined;
       if (prior) {
         const hours = Math.max(1, Math.round((now.getTime() - Date.parse(prior.created_at)) / 3_600_000));
         throw new PickRepeatError(`Already picked ${hours === 1 ? "within the last hour or so" : `${hours} hours ago`} (Pick ${prior.id}); a coin can be picked again after 24 hours`);
@@ -1413,7 +1417,15 @@ export class Datastore {
 
   /** The newest Picks of one source (default the Operator's; `PICK_LIST_LIMIT`), newest first. READ ONLY. */
   listPicks(source: PickSource = "operator"): ResearchPick[] {
-    return (this.db.prepare("SELECT * FROM picks WHERE source = ? ORDER BY id DESC LIMIT ?").all(source, PICK_LIST_LIMIT) as Record<string, string | number | null>[]).map(toPick);
+    return (this.db.prepare("SELECT p.*, (SELECT w.withdrawn_at FROM pick_withdrawals w WHERE w.pick_id = p.id) AS withdrawn_at FROM picks p WHERE p.source = ? ORDER BY p.id DESC LIMIT ?").all(source, PICK_LIST_LIMIT) as Record<string, string | number | null>[]).map(toPick);
+  }
+
+  /**
+   * The Operator's withdrawal of one of his own Picks within 10 minutes of making it (ticket 10): writes one `pick_withdrawals` row and nothing else; the Pick row is
+   * untouched. Refuses with `PickWithdrawRefusedError` (unknown id, Shadow pick, too late, already withdrawn). Calls no model.
+   */
+  withdrawPick(id: number, now: Date = new Date()): void {
+    this.inTransaction(() => withdrawPick(this.db, id, now));
   }
 
   /** Every Pick whose outcome is not finished yet (all sources), oldest first, with its stored outcome and samples. READ ONLY. */

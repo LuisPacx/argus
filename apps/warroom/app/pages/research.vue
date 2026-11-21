@@ -2,7 +2,7 @@
 // /research (human researcher ticket 03): the Operator pastes contract addresses with an optional reason and topic; the server looks each coin up on
 // DexScreener and records a Pick with a snapshot of it. The form posts `{ text, reason, topic }` to POST /api/picks and shows what the server said for
 // each line; the server does every check. The list below is GET /api/picks. Everything shown is text.
-import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
+import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, submitWithdraw, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
 import { canSubmitTopic, researchRequestsView, RESEARCH_TOPIC_MAX_CHARS, submitTopic, submitTopicIdeas, type TopicAccepted } from "../utils/research-brief.ts";
 import type { AngleAccepted } from "../utils/angle.ts";
 import { suggestionsView } from "../utils/research-suggestions.ts";
@@ -87,6 +87,17 @@ async function submit() {
   if (r.lines.every((l) => l.ok)) text.value = "";
   await Promise.all([refresh(), refreshOutcomes()]);
 }
+
+// Withdraw a mistyped Pick (ticket 10): the Operator's own click; the server checks the 10 minutes.
+const withdrawError = ref<string | null>(null);
+async function withdraw(id: number) {
+  withdrawError.value = null;
+  // A plain string (not a template literal type) keeps Nitro's route typing from recursing on the dynamic path.
+  const url: string = "/api/picks/" + String(id) + "/withdraw";
+  const r = await submitWithdraw(() => $fetch<unknown>(url, { method: "POST" }));
+  if (!r.ok) withdrawError.value = r.message;
+  await Promise.all([refresh(), refreshOutcomes()]);
+}
 </script>
 
 <template>
@@ -145,7 +156,8 @@ async function submit() {
       <p v-if="note" class="muted min-w-0 break-words text-xs" data-test="pick-note">{{ note }}</p>
     </form>
 
-    <PickList :view="view" />
+    <p v-if="withdrawError" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="withdraw-error">{{ withdrawError }}</p>
+    <PickList :view="view" @withdraw="withdraw" />
 
     <ResearchScoreboard />
 
