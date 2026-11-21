@@ -617,7 +617,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const trigger = { kind: "operator-angle" as const, reason: facts, at: req.createdAt };
         return {
           existing,
-          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, angle: req.angle, ...retryFields(retry) }),
+          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(req.angle !== "" ? { angle: req.angle } : {}), ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             const stored = store.meta.summaries([meta.key]).get(meta.key);
             const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -626,11 +626,11 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
                 metaKey: meta.key,
                 metaLabel: meta.label,
                 snapshot,
-                reason: `Operator angle: ${cleanLine(req.angle, 160)}`,
-                summary: `Operator angle on ${cleanLine(meta.label, 60)}: ${cleanLine(req.angle, 160)}`,
+                reason: req.angle !== "" ? `Operator angle: ${cleanLine(req.angle, 160)}` : "Operator pressed Make ideas",
+                summary: req.angle !== "" ? `Operator angle on ${cleanLine(meta.label, 60)}: ${cleanLine(req.angle, 160)}` : `Operator pressed Make ideas on ${cleanLine(meta.label, 60)}`,
                 evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
                 ideas,
-                operatorAngle: { requestId: req.id, angle: req.angle, sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
+                operatorAngle: { requestId: req.id, angle: req.angle !== "" ? req.angle : "Pressed Make ideas (no angle typed)", sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
               },
               { now: at, attachRunId: runIds },
             );
@@ -805,7 +805,8 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
  * does not wait for the next Meta ranking.
  */
 export function runMemeAngles(store: Datastore, brain: Brain, opts: MemeOptions = {}): Promise<MemeResult> {
-  return generateMemeIdeas(store, brain, { ...opts, jobs: "angles" });
+  // The Operator asked for these (the angle box or "Make ideas"): they run with the automatic switch (ARGUS_MEME_IDEAS) off, under the same caps.
+  return generateMemeIdeas(store, brain, { ...opts, enabled: true, jobs: "angles" });
 }
 
 /** The list line of an idea: the Meta, its leader and cap, and what triggered the run, written by code from the stored Meta (text still creator-derived: cleaned and cut). */

@@ -62,6 +62,34 @@ describe("POST /api/meme-angle", () => {
     noProposals();
   });
 
+  it("the Make ideas button (no angle key) writes one pending request with no text, and nothing else (human researcher ticket 02)", async () => {
+    const r = await post({ body: { metaKey: "gta" } });
+    expect(r).toEqual({ id: 1, status: "pending", sourceUrl: null, urlDropped: false });
+    expect(store.getAngleRequest(1)).toMatchObject({ metaKey: "gta", metaLabel: "GTA 6", angle: "", status: "pending" });
+    noProposals();
+  });
+
+  it("Make ideas on a Meta that is not current is a 400 with the reason, and a second press while one waits is a 429", async () => {
+    const gone = post({ body: { metaKey: "no-such-meta" } });
+    expect(await message(gone)).toMatch(/not a current Meta/);
+    expect(await status(post({ body: { metaKey: "no-such-meta" } }))).toBe(400);
+    expect(stored()).toEqual([]);
+    await post({ body: { metaKey: "gta" } });
+    expect(await message(post({ body: { metaKey: "gta" } }))).toMatch(/One request is waiting/);
+    expect(await status(post({ body: { metaKey: "gta" } }))).toBe(429);
+    expect(stored()).toHaveLength(1);
+  });
+
+  it("Make ideas can be pressed again for the same Meta once the first is done (no duplicate rule for an empty angle), and the allowance applies", async () => {
+    for (let i = 0; i < 10; i++) {
+      const r = await post({ body: { metaKey: "gta" } });
+      store.resolveAngleRequest(r.id, { status: "done", detail: "3 ideas" });
+    }
+    expect(await message(post({ body: { metaKey: "gta" } }))).toMatch(/10 angle requests in 24 hours is the most/);
+    expect(await status(post({ body: { metaKey: "gta" } }))).toBe(429);
+    expect(stored()).toHaveLength(10);
+  });
+
   it("a Watching subject is accepted too", async () => {
     expect(await post({ body: body({ metaKey: "watch" }) })).toMatchObject({ status: "pending" });
   });
@@ -74,7 +102,7 @@ describe("POST /api/meme-angle", () => {
     ["a metaKey that is not text", body({ metaKey: 7 })],
     ["an empty metaKey", body({ metaKey: "" })],
     ["an angle that is not text", body({ angle: { text: "x" } })],
-    ["no angle", { metaKey: "gta" }],
+    ["a null angle", body({ angle: null })],
     ["an empty angle", body({ angle: "" })],
     ["a whitespace angle", body({ angle: " \n\t " })],
     ["601 characters", body({ angle: "x".repeat(601) })],

@@ -437,16 +437,16 @@ const memeIdeasTick = reentrant(
 );
 // The Operator's angle on a Meta (meta redesign ticket 11): a request the War Room wrote is run through the same meme pass (same switch, same
 // caps, same research budget) on the fast tick, so it does not wait up to 15 minutes for the next Meta pass. With nothing waiting it reads one
-// table and returns. Off with the meme ideas (ARGUS_MEME_IDEAS), where a request waits. A pass that stopped for a reason that is not the
+// table and returns. Operator-triggered (the angle box, the "Make ideas" button, human researcher ticket 02), so it runs with ARGUS_MEME_IDEAS off. A pass that stopped for a reason that is not the
 // request's own (a rate limit, three failures, the API hold, a shutdown) is not tried again until the next Meta pass is due, so the fast tick
 // does not probe a limit every 30 s.
 let memeAngleHoldUntil = 0;
 const memeAngleTick = reentrant(
   async () => {
-    if (!memeSettings.enabled || dryRun || memePassRunning || Date.now() < memeAngleHoldUntil || !store.hasOpenAngleRequests()) return;
+    if (dryRun || memePassRunning || Date.now() < memeAngleHoldUntil || !store.hasOpenAngleRequests()) return;
     memePassRunning = true;
     try {
-      const r = await runMemeAngles(store, brain, { enabled: true, config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker });
+      const r = await runMemeAngles(store, brain, { config: memeSettings.config, research: researchBudget, metaConfig, log: console.log, signal: shutdown.signal, dex: memeDex, collisions: collisionChecker });
       if (r.called > 0 || r.stoppedBy) console.log(`[worker] meme angles: ${r.stored} stored, ${r.refused} refused, ${r.failed} failed${r.stoppedBy ? `, stopped: ${r.stoppedBy}` : ""}`);
       if (r.stoppedBy === "rate-limited" || r.stoppedBy === "backoff" || r.stoppedBy === "api-hold" || r.stoppedBy === "interrupted") memeAngleHoldUntil = Date.now() + META_TICK_MS;
     } finally {

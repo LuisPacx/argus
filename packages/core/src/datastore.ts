@@ -1290,7 +1290,8 @@ export class Datastore {
     const now = opts.now ?? new Date();
     const max = Math.min(MAX_MEME_ANGLE_PER_DAY, opts.maxPerDay ?? DEFAULT_MEME_ANGLE_PER_DAY);
     const angle = input.angle;
-    if (typeof angle !== "string" || angle.trim() === "" || angle !== angle.trim() || [...angle].length > ANGLE_MAX_CHARS || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(angle)) {
+    // An empty angle is the "Make ideas" button (human researcher ticket 02): no text, so no duplicate rule (the allowance and the one waiting request bound it).
+    if (typeof angle !== "string" || (angle !== "" && angle.trim() === "") || angle !== angle.trim() || [...angle].length > ANGLE_MAX_CHARS || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(angle)) {
       throw new MemeAngleRefusedError("invalid", `The angle must be 1 to ${ANGLE_MAX_CHARS} characters of plain text on one line`);
     }
     return this.inTransaction(() => {
@@ -1299,7 +1300,7 @@ export class Datastore {
       if (!subject) throw new MemeAngleRefusedError("unknown-meta", "That subject is not a current Meta or Watching subject in the newest run");
       // One window serves both rules (`ANGLE_WINDOW_MS` and `ANGLE_DUPLICATE_MS` are both 24 h).
       const recent = this.db.prepare("SELECT meta_key, angle, status FROM meme_angle_requests WHERE created_at > ?").all(new Date(now.getTime() - Math.max(ANGLE_WINDOW_MS, ANGLE_DUPLICATE_MS)).toISOString()) as unknown as { meta_key: string; angle: string; status: AngleStatus }[];
-      if (recent.some((r) => r.meta_key === input.metaKey && angleKey(r.angle) === angleKey(angle))) throw new MemeAngleRefusedError("duplicate", "You already asked this angle for this Meta in the last 24 hours");
+      if (angle !== "" && recent.some((r) => r.meta_key === input.metaKey && angleKey(r.angle) === angleKey(angle))) throw new MemeAngleRefusedError("duplicate", "You already asked this angle for this Meta in the last 24 hours");
       const spent = recent.filter((r) => ANGLE_SPENDING_STATUSES.includes(r.status)).length;
       if (spent >= max) throw new MemeAngleRefusedError("daily-cap", `${spent} angle requests in 24 hours is the most (${max}); try again later`);
       if (recent.length >= angleAttemptCap(max)) throw new MemeAngleRefusedError("daily-cap", `${recent.length} angle requests in 24 hours, refused ones included, is the most (3 times the allowance of ${max}); try again later`);

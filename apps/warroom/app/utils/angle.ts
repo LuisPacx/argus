@@ -85,9 +85,10 @@ export function failureReason(e: unknown): string {
 }
 
 /** Sends one angle through `post` (the page's `$fetch`) and says what happened, in words. Never throws. */
-export async function submitAngle(post: (body: { metaKey: string; angle: string }) => Promise<AngleAccepted>, metaKey: string, draft: string): Promise<AngleSubmit> {
+export async function submitAngle(post: (body: { metaKey: string; angle?: string }) => Promise<AngleAccepted>, metaKey: string, draft: string | null): Promise<AngleSubmit> {
   try {
-    const r = await post({ metaKey, angle: draft });
+    // `null` is the "Make ideas" button: the body has no angle at all.
+    const r = await post(draft === null ? { metaKey } : { metaKey, angle: draft });
     return { ok: true, note: r.urlDropped ? "Sent. The link in your text was dropped: it was not a plain http or https address." : "Sent. The worker will pick it up." };
   } catch (e) {
     return { ok: false, message: failureReason(e) };

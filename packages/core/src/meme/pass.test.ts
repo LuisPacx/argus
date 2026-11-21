@@ -1459,14 +1459,44 @@ describe("the Operator's angle: a pending request is run by the same path (ticke
     expect(store.getAngleRequest(again.id)).toMatchObject({ status: "refused", detail: "the run went over its budget" });
   });
 
-  it("with the switch off the request stays pending and nothing is called; a dry run stops the pass and leaves it pending", async () => {
+  it("with the automatic switch off the angle pass still runs the Operator's request (human researcher ticket 02), and the automatic pass runs nothing", async () => {
     const { store, meta } = await noEvent();
     const req = request(store, meta.key);
-    const { brain, prompts } = fakeBrain([JENSEN_ANSWER, "dry"]);
-    expect(await runMemeAngles(store, brain, { enabled: false, now: at(1) })).toMatchObject({ called: 0, stoppedBy: "off" });
-    expect(await runMemeAngles(store, brain, { now: at(1) })).toMatchObject({ called: 0, stoppedBy: "off" });
-    expect(prompts).toHaveLength(0);
+    const auto = fakeBrain([JENSEN_ANSWER]);
+    expect(await generateMemeIdeas(store, auto.brain, { enabled: false, now: at(1) })).toMatchObject({ called: 0, stoppedBy: "off" });
+    expect(auto.prompts).toHaveLength(0);
     expect(store.getAngleRequest(req.id)!.status).toBe("pending");
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await runMemeAngles(store, brain, { now: at(1) })).toMatchObject({ called: 1, stored: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(store.getAngleRequest(req.id)!.status).toBe("done");
+  });
+
+  it("a Make ideas request (no angle text) files three Proposals marked as the Operator's, with no angle block in the prompt", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key, { angle: "", sourceUrl: null });
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await runMemeAngles(store, brain, { now: at(1) })).toMatchObject({ called: 1, stored: 1 });
+    const made = memes(store);
+    expect(made).toHaveLength(3);
+    for (const p of made) expect(p).toMatchObject({ reason: "Operator pressed Make ideas", operatorAngle: { requestId: req.id, sourceUrl: null, urlDropped: false } });
+    expect(named(prompts[0]!)).not.toContain("operator angle (untrusted quotes)");
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "done", proposalIds: made.map((p) => p.id).sort((a, b) => a - b) });
+  });
+
+  it("a Make ideas request over the research budget ends capped with no call", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key, { angle: "", sourceUrl: null });
+    seedCostly(store, 7, "judge", 1);
+    const { brain, prompts } = fakeBrain([JENSEN_ANSWER]);
+    expect(await runMemeAngles(store, brain, { now: at(1) })).toMatchObject({ called: 0, stoppedBy: "research-cap" });
+    expect(store.getAngleRequest(req.id)).toMatchObject({ status: "capped" });
+    expect(prompts).toHaveLength(0);
+  });
+
+  it("a dry run stops the pass and leaves the request pending", async () => {
+    const { store, meta } = await noEvent();
+    const req = request(store, meta.key);
     const dry = fakeBrain(["dry"]);
     expect(await anglePass(store, dry.brain)).toMatchObject({ called: 0, stoppedBy: "dry-run" });
     expect(store.getAngleRequest(req.id)!.status).toBe("pending");

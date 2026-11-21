@@ -26,23 +26,29 @@ function close() {
   summaryEl.value?.focus();
 }
 
-async function submit() {
-  if (!canSubmit.value) return;
+// `text` null is the "Make ideas" button (human researcher ticket 02): the same POST with no angle in the body.
+async function send(text: string | null) {
   busy.value = true;
   error.value = null;
   note.value = null;
-  const r = await submitAngle((body) => $fetch<AngleAccepted>("/api/meme-angle", { method: "POST", body }), props.metaKey, draft.value);
+  const r = await submitAngle((body) => $fetch<AngleAccepted>("/api/meme-angle", { method: "POST", body }), props.metaKey, text);
   busy.value = false;
   if (r.ok) {
     note.value = r.note;
-    draft.value = "";
+    if (text !== null) draft.value = "";
     await refreshNuxtData("meme-angle");
   } else error.value = r.message;
 }
+const submit = () => (canSubmit.value ? send(draft.value) : undefined);
+const makeIdeas = () => (busy.value ? undefined : send(null));
 </script>
 
 <template>
   <div class="grid min-w-0 gap-1.5 border-t border-[var(--wr-line)] pt-2" data-test="angle-block">
+    <div class="flex flex-wrap items-center gap-2">
+      <button type="button" class="btn btn-primary min-h-11" :disabled="busy" data-test="make-ideas" @click="makeIdeas">{{ busy ? "Sending…" : "Make ideas" }}</button>
+      <span class="faint text-xs">Three meme ideas about this subject, no angle needed.</span>
+    </div>
     <details ref="box" class="min-w-0" data-test="angle-form" @keydown.esc="close">
       <summary ref="summaryEl" class="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-[var(--wr-accent-strong)]" data-test="angle-summary">Add an angle</summary>
       <form class="grid min-w-0 gap-2 pb-1" @submit.prevent="submit">
@@ -52,10 +58,10 @@ async function submit() {
           <span class="faint text-xs tabular-nums" data-test="angle-counter">{{ counter }}</span>
           <button type="submit" class="btn btn-primary" :disabled="!canSubmit" data-test="angle-submit">{{ busy ? "Sending…" : "Ask for ideas" }}</button>
         </div>
-        <p v-if="error" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="angle-error">{{ error }}</p>
-        <p v-if="note" class="muted min-w-0 break-words text-xs" data-test="angle-note">{{ note }}</p>
       </form>
     </details>
+    <p v-if="error" class="note note-amber min-w-0 break-words text-xs" role="alert" data-test="angle-error">{{ error }}</p>
+    <p v-if="note" class="muted min-w-0 break-words text-xs" data-test="angle-note">{{ note }}</p>
     <p v-if="status" class="note min-w-0 break-words text-xs" :class="status.tone === 'bad' ? 'note-amber' : status.tone === 'ok' ? 'note-green' : 'muted'" :data-tone="status.tone" data-test="angle-status">{{ status.text }}</p>
   </div>
 </template>

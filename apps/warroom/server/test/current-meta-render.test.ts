@@ -235,14 +235,16 @@ describe("the form", () => {
       ),
     );
 
-  it("renders collapsed, with the textarea limited to 600 characters, a counter, one submit button and no status line when there is no request", async () => {
+  it("renders collapsed, with the textarea limited to 600 characters, a counter, one submit button, the Make ideas button and no status line when there is no request", async () => {
     const html = await drawForm();
+    expect(html).toMatch(/<button[^>]*data-test="make-ideas"[^>]*>Make ideas<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*data-test="make-ideas"/);
     expect(html).toContain('data-test="angle-form"');
     expect(html).not.toMatch(/<details[^>]*\sopen/);
     expect(html).toContain('data-test="angle-summary"');
     expect(html).toContain('maxlength="600"');
     expect(html).toContain('data-test="angle-counter">0 / 600<');
-    expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html.match(/<button/g)).toHaveLength(2);
     expect(html).toContain("disabled");
     expect(html).not.toContain('data-test="angle-status"');
     expect(html).toContain('for="angle-x"');

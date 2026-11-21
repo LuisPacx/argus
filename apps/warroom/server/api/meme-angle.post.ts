@@ -21,7 +21,8 @@ export default defineEventHandler(async (event) => {
   if (extra.length > 0) throw bad("The body has keys other than metaKey and angle");
   const { metaKey, angle } = body as { metaKey?: unknown; angle?: unknown };
   if (typeof metaKey !== "string" || metaKey === "" || metaKey.length > MAX_KEY_CHARS) throw bad("metaKey is required");
-  const parsed = parseAngle(angle);
+  // No `angle` key at all is the "Make ideas" button (human researcher ticket 02): a request with no text. An angle that is present must still be text.
+  const parsed = angle === undefined ? ({ ok: true, angle: "", sourceUrl: null, urlDropped: false } as const) : parseAngle(angle);
   if (!parsed.ok) throw bad(parsed.problem.charAt(0).toUpperCase() + parsed.problem.slice(1));
   try {
     const request = useStore().requestMemeAngle({ metaKey, angle: parsed.angle, sourceUrl: parsed.sourceUrl, urlDropped: parsed.urlDropped }, { maxPerDay: memeAngleConfigFromEnv(process.env).maxPerDay });
