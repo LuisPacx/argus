@@ -5,13 +5,13 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The page lists the live named Trends, newest first, with their score and sources, and says "no Trends right now" when there are none (render test).
-- [ ] Clicking a suggestion sets the topic box to the Trend's plain subject and starts nothing: no request row is written until submit (test).
-- [ ] Trend text is third-party: shown escaped and cut; a hostile subject is one escaped line (render test).
-- [ ] The page reads the radar tables and writes nothing; a GET leaves every table unchanged (test).
-- [ ] Render check with `pnpm page:check /research` at 1240 and 390 px, keyboard: focus a suggestion, press Enter.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] The page lists the live named Trends, newest first, with their score and sources, and says "no Trends right now" when there are none (render test).
+- [x] Clicking a suggestion sets the topic box to the Trend's plain subject and starts nothing: no request row is written until submit (test).
+- [x] Trend text is third-party: shown escaped and cut; a hostile subject is one escaped line (render test).
+- [x] The page reads the radar tables and writes nothing; a GET leaves every table unchanged (test).
+- [x] Render check with `pnpm page:check /research` at 1240 and 390 px, keyboard: focus a suggestion, press Enter.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments

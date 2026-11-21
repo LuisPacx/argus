@@ -5,13 +5,13 @@
 
 **Blocked by:** 02, 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The button writes one request row for the brief; the worker files three `meme` Proposals keyed to the topic with a source marker readers can branch on; older Proposals still read (tests with a fake Brain).
-- [ ] The brief and topic go in as a fenced untrusted block under a fresh boundary; names to avoid include the brief's existing coins; a copied live-coin name is refused once with the names listed (tests).
-- [ ] Caps: the angle allowance, the research budget and the 30-a-day cap apply; a second request for the same brief inside 24 hours is refused; the request ends `done`, `refused`, `failed` or `capped` with the reason (tests).
-- [ ] The Proposal page and card show the topic source and a link to the brief (render test, `pnpm page:check` seeded).
-- [ ] The Meta path from ticket 02 behaves exactly as before (its tests unchanged).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] The button writes one request row for the brief; the worker files three `meme` Proposals keyed to the topic with a source marker readers can branch on; older Proposals still read (tests with a fake Brain).
+- [x] The brief and topic go in as a fenced untrusted block under a fresh boundary; names to avoid include the brief's existing coins; a copied live-coin name is refused once with the names listed (tests).
+- [x] Caps: the angle allowance, the research budget and the 30-a-day cap apply; a second request for the same brief inside 24 hours is refused; the request ends `done`, `refused`, `failed` or `capped` with the reason (tests).
+- [x] The Proposal page and card show the topic source and a link to the brief (render test, `pnpm page:check` seeded).
+- [x] The Meta path from ticket 02 behaves exactly as before (its tests unchanged).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments

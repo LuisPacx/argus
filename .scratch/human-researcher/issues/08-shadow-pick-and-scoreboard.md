@@ -11,14 +11,14 @@ Fairness, defined:
 
 **Blocked by:** 04, 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A research run files its Shadow picks from the brief's coin list only; a coin outside the list is rejected and the run ends with a repair retry (tests with a fake Brain).
-- [ ] The prompt and its inputs contain no raw Operator Pick, reason or Pick count (test inspects the rendered prompt with Picks present in the database). The only Operator-derived input is the Playbook version allowed by the leak guard: a test with a Pick settled after the request start and a Playbook built from it shows that version is not used, and a test shows an eligible version is used and its id stored on the Shadow pick.
-- [ ] Shadow picks are stored with their time before any outcome exists; an update or delete is refused by the database (tests).
-- [ ] Shadow picks get the same outcome job as Picks, and the same rules for already-bonded and unknown (reuse of ticket 04's tests).
-- [ ] The Scoreboard shows for 7 days: Operator rate and n, machine rate and n, the topics compared, and "not enough Picks yet" when either side has fewer than 20; it never shows a winner below that: the verdict threshold is 20 Picks per side, explicit in the code and on the page (render test).
-- [ ] Shadow picks are made only for Operator-triggered research: no scheduled path makes one (test).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] A research run files its Shadow picks from the brief's coin list only; a coin outside the list is rejected and the run ends with a repair retry (tests with a fake Brain).
+- [x] The prompt and its inputs contain no raw Operator Pick, reason or Pick count (test inspects the rendered prompt with Picks present in the database). The only Operator-derived input is the Playbook version allowed by the leak guard: a test with a Pick settled after the request start and a Playbook built from it shows that version is not used, and a test shows an eligible version is used and its id stored on the Shadow pick.
+- [x] Shadow picks are stored with their time before any outcome exists; an update or delete is refused by the database (tests).
+- [x] Shadow picks get the same outcome job as Picks, and the same rules for already-bonded and unknown (reuse of ticket 04's tests).
+- [x] The Scoreboard shows for 7 days: Operator rate and n, machine rate and n, the topics compared, and "not enough Picks yet" when either side has fewer than 20; it never shows a winner below that: the verdict threshold is 20 Picks per side, explicit in the code and on the page (render test).
+- [x] Shadow picks are made only for Operator-triggered research: no scheduled path makes one (test).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
