@@ -3,7 +3,7 @@
 
 **What to build:** when a Meta is **Hot now** (ticket 03), one sonnet run reads the Meta and its context and returns 3 meme ideas, stored as Proposals of kind `meme` (ticket 05). The Operator sees them under the Meta on `/meta` and in the Proposals list, and can Shortlist, Dismiss with a reason, or read Why. This is the fix that would have produced an idea on 2026-11-12: the `jensen` Meta (256 tokens, 141 creators in 24 h, rank 2) was the market's answer and nothing turned it into a suggestion.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** 03 (the Hot now event is the trigger) and 05 (the ADR and GLOSSARY define the kind). Also follows 04 (Rubric v3 legitimacy text). Agreed order: warroom-redesign/10 slice c, then 03, 04, 05, **06**, 07.
 
@@ -61,3 +61,4 @@ One commit per slice (store and task, then War Room), each after a full `pnpm ch
   - Migration rehearsed on a `.backup` copy of the live DB (copy deleted): 5 Proposals before, all `narrative` after, integrity ok, 54 to 60 schema objects, a second open changes nothing.
   - Browser check (headless `pnpm page:check`, own port 3418, DB copy with 9 meme Proposals incl. hostile text, exit 0, 0 console errors; the known home overflow 404 at 390 px is unchanged): screenshots in `~/.cache/argus-scratch/mi06/shots/` (`list/home-1240.png`, `list/home-390.png`, `meta/meta-1240.png`, `meta/meta-390.png`, `card/proposals-154-1240.png`, `card/proposals-154-390.png`). The Argus Chrome profile was not used (worker rules: page:check only).
   - Not done: no real-Claude run of the prompt (needs the Operator's OK). To try it for real: set `ARGUS_MEME_IDEAS=1` (and optionally `ARGUS_MEME_MAX_PER_DAY=5`) in the worker's environment and restart with `pnpm dev:stop` / `pnpm dev:start`; it spends only when a Hot now event is live. Expected spend: about $0.05 to $0.15 per run, per-run cap $0.30, at most 40 runs a day, inside the $6 research budget.
+- 2026-11-21 cos triage: fixes landed (ADR 0013, Rubric v3, meme kind, Meta meme ideas behind ARGUS_MEME_IDEAS)

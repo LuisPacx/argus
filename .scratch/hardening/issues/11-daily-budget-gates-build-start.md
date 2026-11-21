@@ -1,7 +1,7 @@
 # 11: The daily budget gates the start of a Build
 **Model:** sonnet / effort: medium — one gate in `runNextBuild`, one new refusal code and one store query; the War Room reuses the existing "Build blocked" marker and notice.
 
-**Status:** open
+**Status:** done
 
 ## Problem
 
@@ -27,3 +27,4 @@ Hardening ticket 10 made every Build dollar count toward the daily budget (`ARGU
 - [x] `pnpm check` passes (170 files, 2796 tests; ran on the dirty tree, so not stamped)
 
 ## Comments
+- 2026-11-21 cos triage: already built (subagent-stop sweep hook / Build budget gate / wt-setup SubagentStart hook)

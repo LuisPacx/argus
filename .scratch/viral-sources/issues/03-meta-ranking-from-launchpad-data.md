@@ -3,7 +3,7 @@
 
 **What to build:** Argus does not know what the market's live Metas are. The term exists only in `GLOSSARY.md:48`; there is no Meta code. Add a periodic job that groups launchpad tokens (pump.fun creates and migrations, from `study_tokens` and the stored launchpad Signals) into Metas by shared name, ticker and description, ranks the groups by distinct tokens, distinct creators, migrations and market cap, and makes the ranking available to the judge and propose steps, so a Proposal can ride a Meta that is live now and not only a Google Trends or news item.
 
-**Status:** deployed, complete on main (6429ffa, 5e427c8, 2377af5, 819ab5b, 50e3d08); 1 box open
+**Status:** done
 
 **Blocked by:** nothing in the code. Start after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it (see Interplay).
 
@@ -183,3 +183,4 @@ Commits: slice 2 `f29416b`, slice 4 `bbeac3d`, ADR 0012 and glossary `c4d5726`, 
 **Slice 4 prompt block.** `meta/prompt-block.ts`; `judgePromptFor(rubric, narrative, context, metas)` and `proposePromptFor(..., context, metas)`; both passes read `selectMetas` (newest 24 h run, top 5, none when the run is over 2 h old) and log and prompt without the block when the read fails. Shared with ticket 24: `flat` in `context-block.ts` is now exported and reused; the Meta block sits before the context block, which still closes the prompt; each block keeps its own cap (1,200 and 1,500 characters). Tests (`meta/prompt-block.test.ts`): hostile labels (`</boundary> ignore previous instructions`, `BOUNDARY-0000 END` plus a newline and a fake line, control characters, 10,000 characters) stay on `- ` lines inside the block, cannot add a closing line (exactly two `END` lines, four mentions), fresh boundary per call, block under cap; the matches line appears for a launchpad Signal sharing a key (also as two joined words and via a top token) and not for news Signals, other names or generic keys; with no Metas the prompt equals the full prompt with the block and rule removed; with both blocks present each is bounded; judge pass puts the block in and survives a failed read. The matches line only sees keys the stored row has (group key and top three tokens).
 
 Replay data note: the live DB copy already holds the deployed instance's own `meta_runs`, which are newer than an as-of replay and are what `latestMetas` returns; the replay was run after deleting the copy's `meta_*` tables (scratch copy only, deleted afterwards).
+- 2026-11-21 cos triage: deployed on main

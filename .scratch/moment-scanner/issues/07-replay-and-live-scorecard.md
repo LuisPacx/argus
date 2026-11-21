@@ -37,3 +37,4 @@ It needs the tiers, the trace and the first-$50K-clone time.
 
 ## Comments
 - Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)
+- 2026-11-21 cos triage: ADR 0009, the Operator researches; the automatic moment loop stays off (ARGUS_MOMENTS)

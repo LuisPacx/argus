@@ -3,7 +3,7 @@
 
 **What to build:** write the decision that a Proposal has a **kind**, and that the second kind is `meme`: an idea for a token that rides a live Meta, generated from the Meta (ticket 06), not from a Narrative. It **replaces** the `beta` kind that viral-sources/04 slices 3 and 4 planned. The ADR and the GLOSSARY come first, so tickets 06 and 07 build against a written contract.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none technically. Agreed order: warroom-redesign/10 slice c, then 03, 04, **05**, 06, 07. 05 is needed by 06.
 
@@ -53,3 +53,4 @@ One commit. Subject `Missed ideas ticket 05: <what changed>`, body ending with `
 - viral-sources/04: Status and last Comment already said slices 3 and 4 are superseded and the 2026-11-18 re-run still runs. Only a dead link filename was corrected.
 - Reviewer (`reviewer` agent) read ADR, GLOSSARY and architecture side by side: no contradiction with ADR 0002, 0011, 0012. It raised six small points, all fixed except one: the "Beta finder" nodes sit in the generated overview block (from `packages/core/src/pipeline-graph.ts`, code); architecture.md says so in words and ticket 06 should relabel them.
 - Docs only, so no `pnpm check`; ran `packages/core/src/pipeline-docs.test.ts` (7 passed) instead.
+- 2026-11-21 cos triage: fixes landed (ADR 0013, Rubric v3, meme kind, Meta meme ideas behind ARGUS_MEME_IDEAS)

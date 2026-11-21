@@ -36,3 +36,4 @@
 
 ## Comments
 - Superseded 2026-11-20 by .scratch/human-researcher/issues/01-adr-operator-is-the-researcher.md (the moment scanner is switched off).
+- 2026-11-21 cos triage: ADR 0009, the Operator researches; the automatic moment loop stays off (ARGUS_MOMENTS)

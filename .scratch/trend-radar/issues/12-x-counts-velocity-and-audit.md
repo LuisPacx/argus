@@ -3,7 +3,7 @@
 
 **What to build:** for each fresh candidate that passed the score floor (named, `untokenized`, `contested` or `not traced`, first 24 hours, not ignored), one Counts request for its cleaned phrases, hourly buckets over the last 24 hours. Plain code reads the curve: did the last 3 hours at least double the 3 before, with at least 200 posts in the last hour. A rise adds 20 points and shows a small count curve on the row. A second command, `pnpm radar:audit`, takes a list of past subjects and times and reports whether X's counts rose before each one's coin, for a few cents: the Operator's check, in the first week, of whether stage B is worth paying for. Useful alone: the radar can say "this phrase passed 1,000 posts an hour ago and doubled since" for half a cent, with no page load.
 
-**Status:** blocked (waits for tickets 04 and 11)
+**Status:** superseded
 
 **Blocked by:** 04, 11
 Spec: sections 4.2, 5.2, 7 and 8. ADR 0016 decision 3.
@@ -33,3 +33,4 @@ Spec: sections 4.2, 5.2, 7 and 8. ADR 0016 decision 3.
 - Commit subject `Trend radar ticket 12: X Counts for velocity and the audit command`, body ends with `Ticket: .scratch/trend-radar/issues/12-x-counts-velocity-and-audit.md`. No `Closes #N`.
 
 ## Comments
+- 2026-11-21 cos triage: no paid X; X is read through the logged-in Argus Chrome profile (Operator, 2026-11-21)

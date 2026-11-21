@@ -5,7 +5,7 @@
 
 **Blocked by:** 01 to 13, Phase 1 ticket 10 (Phase 1 acceptance run)
 
-**Status:** closed: run ended early 2026-11-11 (92789a3) at the user's request; AC4 untested by decision; open boxes left unticked
+**Status:** superseded
 
 - [ ] Over 48 hours unattended, argus produces at most 30 Proposals per day from live Sources
 - [ ] Every card shows all the fields listed in architecture §8
@@ -475,3 +475,4 @@ Per-AC verdicts for the re-run:
 | AC6 (evidence recorded in the ticket) | Partial | Run start, h0 baseline, restart and this final check-in are recorded; no h6 to h42 check-ins and no screenshots. |
 
 No boxes are ticked.
+- 2026-11-21 cos triage: already ended; status normalised

@@ -34,3 +34,4 @@ It needs the model's plain subject, phrases and flags. Spec: section 6.3. ADR 00
 
 ## Comments
 - Superseded 2026-11-20 by .scratch/human-researcher/issues/07-radar-suggestions-on-the-research-page.md (a Trend fills the topic box; ideas come from the brief).
+- 2026-11-21 cos triage: automatic watched topics/ideas break the Operator's trigger-only rule

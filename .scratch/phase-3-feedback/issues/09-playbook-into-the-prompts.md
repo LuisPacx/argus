@@ -20,3 +20,4 @@ Spec: sections 10, 15 (slice 10).
 
 ## Comments
 - Superseded 2026-11-20 by .scratch/human-researcher/issues/09-playbook.md (the Operator is the researcher; the Playbook is rebuilt by a button).
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

@@ -6,7 +6,7 @@ Spec: sections 12, 15, 16 (slice 13).
 
 **Blocked by:** 14 3b backtest and the Q20 gate (the gate must have passed)
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The switch is off by default in config and in a fresh database; with it off, no auto approval can happen (tested)
 - [ ] Approval goes through the existing approve path with actor system and reason "Score threshold"; no second path to a Build exists (tested)
@@ -17,3 +17,4 @@ Spec: sections 12, 15, 16 (slice 13).
 - [ ] The Operator can turn the switch off at any time and in-flight approvals stop at the next check
 - [ ] --dry-run lists what would be approved and makes no state change
 - [ ] Full test suite and type-check pass once before the commit
+- 2026-11-21 cos triage: auto-spec/auto-approve break the Operator's rule that agents run only when he triggers them

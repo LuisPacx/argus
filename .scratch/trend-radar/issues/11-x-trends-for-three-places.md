@@ -3,7 +3,7 @@
 
 **What to build:** every 30 minutes the worker asks X's Trends endpoint for three places (worldwide, US, UK) through ticket 10's client, turns each `trend_name` into a candidate beside the Google and news candidates, and lets it score: an X trend is one more independent source, with its `tweet_count` shown. Subjects X promotes that no feed carried appear on `/radar`, with the same untokenized check and naming run as any other. Useful alone: the page gains X's own view of what is rising, at about $1.44 a day, with the day's dollars on the page.
 
-**Status:** blocked (waits for tickets 02 and 10, and through 10 for the Operator's step, ticket 09)
+**Status:** superseded
 
 **Blocked by:** 02, 10
 Spec: sections 4.2, 5.2 and 7. ADR 0016 decision 3.
@@ -31,3 +31,4 @@ Spec: sections 4.2, 5.2 and 7. ADR 0016 decision 3.
 - Commit subject `Trend radar ticket 11: X Trends for three places`, body ends with `Ticket: .scratch/trend-radar/issues/11-x-trends-for-three-places.md`. No `Closes #N`.
 
 ## Comments
+- 2026-11-21 cos triage: no paid X; X is read through the logged-in Argus Chrome profile (Operator, 2026-11-21)

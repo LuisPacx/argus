@@ -5,7 +5,7 @@
 
 **Blocked by:** 14 (ship after the acceptance run). The migration rewrites the live `.data/argus.db` and needs a worker restart, so nothing here is deployed while the 48 h run is live; develop against copies.
 
-**Status:** ready
+**Status:** superseded
 
 ## Design
 
@@ -61,3 +61,4 @@ Each AC names its tests; assert full shapes with `toEqual`/`toMatchObject`, not 
 - `dexscreener:trending` is a market Source: added to `MARKET_SOURCE_IDS`, and the text above covers both Sources.
 - No re-judge on first matched launches: only news changes re-judge (default kept).
 - Do not fetch IPFS descriptions (default kept).
+- 2026-11-21 cos triage: fed the automatic judge loop, which is off under ADR 0009

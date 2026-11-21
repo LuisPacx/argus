@@ -6,7 +6,7 @@ Spec: sections 8, 12, 14, 15 (slice 13).
 
 **Blocked by:** 13 3a acceptance run (14 days)
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The score is rules derived from approved lessons only, computed from the frozen Snapshot, with no Claude run and no label access (tested)
 - [ ] Only Cohorts later than the ones the lessons came from are scored
@@ -16,3 +16,4 @@ Spec: sections 8, 12, 14, 15 (slice 13).
 - [ ] The report states Cohort sizes and warns when a decile is too small to mean much
 - [ ] Output is a pass/fail report saved in the phase-3-feedback directory, and the War Room shows the same result
 - [ ] The backtest is read-only over stored data, so it spends nothing and needs no --dry-run, which the report states
+- 2026-11-21 cos triage: auto-spec/auto-approve break the Operator's rule that agents run only when he triggers them

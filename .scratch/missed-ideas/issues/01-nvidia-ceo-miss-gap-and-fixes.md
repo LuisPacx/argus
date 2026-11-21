@@ -3,7 +3,7 @@
 
 **What to build:** a gap analysis of the missed NVIDIA CEO idea, written in this ticket. It names the pipeline stage that failed and lists ranked fixes, each with its cost and risk. The user chooses the fixes in a grilling session run by cos. Then each chosen fix becomes its own tagged ticket. Nothing is implemented in this ticket.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** the two reports below, which are in progress (2026-11-12):
 - `.scratch/missed-ideas/2026-11-12-nvidia-ceo/external.md`
@@ -116,3 +116,4 @@ Subject `Missed ideas ticket 01: <what changed>`, body ending with `Ticket: .scr
 - **Q15:** the ticket list. The user's T1 to T7 became: T1 = the edit to viral-sources/01 (s/high), T2 = ticket 03, T3 = ticket 04, T4 = ticket 05, T5 = ticket 06, T6 = ticket 07, T7 = ticket 08. Order as in "Chosen fixes".
 
 Written by the ticket writer on the same day. The training-case box is ticked because ticket 08 exists; the case record itself is pending until ticket 08 is done. This ticket's Status stays `open` until then.
+- 2026-11-21 cos triage: fixes landed (ADR 0013, Rubric v3, meme kind, Meta meme ideas behind ARGUS_MEME_IDEAS)

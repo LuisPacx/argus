@@ -3,7 +3,7 @@
 
 **What to build:** the day-14 verdict for stage B, read off the page. The scorecard of ticket 05 gains a stage B block that computes what the X API added and what it cost: which source was first for each good Trend, how many only X had, the dollars against the cap per day, the automatic topics and what they found, and the spec's keep-or-drop line. Useful alone: the Operator decides "keep B, drop to A, or open C" from numbers, not memory.
 
-**Status:** blocked (waits for tickets 05 and 12; its numbers need 14 days of stage B)
+**Status:** superseded
 
 **Blocked by:** 05, 12
 Spec: section 8, last bullet.
@@ -31,3 +31,4 @@ Spec: section 8, last bullet.
 - Commit subject `Trend radar ticket 14: the stage B go-or-stop block`, body ends with `Ticket: .scratch/trend-radar/issues/14-stage-b-go-or-stop-block.md`. No `Closes #N`.
 
 ## Comments
+- 2026-11-21 cos triage: no paid X; X is read through the logged-in Argus Chrome profile (Operator, 2026-11-21)

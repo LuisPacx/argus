@@ -3,7 +3,7 @@
 
 **What to build:** the manual scans' "coin-side top list" as a page block per topic: the biggest coins of the topic by market cap, created after the topic's start, each tied to the Moment it rides (by the Moment's judge phrases) or marked "no moment" (a release-brand coin such as Rockstar Games at $943K, which rides the release, not a clip). Useful alone: the Operator sees at a glance which Moments already have a winning coin and which big coins have no Moment (the signal that the scanner missed one).
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** 04
 
@@ -28,3 +28,4 @@
 - Commit subject `Moment scanner ticket 09: coin-side list`, body ends with `Ticket: .scratch/moment-scanner/issues/09-coin-side-list.md`.
 
 ## Comments
+- 2026-11-21 cos triage: replaced by human-researcher 05 (the brief names coins about the topic)

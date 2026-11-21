@@ -3,7 +3,7 @@
 
 **What to build:** missed-ideas/01 asks that this case be recorded as a training case. In this project training means a real case plus lessons written into the prompts later (no fine-tuning). Add the NVIDIA CEO case to Phase 3 tickets 07 (cases and cohorts), 08 (lesson aggregation) and 09 (playbook into the prompts) as a named, sourced case with its lesson candidates, so those tickets pick it up when they run.
 
-**Status:** open
+**Status:** superseded
 
 **Blocked by:** none. Can run any time in the agreed order (warroom-redesign/10 slice c, then 03, 04, 05, 06, 07; viral-sources/01 in parallel; this ticket is independent and cheap).
 
@@ -36,3 +36,4 @@ Origin: `.scratch/missed-ideas/issues/01-nvidia-ceo-miss-gap-and-fixes.md`, step
 One commit. Subject `Missed ideas ticket 08: <what changed>`, body ending with `Ticket: .scratch/missed-ideas/issues/08-record-nvidia-training-case.md` before the trailers. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+- 2026-11-21 cos triage: its consumers (phase-3-feedback 07-09) are superseded

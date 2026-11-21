@@ -7,7 +7,7 @@ Operator prerequisites: image built (`pnpm image:build`), network created (same 
 
 **Blocked by:** 08, 09, 15
 
-**Status:** closed: superseded by tickets 13-18 and the AC5 build test (user, 2026-11-12); open boxes left unticked
+**Status:** superseded
 
 - [ ] A live run reaches `built` with a private repo, a responding preview and cost on the card; repo URL, preview URL and cost recorded under Comments
 - [ ] Forced failure: one retry, then `build-failed` with a session_id that resumes in tmux
@@ -16,3 +16,4 @@ Operator prerequisites: image built (`pnpm image:build`), network created (same 
 - [ ] Budget and wall-clock caps are covered by tests (named under Comments)
 - [ ] Subscription usage of the run recorded under Comments, and §13 updated
 - [ ] Repos and previews created during the run listed for the Operator to delete
+- 2026-11-21 cos triage: already ended; status normalised

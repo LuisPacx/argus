@@ -32,3 +32,4 @@ Also an Operator go, which is not a ticket: do not start until the Operator has 
 
 ## Comments
 - Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)
+- 2026-11-21 cos triage: ADR 0009, the Operator researches; the automatic moment loop stays off (ARGUS_MOMENTS)

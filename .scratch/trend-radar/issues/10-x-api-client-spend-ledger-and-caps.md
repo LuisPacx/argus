@@ -3,7 +3,7 @@
 
 **What to build:** the client that every stage B ticket goes through, and nothing that calls it yet. One module names the X API host and exactly two read endpoints (Trends by place, Counts recent). Every request first passes the spend gate: a ledger of what was spent in the rolling 24 hours and 30 days, a daily cap of $3.00 and a 30-day cap of $90 in code, a dry run that sends nothing, fail-closed rules for unknown cost and an unreadable ledger. The key comes from `.env` through the dev server's one new allowed name. Useful alone: the spend cap and its page block exist and are tested before a single paid request is made, so tickets 11 and 12 cannot spend without them.
 
-**Status:** blocked (waits for the Operator's step, ticket 09)
+**Status:** superseded
 
 **Blocked by:** 01, 09
 Spec: section 4.2 and 7. ADR 0016 decision 3. Pattern: `packages/core/src/study/helius.ts` (the one module that names a host and its verbs, with its cost table), `api-spend.test.ts` and `MAX_API_DAILY_USD` for the cap style, `scripts/dev-env.mjs` for the allowed `.env` names.
@@ -38,3 +38,4 @@ Spec: section 4.2 and 7. ADR 0016 decision 3. Pattern: `packages/core/src/study/
 - Commit subject `Trend radar ticket 10: the X API client, the spend ledger and the caps`, body ends with `Ticket: .scratch/trend-radar/issues/10-x-api-client-spend-ledger-and-caps.md`. No `Closes #N`.
 
 ## Comments
+- 2026-11-21 cos triage: no paid X; X is read through the logged-in Argus Chrome profile (Operator, 2026-11-21)

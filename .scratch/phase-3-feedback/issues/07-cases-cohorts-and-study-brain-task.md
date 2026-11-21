@@ -21,3 +21,4 @@ Spec: sections 5, 8, 9, 15 (slice 8).
 
 ## Comments
 - Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

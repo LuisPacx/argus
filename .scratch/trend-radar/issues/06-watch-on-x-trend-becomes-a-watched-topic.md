@@ -30,3 +30,4 @@ Radar tickets only on the line above; the two moment-scanner tickets are the ext
 
 ## Comments
 - Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)
+- 2026-11-21 cos triage: automatic watched topics/ideas break the Operator's trigger-only rule

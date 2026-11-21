@@ -3,7 +3,7 @@
 
 **What to build:** argus now suggests meme ideas (ticket 06). Without a measurement it cannot tell whether they are good. For every `meme` Proposal, record the Meta's stats at the time it was made, its outcome at +6 h and +24 h, and the later tokens that match the idea's name or ticker with their own outcome. The weekly review reports the **hit rate** against the base rate (1.3% of creates migrate after 60 s, from viral-sources/04's backtest, `.scratch/viral-sources/issues/04-beta-finder.md`).
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** 06 (the `meme` rows and `meta_snapshot` this ticket reads). Agreed order: warroom-redesign/10 slice c, then 03, 04, 05, 06, **07**.
 
@@ -49,3 +49,4 @@ Offline in `pnpm check`.
 One commit after a full `pnpm check`. Subject `Missed ideas ticket 07: <what changed>`, body ending with `Ticket: .scratch/missed-ideas/issues/07-idea-outcome-tracking-and-weekly-review.md` before the trailers. Tick the boxes in the commit only if the full check does not stamp the tree afterwards, otherwise in a follow-up docs commit. No `Closes #N`: this repo has no GitHub issues.
 
 ## Comments
+- 2026-11-21 cos triage: replaced by human-researcher 04 (Pick outcomes) and 08 (Scoreboard)

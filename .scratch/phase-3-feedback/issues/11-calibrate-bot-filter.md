@@ -6,7 +6,7 @@ Spec: sections 7, 13, 14.
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label, plus at least one week of labelled migrators
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The crash measure (a price drop in the first 20 minutes after migration) is defined, implemented and its data source and gaps are stated
 - [ ] A report compares crash rates for the organic and bot-driven groups under the starting thresholds, with counts
@@ -16,3 +16,4 @@ Spec: sections 7, 13, 14.
 - [ ] Re-bucketing from stored metrics is run and its counts shown on the Study page, with no recapture and no extra chain calls
 - [ ] Credits used by the calibration are reported; any step that spends supports --dry-run
 - [ ] Tests cover the crash measure and the re-bucketing
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

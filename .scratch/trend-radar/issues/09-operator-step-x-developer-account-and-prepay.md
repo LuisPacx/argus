@@ -3,7 +3,7 @@
 
 **What this is:** the one thing stage B waits for. Every stage B ticket (10 to 14) is blocked until this is done. It is also a decision point: he reads stage A's scorecard first and only then pays.
 
-**Status:** waiting-for-operator (not ready-for-agent; an agent must not start tickets 10 to 14 until the Operator has written "go B" under Comments below and ticked step 7)
+**Status:** superseded
 
 **Blocked by:** 05
 Ticket 05 (the scorecard) must be built and stage A must have run its 14 days. Spec: section 8. ADR 0016, "Is paying for the X API a good choice?".
@@ -37,3 +37,4 @@ Wording on X's console may differ from what is written here; the research read t
 - [ ] `X_API_BEARER_TOKEN` is in `.env`, git-ignored, and the name is approved (step 7).
 
 ## Comments
+- 2026-11-21 cos triage: no paid X; X is read through the logged-in Argus Chrome profile (Operator, 2026-11-21)

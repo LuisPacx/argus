@@ -36,3 +36,4 @@ Spec: section 6.2. ADR 0016 decision 4. Moment scanner spec sections 4 and 7 and
 
 ## Comments
 - Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)
+- 2026-11-21 cos triage: automatic watched topics/ideas break the Operator's trigger-only rule

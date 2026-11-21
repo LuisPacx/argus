@@ -6,7 +6,7 @@ Spec: sections 12, 15 (slice 12).
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label; 06 X capture job; 07 Cases, Cohorts and the blind study Brain task; 08 Lesson aggregation, the Playbook and the weekly review page; 09 Playbook into the prompts; 10 Own-launch tracking (06 drops out if ticket 05 rules X out of 3a)
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The run covers 14 days with no operator action beyond known setup; any intervention is logged with its reason
 - [ ] Evidence for daily Snapshots and for chain labels written at 24h and 7d on those days
@@ -17,3 +17,4 @@ Spec: sections 12, 15 (slice 12).
 - [ ] Nothing in the run posted from the X account, spent beyond the caps, or called the API for study runs (checked from stored records)
 - [ ] The record lists failed or marginal items and says plainly whether 3a is done; it is saved in the phase-3-feedback directory
 - [ ] The run and the review use --dry-run first for any new spending step
+- 2026-11-21 cos triage: auto-spec/auto-approve break the Operator's rule that agents run only when he triggers them

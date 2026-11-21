@@ -6,7 +6,7 @@ Spec: sections 5, 6, 13, 14.
 
 **Blocked by:** 02 Snapshot metadata and website at the fixed age, end to end; 05 X capture spike
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Selection rule uses only signals known at capture time (initial dev buy, links present); the rule version and each token's reason are stored (tested)
 - [ ] The daily cap is counted in code from config and cannot be exceeded; supports --dry-run, which opens no browser and writes no Snapshot
@@ -17,3 +17,4 @@ Spec: sections 5, 6, 13, 14.
 - [ ] X text reaches later Claude runs only as delimited untrusted data; the sanitising is tested
 - [ ] A feature switch turns X capture off, and Snapshots then store null X fields and the capture status "off"
 - [ ] Study page shows X captures against the cap and the stop-for-the-day state; checked in a browser
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

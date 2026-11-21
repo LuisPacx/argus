@@ -8,7 +8,7 @@ Spec: sections 7, 13, 14, 15 (slice 4).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Labels come from chain through Helius, batched at 100 accounts per call, with the pinned Pump IDL version noted; times are chain event times, never receipt times
 - [ ] Both moments (curve complete, pool created) are stored; the label uses the one ticket 01 chose
@@ -19,3 +19,4 @@ Spec: sections 7, 13, 14, 15 (slice 4).
 - [ ] A chain error or rate limit leaves the token unlabelled for retry and does not write a wrong label (tested)
 - [ ] Tests run against recorded chain responses, including the _v2/_v3 and quote_mint variants
 - [ ] Study page shows label health (labelled at 24h, labelled at 7d, late migrators, disagreements); checked in a browser against seeded data
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

@@ -5,9 +5,10 @@
 
 **Blocked by:** None
 
-**Status:** closed: superseded by tickets 13-18 and the AC5 build test (user, 2026-11-12); open boxes left unticked
+**Status:** superseded
 
 - [ ] Each unverified claim in sections 4 to 7 is marked confirmed, refuted or adjusted, with the command and output
 - [ ] The final `claude` hostnames the sidecar saw are listed, and the allowlist decision recorded
 - [ ] If the internal network fails rootless, alternative 3 (socket) is tried and the choice updated
 - [ ] No images pulled beyond the one base image; no existing containers, images or networks touched; test objects removed afterwards
+- 2026-11-21 cos triage: already ended; status normalised

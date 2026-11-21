@@ -8,7 +8,7 @@ Spec: sections 5, 7, 9, 13, 15 (slice 5).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The five raw metrics are stored per migrator: creation-slot supply share, clustered supply, top-10 holder share, creator holding and selling, buyer count with round-trip volume share
 - [ ] Wallet analysis never runs for non-migrators or for tokens outside the population (tested)
@@ -18,3 +18,4 @@ Spec: sections 5, 7, 9, 13, 15 (slice 5).
 - [ ] A Helius credit counter is kept per run and per day; the job stops at a configured daily credit cap and supports --dry-run, which makes no chain call
 - [ ] Study page shows bucket counts, the Fast by bot-driven cross-tab and credits used against the 1M/month Free budget; checked in a browser against seeded data
 - [ ] Full test suite and type-check pass once before the commit
+- 2026-11-21 cos triage: Study machinery replaced by human-researcher 08 (Scoreboard) and 09 (Playbook)

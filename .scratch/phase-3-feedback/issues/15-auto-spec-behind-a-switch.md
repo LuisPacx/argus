@@ -6,7 +6,7 @@ Spec: sections 12, 15 (slice 13).
 
 **Blocked by:** 14 3b backtest and the Q20 gate (the gate must have passed)
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] The switch is off by default in config and in a fresh database (tested)
 - [ ] With the switch on, a draft Spec is created only for Proposals in the top score band set in config, and only once per Proposal (tested)
@@ -15,3 +15,4 @@ Spec: sections 12, 15 (slice 13).
 - [ ] The Operator can see in the War Room which drafts were automatic
 - [ ] No approval, build or launch happens as a result of an auto draft (tested)
 - [ ] --dry-run lists the Proposals that would get drafts and makes no Claude call
+- 2026-11-21 cos triage: auto-spec/auto-approve break the Operator's rule that agents run only when he triggers them

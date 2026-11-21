@@ -3,7 +3,7 @@
 
 **What to build:** the scanner stops listing posts and lists **Moments**. The manual scans' qualifying rules become code: spellings search (group A), the three bars, grouping of posts into one Moment, dedupe, and "grown". The page shows `qualifying` Moments above `rising` ones, each with its best post, how many accounts have spread it, and the time of every tier change. Useful alone: the Operator gets the shortlist the 15:20 manual scan produced, without a judge or a coin side yet.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 **Blocked by:** 01
 
@@ -35,3 +35,4 @@
 - Commit subject `Moment scanner ticket 02: qualifying bars, grouped Moments`, body ends with `Ticket: .scratch/moment-scanner/issues/02-qualifying-bars-grouped-moments.md`.
 
 ## Comments
+- 2026-11-21 cos triage: ADR 0009, the Operator researches; the automatic moment loop stays off (ARGUS_MOMENTS)
