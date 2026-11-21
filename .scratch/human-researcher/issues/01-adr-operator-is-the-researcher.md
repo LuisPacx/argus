@@ -17,3 +17,4 @@
 
 ## Comments
 - 2026-11-20 cos: merged 7d1a24f. Reviewer SHIP; verified via stacked run at e4ef7ba (222 files / 3519 tests, stamped 6562e40f88). Box 'Meta ranking ... still run (tested)' left open: no new test; existing tests cover the untouched code.
+- 2026-11-20 cos: 4597a77 adds default-schedules.test.ts (Meta ranking, ingest run; no judge/propose/meme-ideas). Box stays open: radar ticks not exercised (off unless ARGUS_RADAR=1), meta-group/meta-summary only config-asserted.
