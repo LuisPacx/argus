@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { DexScreenerClient, DexScreenerTrendingSource } from "./dexscreener.ts";
+import { DexScreenerClient, DexScreenerTrendingSource, DexTruncatedError } from "./dexscreener.ts";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "../fixtures", name), "utf8");
 const MOON = "MoonCatMint1111111111111111111111111111111";
@@ -277,7 +277,7 @@ describe("DexScreenerClient.tokenPairs with failIfTruncated", () => {
 
   it("throws when the answer is as long as the cut, so a missing pair cannot be read as absent", async () => {
     const client = new DexScreenerClient({ fetchText: async () => body(100), retries: 0 });
-    await expect(client.tokenPairs("solana", [MINT], { failIfTruncated: true })).rejects.toThrow("may be cut");
+    await expect(client.tokenPairs("solana", [MINT], { failIfTruncated: true })).rejects.toBeInstanceOf(DexTruncatedError);
     expect(await client.tokenPairs("solana", [MINT])).toHaveLength(100); // other callers are unchanged
   });
 

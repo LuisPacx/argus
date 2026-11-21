@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Datastore } from "../datastore.ts";
-import type { DexPair } from "../sources/dexscreener.ts";
+import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 import { bondingStats, OUTCOME_GIVE_UP_MS, SAMPLE_GRACE_MS, trackPickOutcomes } from "./pick-outcomes.ts";
 import type { PickLookup, PickSnapshot } from "./picks.ts";
 
@@ -150,6 +150,18 @@ describe("pick outcomes", () => {
     expect(outcome(s)).toMatchObject({ result: "pending" });
   });
 
+  it("a failing lookup that is not a cut (an outage, a 429) makes exactly one call per chunk per tick", async () => {
+    const s = setup({}, CA_B);
+    s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
+    s.answers.set(CA_A, new Error("HTTP 429"));
+    s.answers.set(CA_B, new Error("HTTP 429"));
+    const r = await run(s, 5);
+    expect(s.calls).toHaveLength(1);
+    expect(r.failed).toBe(2);
+    await run(s, 10);
+    expect(s.calls).toHaveLength(2);
+  });
+
   it("a cut batch never decides a coin: it is split, and only a coin whose own answer fails waits", async () => {
     const s = setup({}, CA_B);
     s.store.recordPick({ snapshot: snap(CA_A), reason: "", topic: "" }, { now: T0 });
@@ -160,7 +172,7 @@ describe("pick outcomes", () => {
       async tokenPairs(_c, addresses, o) {
         asked.push(addresses);
         if (o?.failIfTruncated !== true) throw new Error("the job must ask for truncation errors");
-        if (addresses.length > 1) throw new Error("answer may be cut"); // what the real client does at 100 entries
+        if (addresses.length > 1) throw new DexTruncatedError("answer may be cut"); // what the real client does at 100 entries
         return s.dex.tokenPairs("solana", addresses);
       },
     };

@@ -18,6 +18,14 @@ const MAX_SUMMARY_CHARS = 1_000;
 const CHAIN_RE = /^[a-z0-9-]{1,32}$/;
 const ADDRESS_RE = /^[A-Za-z0-9]{20,66}$/;
 
+/** A token lookup answer that may have lost pairs to the entry cut (`tokenPairs` with `failIfTruncated`). Splitting the batch is the fix; any other error is not this one. */
+export class DexTruncatedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DexTruncatedError";
+  }
+}
+
 export interface BoostedToken {
   chainId: string;
   tokenAddress: string;
@@ -127,7 +135,7 @@ export class DexScreenerClient {
     const data = await this.json(`/tokens/v1/${chainId}/${safe.join(",")}`);
     // Only the first MAX_ENTRIES entries are read, so an answer that long may have lost pairs (a graduation pool). A caller that decides something
     // from the absence of a pair asks for an error instead and splits the batch.
-    if (opts.failIfTruncated === true && Array.isArray(data) && data.length >= MAX_ENTRIES) throw new Error(`DexScreener: the answer has ${MAX_ENTRIES} or more entries and may be cut`);
+    if (opts.failIfTruncated === true && Array.isArray(data) && data.length >= MAX_ENTRIES) throw new DexTruncatedError(`DexScreener: the answer has ${MAX_ENTRIES} or more entries and may be cut`);
     return this.pairs(data);
   }
 

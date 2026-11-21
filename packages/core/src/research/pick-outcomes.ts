@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { DexPair } from "../sources/dexscreener.ts";
+import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 import { decideBonded, LAUNCHPAD_MINT_SUFFIX, toPick, type PickLookup, type PickSource, type ResearchPick } from "./picks.ts";
 
 /**
@@ -163,8 +163,9 @@ export async function trackPickOutcomes(store: OutcomeStore, dex: PickLookup, op
     try {
       const pairs = await dex.tokenPairs("solana", chunk, { failIfTruncated: true });
       for (const ca of chunk) answers.set(ca, pairs.filter((x) => x.tokenAddress === ca));
-    } catch {
-      if (chunk.length === 1) return;
+    } catch (e) {
+      // Only a cut answer is split. Any other failure (an outage, a 429) drops the chunk until the next tick: splitting would multiply the requests.
+      if (!(e instanceof DexTruncatedError) || chunk.length === 1) return;
       const mid = Math.ceil(chunk.length / 2);
       await lookup(chunk.slice(0, mid));
       await lookup(chunk.slice(mid));
