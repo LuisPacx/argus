@@ -9,3 +9,5 @@ node_modules/
 .claude/worktrees/
 .fake-sessions/
 .scratch/*.bak*
+# Operator research notes, local only
+.scratch/research/
