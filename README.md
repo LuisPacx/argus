@@ -26,6 +26,7 @@ Create the Phase 1 tickets with `/to-tickets` from [`docs/architecture.md`](docs
 
 1. `pnpm install`
 2. `pnpm models:fetch` (the embedding model, once; safe to rerun)
+2b. `pnpm run doctor` (preflight: Claude login, the X-logged-in Chrome profile, database, War Room and worker; one PASS/WARN/FAIL line each with a fix hint, exit 1 on a FAIL; no model call, no browser start. Use `pnpm run doctor`: a bare `pnpm doctor` is pnpm's own command)
 3. `pnpm dev:start` (starts the worker and the War Room)
 4. Open the War Room at http://localhost:3100/ (logs: `.data/run/warroom-dev.log` and `.data/run/worker.log`)
 5. `pnpm dev:status` / `pnpm dev:stop`

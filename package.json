@@ -16,6 +16,7 @@
     "dev:start": "node scripts/dev-server.mjs start",
     "dev:stop": "node scripts/dev-server.mjs stop",
     "dev:status": "node scripts/dev-server.mjs status",
+    "doctor": "node --disable-warning=ExperimentalWarning scripts/doctor.mjs",
     "models:fetch": "node scripts/fetch-models.mjs",
     "verify:semantic": "node scripts/measure-narrative-threshold.mjs --embedder semantic --check && node scripts/measure-narrative-threshold.mjs --sample holdout --embedder semantic --check",
     "research:dry-run": "node scripts/research-dry-run.mjs",
