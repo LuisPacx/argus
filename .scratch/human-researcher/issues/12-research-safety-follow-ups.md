@@ -11,13 +11,13 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each source in a brief shows its host as plain text beside the link; a hostile source value (odd scheme, a host written to look like another, very long text) is shown escaped and cut, and a non-web link is not made clickable (render tests).
-- [ ] Source links open with no opener and no referrer, and no wording or badge anywhere says a source is verified (render test).
-- [ ] The research run's fetch rules refuse localhost, loopback, private ranges, link-local addresses and the War Room's own host, and a test proves a localhost URL is not allowed through the run's rules or guard (test on the built command or guard, no live call).
-- [ ] The same test covers an address written in an unusual form (for example a numeric or bracketed form) and a public address is still allowed (tests).
-- [ ] Research X loads recorded as "research: <topic>" stay in the moment scans table and do not appear on the Moments page; ordinary scans still do (test with both kinds of rows).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Each source in a brief shows its host as plain text beside the link; a hostile source value (odd scheme, a host written to look like another, very long text) is shown escaped and cut, and a non-web link is not made clickable (render tests).
+- [x] Source links open with no opener and no referrer, and no wording or badge anywhere says a source is verified (render test).
+- [x] The research run's fetch rules refuse localhost, loopback, private ranges, link-local addresses and the War Room's own host, and a test proves a localhost URL is not allowed through the run's rules or guard (test on the built command or guard, no live call).
+- [x] The same test covers an address written in an unusual form (for example a numeric or bracketed form) and a public address is still allowed (tests).
+- [x] Research X loads recorded as "research: <topic>" stay in the moment scans table and do not appear on the Moments page; ordinary scans still do (test with both kinds of rows).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments

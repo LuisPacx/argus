@@ -7,15 +7,15 @@ Topic matching, defined: a Pick belongs to a topic when the topic typed on the P
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] An Operator Pick whose coin was in no brief's coin list is counted on its topic, in the Operator's rate and n (test with such a Pick).
-- [ ] A withdrawn Operator Pick is not counted (test).
-- [ ] Topic matching follows the stated rule: differences in letter case and surrounding space match, a different word does not, a Pick with no topic is never compared (tests).
-- [ ] Only topics where both sides picked are compared, and both sides are counted over exactly those topics (test).
-- [ ] The 20-per-side verdict rule is unchanged: below 20 on either side the page says "not enough Picks yet" and names no winner (render test).
-- [ ] The page states in one line what is counted, and the old row for Operator Picks outside the brief lists is gone (render test).
-- [ ] The Scoreboard is still read only: it calls no model and writes no row (test).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] An Operator Pick whose coin was in no brief's coin list is counted on its topic, in the Operator's rate and n (test with such a Pick).
+- [x] A withdrawn Operator Pick is not counted (test).
+- [x] Topic matching follows the stated rule: differences in letter case and surrounding space match, a different word does not, a Pick with no topic is never compared (tests).
+- [x] Only topics where both sides picked are compared, and both sides are counted over exactly those topics (test).
+- [x] The 20-per-side verdict rule is unchanged: below 20 on either side the page says "not enough Picks yet" and names no winner (render test).
+- [x] The page states in one line what is counted, and the old row for Operator Picks outside the brief lists is gone (render test).
+- [x] The Scoreboard is still read only: it calls no model and writes no row (test).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments

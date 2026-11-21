@@ -5,14 +5,14 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Two runs started at the same time write to two different output folders and neither overwrites the other's screenshots (test or scripted check).
-- [ ] The output folder is printed at the end of a run, including a run that fails.
-- [ ] With no `--port` the tool picks a free port, and two runs at once do not collide; with `--port` the given port is used (tests).
-- [ ] Old run folders are removed or capped at a stated number, and the current run's folder is never removed by its own cleanup (test).
-- [ ] Nothing is written to a fixed shared folder, and nothing outside the machine's temp area and the repo's usual ignored folders.
-- [ ] The worker rules and any other doc that names the old folder or port are updated to match.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Two runs started at the same time write to two different output folders and neither overwrites the other's screenshots (test or scripted check).
+- [x] The output folder is printed at the end of a run, including a run that fails.
+- [x] With no `--port` the tool picks a free port, and two runs at once do not collide; with `--port` the given port is used (tests).
+- [x] Old run folders are removed or capped at a stated number, and the current run's folder is never removed by its own cleanup (test).
+- [x] Nothing is written to a fixed shared folder, and nothing outside the machine's temp area and the repo's usual ignored folders.
+- [x] The worker rules and any other doc that names the old folder or port are updated to match.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
