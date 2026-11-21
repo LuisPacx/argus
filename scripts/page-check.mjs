@@ -7,6 +7,8 @@
 // a state-changing POST/PUT/DELETE it would trigger is blocked, not sent. Service workers are blocked; WebSockets are not intercepted.
 // `--seed (--all | <path>...)` instead starts a private War Room on a throwaway DB filled with sample rows (scripts/page-seed.mjs,
 // scripts/page-check-server.mjs), checks every path the same way, then stops it and deletes the DB. The JSON says `"seeded": true`.
+// `--expect-post <path>` (repeatable; `*` = one segment, e.g. /api/picks/*/withdraw): a non-GET to that path is NOT sent (a stub answers it), is
+// printed as `expected POST seen: <method> <path>` and does not fail; if it never happens the run fails (that is the proof Enter works).
 // Output: unless --out is given, each run writes to its own fresh folder $TMPDIR/page-check/run-XXXXXX (the newest 10 are kept) and prints
 // `output folder: <dir>` last, also when the run fails. A seeded run without --port takes a free port from the OS; a plain run checks the
 // running War Room on 3100 unless --port says otherwise.
@@ -120,6 +122,23 @@ export function parseKeys(spec) {
   });
 }
 
+// `--expect-post <path>`: the first wanted pattern the request URL's path matches, else null. Exact path (query ignored); `*` is one non-empty segment.
+export function matchExpectedPost(wanted, reqUrl) {
+  let pathname;
+  try {
+    pathname = new URL(reqUrl).pathname;
+  } catch {
+    return null;
+  }
+  const parts = pathname.split('/');
+  return (
+    wanted.find((pattern) => {
+      const want = pattern.split('/');
+      return want.length === parts.length && want.every((seg, i) => (seg === '*' ? parts[i] !== '' : seg === parts[i]));
+    }) ?? null
+  );
+}
+
 // Pass/fail from a recorded result. `failOnOverflow` is the page's opt-in; overflow is otherwise only a warning.
 export function decide(result, { failOnOverflow = false } = {}) {
   const reasons = [];
@@ -132,12 +151,14 @@ export function decide(result, { failOnOverflow = false } = {}) {
   for (const e of result.consoleErrors) reasons.push(`console error: ${e}`);
   for (const e of result.pageErrors) reasons.push(`page error: ${e}`);
   for (const r of result.failedRequests) reasons.push(`failed request: ${r}`);
+  const ep = result.expectedPosts;
+  if (ep) for (const want of ep.wanted) if (!ep.seen.some((s) => s.pattern === want)) reasons.push(`expected POST never seen: ${want}`);
   for (const w of result.notes ?? []) warnings.push(w);
   return { exit: reasons.length > 0 ? 1 : 0, reasons, warnings };
 }
 
 export function parseArgs(argv) {
-  const opts = { path: '/', paths: [], port: DEFAULT_PORT, out: null, browser: null, keys: '', watch: [], seed: false, all: false };
+  const opts = { path: '/', paths: [], port: DEFAULT_PORT, out: null, browser: null, keys: '', watch: [], expectPost: [], seed: false, all: false };
   const positional = [];
   let portGiven = false;
   for (let i = 0; i < argv.length; i++) {
@@ -155,7 +176,11 @@ export function parseArgs(argv) {
     else if (a === '--browser') opts.browser = value();
     else if (a === '--keys') opts.keys = value();
     else if (a === '--watch') opts.watch.push(value());
-    else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
+    else if (a === '--expect-post') {
+      const p = value();
+      if (!p.startsWith('/') || p.startsWith('//')) throw new Error(`--expect-post needs a local path like /api/x, got "${p}"`);
+      opts.expectPost.push(p);
+    } else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
     else positional.push(a);
   }
   if (opts.seed) {
@@ -251,7 +276,7 @@ async function runKeys(page, steps, watch) {
   return log;
 }
 
-const USAGE = 'usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]...\n       pnpm page:check --seed (--all | <path>...) [--port N] [--out DIR]   (private War Room on sample data; paths may use {tech} {metaMeme} {newsMeme} {hostile} {angle} {topicMeme})';
+const USAGE = 'usage: pnpm page:check <path> [--port N] [--out DIR] [--keys "Tab,Enter,Escape"] [--watch SELECTOR]... [--expect-post PATH]...\n       pnpm page:check --seed (--all | <path>...) [--port N] [--out DIR] [--expect-post PATH]... (private War Room on sample data; paths may use {tech} {metaMeme} {newsMeme} {hostile} {angle} {topicMeme})';
 
 export async function main(argv) {
   let opts;
@@ -357,7 +382,7 @@ export async function main(argv) {
 async function checkOne({ opts, pagePath, seed, browserPath, revision, outDir, steps, chromium, state }) {
   const url = buildUrl(opts.port, pagePath);
   const names = fileNames(slugFor(pagePath, opts.seed));
-  const result = { url, ...(seed ? { seeded: true, seed } : {}), status: null, widths: [], consoleErrors: [], pageErrors: [], failedRequests: [], browser: null, keys: {}, exit: 0 };
+  const result = { url, ...(seed ? { seeded: true, seed } : {}), status: null, widths: [], consoleErrors: [], pageErrors: [], failedRequests: [], browser: null, keys: {}, ...(opts.expectPost.length > 0 ? { expectedPosts: { wanted: opts.expectPost, seen: [] } } : {}), exit: 0 };
   const notes = [];
   const blocked = new Set();
   let browser;
@@ -381,6 +406,14 @@ async function checkOne({ opts, pagePath, seed, browserPath, revision, outDir, s
             return route.abort();
           }
           if (req.method() !== 'GET' && req.method() !== 'HEAD') {
+            const pattern = matchExpectedPost(opts.expectPost, reqUrl);
+            if (pattern !== null) {
+              // Expected: recorded, never sent to the server; a harmless stub answers it.
+              const seenPath = new URL(reqUrl).pathname;
+              result.expectedPosts.seen.push({ method: req.method(), path: seenPath, pattern, width: vp.width });
+              console.log(`expected POST seen: ${req.method()} ${seenPath}`);
+              return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+            }
             blocked.add(reqUrl);
             result.failedRequests.push(`blocked ${req.method()} (read-only check): ${reqUrl}`);
             return route.abort();

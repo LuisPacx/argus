@@ -92,6 +92,27 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
     expect(profiles()).toEqual(before);
   });
 
+  it("--expect-post lets the Enter POST through the check without sending it, and fails when it never happens", async () => {
+    const out = tempDir("page-check-out-");
+    const ok = await run(["/form", "--port", String(port), "--out", out, "--keys", "focus=#go,Enter", "--expect-post", "/submit"]);
+    expect(ok.stdout).toContain("expected POST seen: POST /submit");
+    expect(ok.code).toBe(0);
+    expect(posts).toEqual([]); // stubbed, never sent
+    const json = JSON.parse(fs.readFileSync(path.join(out, "form.json"), "utf8"));
+    expect(json.expectedPosts.wanted).toEqual(["/submit"]);
+    expect(json.expectedPosts.seen[0]).toMatchObject({ method: "POST", path: "/submit" });
+
+    const other = await run(["/form", "--port", String(port), "--out", tempDir("page-check-out-"), "--keys", "focus=#go,Enter", "--expect-post", "/other"]);
+    expect(other.code).toBe(1);
+    expect(other.stdout).toContain("blocked POST"); // a POST to any other path still fails
+    expect(other.stdout).toContain("expected POST never seen: /other");
+
+    const never = await run(["/good", "--port", String(port), "--out", tempDir("page-check-out-"), "--keys", "focus=#a", "--expect-post", "/submit"]);
+    expect(never.code).toBe(1);
+    expect(never.stdout).toContain("expected POST never seen: /submit");
+    expect(posts).toEqual([]);
+  });
+
   it("--seed starts a private War Room on sample data, checks a page, and leaves no dir, process group or port behind", { timeout: 240000 }, async () => {
     const out = tempDir("page-check-out-");
     const r = await new Promise<{ code: number; stdout: string }>((resolve) => {

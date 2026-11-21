@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
-import { buildUrl, KEEP_RUNS, chooseBrowser, decide, fileNames, freePort, isLocalUrl, makeRunDir, outBase, outDirProblem, parseArgs, parseKeys, pruneRuns, slugFor } from "./page-check.mjs";
+import { buildUrl, KEEP_RUNS, chooseBrowser, decide, fileNames, freePort, isLocalUrl, makeRunDir, matchExpectedPost, outBase, outDirProblem, parseArgs, parseKeys, pruneRuns, slugFor } from "./page-check.mjs";
 
 const healthy = {
   widths: [
@@ -133,6 +133,34 @@ describe("page-check pass/fail decision", () => {
     expect(warned.exit).toBe(0);
     expect(warned.warnings[0]).toContain("horizontal overflow");
     expect(decide(over, { failOnOverflow: true }).exit).toBe(1);
+  });
+});
+
+describe("page-check --expect-post", () => {
+  it("parses a repeatable --expect-post", () => {
+    expect(parseArgs(["/research", "--expect-post", "/api/a", "--expect-post", "/api/b"])).toMatchObject({ expectPost: ["/api/a", "/api/b"] });
+    expect(parseArgs(["/research"]).expectPost).toEqual([]);
+    expect(() => parseArgs(["--expect-post"])).toThrow();
+    expect(() => parseArgs(["--expect-post", "api/a"])).toThrow();
+    expect(() => parseArgs(["--expect-post", "//evil.example/x"])).toThrow();
+  });
+
+  it("matches the path exactly, ignores the query, and lets * stand for one segment", () => {
+    const want = ["/api/picks/*/withdraw", "/api/x"];
+    expect(matchExpectedPost(want, "http://localhost:3100/api/picks/7/withdraw")).toBe("/api/picks/*/withdraw");
+    expect(matchExpectedPost(want, "http://localhost:3100/api/x?a=1")).toBe("/api/x");
+    expect(matchExpectedPost(want, "http://localhost:3100/api/picks/7/8/withdraw")).toBeNull();
+    expect(matchExpectedPost(want, "http://localhost:3100/api/picks//withdraw")).toBeNull();
+    expect(matchExpectedPost(want, "http://localhost:3100/api/x/y")).toBeNull();
+    expect(matchExpectedPost([], "http://localhost:3100/api/x")).toBeNull();
+  });
+
+  it("fails a run whose expected request never happened, and passes one where it did", () => {
+    const missing = decide({ ...healthy, expectedPosts: { wanted: ["/api/x"], seen: [] } });
+    expect(missing.exit).toBe(1);
+    expect(missing.reasons).toEqual(["expected POST never seen: /api/x"]);
+    const seen = decide({ ...healthy, expectedPosts: { wanted: ["/api/x"], seen: [{ method: "POST", path: "/api/x", pattern: "/api/x" }] } });
+    expect(seen).toEqual({ exit: 0, reasons: [], warnings: [] });
   });
 });
 
