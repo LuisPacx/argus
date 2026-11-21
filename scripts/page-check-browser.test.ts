@@ -51,9 +51,9 @@ async function freePort(): Promise<number> {
   return p;
 }
 
-function run(args: string[]): Promise<{ code: number; stdout: string }> {
+function run(args: string[], env?: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
-    execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), ...args], { timeout: 50000 }, (err, stdout, stderr) => {
+    execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), ...args], { timeout: 50000, env: env ? { ...process.env, ...env } : process.env }, (err, stdout, stderr) => {
       resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout + stderr });
     });
   });
@@ -94,13 +94,16 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
 
   it("--seed starts a private War Room on sample data, checks a page, and leaves no dir, process group or port behind", { timeout: 240000 }, async () => {
     const out = tempDir("page-check-out-");
-    const seedPort = await freePort(); // a fixed port collided whenever two checks ran at once
     const r = await new Promise<{ code: number; stdout: string }>((resolve) => {
-      execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), "--seed", "/proposals/{hostile}", "--port", String(seedPort), "--out", out], { timeout: 220000 }, (err, stdout, stderr) => {
+      // no --port: the tool takes a free port from the OS itself
+      execFile("node", [path.resolve(import.meta.dirname, "page-check.mjs"), "--seed", "/proposals/{hostile}", "--out", out], { timeout: 220000 }, (err, stdout, stderr) => {
         resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout: stdout + stderr });
       });
     });
-    expect(r.stdout).toContain(`seed cleanup: port ${seedPort} free, dir removed`);
+    const seedPort = Number(/seed cleanup: port (\d+) free, dir removed/.exec(r.stdout)![1]);
+    expect(seedPort).toBeGreaterThan(1023);
+    expect([3100, 3217, 3351, 3361, 3371]).not.toContain(seedPort);
+    expect(r.stdout).toContain(`output folder: ${out}`);
     expect(r.code).toBe(0);
     const line = r.stdout.split("\n").find((l) => l.startsWith("seed: "))!;
     const dir = /dir (\S+)/.exec(line)![1]!;
@@ -111,6 +114,34 @@ describe.skipIf(!installed)("page-check in a real headless browser", { timeout: 
     expect(path.basename(dir)).toMatch(/^page-seed-[A-Za-z0-9]{6}$/); // fs.mkdtemp, never a pid-named dir a later run could find stale
     expect(fs.existsSync(dir)).toBe(false);
     expect(() => process.kill(-pgid, 0)).toThrow(/ESRCH/);
+  });
+
+  it("two simultaneous runs without --out write to two different folders, and each prints its folder, also when it fails", async () => {
+    const tmp = tempDir("page-check-tmp-"); // TMPDIR for the children, so nothing lands in the real temp area
+    const [a, b] = await Promise.all([run(["/good", "--port", String(port)], { TMPDIR: tmp }), run(["/bad", "--port", String(port)], { TMPDIR: tmp })]);
+    expect(a.code).toBe(0);
+    expect(b.code).toBe(1); // the failing run still names its folder
+    const folder = (s: string) => /^output folder: (.+)$/m.exec(s)?.[1];
+    const fa = folder(a.stdout)!;
+    const fb = folder(b.stdout)!;
+    expect(fa).toBeTruthy();
+    expect(fb).toBeTruthy();
+    expect(fa).not.toBe(fb);
+    expect(path.dirname(fa)).toBe(path.join(tmp, "page-check"));
+    expect(path.dirname(fb)).toBe(path.join(tmp, "page-check"));
+    expect(fs.existsSync(path.join(fa, "good-1240.png"))).toBe(true);
+    expect(fs.existsSync(path.join(fb, "bad-1240.png"))).toBe(true);
+    expect(fs.existsSync(path.join(fa, "bad-1240.png"))).toBe(false);
+    expect(fs.existsSync(path.join(fb, "good-1240.png"))).toBe(false);
+  });
+
+  it("uses the given --port as given: nothing there is a failed run that still prints its folder", async () => {
+    const tmp = tempDir("page-check-tmp-");
+    const dead = await freePort(); // nothing listens
+    const r = await run(["/good", "--port", String(dead)], { TMPDIR: tmp });
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain(`localhost:${dead}`);
+    expect(r.stdout).toMatch(/^output folder: /m);
   });
 
   it("exits 2 for a non-local path", async () => {

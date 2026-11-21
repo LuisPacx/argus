@@ -154,8 +154,8 @@ describe("seed paths and arguments", () => {
     for (const p of STANDARD_PATHS) expect(pathProblem(p), p).toBeNull();
   });
 
-  it("parses --seed, --all and the default seed port, and keeps the plain one-path rule", () => {
-    expect(parseArgs(["--seed", "--all"])).toMatchObject({ seed: true, port: SEED_DEFAULT_PORT, paths: STANDARD_PATHS });
+  it("parses --seed, --all and the free-port default (port null until main asks the OS), and keeps the plain one-path rule", () => {
+    expect(parseArgs(["--seed", "--all"])).toMatchObject({ seed: true, port: null, paths: STANDARD_PATHS });
     expect(parseArgs(["--seed", "/meta", "/proposals/{tech}", "--port", "3300"])).toMatchObject({ seed: true, port: 3300, paths: ["/meta", "/proposals/{tech}"] });
     expect(parseArgs(["/meta"])).toMatchObject({ seed: false, port: 3100, paths: ["/meta"] });
     expect(() => parseArgs(["/a", "/b"])).toThrow(/one path only/);

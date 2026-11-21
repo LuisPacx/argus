@@ -7,15 +7,19 @@
 // a state-changing POST/PUT/DELETE it would trigger is blocked, not sent. Service workers are blocked; WebSockets are not intercepted.
 // `--seed (--all | <path>...)` instead starts a private War Room on a throwaway DB filled with sample rows (scripts/page-seed.mjs,
 // scripts/page-check-server.mjs), checks every path the same way, then stops it and deletes the DB. The JSON says `"seeded": true`.
-// Ticket: .scratch/warroom-redesign/issues/11-headless-page-check.md, 14-page-check-seed-option.md
+// Output: unless --out is given, each run writes to its own fresh folder $TMPDIR/page-check/run-XXXXXX (the newest 10 are kept) and prints
+// `output folder: <dir>` last, also when the run fails. A seeded run without --port takes a free port from the OS; a plain run checks the
+// running War Room on 3100 unless --port says otherwise.
+// Ticket: .scratch/warroom-redesign/issues/11-headless-page-check.md, 14-page-check-seed-option.md, .scratch/human-researcher/issues/13-page-check-per-run-output-and-port.md
 // Never uses the user's Chrome, the Argus Chrome profile, a `channel` or the 1194 browser build.
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { OVERFLOW_FAILS } from './warroom-pages.mjs';
-import { SEED_DEFAULT_PORT, portBusy, seedPortProblem, startSeededServer, stopAllSeeded } from './page-check-server.mjs';
+import { portBusy, seedPortProblem, startSeededServer, stopAllSeeded } from './page-check-server.mjs';
 import { STANDARD_PATHS, expandTokens, pathProblem } from './page-seed.mjs';
 
 export const DEFAULT_PORT = 3100; // scripts/dev-server.mjs PORT (not exported there)
@@ -157,9 +161,11 @@ export function parseArgs(argv) {
   if (opts.seed) {
     if (opts.all && positional.length > 0) throw new Error('--all checks the standard set; give --all or paths, not both');
     if (!opts.all && positional.length === 0) throw new Error('--seed needs one or more paths, or --all');
-    if (!portGiven) opts.port = SEED_DEFAULT_PORT;
-    const portProblem = seedPortProblem(opts.port);
-    if (portProblem) throw new Error(portProblem);
+    if (!portGiven) opts.port = null; // main() asks the OS for a free port
+    else {
+      const portProblem = seedPortProblem(opts.port);
+      if (portProblem) throw new Error(portProblem);
+    }
     opts.paths = opts.all ? [...STANDARD_PATHS] : positional;
     opts.path = opts.paths[0];
     return opts;
@@ -171,8 +177,56 @@ export function parseArgs(argv) {
   return opts;
 }
 
-export function defaultOut(env = process.env) {
-  return env.CLAUDE_SCRATCHPAD || path.join(env.TMPDIR || '/var/tmp', 'page-check');
+export const KEEP_RUNS = 10; // run folders kept under the base; older ones are removed at the start of a run
+export const RUN_PREFIX = 'run-';
+
+export function outBase(env = process.env) {
+  return path.join(env.TMPDIR || '/var/tmp', 'page-check');
+}
+
+// Removes all but the newest `keep` run folders under `base`, never `current`. Returns the removed names.
+export function pruneRuns(base, current, keep = KEEP_RUNS) {
+  let names;
+  try {
+    names = fs.readdirSync(base).filter((n) => n.startsWith(RUN_PREFIX) && path.join(base, n) !== current);
+  } catch {
+    return [];
+  }
+  const dated = names.flatMap((n) => {
+    try {
+      const st = fs.statSync(path.join(base, n));
+      return st.isDirectory() ? [{ n, t: st.mtimeMs }] : [];
+    } catch {
+      return [];
+    }
+  });
+  dated.sort((a, b) => b.t - a.t);
+  const doomed = dated.slice(Math.max(0, keep - 1)).map((d) => d.n); // the current run takes one of the `keep` places
+  for (const n of doomed) fs.rmSync(path.join(base, n), { recursive: true, force: true });
+  return doomed;
+}
+
+// A fresh folder for this run (fs.mkdtemp, so two runs never share one); older runs are pruned.
+export function makeRunDir(base = outBase()) {
+  fs.mkdirSync(base, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(base, RUN_PREFIX));
+  pruneRuns(base, dir);
+  return dir;
+}
+
+// A port the OS says is free right now (listen on 0), never the live War Room's.
+export async function freePort() {
+  for (;;) {
+    const port = await new Promise((resolve, reject) => {
+      const s = net.createServer();
+      s.once('error', reject);
+      s.listen(0, '127.0.0.1', () => {
+        const p = s.address().port;
+        s.close(() => resolve(p));
+      });
+    });
+    if (port !== DEFAULT_PORT) return port;
+  }
 }
 
 async function readFocus(page) {
@@ -209,18 +263,17 @@ export async function main(argv) {
       if (opts.seed) {
         const problem = pathProblem(p);
         if (problem) throw new Error(problem);
-        buildUrl(opts.port, expandTokens(p));
+        buildUrl(opts.port ?? DEFAULT_PORT, expandTokens(p));
       } else buildUrl(opts.port, p);
     }
     steps = parseKeys(opts.keys);
-    const outProblem = outDirProblem(opts.out ?? defaultOut());
+    const outProblem = outDirProblem(opts.out ?? outBase());
     if (outProblem) throw new Error(outProblem);
   } catch (err) {
     console.error(`page:check: ${err.message}`);
     console.error(USAGE);
     return 2;
   }
-  const outDir = path.resolve(opts.out ?? defaultOut());
 
   const cacheDir = path.join(os.homedir(), '.cache', 'ms-playwright');
   let browserPath;
@@ -241,13 +294,20 @@ export async function main(argv) {
     revision = chosen.revision;
   }
 
-  fs.mkdirSync(outDir, { recursive: true });
   process.env.TMPDIR ||= '/var/tmp'; // Playwright's throwaway profile goes under TMPDIR, never /tmp
+  // --out is used as given (never pruned); otherwise a fresh run-XXXXXX folder under $TMPDIR/page-check, older runs pruned to KEEP_RUNS.
+  let outDir;
+  if (opts.out) {
+    outDir = path.resolve(opts.out);
+    fs.mkdirSync(outDir, { recursive: true });
+  } else outDir = makeRunDir();
+  if (opts.seed && opts.port === null) opts.port = await freePort();
   const { chromium } = await import('playwright-core');
   const state = { browser: null, signalled: false };
   const onSignal = (code) => async () => {
     if (state.signalled) return;
     state.signalled = true;
+    console.log(`output folder: ${outDir}`);
     try {
       await state.browser?.close();
     } finally {
@@ -288,6 +348,7 @@ export async function main(argv) {
       console.log(`seed cleanup: port ${server.port} ${busy ? 'STILL IN USE' : 'free'}, dir ${left ? 'STILL THERE' : 'removed'}`);
       if (busy || left) exit = 1;
     }
+    console.log(`output folder: ${outDir}`); // also on a failing run
   }
   return exit;
 }

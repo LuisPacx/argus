@@ -1,9 +1,10 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
-import { buildUrl, chooseBrowser, decide, defaultOut, fileNames, isLocalUrl, outDirProblem, parseArgs, parseKeys, slugFor } from "./page-check.mjs";
+import { buildUrl, KEEP_RUNS, chooseBrowser, decide, fileNames, freePort, isLocalUrl, makeRunDir, outBase, outDirProblem, parseArgs, parseKeys, pruneRuns, slugFor } from "./page-check.mjs";
 
 const healthy = {
   widths: [
@@ -51,9 +52,58 @@ describe("page-check URL and paths", () => {
       keyScreenshots: { 1240: "pipeline-1240-keys.png", 390: "pipeline-390-keys.png" },
       json: "pipeline.json",
     });
-    expect(defaultOut({ CLAUDE_SCRATCHPAD: "/var/tmp/s" })).toBe("/var/tmp/s");
-    expect(defaultOut({ TMPDIR: "/var/tmp" })).toBe("/var/tmp/page-check");
-    expect(defaultOut({})).toBe("/var/tmp/page-check");
+    expect(outBase({ TMPDIR: "/var/tmp" })).toBe("/var/tmp/page-check");
+    expect(outBase({})).toBe("/var/tmp/page-check");
+  });
+
+  it("gives every run its own folder under the base", () => {
+    const base = path.join(tempDir("page-check-base-"), "page-check");
+    const a = makeRunDir(base);
+    const b = makeRunDir(base);
+    expect(a).not.toBe(b);
+    expect(path.dirname(a)).toBe(base);
+    expect(path.basename(a)).toMatch(/^run-[A-Za-z0-9]{6}$/);
+    fs.writeFileSync(path.join(a, "home-1240.png"), "a");
+    fs.writeFileSync(path.join(b, "home-1240.png"), "b");
+    expect(fs.readFileSync(path.join(a, "home-1240.png"), "utf8")).toBe("a");
+  });
+
+  it("caps old run folders and never removes the current one", () => {
+    const base = tempDir("page-check-base-");
+    const old = Array.from({ length: 6 }, (_, i) => {
+      const d = path.join(base, `run-old${i}`);
+      fs.mkdirSync(d);
+      const t = new Date(Date.now() - (100 - i) * 60000); // old0 oldest
+      fs.utimesSync(d, t, t);
+      return d;
+    });
+    const unrelated = path.join(base, "keep-me");
+    fs.mkdirSync(unrelated);
+    const current = path.join(base, "run-current");
+    fs.mkdirSync(current);
+    const oldest = new Date(0);
+    fs.utimesSync(current, oldest, oldest); // even the oldest by time, the current run stays
+    const removed = pruneRuns(base, current, 3);
+    expect(fs.existsSync(current)).toBe(true);
+    expect(fs.existsSync(unrelated)).toBe(true);
+    expect(removed.sort()).toEqual(["run-old0", "run-old1", "run-old2", "run-old3"]);
+    expect(old.filter((d) => fs.existsSync(d))).toEqual([old[4], old[5]]);
+    expect(KEEP_RUNS).toBeGreaterThan(1);
+  });
+
+  it("asks the OS for a free port, never the live one, and two asks held open differ", async () => {
+    const servers: net.Server[] = [];
+    const ports: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const p: number = await freePort();
+      ports.push(p);
+      const s = net.createServer();
+      await new Promise<void>((resolve) => s.listen(p, "127.0.0.1", resolve)); // free means it can be taken
+      servers.push(s);
+    }
+    await Promise.all(servers.map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+    expect(ports[0]).not.toBe(ports[1]);
+    for (const p of ports) expect(p).not.toBe(3100);
   });
 
   it("parses arguments", () => {
