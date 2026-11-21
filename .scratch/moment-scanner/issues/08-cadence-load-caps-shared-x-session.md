@@ -3,7 +3,7 @@
 
 **What to build:** what is left of the safety layer once ticket 01 has shipped the lock, the shared stop state, the next-day probe, the second-wall stop and Resume. This ticket adds: an hourly load cap; the ramp the Operator chose (100 loads a day in week 1, up to 300 only after a week with no stop signal); a minimum gap between scans; and one wrapper, `withXSession`, that every X job goes through so the Study's capture (Phase 3 ticket 06, not built) gets the same lock, stop state and counting. The page shows loads against each cap and the ramp day. Useful alone: the account's exposure is bounded by code that is the same for every X job, and the ramp is automatic.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 **Blocked by:** 01
 Ticket 01 owns the lock (`x-capture/lock.mjs`), the `x_session_state` table with its stop, probe and second-wall rules, and the Resume request; this ticket builds on them and does not change them.
@@ -32,3 +32,4 @@ Ticket 01 owns the lock (`x-capture/lock.mjs`), the `x_session_state` table with
 - Commit subject `Moment scanner ticket 08: hourly cap, ramp and X session wrapper`, body ends with `Ticket: .scratch/moment-scanner/issues/08-cadence-load-caps-shared-x-session.md`.
 
 ## Comments
+- Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)

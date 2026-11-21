@@ -3,7 +3,7 @@
 
 **What to build:** on each Trend of `/radar`, a **Watch on X** button. It writes one request row; the worker turns the Trend into a Watched topic of the moment scanner (its topics table, label and spellings from the Trend's subject and phrases, cleaned by the scanner's cleaner, start time the Trend's first flag minus 12 hours, expiry 7 days like an Operator topic). The Trend then shows a "Watched" badge and a link to `/moments`; Moments found under it appear there with their own coin-side trace. Useful alone: the Operator goes from a subject the radar found to the scanner looking for its clips in one press, with no form to fill.
 
-**Status:** blocked (waits for moment-scanner tickets 05 and 08 to be done: `.scratch/moment-scanner/issues/05-topics-from-metas-and-operator.md` and `08-cadence-load-caps-shared-x-session.md`; change to ready-for-agent when both are merged and say so in Comments)
+**Status:** superseded
 
 **Blocked by:** 01
 Radar tickets only on the line above; the two moment-scanner tickets are the external block. Spec: section 6.2 (stage A). ADR 0016 decision 4.
@@ -29,3 +29,4 @@ Radar tickets only on the line above; the two moment-scanner tickets are the ext
 - Commit subject `Trend radar ticket 06: Watch on X turns a Trend into a Watched topic`, body ends with `Ticket: .scratch/trend-radar/issues/06-watch-on-x-trend-becomes-a-watched-topic.md`. No `Closes #N`.
 
 ## Comments
+- Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)

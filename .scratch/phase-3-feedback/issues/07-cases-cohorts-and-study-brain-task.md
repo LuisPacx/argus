@@ -6,7 +6,7 @@ Spec: sections 5, 8, 9, 15 (slice 8).
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] A Case exists only after the 7d label (tested); Cohort is the calendar week and own launches are excluded from Cohorts
 - [ ] Controls are drawn at random within the Cohort, not matched on outcome; each Case stores its sampling weight
@@ -18,3 +18,6 @@ Spec: sections 5, 8, 9, 15 (slice 8).
 - [ ] Priority order is tested: organic and controls before bot-driven and fast when the cap binds
 - [ ] In-flight run rows are recorded so a restart does not double-run a Case; --dry-run lists what would run and makes no Claude call
 - [ ] War Room Study spend panel shows runs against cap, estimated usage (informational), Helius credits and X captures against cap; checked in a browser
+
+## Comments
+- Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)

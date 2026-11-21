@@ -3,7 +3,7 @@
 
 **What to build:** behind a switch that is off by default, each hour the worker picks the best Trend that is `untokenized` or `contested`, scores 60 or more, is named, is not already a topic, has no `nsfw` or `political` flag, and asks the moment scanner for a topic of source `trend`. These topics hold **at most 2 of the 4 slots**, never displace a Meta or an Operator topic, live 12 hours unless the Operator keeps them, are released after 6 empty scans, and at most 6 new ones start in a day. The scanner then looks for clips under them as for any topic. Useful alone: the radar's best subjects get their clips found without the Operator pressing anything, inside the account's existing load caps.
 
-**Status:** blocked (waits for tickets 06 and 12, and for moment-scanner tickets 05 and 08 to be done)
+**Status:** superseded
 
 **Blocked by:** 06, 12
 Spec: section 6.2. ADR 0016 decision 4. Moment scanner spec sections 4 and 7 and ADR 0009's 2026-11-19 amendment (shared account, 100 loads a day in week 1, 300 after a week with no wall) and its one-line pointer amendment of this feature (a Trend-sourced topic is a third origin of topic text under the same limits).
@@ -35,3 +35,4 @@ Spec: section 6.2. ADR 0016 decision 4. Moment scanner spec sections 4 and 7 and
 - Commit subject `Trend radar ticket 13: automatic Watched topics from the best Trends`, body ends with `Ticket: .scratch/trend-radar/issues/13-automatic-watched-topics.md`. No `Closes #N`.
 
 ## Comments
+- Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)

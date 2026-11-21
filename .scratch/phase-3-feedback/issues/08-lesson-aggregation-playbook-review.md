@@ -6,7 +6,7 @@ Spec: sections 8, 10, 11, 15 (slice 9).
 
 **Blocked by:** 07 Cases, Cohorts and the blind study Brain task
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Aggregation is plain code and stores per candidate: counts, weighted organic and control rates, lift, and the Cohorts it holds in
 - [ ] Lesson bar enforced: at least 20 organic migrators and weighted lift at least 1.5x (tested at the boundaries)
@@ -19,3 +19,6 @@ Spec: sections 8, 10, 11, 15 (slice 9).
 - [ ] Any Claude wording help gets the evidence and aggregate only, no per-Case labels (tested on the prompt)
 - [ ] Page checked in a browser against seeded Cases covering each status
 - [ ] Full test suite and type-check pass once before the commit
+
+## Comments
+- Superseded by .scratch/human-researcher (ADR 0017: agents run only on Operator trigger)

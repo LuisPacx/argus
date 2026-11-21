@@ -11,7 +11,7 @@
 - [ ] With fewer than 10 finished Picks the rebuild is refused with the reason before any model call (test).
 - [ ] Research and meme-ideas prompts include the latest Playbook as one fenced block under a fresh boundary, named untrusted (reasons are Operator text) and cut to a character cap; with no Playbook the prompts are unchanged from today (tests).
 - [ ] The version used is recorded on each brief and each Proposal made with it, so a change in behaviour can be traced (tests).
-- [ ] The Shadow pick prompt (ticket 08) does not read the Playbook until the Scoreboard text says what that does to the comparison; a test pins that it holds none now.
+- [ ] The Shadow pick prompt (ticket 08) reads the latest Playbook version built only from Picks whose 24h outcome settled before the research request started (no leakage of current or recent Picks), and the Shadow pick records that Playbook version (tests: a version containing a later-settled Pick is skipped; the stored version id matches). Each Playbook version stores the settle-time cutoff of its Picks so this can be checked.
 - [ ] A rebuild costs one run counted in the research budget and `brain_runs`; a second press while one waits is refused (tests).
 - [ ] Type-check, `pnpm lint` and `pnpm check` are green.
 
