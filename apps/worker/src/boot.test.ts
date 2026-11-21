@@ -24,7 +24,9 @@ it("the worker starts with plain node, ticks and stops on SIGTERM", async () => 
   const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
   try {
     const deadline = Date.now() + 15_000;
-    while (!out.includes("[worker] tick ") && child.exitCode === null && Date.now() < deadline) {
+    // The first tick starts before the boot lines that follow it (the research-tick line is logged last), and the pipe can deliver them in
+    // separate chunks, so wait for both, not just the tick.
+    while (!(out.includes("[worker] tick ") && out.includes("research tick off")) && child.exitCode === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 50));
     }
     expect(out).toContain("[worker] tick ");
