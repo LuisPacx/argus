@@ -19,6 +19,7 @@ import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNar
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { migratePicks, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, type PickSource, type ResearchPick } from "./research/picks.ts";
 import type { PickSnapshot } from "./research/picks.ts";
+import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
@@ -595,6 +596,8 @@ export function migrate(db: DatabaseSync): void {
   migrateAngles(db);
   // The Operator's Picks (human researcher ticket 03): one additive table, never updated.
   migratePicks(db);
+  // What became of each Pick (ticket 04): two additive tables keyed on the Pick id; the picks table itself stays immutable.
+  migratePickOutcomes(db);
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
@@ -765,6 +768,7 @@ export type WarRoomStore = Pick<
   | "memeAngleRequests"
   | "recordPick"
   | "listPicks"
+  | "pickOutcomes"
   | "migrationOf"
   | "getCommand"
   | "listCommands"
@@ -1348,6 +1352,21 @@ export class Datastore {
   /** The newest Picks of one source (default the Operator's; `PICK_LIST_LIMIT`), newest first. READ ONLY. */
   listPicks(source: PickSource = "operator"): ResearchPick[] {
     return (this.db.prepare("SELECT * FROM picks WHERE source = ? ORDER BY id DESC LIMIT ?").all(source, PICK_LIST_LIMIT) as Record<string, string | number | null>[]).map(toPick);
+  }
+
+  /** Every Pick whose outcome is not finished yet (all sources), oldest first, with its stored outcome and samples. READ ONLY. */
+  openPickOutcomes(): OpenPick[] {
+    return loadOpenPicks(this.db);
+  }
+
+  /** The outcome job's one write (ticket 04): the Pick's outcome row and any new samples, in one transaction. Never touches the picks table. */
+  applyPickProgress(pickId: number, progress: { outcome: OutcomeState; samples: OutcomeSample[] }): void {
+    this.inTransaction(() => saveProgress(this.db, pickId, progress));
+  }
+
+  /** The outcomes of the newest Picks of one source (default the Operator's, `PICK_LIST_LIMIT`) and the bonding rate over ALL its Picks, for all time and the last 7 days. READ ONLY. */
+  pickOutcomes(now: Date = new Date(), source: PickSource = "operator"): PickOutcomeView {
+    return loadOutcomeView(this.db, source, now, PICK_LIST_LIMIT);
   }
 
   /** When Argus's own Study saw the mint migrate (ISO), or null when it never did or never saw the mint. READ ONLY. */

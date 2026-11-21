@@ -83,6 +83,8 @@ import {
   STUDY_CAPTURE_RULE,
   sweepDismissedHomes,
   sweepStaleSeals,
+  OUTCOME_TICK_MS,
+  trackPickOutcomes,
   type BuildRunnerOptions,
   type Source,
 } from "@argus/core";
@@ -497,6 +499,18 @@ const radarTick = reentrant(
   },
   () => console.log("[worker] radar tick skipped: the previous tick is still running"),
 );
+// Pick outcomes (human researcher ticket 04): every 5 minutes, plain code, no Claude and no Brain. One DexScreener lookup per 30 unfinished Picks decides
+// "bonded within 24 h" and samples the peak market cap at +1h, +6h and +24h; a mark nobody looked at in its 20-minute grace window is stored as missed
+// (a restart never invents a sample). Always on (it only reads DexScreener and writes its own tables); a dry run looks nothing up.
+const pickDex = new DexScreenerClient({ baseUrl: process.env.ARGUS_DEXSCREENER_SEARCH_URL || undefined });
+const pickOutcomeTick = reentrant(
+  async () => {
+    if (dryRun) return console.log(`[worker] pick outcomes tick: dry-run, ${store.openPickOutcomes().length} unfinished Pick(s), nothing looked up`);
+    const r = await trackPickOutcomes(store, pickDex);
+    if (r.open > 0) console.log(`[worker] pick outcomes tick: ${r.open} open, ${r.failed} lookup(s) failed, ${r.sampled} sampled, ${r.missed} missed, ${r.decided} decided, ${r.finished} finished`);
+  },
+  () => {}, // a slow lookup is still running: the next tick carries on
+);
 // One greppable line of the effective config, so worker.log proves it instead of leaving a reader to assume defaults. Secrets appear only as set/unset.
 // The capture tick runs in the daemon (also in a dry run, which only reports what is due), never in a one-shot: this one flag drives both this line and the timer.
 const studyOn = standingOn && !once;
@@ -531,6 +545,7 @@ const runMemeIdeasTick = () => track(memeIdeasTick, "meme ideas");
 const runMemeAngleTick = () => track(memeAngleTick, "meme angles");
 const runMomentTick = () => track(momentTick, "moment scan");
 const runRadarTick = () => track(radarTick, "radar tick");
+const runPickOutcomeTick = () => track(pickOutcomeTick, "pick outcomes");
 const runMetaTick = () =>
   track(async () => {
     await metaTick();
@@ -558,6 +573,7 @@ let chainTimer: ReturnType<typeof setInterval> | undefined;
 let metaTimer: ReturnType<typeof setInterval> | undefined;
 let momentTimer: ReturnType<typeof setInterval> | undefined;
 let radarTimer: ReturnType<typeof setInterval> | undefined;
+let pickOutcomeTimer: ReturnType<typeof setInterval> | undefined;
 let stopping = false;
 const stop = async () => {
   if (stopping) return;
@@ -572,6 +588,7 @@ const stop = async () => {
   clearInterval(metaTimer);
   clearInterval(momentTimer);
   clearInterval(radarTimer);
+  clearInterval(pickOutcomeTimer);
   pumpPortal?.close();
   clearInterval(judgeTimer);
   // Stop the drafting loop (nothing new is spawned), kill the live claude child (no orphan keeps spending), let the tick
@@ -659,6 +676,10 @@ if (once) {
     momentTimer = setInterval(() => void runMomentTick(), MOMENT_TICK_MS);
     console.log(`[worker] Moment scanner started: topic "${momentSettings.topic?.label}", every ${momentSettings.intervalMinutes} min, at most ${momentSettings.loadsPerDay} page loads in 24 h${dryRun ? " (dry run: nothing is spawned)" : ""}`);
   } else console.log("[worker] Moment scanner off (ARGUS_MOMENTS=1 turns it on)");
+  // Right away at boot (a restart picks up the marks still inside their grace window), then every OUTCOME_TICK_MS.
+  void runPickOutcomeTick();
+  pickOutcomeTimer = setInterval(() => void runPickOutcomeTick(), OUTCOME_TICK_MS);
+  console.log(`[worker] pick outcomes started: every ${OUTCOME_TICK_MS / 60_000} min, no Claude call`);
   // The War Room shows this row, not its own environment (it may have been started with other variables than the worker).
   store.radar.recordWorker({ enabled: radarSettings.enabled, dryRun, startedAt: new Date().toISOString(), lastTickAt: null, geos: RADAR_CONFIG.googleGeos.length, feeds: radarFeeds.length });
   if (radarSettings.enabled) {

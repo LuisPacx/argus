@@ -5,8 +5,9 @@
 import { canSubmitPicks, picksView, REASON_MAX_CHARS, submitPicks, TOPIC_MAX_CHARS, type PickLineView, type PicksAccepted } from "../utils/research.ts";
 
 const { data, refresh } = await useFetch("/api/picks", { default: () => [] });
+const { data: outcomes, refresh: refreshOutcomes } = await useFetch("/api/pick-outcomes", { default: () => null });
 const nowMs = useNowMs();
-const view = computed(() => picksView(data.value, nowMs.value));
+const view = computed(() => picksView(data.value, nowMs.value, outcomes.value));
 
 const text = ref("");
 const reason = ref("");
@@ -31,7 +32,7 @@ async function submit() {
   note.value = r.note;
   // Keep the text of lines that were not recorded so the Operator can fix them; clear the box when every line went in.
   if (r.lines.every((l) => l.ok)) text.value = "";
-  await refresh();
+  await Promise.all([refresh(), refreshOutcomes()]);
 }
 </script>
 

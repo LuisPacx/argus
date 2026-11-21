@@ -3,6 +3,7 @@ import { createSSRApp, h } from "vue";
 import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
+import type { PickOutcomeView } from "@argus/core";
 import { picksView, resultLines, type PickPayload } from "../../app/utils/research.ts";
 
 /** The Picks list: the real PickList.vue template, server-rendered over rows typed as the API's own response. */
@@ -17,7 +18,7 @@ async function load(file: string): Promise<Render> {
   return new Function("Vue", `${compiled.code.replace(/import \{([^}]*)\} from "vue"/, (_m, names: string) => `const {${names.replaceAll(" as ", ": ")}} = Vue`).replace("export function render", "return function render")}`)(await import("vue")) as Render;
 }
 const renderList = await load("PickList.vue");
-const draw = (rows: PickPayload[] | null, nowMs = NOW) => renderToString(createSSRApp({ render: () => renderList({ view: picksView(rows, nowMs) }, []) as ReturnType<typeof h> }));
+const draw = (rows: PickPayload[] | null, nowMs = NOW, outcomes?: PickOutcomeView) => renderToString(createSSRApp({ render: () => renderList({ view: picksView(rows, nowMs, outcomes) }, []) as ReturnType<typeof h> }));
 
 describe("the Picks list", () => {
   it("shows a Pick with its snapshot, topic, reason, bonded state and age, and links the coin's DexScreener page", async () => {
@@ -49,6 +50,46 @@ describe("the Picks list", () => {
     expect(html).toContain("market cap unknown");
     expect(html).toContain("age unknown");
     expect(html).toContain("Bonded at pick");
+    expect(html).not.toMatch(/undefined|NaN|null/);
+  });
+});
+
+/** Ticket 04: the outcome line, the peaks and the bonding rate, typed as the API's own response (core's `PickOutcomeView`). */
+const stats = (over: Partial<PickOutcomeView["all"]> = {}): PickOutcomeView["all"] => ({ bonded: 0, finished: 0, rate: null, alreadyBonded: 0, unknown: 0, pending: 0, ...over });
+const outcomes = (over: Partial<PickOutcomeView> = {}): PickOutcomeView => ({ outcomes: [], all: stats(), week: stats(), ...over });
+const marks = (states: PickOutcomeView["outcomes"][number]["marks"]) => states;
+
+describe("pick outcomes on the page", () => {
+  it("reads pending before the 24 hours are over, then bonded yes or no with the peaks", async () => {
+    const waiting = marks([{ mark: "1h", state: "sampled", peakUsd: 90_000 }, { mark: "6h", state: "waiting", peakUsd: null }, { mark: "24h", state: "waiting", peakUsd: null }]);
+    const pending = await draw([pick()], NOW, outcomes({ outcomes: [{ pickId: 3, result: "pending", over: false, bondedAt: null, marks: waiting }] }));
+    expect(pending).toContain("Outcome: pending");
+    expect(pending).toContain("+1h peak $90K, +6h waiting, +24h waiting");
+    const yes = await draw([pick()], NOW, outcomes({ outcomes: [{ pickId: 3, result: "bonded", over: true, bondedAt: "2026-11-20T18:00:00.000Z", marks: [{ mark: "24h", state: "missed", peakUsd: null }] }] }));
+    expect(yes).toContain("Outcome: bonded within 24h");
+    expect(yes).toContain("+24h missed");
+    const no = await draw([pick()], NOW, outcomes({ outcomes: [{ pickId: 3, result: "not-bonded", over: true, bondedAt: null, marks: [] }] }));
+    expect(no).toContain("Outcome: did not bond within 24h");
+  });
+
+  it("a coin that was bonded at the Pick reads already bonded, and a vanished one unknown", async () => {
+    expect(await draw([pick({ bondedAtPick: true })], NOW, outcomes())).toContain("Outcome: already bonded");
+    const unknown = await draw([pick()], NOW, outcomes({ outcomes: [{ pickId: 3, result: "unknown", over: true, bondedAt: null, marks: [] }] }));
+    expect(unknown).toContain("Outcome: unknown");
+  });
+
+  it("shows the rate with n for all time and 7 days, and the left-out counts", async () => {
+    const html = await draw([pick()], NOW, outcomes({ all: stats({ bonded: 2, finished: 5, rate: 0.4, alreadyBonded: 1, unknown: 2, pending: 3 }), week: stats({ bonded: 1, finished: 2, rate: 0.5 }) }));
+    expect(html).toContain("All time: 40% bonded within 24h (2 of 5 finished Picks, n=5)");
+    expect(html).toContain("Last 7 days: 50% bonded within 24h (1 of 2 finished Picks, n=2)");
+    expect(html).toContain("1 already bonded at the Pick, 2 unknown (coin vanished or could not be checked), 3 pending");
+  });
+
+  it("an empty set reads no finished Picks yet, never 0%", async () => {
+    const html = await draw([pick()], NOW, outcomes());
+    expect(html).toContain("All time: no finished Picks yet");
+    expect(html).toContain("Last 7 days: no finished Picks yet");
+    expect(html).not.toContain("0%");
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
 });

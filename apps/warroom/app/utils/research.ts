@@ -39,6 +39,7 @@ export interface PickRowView {
   facts: string[];
   bonded: boolean;
   bondedLabel: string;
+  outcome: OutcomeRowView;
   picked: string;
 }
 
@@ -46,6 +47,79 @@ export interface PicksView {
   empty: string | null;
   summary: string;
   rows: PickRowView[];
+  /** The bonding rate (ticket 04); null until the outcomes have loaded. */
+  rate: RateView | null;
+}
+
+/** GET /api/pick-outcomes (core's `PickOutcomeView`; a field renamed there is a type error in the server test). */
+export interface OutcomePayload {
+  pickId: number;
+  result: "pending" | "bonded" | "not-bonded" | "unknown" | "already-bonded";
+  over: boolean;
+  bondedAt: string | null;
+  marks: { mark: string; state: "sampled" | "missed" | "waiting"; peakUsd: number | null }[];
+}
+export interface StatsPayload {
+  bonded: number;
+  finished: number;
+  rate: number | null;
+  alreadyBonded: number;
+  unknown: number;
+  pending: number;
+}
+export interface OutcomesPayload {
+  outcomes: OutcomePayload[];
+  all: StatsPayload;
+  week: StatsPayload;
+}
+
+export interface OutcomeRowView {
+  label: string;
+  detail: string;
+  marks: string[];
+}
+export interface RateView {
+  all: string;
+  week: string;
+  /** The Picks left out of the rate, each with its own count. */
+  leftOut: string;
+}
+
+/** "no finished Picks yet", or "40% bonded within 24h (2 of 5 finished Picks, n=5)": the rate always shows its n, and an empty set is never 0%. */
+export function rateText(label: string, s: StatsPayload | null | undefined): string {
+  const finished = finite(s?.finished) ? s.finished : 0;
+  if (!s || finished === 0 || !finite(s.rate)) return `${label}: no finished Picks yet`;
+  return `${label}: ${Math.round(s.rate * 100)}% bonded within 24h (${s.bonded} of ${finished} finished Picks, n=${finished})`;
+}
+
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+export function rateView(o: OutcomesPayload | null | undefined): RateView | null {
+  if (!o || typeof o.all !== "object" || typeof o.week !== "object" || o.all === null || o.week === null) return null;
+  const a = o.all;
+  const parts = [`${a.alreadyBonded ?? 0} already bonded at the Pick`, `${a.unknown ?? 0} unknown (coin vanished or could not be checked)`, `${a.pending ?? 0} pending`];
+  return { all: rateText("All time", a), week: rateText("Last 7 days", o.week), leftOut: `Left out of the rate: ${parts.join(", ")}.` };
+}
+
+const MARK_LABEL: Record<string, string> = { "1h": "+1h", "6h": "+6h", "24h": "+24h" };
+
+/** One Pick's outcome: "pending" until its 24 hours are over (with what is known so far), then bonded yes or no, and the peaks at each mark. */
+export function outcomeView(o: OutcomePayload | null | undefined, nowMs: number): OutcomeRowView {
+  if (!o) return { label: "pending", detail: "no outcome recorded yet", marks: [] };
+  const marks = (Array.isArray(o.marks) ? o.marks : []).map((m) => `${MARK_LABEL[m.mark] ?? clampText(m.mark, 8)} ${m.state === "sampled" ? (finite(m.peakUsd) ? `peak ${fmtUsd(m.peakUsd)}` : "peak unknown") : m.state === "missed" ? "missed (not sampled in time)" : "waiting"}`);
+  const so = o.bondedAt !== null && o.bondedAt !== undefined ? ` (bonded ${ageText(o.bondedAt, nowMs) ?? "at an unknown time"})` : "";
+  switch (o.result) {
+    case "already-bonded":
+      return { label: "already bonded", detail: "had bonded before the Pick; left out of the rate", marks };
+    case "unknown":
+      return { label: "unknown", detail: "the coin vanished or could not be checked; left out of the rate", marks };
+    case "bonded":
+      return o.over ? { label: "bonded within 24h", detail: `yes${so}`, marks } : { label: "pending", detail: `bonded so far${so}; the 24 hours are not over`, marks };
+    case "not-bonded":
+      return o.over ? { label: "did not bond within 24h", detail: "no", marks } : { label: "pending", detail: "not bonded yet", marks };
+    default:
+      return { label: "pending", detail: o.over ? "the 24 hours are over; waiting for a lookup" : "the 24 hours are not over", marks };
+  }
 }
 
 /** "5 minutes", "3 hours", "2 days": a coin's age at the Pick. */
@@ -58,11 +132,14 @@ export function ageSpan(minutes: number): string {
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
-export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs: number): PicksView {
+export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs: number, outcomes?: OutcomesPayload | null): PicksView {
   const list = Array.isArray(rows) ? rows.filter((r) => typeof r === "object" && r !== null && Number.isSafeInteger(r.id)) : [];
-  if (list.length === 0) return { empty: "No Picks yet. Paste a contract address above to record the first.", summary: "", rows: [] };
+  const rate = rateView(outcomes);
+  const byId = new Map((Array.isArray(outcomes?.outcomes) ? outcomes.outcomes : []).map((o) => [o.pickId, o]));
+  if (list.length === 0) return { empty: "No Picks yet. Paste a contract address above to record the first.", summary: "", rows: [], rate };
   return {
     empty: null,
+    rate,
     summary: `${list.length} ${list.length === 1 ? "Pick" : "Picks"} shown, newest first.`,
     rows: list.map((r) => {
       const name = clampText(r.name, NAME_CLAMP);
@@ -84,6 +161,7 @@ export function picksView(rows: readonly PickPayload[] | null | undefined, nowMs
         facts,
         bonded: r.bondedAtPick === true,
         bondedLabel: r.bondedAtPick === true ? "Bonded at pick" : "Not bonded at pick",
+        outcome: outcomeView(byId.get(r.id) ?? (r.bondedAtPick === true ? { pickId: r.id, result: "already-bonded", over: false, bondedAt: null, marks: [] } : undefined), nowMs),
         picked: `picked ${(typeof r.createdAt === "string" ? ageText(r.createdAt, nowMs) : null) ?? "at an unknown time"}`,
       };
     }),

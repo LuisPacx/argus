@@ -30,6 +30,7 @@ const matches = (text: string, re: RegExp): string[] => [...new Set([...text.mat
 const LEFT_OUT: Record<string, string> = {
   momentTick: "the Moment scanner is not a pipeline stage and no Source: its graph lines are moment scanner ticket 10",
   radarTick: "the trend radar is not a pipeline stage and no Source: its graph lines are trend radar ticket 08",
+  pickOutcomeTick: "pick outcomes follow the Operator's Picks on the Research page, not a pipeline stage and no Source (human researcher ticket 04)",
   "DEFAULT_CLUSTER_CONFIG.batchSize": "per-pass pacing of the clustering pass, below this picture",
   BackoffSource: "wraps another Source for retries; it is not a Source of its own",
   "DEFAULT_JUDGE_CONFIG.maxConsecutiveFailures": "a circuit breaker, below the level of a high-level picture",
@@ -142,7 +143,7 @@ describe("the pipeline graph is in sync with the code", () => {
 
   it("the registry really finds what it claims to (so an empty gap list means something)", () => {
     const r = realRegistry();
-    expect(r.ticks).toEqual(["buildTick", "chainTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "proposeTick", "radarTick", "studyTick", "tick"]);
+    expect(r.ticks).toEqual(["buildTick", "chainTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "pickOutcomeTick", "proposeTick", "radarTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
     expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "build"]);
