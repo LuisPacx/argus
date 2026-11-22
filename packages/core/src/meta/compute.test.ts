@@ -1131,6 +1131,57 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(watching(store)).toEqual([]);
   });
 
+  // The blend pass (christmas-fix ticket 04) treats a subject the previous tick carried as a Meta as strong even below the bar, or hysteresis would keep a
+  // Meta alive at 10 and the same tick would add the blend graduate that pushes it to 11 (compute.ts `wasMeta`). Each case isolates one way the wiring
+  // recognises such a subject: its group key, a launch-theme key it merged (memberKeys), or the previous leader's mint among its tokens.
+  describe("the previous tick's Meta gains no blends below the bar", () => {
+    const strict = { ...cfg, metaMinGrads: 11, metaStayGrads: 5 };
+    const mergeThemes = (themes: string[]) => async (input: GroupInput): Promise<GroupAnswer> => ({
+      subjects: [{ name: "Christmas", items: input.items.filter((i) => i.kind === "theme" && themes.includes(i.key)).map((i) => i.id) }],
+      inputHash: input.inputHash, computedAt: input.now.toISOString(), reused: false, costUsd: 0, brainRunId: null,
+    });
+    const DAY = 24 * 60;
+    /** Ten "Santa" graduates (10 creators, 3 in the last 6 h) and one loose graduate `pepesanta` of an old create that only the blend pass can give to Santa. */
+    const seed = (store: Datastore, oldCreates: boolean) => {
+      for (let i = 0; i < 10; i++)
+        launch(store, { name: "Santa", creator: `santa-c${i}`, createdMin: oldCreates ? 5 * DAY : 180, graduatedMin: i < 3 ? 30 : 400 + i * 60 });
+      // a bigger theme to merge with (its key wins the merge), with no graduates of its own
+      for (let i = 0; i < 12; i++) launch(store, { name: "Xmas", creator: `xmas-c${i}`, createdMin: 100 });
+      // with old creates the graduates are matched by their names, so the Santa theme needs creates of its own in the window
+      if (oldCreates) for (let i = 0; i < 6; i++) launch(store, { name: "Santa", creator: `santa-n${i}`, createdMin: 100 });
+      launch(store, { name: "pepesanta", symbol: "PEPE", creator: "loose", createdMin: 5 * DAY, graduatedMin: 20 });
+    };
+    const cases: Array<{ route: string; oldCreates: boolean; first?: string[]; second?: string[] }> = [
+      // same key both ticks; the previous leader's create is old, so it is not among the group's tokens
+      { route: "group key", oldCreates: true },
+      // the second tick merges Santa into the bigger theme: the key is `xmas`, and only `santa` among its memberKeys is the previous key
+      { route: "memberKeys", oldCreates: true, second: ["santa", "xmas"] },
+      // the first tick merged them (key `xmas`); the second has no grouping, so Santa is a subject of its own and only the leader's mint is among its tokens
+      { route: "leader mint", oldCreates: false, first: ["santa", "xmas"] },
+    ];
+    const optsOf = (themes?: string[]): Partial<RecomputeOptions> => (themes ? { group: mergeThemes(themes) } : {});
+
+    it.each(cases)("$route: the carried Meta stays at 10 graduations and the loose graduate is not added", async ({ oldCreates, first, second }) => {
+      const store = Datastore.open(":memory:");
+      seed(store, oldCreates);
+      await recompute(store, 0, optsOf(first));
+      expect(metas(store).map((m) => m.grads!["24h"])).toEqual([10]); // the first tick: a Meta at the bar, the blend not needed
+      await recompute(store, 15, { config: strict, ...optsOf(second) });
+      const all = [...metas(store), ...watching(store)];
+      expect(all.map((m) => m.grads!["24h"])).not.toContain(11);
+      expect(metas(store)).toHaveLength(1);
+      expect(metas(store)[0]).toMatchObject({ holding: true, grads: { "24h": 10, "6h": 3, creators24h: 10 } });
+    });
+
+    it.each(cases)("$route (control): with no previous Meta the same tick adds the blend graduate and enters at 11", async ({ oldCreates, first, second }) => {
+      const store = Datastore.open(":memory:");
+      seed(store, oldCreates);
+      await recompute(store, 15, { config: strict, ...optsOf(second ?? first) });
+      expect(metas(store)).toHaveLength(1);
+      expect(metas(store)[0]).toMatchObject({ grads: { "24h": 11, creators24h: 11 } });
+    });
+  });
+
   it("a late graduate of an old create is counted, a bonk graduation is not", async () => {
     const store = Datastore.open(":memory:");
     launchMany(store, 9, (i) => ({ name: "Santa", creator: `s${i}`, createdMin: 120, graduatedMin: 30 + i }));
