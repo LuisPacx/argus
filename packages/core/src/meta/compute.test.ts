@@ -1247,4 +1247,36 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(shown[0]!.length).toBeGreaterThan(30);
     expect(shown[0]).toContain("santa");
   });
+
+  /** A group step that answers one subject per entry of `groups` (name -> theme keys). */
+  const groupsOf = (groups: Record<string, string[]>) => async (input: GroupInput): Promise<GroupAnswer> => ({
+    subjects: Object.entries(groups).map(([name, keys]) => ({ name, items: input.items.filter((i) => i.kind === "theme" && keys.includes(i.key)).map((i) => i.id) })),
+    inputHash: input.inputHash, computedAt: input.now.toISOString(), reused: false, costUsd: 0, brainRunId: null,
+  });
+
+  it("a previous subject merged into another is not kept in Watching (merge loser)", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 12, (i) => 30 + i);
+    wave(store, "Xmas", 12, (i) => 30 + i);
+    await recompute(store, 0, { group: groupsOf({ Santa: ["santa"], Xmas: ["xmas"] }) });
+    expect(metas(store).map((m) => m.key).sort()).toEqual(["santa", "xmas"]);
+    await recompute(store, 10, { group: groupsOf({ Christmas: ["santa", "xmas"] }) });
+    expect(metas(store)).toHaveLength(1);
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("on the first run and after the state window the result is the unstabilised one", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 12, (i) => 30 + i);
+    wave(store, "Xmas", 12, (i) => 30 + i);
+    await recompute(store, 0, { group: groupOf("Christmas", ["santa", "xmas"]) });
+    expect(metas(store)[0]).toMatchObject({ key: "santa", enteredAt: T(0).toISOString() });
+    expect(watching(store)).toEqual([]);
+    wave(store, "Noel", 14, (i) => 130 + i);
+    await recompute(store, 200, { group: groupOf("Santa season", ["santa", "xmas", "noel"]) }); // previous is 200 min old: not carried
+    expect(metas(store)).toHaveLength(1);
+    expect(metas(store)[0]).toMatchObject({ label: "Santa season", enteredAt: T(200).toISOString() });
+    expect(metas(store)[0]!.key).not.toBe("santa");
+    expect(watching(store)).toEqual([]);
+  });
 });
