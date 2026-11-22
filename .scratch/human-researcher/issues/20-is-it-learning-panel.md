@@ -5,11 +5,11 @@
 
 **Blocked by:** War Room 21 (most useful after 19)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Counts equal a hand-built fixture (including unrated and the no-Playbook row).
-- [ ] No verdict/trend sentence below 10 rated per version.
-- [ ] Render is escaped (`renderToString` test).
+- [x] Counts equal a hand-built fixture (including unrated and the no-Playbook row).
+- [x] No verdict/trend sentence below 10 rated per version.
+- [x] Render is escaped (`renderToString` test).
 - [ ] `page:check /research` exits 0.
 - [ ] Type-check, `pnpm lint` and `pnpm check` are green.
 
