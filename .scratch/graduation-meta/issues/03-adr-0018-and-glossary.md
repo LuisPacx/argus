@@ -5,14 +5,14 @@
 
 **Blocked by:** none (can run with 01)
 
-**Status:** open
+**Status:** done
 
-- [ ] ADR 0018 exists, quotes the Operator's definition and records the rule, stay, Watching and display-only cap.
-- [ ] ADR 0014 and ADR 0015 are marked "Superseded in part by 0018", with what stays valid named.
-- [ ] GLOSSARY has the new Meta and Watching, a Graduation entry and the "Avoid" line.
-- [ ] `docs/architecture.md` and `.env.example` list the new keys with defaults.
-- [ ] A grep finds no remaining `$1,000,000` Meta definition in docs; market cap appears only as display.
-- [ ] `pnpm lint` and `pnpm check` are green.
+- [x] ADR 0018 exists, quotes the Operator's definition and records the rule, stay, Watching and display-only cap.
+- [x] ADR 0014 and ADR 0015 are marked "Superseded in part by 0018", with what stays valid named.
+- [x] GLOSSARY has the new Meta and Watching, a Graduation entry and the "Avoid" line.
+- [x] `docs/architecture.md` and `.env.example` list the new keys with defaults.
+- [x] A grep finds no remaining `$1,000,000` Meta definition in docs; market cap appears only as display.
+- [x] `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Do not change code; ticket 01 owns the rule.

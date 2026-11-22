@@ -5,12 +5,12 @@
 
 **Blocked by:** 18
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] With no `ideasText` the prompts are byte-identical to today.
-- [ ] With `ideasText`, the block has its own fence and stays within the caps.
-- [ ] New Proposals record the Playbook version id end to end (as `playbook.test.ts:299`).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] With no `ideasText` the prompts are byte-identical to today.
+- [x] With `ideasText`, the block has its own fence and stays within the caps.
+- [x] New Proposals record the Playbook version id end to end (as `playbook.test.ts:299`).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Pattern: `playbookPromptLines`, `ideas.ts:196-219`; test pattern `playbook.test.ts:299`.

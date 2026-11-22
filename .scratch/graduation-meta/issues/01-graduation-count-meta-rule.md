@@ -5,20 +5,20 @@
 
 **Blocked by:** none
 
-**Status:** open
+**Status:** done
 
-- [ ] `graduatedBetween` is read-only, uses the `migrated_at` index and writes nothing.
-- [ ] A fixture subject with 10 or more graduations, 6 or more creators and 3 or more in 6 h and no priced leader is a Meta with the cap shown as a dash.
-- [ ] 9 graduations make it Watching, not a Meta.
-- [ ] 10 graduations by one creator are not a Meta.
-- [ ] A Meta stays at 5 graduations, drops at 4, and its state is carried for `stateMaxMinutes`.
-- [ ] Christmas fixture (themes santa, snowball, xmas, grinch, goonmas, christmas, bullmas, holdmas, pepemas, catemas, fomomas; graduates Bullmas, snowball, ChristmASS, Santa Inu, Snowball, CATEMAS, snowball-v2, Saint Nicholas SANTA, pepesanta, Christmas Inu; 10 creators, 3 in the last 6 h) gives one Meta "Christmas" with 10 in 24 h, 3 in 6 h and 10 creators.
-- [ ] A late graduate of an old create is counted; a bonk graduation is not.
-- [ ] `maxMetas=3` ranks by graduations.
-- [ ] A trending-list token no longer creates a Meta; it appears only as leader inside its subject.
-- [ ] Theme-token pricing no longer needs the $50k floors; `candidates()` takes the newest graduates.
-- [ ] A thin window still qualifies and carries the coverage flag.
-- [ ] Existing meta tests are adapted; type-check, `pnpm lint` and `pnpm check` are green.
+- [x] `graduatedBetween` is read-only, uses the `migrated_at` index and writes nothing.
+- [x] A fixture subject with 10 or more graduations, 6 or more creators and 3 or more in 6 h and no priced leader is a Meta with the cap shown as a dash.
+- [x] 9 graduations make it Watching, not a Meta.
+- [x] 10 graduations by one creator are not a Meta.
+- [x] A Meta stays at 5 graduations, drops at 4, and its state is carried for `stateMaxMinutes`.
+- [x] Christmas fixture (themes santa, snowball, xmas, grinch, goonmas, christmas, bullmas, holdmas, pepemas, catemas, fomomas; graduates Bullmas, snowball, ChristmASS, Santa Inu, Snowball, CATEMAS, snowball-v2, Saint Nicholas SANTA, pepesanta, Christmas Inu; 10 creators, 3 in the last 6 h) gives one Meta "Christmas" with 10 in 24 h, 3 in 6 h and 10 creators.
+- [x] A late graduate of an old create is counted; a bonk graduation is not.
+- [x] `maxMetas=3` ranks by graduations.
+- [x] A trending-list token no longer creates a Meta; it appears only as leader inside its subject.
+- [x] Theme-token pricing no longer needs the $50k floors; `candidates()` takes the newest graduates.
+- [x] A thin window still qualifies and carries the coverage flag.
+- [x] Existing meta tests are adapted; type-check, `pnpm lint` and `pnpm check` are green.
 - [ ] After merge, one live tick shows Christmas as a Meta (cos checks).
 
 ## Notes
