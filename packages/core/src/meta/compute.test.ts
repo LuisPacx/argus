@@ -1299,6 +1299,29 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(shown[0]).toContain("santa");
   });
 
+  it("a changed previous run does not reuse a cached grouping answer built for different input", async () => {
+    // Same data, same tick; only the previous run differs (Santa or Easter was the Meta). Both themes fall below the 30-theme cut at the tick,
+    // so only the previous-theme set decides which of them the grouping step is shown, and so what the cache key (the items hash) is.
+    const afterPrevious = async (previousKey: string): Promise<{ hash: string; shown: string[] }> => {
+      const store = Datastore.open(":memory:");
+      wave(store, previousKey === "santa" ? "Santa" : "Easter", 12, (i) => 30 + i);
+      await recompute(store, 0, { group: groupOf("Previous", [previousKey]) });
+      wave(store, previousKey === "santa" ? "Easter" : "Santa", 12, (i) => 30 + i); // the other theme only appears after the previous run
+      for (let n = 0; n < 35; n++) wave(store, `Theme${String.fromCharCode(97 + (n % 26))}${String.fromCharCode(97 + Math.floor(n / 26))}x`, 20, (i) => 40 + i);
+      const shown: string[][] = [];
+      let hash = "";
+      await recompute(store, 10, { group: async (input) => { hash = input.inputHash; return groupOf("Previous", [previousKey], shown)(input); } });
+      return { hash, shown: shown[0]! };
+    };
+    const afterSanta = await afterPrevious("santa");
+    const afterEaster = await afterPrevious("easter");
+    expect(afterSanta.shown).toContain("santa");
+    expect(afterSanta.shown).not.toContain("easter");
+    expect(afterEaster.shown).toContain("easter");
+    expect(afterEaster.shown).not.toContain("santa");
+    expect(afterSanta.hash).not.toBe(afterEaster.hash);
+  });
+
   /** A group step that answers one subject per entry of `groups` (name -> theme keys). */
   const groupsOf = (groups: Record<string, string[]>) => async (input: GroupInput): Promise<GroupAnswer> => ({
     subjects: Object.entries(groups).map(([name, keys]) => ({ name, items: input.items.filter((i) => i.kind === "theme" && keys.includes(i.key)).map((i) => i.id) })),
