@@ -5,7 +5,7 @@ import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaW
 import { isThin, metaCoverage } from "./coverage.ts";
 import { cleanLabel, groupTokens, isGenericKey, type TokenGroup } from "./group.ts";
 import { subjectKey } from "./key.ts";
-import { applyGrouping, buildGroupItems, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type ThemeInput, type TrendingInput } from "./grouping.ts";
+import { applyGrouping, buildGroupItems, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type GroupSubject, type ThemeInput, type TrendingInput } from "./grouping.ts";
 import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
 import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaGrouping, NewMetaRow, NewMetaRun } from "./store.ts";
 import { previousThemeKeys, stabiliseSubjects } from "./stabilise.ts";
@@ -407,12 +407,14 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const items = buildGroupItems(trendingInputs(topDown, fresh, lookedUp.verdicts), themeInputs(stats), config.enterMcapUsd, previousThemeKeys(previous, now, config.stateMaxMinutes));
   const answer = await askGroupStep(opts, items, now);
   const statOf = new Map(stats.map((s) => [s.group.key, s]));
-  const stable = answer ? stabiliseSubjects(answer.subjects, items, previous, now, config.stateMaxMinutes) : undefined;
-  const applied = answer && stable ? applyGrouping(items, stable.subjects, (key) => statOf.get(key), mergeStats) : undefined;
+  // With no answer the subjects are the launch themes, one per theme item, and take part in the stabilising all the same.
+  const ruleSubjects: GroupSubject[] = items.flatMap((i) => (i.kind === "theme" ? [{ name: i.label, items: [i.id] }] : []));
+  const stable = stabiliseSubjects(answer ? answer.subjects : ruleSubjects, items, previous, now, config.stateMaxMinutes);
+  const applied = applyGrouping(items, stable.subjects, (key) => statOf.get(key), mergeStats);
   // The stored counts of a Meta include bonk launches; the launch-theme rows below keep the pump counts.
   const subjectStats: Array<{ stat: GroupStat; extra: Pick<LeaderSubject, "namedBy" | "memberKeys" | "memberMints" | "themes"> }> = [
-    ...(applied?.subjects ?? []).map((a) => ({ stat: a.stat, extra: { namedBy: "ai" as const, memberKeys: a.themeKeys, memberMints: a.mints, themes: a.themes } })),
-    ...stats.filter((s) => !applied?.groupedThemeKeys.has(s.group.key)).map((stat) => ({ stat, extra: { namedBy: "rules" as const } })),
+    ...applied.subjects.map((a) => ({ stat: a.stat, extra: { namedBy: answer ? ("ai" as const) : ("rules" as const), memberKeys: a.themeKeys, memberMints: a.mints, themes: answer ? a.themes : [] } })),
+    ...stats.filter((s) => !applied.groupedThemeKeys.has(s.group.key)).map((stat) => ({ stat, extra: { namedBy: "rules" as const } })),
   ];
   // The graduations (graduation Meta ticket 01): each graduate joins the subject that holds its create, or the one its name and ticker name.
   // A create-less graduate is matched only to subjects with a graduate of their own or enough creators to be a theme at all.
@@ -452,19 +454,19 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
       },
     ];
   });
-  const shownTokens = applied ? new Set(items.flatMap((i) => (i.kind === "token" ? [i.mint] : []))) : undefined;
+  const shownTokens = answer ? new Set(items.flatMap((i) => (i.kind === "token" ? [i.mint] : []))) : undefined;
   const current = currentMetas({ subjects, tokens: fresh, previous: carried, ...(shownTokens ? { grouped: shownTokens } : {}), now, config });
-  if (stable) {
+  {
     // Previous subjects no subject of this run took up stay in Watching, keeping their own `enteredAt` and `leader.freshAt`. Being kept is not a
-    // refresh: a row expires once its last real refresh is `stateMaxMinutes` old. A row whose member themes another subject now holds (a merge
-    // loser) is dropped, not shown twice.
+    // refresh: a row expires once its last real refresh is `stateMaxMinutes` old. A row any of whose member themes another subject now holds
+    // (a merge loser, even a partial overlap) is dropped, not shown twice.
     const claimed = new Set(subjects.flatMap((s) => [s.key, ...(s.memberKeys ?? [])]));
     const shown = new Set([...current.metas, ...current.watching].map((m) => m.key));
     for (const row of stable.kept) {
       if (current.watching.length >= config.watching) break;
       const age = now.getTime() - Date.parse(row.leader.freshAt ?? row.enteredAt);
       const members = [row.key, ...(row.themes ?? []).map((t) => t.key)];
-      if (!(age <= config.stateMaxMinutes * 60_000) || shown.has(row.key) || members.every((k) => claimed.has(k))) continue;
+      if (!(age <= config.stateMaxMinutes * 60_000) || shown.has(row.key) || members.some((k) => claimed.has(k))) continue;
       current.watching.push(row);
     }
   }
@@ -507,7 +509,7 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     metas: current.metas.length,
     watching: current.watching.length,
     current,
-    group: { source: applied ? "ai" : "rules", reused: answer?.reused ?? false, subjects: applied?.subjects.length ?? 0 },
+    group: { source: answer ? "ai" : "rules", reused: answer?.reused ?? false, subjects: answer ? applied.subjects.length : 0 },
   };
 }
 

@@ -1265,6 +1265,32 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(watching(store)).toEqual([]);
   });
 
+  it("a merge loser that overlaps only in part (one member theme claimed, another not) is not shown twice in Watching", async () => {
+    const store = Datastore.open(":memory:");
+    const anyTime = { ...cfg, metaLiveGrads6h: 0, watchGrads6h: 0 };
+    wave(store, "Santa", 12, (i) => 30 + i);
+    wave(store, "Noel", 12, (i) => 30 + i);
+    launchMany(store, 12, (i) => ({ name: "Xmas", creator: `x${i}`, createdMin: 1439, graduatedMin: 1400 + i })); // leaves the window by minute 60
+    await recompute(store, 0, { config: anyTime, group: groupsOf({ Christmas: ["santa", "xmas"], Noel: ["noel"] }) });
+    expect(metas(store)).toHaveLength(2);
+    await recompute(store, 60, { config: anyTime, group: groupsOf({ Mix: ["santa", "noel"] }) }); // Noel's key wins the tie; Christmas is unmatched but its santa is held by Mix
+    expect(metas(store).map((m) => m.label)).toEqual(["Mix"]);
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("with no AI answer (rules fallback) the stabiliser still runs: a previous subject nothing matches stays in Watching", async () => {
+    const store = Datastore.open(":memory:");
+    const anyTime = { ...cfg, metaLiveGrads6h: 0, watchGrads6h: 0 };
+    launchMany(store, 12, (i) => ({ name: "Santa", creator: `s${i}`, createdMin: 1439, graduatedMin: 1400 + i }));
+    await recompute(store, 0, { config: anyTime, group: groupOf("Christmas", ["santa"]) });
+    expect(metas(store).map((m) => m.key)).toEqual(["santa"]);
+    wave(store, "Easter", 12, (i) => 30 + i);
+    await recompute(store, 60, { config: anyTime }); // no group step: the rules fallback
+    expect(metas(store).map((m) => m.key)).toEqual(["easter"]);
+    expect(watching(store).map((w) => w.key)).toEqual(["santa"]);
+    expect(watching(store)[0]!.enteredAt).toBe(T(0).toISOString());
+  });
+
   it("on the first run and after the state window the result is the unstabilised one", async () => {
     const store = Datastore.open(":memory:");
     wave(store, "Santa", 12, (i) => 30 + i);
