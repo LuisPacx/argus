@@ -12,7 +12,7 @@ Make the line graduation-led. With `grads` present the numbers line leads with t
 - [x] The templated numbers line leads with graduations (24h, 6h, creators) when `grads` is present, and falls back to the old form only for old rows without `grads`.
 - [x] An unpriced leader shows a dash (-), never "n/a" or "$0".
 - [x] The line does not duplicate the ticket-02 graduation line on the card (merged into one line, or the redundant one dropped, whichever keeps the card clean).
-- [ ] The meta-summary prompt and `SKILL.md` describe a Meta by graduations, with market cap as context only, and the prompt passes the grads counts.
+- [x] The meta-summary prompt and `SKILL.md` describe a Meta by graduations, with market cap as context only, and the prompt passes the grads counts.
 - [x] Tests cover the new line, the dash and the prompt content.
 - [x] `pnpm check` and `pnpm page:check --seed /meta /` pass.
 
