@@ -37,8 +37,10 @@ const pick = (raw: unknown, allowed: Array<{ value: string }>) => {
   const v = typeof raw === "string" ? raw : "";
   return allowed.some((o) => o.value === v) ? v : "";
 };
-type Current = { sort: string; status: string; collision: string; created: string; kind: string };
+// `closed=1` shows the closed and dismissed Proposals the list hides by default (ticket 20); it is not an API filter.
+type Current = { sort: string; status: string; collision: string; created: string; kind: string; closed: string };
 const current = computed<Current>(() => ({
+  closed: showHiddenFromQuery(route.query.closed) ? "1" : "",
   sort: pick(route.query.sort, SORTS) || DEFAULT_PROPOSAL_SORT,
   status: pick(route.query.status, STATUSES),
   collision: pick(route.query.collision, COLLISIONS),
@@ -49,11 +51,11 @@ const withDefaults = (c: Current) => {
   const q: Record<string, string> = {};
   const sort = proposalUrlSort(c.sort);
   if (sort) q.sort = sort;
-  for (const k of ["kind", "status", "collision", "created"] as const) if (c[k]) q[k] = c[k];
+  for (const k of ["kind", "status", "collision", "created", "closed"] as const) if (c[k]) q[k] = c[k];
   return q;
 };
 // The API default is score, so the request always names its sort.
-const apiQuery = (c: Current) => ({ ...withDefaults(c), sort: proposalApiSort(c.sort) });
+const apiQuery = (c: Current) => ({ ...withDefaults(c), closed: undefined, sort: proposalApiSort(c.sort) });
 // A change of sort or filter keeps the New Proposal form open when it is open.
 const to = (patch: Partial<Current>) => ({ path: "/", query: { ...(showForm.value ? { new: String(route.query.new || "1") } : {}), ...withDefaults({ ...current.value, ...patch }) } });
 const opts = (list: Array<{ value: string; label: string }>, key: keyof Current) =>
@@ -69,7 +71,9 @@ const groups = computed(() => [
   { kind: "select" as const, key: "created", title: "Created", id: "proposal-created", value: current.value.created, options: CREATED },
 ]);
 
-const { data: proposals, refresh } = await useFetch("/api/proposals", { query: computed(() => apiQuery(current.value)), default: () => [] });
+const { data: allProposals, refresh } = await useFetch("/api/proposals", { query: computed(() => apiQuery(current.value)), default: () => [] });
+const visibility = computed(() => proposalVisibility(allProposals.value, { status: current.value.status, showHidden: !!current.value.closed }));
+const proposals = computed(() => visibility.value.shown);
 
 // Rows animate in when the page is reached by a client navigation; on the first (hydrating) load they are simply there.
 const animate = !useNuxtApp().isHydrating;
@@ -257,6 +261,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
     <ResearchBar v-if="researchView" :view="researchView" />
 
     <ListControls :groups="groups" :filtered="filtered" :clear-to="clearTo" data-test="proposal-controls" @select="choose" />
+    <ShowClosedToggle v-if="visibility.toggle" :count="visibility.hiddenCount" :showing="!!current.closed" :to="to({ closed: current.closed ? '' : '1' })" />
 
     <section>
       <p v-if="!proposals.length && filtered" class="surface muted text-sm">No Proposals match these filters.</p>

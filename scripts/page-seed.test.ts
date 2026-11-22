@@ -61,6 +61,9 @@ describe("the seed fixture", () => {
     const newsMeme = store.getProposal(ids.newsMeme)!;
     expect(newsMeme).toMatchObject({ kind: "meme", status: "new" });
     expect(newsMeme.narrativeId).not.toBeNull();
+    // War Room ticket 20: a closed and a dismissed Proposal, so the lists have something to hide.
+    expect(store.queryProposals({ status: "closed" })).toHaveLength(1);
+    expect(store.queryProposals({ status: "dismissed" })).toHaveLength(1);
     expect(newsMeme.metaKey).toBe(`narrative:${newsMeme.narrativeId}`);
     expect(newsMeme.metaSnapshot).toMatchObject({ version: 3, kind: "narrative" });
 
@@ -84,7 +87,7 @@ describe("the seed fixture", () => {
     expect(topicMeme.metaSnapshot).toMatchObject({ version: 4, kind: "topic", topic: { requestId: 2 } });
     expect(store.memeAngleRequests()[1]!.proposalIds).toHaveLength(3);
 
-    expect(store.liveMemeProposals()).toHaveLength(12);
+    expect(store.liveMemeProposals()).toHaveLength(10); // 12 meme Proposals less the closed and the dismissed one
     const current = store.currentMetas(NOW.toISOString())!;
     expect(current.metas.map((m: { key: string; holding: boolean }) => [m.key, m.holding])).toEqual([
       ["seed-chair", false],

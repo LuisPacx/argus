@@ -12,7 +12,7 @@
 export const SEED_TOKENS = ['tech', 'metaMeme', 'newsMeme', 'hostile', 'angle', 'topicMeme', 'narrative', 'moment', 'trend'];
 
 // The standard set `--seed --all` checks (`{token}` pages are filled from the fixture).
-export const STANDARD_PATHS = ['/', '/?kind=meme', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/proposals/{topicMeme}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}', '/research'];
+export const STANDARD_PATHS = ['/', '/?kind=meme', '/?closed=1', '/meta', '/meta#all-launch-themes', '/proposals/{tech}', '/proposals/{metaMeme}', '/proposals/{newsMeme}', '/proposals/{hostile}', '/proposals/{angle}', '/proposals/{topicMeme}', '/narratives', '/narratives/{narrative}', '/moments', '/moments#post-{moment}', '/radar', '/radar#trend-{trend}', '/research'];
 
 // Replaces `{token}` in a path. Throws on a token that is not in SEED_TOKENS, or (with `ids`) has no id.
 export function expandTokens(pagePath, ids) {
@@ -223,6 +223,9 @@ export async function seedDatastore(store, now) {
     { now: new Date(now.getTime() - 15 * MIN) },
   );
   counts.proposals += newsTrio.length;
+  // One closed (expired) and one dismissed Proposal (War Room ticket 20): the lists hide them by default and a toggle shows them.
+  store.transition(newsTrio[1].id, 'closed', 'system');
+  store.transition(newsTrio[2].id, 'dismissed', 'operator', 'SEED sample: not funny enough');
 
   // The Operator's verdicts (War Room ticket 19), through the production write path: the Tech Narrative has an earlier bad verdict with a
   // score tag, replaced by a good one whose note is hostile markup; the news Narrative has a bad one. Both were made against their Score.

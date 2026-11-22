@@ -5,6 +5,10 @@ const { data } = await useFetch(`/api/narratives/${route.params.id}`, { key: `na
 const n = data;
 // 0 until mounted: UTC text on the server and first client render, the viewer's zone after (ticket 16, like ticket 15).
 const nowMs = useNowMs();
+// Closed and dismissed Proposals are hidden unless ?closed=1 (ticket 20).
+const showClosed = computed(() => showHiddenFromQuery(route.query.closed));
+const proposalView = computed(() => proposalVisibility(n.value?.proposals ?? [], { status: "", showHidden: showClosed.value }));
+const closedToggleTo = computed(() => (showClosed.value ? `/narratives/${route.params.id}` : `/narratives/${route.params.id}?closed=1`));
 const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
 </script>
 
@@ -25,7 +29,7 @@ const pct =(value: number) => Math.max(0, Math.min(100, (value / 10) * 100));
 
     <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
       <VerdictForm :narrative-id="n.id" :history="n.verdicts" />
-      <NarrativeProposals :proposals="n.proposals" />
+      <NarrativeProposals :proposals="proposalView.shown" :hidden-count="proposalView.hiddenCount" :showing="showClosed" :toggle-to="closedToggleTo" />
     </div>
 
     <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
