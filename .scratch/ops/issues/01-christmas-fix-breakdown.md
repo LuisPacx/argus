@@ -11,3 +11,5 @@ Running: argus worker pid 4185296 (runs a503eb8).
 - 2026-11-22 17:16 [d37fa1ed] 01 dispatched (sonnet medium, branch christmas-01, ~/.cache/argus-scratch/christmas-01). 02 still running.
 - 2026-11-22 17:26 [d37fa1ed] 02 at 26367c0 (christmas-02), 01 at 7b7f2e5 (christmas-01), both on 0a6df3a; verifier+reviewer running on each. Whichever merges second needs a rebase by a worker before ff.
 - 2026-11-22 17:27 [d37fa1ed] Reviews: 01 MERGE, 02 MERGE (02's risks for 03 noted on ticket 03). Verifiers still running.
+- 2026-11-22 17:36 [d37fa1ed] 02 merged (26367c0). 01 verifier PASS + review MERGE; Haiku rebasing christmas-01 onto main, then ff. 03 running (Sonnet medium, branch christmas-03). 02 boxes still to tick (with 01's, one edit).
+- 2026-11-22 17:43 [d37fa1ed] 01 merged (1a2f446, check 4214/4214). 02+01 boxes being ticked by Haiku. 04 running (Sonnet high, branch christmas-04 in ~/.cache/argus-scratch). 03 still running. Next: verify+review 03 and 04, then 05.

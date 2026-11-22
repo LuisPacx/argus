@@ -5,12 +5,12 @@
 
 **Blocked by:** none
 
-Status: ready-for-agent
-- [ ] The matching rule lives in a shared module and widen imports it; widen's own tests pass unchanged.
-- [ ] "CATEMAS" and "Bullmas" match the stem "mas"; "Thomas" and "Xmas" do not; the stem also matches a whole word "mas" and the start of a word.
-- [ ] A full-width spelling (for example "ＳＡＮＴＡ") matches the term "santa", and a decomposed accent matches its composed form, in both directions.
-- [ ] A term of 4 or more characters still matches anywhere in the text, case-insensitively with whitespace runs collapsed.
-- [ ] Matching stays linear (a long input with a short term returns without a measurable stall) and builds no pattern from the term.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+Status: done
+- [x] The matching rule lives in a shared module and widen imports it; widen's own tests pass unchanged.
+- [x] "CATEMAS" and "Bullmas" match the stem "mas"; "Thomas" and "Xmas" do not; the stem also matches a whole word "mas" and the start of a word.
+- [x] A full-width spelling (for example "ＳＡＮＴＡ") matches the term "santa", and a decomposed accent matches its composed form, in both directions.
+- [x] A term of 4 or more characters still matches anywhere in the text, case-insensitively with whitespace runs collapsed.
+- [x] Matching stays linear (a long input with a short term returns without a measurable stall) and builds no pattern from the term.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments

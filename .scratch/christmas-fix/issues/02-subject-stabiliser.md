@@ -6,13 +6,13 @@
 **Blocked by:** none
 
 Status: done
-- [ ] Rename case: previous subject keyed "christmas" with members including "christmas"; this run the AI names it from a leading theme "santa" with the same members. The output subject keeps the key "christmas", the same member themes and the carried state; it is not a new subject.
-- [ ] A subject with no overlap with any previous subject gets its own key as today.
-- [ ] Themes in the previous run's subjects are always in the set sent to the AI, even when they rank below the 30-theme cut; the cut for other themes is unchanged.
-- [ ] A previous subject with no matching member this run is kept for 120 minutes and dropped after; at 119 minutes it is kept, at 121 it is gone.
-- [ ] Two new subjects overlapping one previous subject: the larger overlap inherits the key, the other gets a fresh key; equal overlaps are decided by the smaller key, independent of input order.
-- [ ] An empty previous run changes nothing; the function does no I/O.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Rename case: previous subject keyed "christmas" with members including "christmas"; this run the AI names it from a leading theme "santa" with the same members. The output subject keeps the key "christmas", the same member themes and the carried state; it is not a new subject.
+- [x] A subject with no overlap with any previous subject gets its own key as today.
+- [x] Themes in the previous run's subjects are always in the set sent to the AI, even when they rank below the 30-theme cut; the cut for other themes is unchanged.
+- [x] A previous subject with no matching member this run is kept for 120 minutes and dropped after; at 119 minutes it is kept, at 121 it is gone.
+- [x] Two new subjects overlapping one previous subject: the larger overlap inherits the key, the other gets a fresh key; equal overlaps are decided by the smaller key, independent of input order.
+- [x] An empty previous run changes nothing; the function does no I/O.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
 - 2026-11-22 17:36 [d37fa1ed] Merged 26367c0 to main. Verifier PASS (stabilise 14/14, pnpm check 4208/4208); reviewer MERGE, boxes 1-6 met by reading.
