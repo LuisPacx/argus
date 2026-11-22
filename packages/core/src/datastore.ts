@@ -15,6 +15,7 @@ import { DEFAULT_ROUTING } from "./brain.ts";
 import { DEFAULT_BUILD_USD_PER_MINUTE, elapsedEstimateUsd, RECENT_BUILDS_FOR_RATE, type CostSource } from "./run-cost.ts";
 import { MetaStore, migrateMeta, type ContextHeadline, type MetaCurrent, type MetaNewEvent, type MetaRun, type MetaSummaryRecord } from "./meta/store.ts";
 import { MemeStore, migrateMeme } from "./meme/store.ts";
+import { ideaSnapshot, migrateProposalVerdicts, toProposalVerdict, type NewProposalVerdict, type ProposalVerdict } from "./proposal-verdict.ts";
 import { migrateVerdicts, toNarrativeVerdict, type NarrativeVerdict, type NewNarrativeVerdict, type Verdict, type VerdictExportRow, type VerdictScore } from "./narrative-verdict.ts";
 import { ANGLE_DUPLICATE_MS, ANGLE_LIST_LIMIT, ANGLE_MAX_CHARS, ANGLE_SPENDING_STATUSES, ANGLE_WINDOW_MS, angleAttemptCap, angleKey, DEFAULT_MEME_ANGLE_PER_DAY, MAX_MEME_ANGLE_PER_DAY, migrateAngles, toAngleRequest, toAngleRow, topicKey, type AngleRequest, type AngleRequestRow, type AngleStatus, type OperatorAngle } from "./meme/angle.ts";
 import { migratePicks, migratePickWithdrawals, NOT_WITHDRAWN, PICK_DUPLICATE_MS, PICK_LIST_LIMIT, PickRepeatError, toPick, withdrawPick, type PickSource, type ResearchPick } from "./research/picks.ts";
@@ -619,6 +620,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
+  migrateProposalVerdicts(db);
   // The worker heartbeat and the ledger of its stops (meta redesign ticket 10): additive tables.
   migrateWorkerGaps(db);
   // The Moment scanner (moment scanner ticket 01): its scans, posts and readings, and the X session's shared stop state. Additive tables.
@@ -805,6 +807,9 @@ export type WarRoomStore = Pick<
   | "historyFor"
   | "enqueueCommand"
   | "addNarrativeVerdict"
+  | "addProposalVerdict"
+  | "proposalVerdictsFor"
+  | "currentProposalVerdicts"
   | "verdictsFor"
   | "verdictExport"
   | "createProposal"
@@ -2353,6 +2358,35 @@ export class Datastore {
         .run(input.narrativeId, input.verdict, JSON.stringify(input.tags), JSON.stringify(input.dimensions), input.note, latest?.id ?? null, latest?.rubricVersion ?? null, (opts.now ?? new Date()).toISOString());
       return toNarrativeVerdict(this.db.prepare("SELECT * FROM narrative_verdicts WHERE id = ?").get(Number(res.lastInsertRowid)) as Record<string, string | number | null>);
     });
+  }
+
+  /**
+   * War Room entry point (ticket 21, insert only): records the Operator's Idea verdict on a meme Proposal. The Proposal's kind and Playbook
+   * version are read here and the idea is stored as a clamped snapshot, never taken from the caller. History is kept; the newest row is the
+   * current one. Writes no Proposal state. The route checks the values; an unknown Proposal throws `ProposalNotFoundError`, a Proposal of
+   * another kind a `DomainError`, and nothing is stored.
+   */
+  addProposalVerdict(input: NewProposalVerdict, opts: { now?: Date } = {}): ProposalVerdict {
+    return this.inTransaction(() => {
+      const p = this.getProposal(input.proposalId);
+      if (!p) throw new ProposalNotFoundError(input.proposalId);
+      if (p.kind !== "meme") throw new DomainError(`Proposal ${p.id} is not a meme idea; only a meme idea gets an Idea verdict`);
+      const res = this.db
+        .prepare("INSERT INTO proposal_verdicts (proposal_id, verdict, tags, note, kind, playbook_version, idea, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(p.id, input.verdict, JSON.stringify(input.tags), input.note, p.kind, p.playbookVersion, ideaSnapshot({ name: p.name, ticker: p.ticker, angle: p.whyNow }), (opts.now ?? new Date()).toISOString());
+      return toProposalVerdict(this.db.prepare("SELECT * FROM proposal_verdicts WHERE id = ?").get(Number(res.lastInsertRowid)) as Record<string, string | number | null>);
+    });
+  }
+
+  /** A Proposal's Idea verdicts, newest (the current one) first. */
+  proposalVerdictsFor(proposalId: number): ProposalVerdict[] {
+    return (this.db.prepare("SELECT * FROM proposal_verdicts WHERE proposal_id = ? ORDER BY id DESC").all(proposalId) as Record<string, string | number | null>[]).map(toProposalVerdict);
+  }
+
+  /** The current Idea verdict of every Proposal that has one (proposal id to the newest row's verdict), for the list pills. */
+  currentProposalVerdicts(): Record<number, ProposalVerdict["verdict"]> {
+    const rows = this.db.prepare("SELECT proposal_id, verdict FROM proposal_verdicts WHERE id IN (SELECT MAX(id) FROM proposal_verdicts GROUP BY proposal_id)").all() as Array<{ proposal_id: number; verdict: ProposalVerdict["verdict"] }>;
+    return Object.fromEntries(rows.map((r) => [r.proposal_id, r.verdict]));
   }
 
   /** A Narrative's verdicts, newest (the current one) first. */

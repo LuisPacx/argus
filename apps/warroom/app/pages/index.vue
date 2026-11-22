@@ -278,6 +278,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
                 <StatusPill :status="p.status" />
                 <span v-if="p.kind === 'meme'" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
                 <span v-if="p.kind === 'meme' && memeRowView(p).fromOperatorAngle" class="pill pill-outline" data-test="angle-pill" :title="memeRowView(p).sourcePillTitle">{{ memeRowView(p).sourcePill }}</span>
+                <VerdictPill v-if="p.kind === 'meme'" label="Idea" :verdict="p.ideaVerdict" data-test="idea-pill" />
               </div>
               <template v-if="p.kind === 'meme'">
                 <p class="muted mt-2 line-clamp-2 min-w-0 break-words text-sm leading-relaxed" data-test="meme-angle">{{ memeRowView(p).angle }}</p>

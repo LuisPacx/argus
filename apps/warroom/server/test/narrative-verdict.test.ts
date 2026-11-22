@@ -155,6 +155,6 @@ describe("GET /api/narratives/:id", () => {
     );
     const out = detail({ params: { id: "1" } });
     expect(out.verdicts.map((v) => v.verdict)).toEqual(["good", "bad"]);
-    expect(out.proposals).toEqual([{ id: 1, name: "Story Tool", ticker: "STORY", kind: "narrative", status: "new" }]);
+    expect(out.proposals).toEqual([{ id: 1, name: "Story Tool", ticker: "STORY", kind: "narrative", status: "new", ideaVerdict: null }]);
   });
 });

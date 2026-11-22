@@ -54,6 +54,10 @@ A Narrative's Rubric result (a Proposal's card shows the Score it was created fr
 **Verdict**:
 The Operator's call on a Narrative in the War Room: good or bad, with optional reason tags (wrong cluster, duplicate, score too high or low, the last two with the Rubric dimensions he thinks were off) and a short note. Kept as history (the newest is the current one), each stored with the Score and Rubric version that were the Narrative's latest when it was made (none for a Narrative that was never scored), and used only to calibrate the judge by hand: nothing reads it back automatically.
 
+**Idea verdict**:
+The Operator's call on a meme Proposal's idea in the War Room: Good or Bad with one click, then optionally why (reason tags from a fixed list, such as good name, funny, name taken or too generic, and a short note). Only an explicit Good or Bad counts; dismissing, shortlisting or letting an idea expire is never a signal. Kept as history (the newest per Proposal is the current one), each stored with the Proposal's kind, the Playbook version its prompt carried (both read by the store, never sent by the browser) and a clamped snapshot of the idea's name, ticker and angle at that moment. Calls no model. A Narrative's own call is a Verdict; the two are separate tables and terms.
+_Avoid_: Verdict (for an idea; Verdict is the Narrative's), rating, vote
+
 ## Market
 
 **Meta**:

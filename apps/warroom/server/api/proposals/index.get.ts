@@ -44,5 +44,7 @@ export default defineEventHandler((event) => {
   const dataDir = useDataDir();
   const buildRoot = useBuildRoot();
   const store = useStore();
-  return store.queryProposals(query).map((p) => withScore(store, withResume(p, dataDir, buildRoot)));
+  // `ideaVerdict`: the Operator's current Idea verdict (good or bad) on a meme idea, or null (ticket 21).
+  const verdicts = store.currentProposalVerdicts();
+  return store.queryProposals(query).map((p) => ({ ...withScore(store, withResume(p, dataDir, buildRoot)), ideaVerdict: verdicts[p.id] ?? null }));
 });

@@ -112,10 +112,10 @@ export function verdictFormView(input: VerdictFormInput): VerdictFormView {
   };
 }
 
-/** The pill on a list row: null when the Narrative has no verdict. */
-export function verdictPill(verdict: unknown): { label: string; tone: "good" | "bad" } | null {
-  if (verdict === "good") return { label: `Verdict: ${VERDICT_LABELS.good}`, tone: "good" };
-  if (verdict === "bad") return { label: `Verdict: ${VERDICT_LABELS.bad}`, tone: "bad" };
+/** The pill on a list row: null when there is no verdict. `name` is "Verdict" on a Narrative and "Idea" on a meme Proposal (ticket 21). */
+export function verdictPill(verdict: unknown, name = "Verdict"): { label: string; tone: "good" | "bad" } | null {
+  if (verdict === "good") return { label: `${name}: ${VERDICT_LABELS.good}`, tone: "good" };
+  if (verdict === "bad") return { label: `${name}: ${VERDICT_LABELS.bad}`, tone: "bad" };
   return null;
 }
 
@@ -134,8 +134,8 @@ export function verdictBody(input: Pick<VerdictFormInput, "choice" | "tags" | "d
 
 export type VerdictSubmit = { ok: true } | { ok: false; message: string };
 
-/** Sends one verdict through `post` (the page's `$fetch`) and says what happened. Never throws. */
-export async function submitVerdict(post: (body: VerdictBody) => Promise<unknown>, body: VerdictBody): Promise<VerdictSubmit> {
+/** Sends one verdict through `post` (the page's `$fetch`) and says what happened. Never throws. Also posts an Idea verdict body (ticket 21). */
+export async function submitVerdict<B = VerdictBody>(post: (body: B) => Promise<unknown>, body: B): Promise<VerdictSubmit> {
   try {
     await post(body);
     return { ok: true };
@@ -151,4 +151,6 @@ export interface NarrativeProposalPayload {
   ticker: string;
   kind: string;
   status: string;
+  /** The Operator's current Idea verdict on a meme idea (ticket 21); null or absent when there is none. */
+  ideaVerdict?: string | null;
 }

@@ -62,7 +62,7 @@ export async function seedDatastore(store, now) {
   const { aMeta, saveCurrentRun } = await import('../packages/core/src/testing/meta-current.ts');
   const { radarKey } = await import('../packages/core/src/radar/key.ts');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * MIN).toISOString();
-  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0, angle_requests: 0, verdicts: 0 };
+  const counts = { source_polls: 0, signals: 0, narratives: 0, scores: 0, meta_runs: 0, new_meta_events: 0, proposals: 0, brain_runs: 0, angle_requests: 0, verdicts: 0, idea_verdicts: 0 };
 
   // The Metas (one holding its place, one cooling), two Watching subjects, and the New Meta event for the first.
   // Merged launch themes (ticket 07): three for the chair (one long unbroken label, one with markup), seven for the lobster (so "+2 more" shows), none for the others.
@@ -234,6 +234,15 @@ export async function seedDatastore(store, now) {
   verdict(techNarrative, 'good', 10, { tags: ['score-too-low'], dimensions: ['buildability'], note: `SEED <img src=x onerror=alert(1)> ${'V'.repeat(140)}` });
   verdict(newsNarrative, 'bad', 8, { tags: ['wrong-cluster', 'duplicate'] });
   counts.verdicts += 3;
+
+  // The Operator's Idea verdicts (War Room ticket 21), through the production write path: the hostile idea has an earlier good verdict, replaced
+  // by a bad one with tags and a hostile note; the third idea of the Meta trio has a good one. The first idea (`{metaMeme}`) has none, so its
+  // Good button posts in a keys run.
+  const ideaVerdict = (proposalId, v, minutesAgo, over = {}) => store.addProposalVerdict({ proposalId, verdict: v, tags: [], note: '', ...over }, { now: new Date(now.getTime() - minutesAgo * MIN) });
+  ideaVerdict(metaTrio[1].id, 'good', 30);
+  ideaVerdict(metaTrio[1].id, 'bad', 12, { tags: ['boring', 'name-taken'], note: `SEED <img src=x onerror=alert(1)> ${'W'.repeat(140)}` });
+  ideaVerdict(metaTrio[2].id, 'good', 6, { tags: ['funny'] });
+  counts.idea_verdicts += 3;
 
   // The Moment scanner (moment scanner ticket 01), through the production write paths: two scans of one fake topic, a rising clip read twice
   // (so it has an average and a recent rate), a slow clip that must not be listed, a hostile post (markup, newlines, a 700-character run)

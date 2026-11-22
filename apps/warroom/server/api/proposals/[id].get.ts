@@ -12,6 +12,7 @@ export default defineEventHandler((event) => {
   // `brainRuns`: every run with the backend that served it (claude-code: Est. usage; api: real dollars).
   // `signals`: the Narrative's top Signals for the "Why this Proposal" panel.
   // `buildRefusal`/`buildRunning`/`buildRetrySeconds`: why an approved Proposal's Build has not started (see utils/build-status.ts).
+  // `ideaVerdicts`: the Operator's Idea verdicts on a meme idea, newest (the current one) first; empty for any other kind (ticket 21).
   // `cleanup`: what "Clean up build" would remove and the latest run's results (see utils/cleanup.ts).
-  return withBuildStatus(store, withScore(store, withSignals(store, withCleanup(store, { ...withResume(proposal, useDataDir(), useBuildRoot()), launchUrl: launchLinkFor(proposal), brainRuns: store.brainRunsFor(proposal.id) }, useBuildRoot()))));
+  return withBuildStatus(store, withScore(store, withSignals(store, withCleanup(store, { ...withResume(proposal, useDataDir(), useBuildRoot()), launchUrl: launchLinkFor(proposal), brainRuns: store.brainRunsFor(proposal.id), ideaVerdicts: store.proposalVerdictsFor(proposal.id) }, useBuildRoot()))));
 });

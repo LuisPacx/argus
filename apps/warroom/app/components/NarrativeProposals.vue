@@ -15,6 +15,7 @@ defineProps<{ proposals: NarrativeProposalPayload[]; hiddenCount?: number; showi
         <NuxtLink :to="`/proposals/${p.id}`" class="link min-w-0 break-words font-semibold" data-test="narrative-proposal">{{ p.name }}<span v-if="p.ticker" class="muted font-normal"> ${{ p.ticker }}</span></NuxtLink>
         <span class="pill pill-outline">{{ p.kind === "meme" ? "meme idea" : "Tech" }}</span>
         <StatusPill :status="p.status" />
+        <VerdictPill v-if="p.kind === 'meme'" label="Idea" :verdict="p.ideaVerdict" data-test="idea-pill" />
       </li>
     </ul>
   </section>

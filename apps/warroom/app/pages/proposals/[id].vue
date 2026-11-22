@@ -169,6 +169,7 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
             <StatusPill :status="p.status" />
             <span v-if="isMeme" class="pill pill-outline" data-test="kind-pill" title="A token idea for a live Meta or a news story: no Spec, no Build, no Score of its own">meme</span>
             <span v-if="meme?.operatorAngle" class="pill pill-outline" data-test="angle-pill" :title="meme.operatorAngle.pillTitle">{{ meme.operatorAngle.pill }}</span>
+            <VerdictPill v-if="isMeme" label="Idea" :verdict="p.ideaVerdicts[0]?.verdict" data-test="idea-pill" />
             <BuildBlockedMarker :view="buildNotice" />
             <span v-if="p.score && !isMeme" class="pill pill-accent ml-auto px-3.5 py-2 text-base tabular-nums" title="The Score this Proposal was created from">{{ p.score.total.toFixed(1) }}<span class="text-xs font-medium opacity-70">/10</span></span>
           </div>
@@ -192,6 +193,8 @@ const canUndo = computed(() => (p.value?.status === "shortlisted" || p.value?.st
 
         <MemeCard v-if="meme" :view="meme" />
         <WhyPanel v-else :view="why" />
+
+        <IdeaVerdict v-if="isMeme" :proposal-id="p.id" :history="p.ideaVerdicts" @saved="refresh()" />
 
         <section v-if="p.status === 'new' && isMeme" class="surface grid gap-3" data-test="shortlist-section">
           <h3 class="section-title">Decide</h3>

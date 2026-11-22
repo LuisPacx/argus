@@ -48,6 +48,10 @@ describe("the seed fixture", () => {
     // The Operator's verdicts (ticket 19): a history on the Tech Narrative (the newest, good, is the current one), one on the news Narrative.
     expect(store.verdictsFor(narrative).map((v: { verdict: string; scoreId: number | null }) => [v.verdict, v.scoreId !== null])).toEqual([["good", true], ["bad", true]]);
     expect(store.queryNarratives({ verdict: "bad" })).toHaveLength(1);
+    // The Idea verdicts (ticket 21): a history on the hostile idea (the newest, bad, is current), a good one on the third idea, none on the first.
+    expect(store.proposalVerdictsFor(ids.hostile).map((v: { verdict: string }) => v.verdict)).toEqual(["bad", "good"]);
+    expect(store.currentProposalVerdicts()).toEqual({ [ids.hostile]: "bad", [ids.hostile + 1]: "good" });
+    expect(store.proposalVerdictsFor(ids.metaMeme)).toEqual([]);
     expect(store.getProposal(ids.tech)!.narrativeId).toBe(narrative);
 
     const tech = store.getProposal(ids.tech)!;
@@ -101,7 +105,7 @@ describe("the seed fixture", () => {
     expect(current.watching.map((w: { themes?: unknown[] }) => w.themes)).toEqual([[], []]);
     expect(store.newMetaEvents(new Date(NOW.getTime() - 3_600_000).toISOString())).toHaveLength(1);
 
-    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 13, brain_runs: 9, angle_requests: 4, verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 5, research_requests: 6 });
+    expect(counts).toEqual({ source_polls: 1, signals: 2, narratives: 2, scores: 2, meta_runs: 1, new_meta_events: 1, proposals: 13, brain_runs: 9, angle_requests: 4, verdicts: 3, idea_verdicts: 3, moment_scans: 3, moment_posts: 3, moment_readings: 6, x_session_stops: 1, radar_trends: 7, radar_sources: 10, picks: 5, research_requests: 6 });
     // The Operator's topic research (human researcher ticket 05): a done brief, a failed, a capped, a hostile one and one waiting, each with its cost; and (ticket 08) an older brief for the Scoreboard.
     expect(store.researchRequests().map((r) => [r.status, r.runs, r.brief !== null])).toEqual([["pending", 0, false], ["done", 1, true], ["capped", 0, false], ["failed", 2, false], ["done", 1, true], ["done", 0, true]]);
     // The Scoreboard (ticket 08): one settled Shadow pick and one settled Operator Pick on the same topic and brief list, one Shadow pick still inside its 24 hours.
