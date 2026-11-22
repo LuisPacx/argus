@@ -65,7 +65,7 @@ Several tokens graduating on the same narrative (ADR 0018). The Operator: "it is
 _Avoid_: Meta = leader at $1M (the old ADR 0014 rule, superseded), Trend (a Trend is the radar's find and may have no token at all), Narrative (when meaning a Meta), "Meta" for a launch theme with too few graduations (that is a launch theme, see below)
 
 **Graduation**:
-A pump.fun migrate receipt (`study_tokens.migrated_at`): the moment a token leaves the bonding curve. Counted by graduation time, not create time. Bonk graduations carry no receipt and are ignored.
+A pump.fun migrate receipt (`study_tokens.migrated_at`): the moment a token leaves the bonding curve. Counted by graduation time, not create time. Bonk graduations carry no receipt and are ignored. A Graduation joins a subject by exact name or ticker form, or by name blend (a graduate such as Bullmas carrying a stem of the Christmas subject; ADR 0019), and the Meta page notes how many joined by blend.
 
 **Watching**:
 A subject that is not a Meta yet: at least 5 Graduations in 24 h or at least 3 in 6 h; the top 3 by 6 h, then 24 h. A Meta that falls below 5 in 24 h competes for Watching like any subject. Labelled "Watching" everywhere, never shown as a Meta. Market cap plays no part.

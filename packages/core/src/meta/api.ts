@@ -145,6 +145,8 @@ export interface CurrentGradsApi {
   coverage?: { covered: number; of: number };
   /** Graduations since the last recording gap ended; present only when a gap ended inside the window (ticket 04). */
   sinceGap?: number;
+  /** Graduates of the 24 h count that joined by name blend (ADR 0019); present only when above 0. */
+  blended?: number;
   /** The 3 newest graduates, newest first; `marketCapUsd` only when the token was priced (else a dash). Untrusted text. */
   newest: MetaApiToken[];
   /** True for a Watching subject with at least the 6 h count that makes it "rising". */
@@ -216,6 +218,7 @@ export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummar
             share: m.grads.share,
             ...(m.grads.coverage ? { coverage: m.grads.coverage } : {}),
             ...(m.grads.sinceGap !== undefined ? { sinceGap: m.grads.sinceGap } : {}),
+            ...(m.grads.blended ? { blended: m.grads.blended } : {}),
             newest: (m.grads.newest ?? []).slice(0, 3).map(apiToken),
             ...(!isMeta && m.grads["6h"] >= rising6h ? { rising: true as const } : {}),
           },

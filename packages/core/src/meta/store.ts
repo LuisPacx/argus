@@ -85,6 +85,8 @@ export interface CurrentGrads {
   coverage?: { covered: number; of: number };
   /** Present only when a recording gap ended inside the 24 h window (ticket 04): the subject's graduations since that gap ended. */
   sinceGap?: number;
+  /** Present only when the blend pass placed graduates in this subject (ADR 0019): how many of the 24 h count joined by name blend. A count, never text. */
+  blended?: number;
   /** The subject's newest graduates (at most 3, newest first), with the market cap where a token was priced this run; absent on a row stored before ticket 02. Untrusted text. */
   newest?: CurrentNewest[];
 }
@@ -490,6 +492,7 @@ function parseGrads(text: string): CurrentGrads | undefined {
     share: n(g.share),
     ...(isRecord(cov) ? { coverage: { covered: n(cov.covered), of: n(cov.of) } } : {}),
     ...(typeof g.sinceGap === "number" && Number.isFinite(g.sinceGap) && g.sinceGap >= 0 ? { sinceGap: g.sinceGap } : {}),
+    ...(typeof g.blended === "number" && Number.isFinite(g.blended) && g.blended > 0 ? { blended: Math.floor(g.blended) } : {}),
   };
 }
 

@@ -245,6 +245,14 @@ it("a thin window shows the coverage flag; a full window and an old row show non
   expect(old).toContain("45 creators copying in 24 h"); // an old row keeps its old line
 });
 
+it("a subject with blended graduates shows the blend note; one without shows none", async () => {
+  const blended = await draw(response([subject("Christmas", "BULL", 12_000, { grads: grads({ blended: 3 }) })], [subject("Rising", "RIS", 0, { grads: grads({ "24h": 4, "6h": 3, blended: 1 }) })]));
+  expect(blended).toContain('data-test="current-blend-note"');
+  expect(blended).toContain("includes 3 graduates matched by name blend");
+  expect(blended).toContain("includes 1 graduate matched by name blend");
+  expect(await draw(response([CHRISTMAS], []))).not.toContain("current-blend-note");
+});
+
 // ---- the gap warning and the since-the-last-gap counter (graduation Meta ticket 04) ----
 
 const GAP = { from: "2026-11-15T02:00:00.000Z", to: "2026-11-15T06:30:00.000Z", covered: 19, of: 24, endedAt: "2026-11-15T06:30:00.000Z" };

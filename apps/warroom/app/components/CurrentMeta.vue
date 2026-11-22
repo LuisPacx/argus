@@ -42,6 +42,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
         <p v-if="m.gradLine" class="min-w-0 break-words font-medium" data-test="current-grads">{{ m.label }}: {{ m.gradLine }}</p>
         <p v-if="m.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ m.gradCoverage }}</p>
         <p v-if="m.sinceGap" class="faint text-xs tabular-nums" data-test="current-since-gap">{{ m.sinceGap }}</p>
+        <p v-if="m.blendNote" class="faint text-xs tabular-nums" data-test="current-blend-note">{{ m.blendNote }}</p>
         <div v-if="m.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
           <p class="faint font-medium">Newest graduates</p>
           <ul class="grid min-w-0 gap-0.5" data-test="current-newest">
@@ -111,6 +112,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
           <p v-if="w.gradLine" class="min-w-0 break-words text-xs font-medium" data-test="current-grads">{{ w.label }}: {{ w.gradLine }}</p>
           <p v-if="w.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ w.gradCoverage }}</p>
           <p v-if="w.sinceGap" class="faint text-xs tabular-nums" data-test="current-since-gap">{{ w.sinceGap }}</p>
+          <p v-if="w.blendNote" class="faint text-xs tabular-nums" data-test="current-blend-note">{{ w.blendNote }}</p>
           <div v-if="w.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
             <p class="faint font-medium">Newest graduates</p>
             <ul class="grid min-w-0 gap-0.5" data-test="current-newest">

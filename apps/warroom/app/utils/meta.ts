@@ -260,6 +260,7 @@ export interface CurrentMetaPayloadRow {
     share: number;
     coverage?: { covered: number; of: number };
     sinceGap?: number;
+    blended?: number;
     newest?: MetaPayloadToken[];
     rising?: boolean;
   };
@@ -272,6 +273,8 @@ export interface CurrentMetaRowView {
   gradCoverage: string | null;
   /** "3 graduated since the last gap ended" when a gap ended inside the window; null otherwise. */
   sinceGap: string | null;
+  /** "includes 3 graduates matched by name blend" when the blend pass placed graduates in the subject (ADR 0019); null otherwise. A count only. */
+  blendNote: string | null;
   /** The newest graduates (at most 3) as "Name ($TICK) $12K", with "-" where no price is known. */
   newest: MetaTokenView[];
   /** "rising: 3 in 6h" for a Watching subject that qualifies by the 6 h rule; null otherwise. */
@@ -345,10 +348,10 @@ function shareText(share: unknown): string | null {
   return pct < 1 ? "under 1% of all graduations" : `${Math.min(pct, 100)}% of all graduations`;
 }
 
-function gradViews(g: CurrentMetaPayloadRow["grads"], gapEnded: boolean): Pick<CurrentMetaRowView, "gradLine" | "gradCoverage" | "sinceGap" | "newest" | "rising"> {
+function gradViews(g: CurrentMetaPayloadRow["grads"], gapEnded: boolean): Pick<CurrentMetaRowView, "gradLine" | "gradCoverage" | "sinceGap" | "blendNote" | "newest" | "rising"> {
   const n24 = g?.["24h"];
   const n6 = g?.["6h"];
-  if (!g || !finite(n24) || !finite(n6)) return { gradLine: null, gradCoverage: null, sinceGap: null, newest: [], rising: null };
+  if (!g || !finite(n24) || !finite(n6)) return { gradLine: null, gradCoverage: null, sinceGap: null, blendNote: null, newest: [], rising: null };
   const creators = finite(g.creators24h) ? plural(Math.max(0, Math.round(g.creators24h)), "creator") : null;
   const share = shareText(g.share);
   const cov = g.coverage;
@@ -364,6 +367,7 @@ function gradViews(g: CurrentMetaPayloadRow["grads"], gapEnded: boolean): Pick<C
     gradLine: [`${n24} graduated in 24h (${n6} in the last 6h)`, creators, share].filter((s) => s !== null).join(", "),
     gradCoverage: covered,
     sinceGap: gapEnded && finite(g.sinceGap) && g.sinceGap >= 0 ? `${Math.round(g.sinceGap)} graduated since the last gap ended` : null,
+    blendNote: finite(g.blended) && g.blended > 0 ? `includes ${Math.round(g.blended)} ${Math.round(g.blended) === 1 ? "graduate" : "graduates"} matched by name blend` : null,
     newest,
     rising: g.rising === true && n6 > 0 ? `rising: ${n6} in 6h` : null,
   };

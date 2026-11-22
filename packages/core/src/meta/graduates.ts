@@ -52,7 +52,8 @@ const HOUR_MS = 3_600_000;
  * is already a Meta (over the bar, or one the previous tick had and hysteresis keeps) gains nothing, so the pass can lift a weak subject over the bar but never pad a strong one. Graduates placed by an earlier pass,
  * or ambiguous in it, are not in `loose` and are never moved.
  */
-function blend(input: AssignInput, loose: readonly GraduatedToken[], owned: GraduatedToken[][], from6: number): void {
+function blend(input: AssignInput, loose: readonly GraduatedToken[], owned: GraduatedToken[][], from6: number): Set<string> {
+  const blended = new Set<string>();
   const bar = input.bar as NonNullable<AssignInput["bar"]>;
   const weak = owned.map((list, i) => {
     if (input.wasMeta?.(i)) return false;
@@ -67,8 +68,12 @@ function blend(input: AssignInput, loose: readonly GraduatedToken[], owned: Grad
     terms.forEach((t, i) => {
       if (blendMatches(t, fields[n] as Field[])) matched.push(i);
     });
-    if (matched.length === 1 && weak[matched[0] as number]) (owned[matched[0] as number] as GraduatedToken[]).push(g);
+    if (matched.length === 1 && weak[matched[0] as number]) {
+      (owned[matched[0] as number] as GraduatedToken[]).push(g);
+      blended.add(g.mint);
+    }
   });
+  return blended;
 }
 
 export function assignGraduates(input: AssignInput): GraduateAssignment {
@@ -97,7 +102,7 @@ export function assignGraduates(input: AssignInput): GraduateAssignment {
     }
     if (subject !== undefined) (owned[subject] as GraduatedToken[]).push(g);
   }
-  if (input.bar && loose.length > 0) blend(input, loose, owned, from6);
+  const blended = input.bar && loose.length > 0 ? blend(input, loose, owned, from6) : new Set<string>();
   const grads = owned.map((list): CurrentGrads => {
     const creators = new Set<string>();
     let last6 = 0;
@@ -105,7 +110,8 @@ export function assignGraduates(input: AssignInput): GraduateAssignment {
       if (g.creator !== "") creators.add(g.creator);
       if (Date.parse(g.migratedAt) >= from6) last6++;
     }
-    return { "24h": list.length, "6h": last6, creators24h: creators.size, share: total > 0 ? Math.round((list.length / total) * 10_000) / 10_000 : 0 };
+    const byBlend = list.filter((g) => blended.has(g.mint)).length;
+    return { "24h": list.length, "6h": last6, creators24h: creators.size, share: total > 0 ? Math.round((list.length / total) * 10_000) / 10_000 : 0, ...(byBlend > 0 ? { blended: byBlend } : {}) };
   });
   return { grads, graduates: owned };
 }
