@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isLiveDb } from './live-db-guard.mjs';
-import { spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
+import { privateBuildEnv, spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
 import { seedDatastore } from './page-seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -117,7 +117,7 @@ export async function startSeededServer({ port = SEED_DEFAULT_PORT, now, base = 
     fs.mkdirSync(serverTmp);
     const logFile = path.join(dir, 'warroom.log');
     // ARGUS_NO_DOTENV: never the operator's .env. ARGUS_NUXT_BUILD_DIR: own build dir (see nuxt.config.ts), so no shared .nuxt/ and no lock clash with the live server. TMPDIR: inside the throwaway dir, never /tmp.
-    const env = { ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt'), TMPDIR: serverTmp };
+    const env = privateBuildEnv({ ...process.env, ARGUS_DB: dbPath, ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1', TMPDIR: serverTmp }, dir);
     const server = spawnNuxtDev({ root: ROOT, port, env, logFile });
     pgid = server.pgid;
     const problem = await waitForNuxtReady({ port, logFile, hasExited: server.hasExited, timeoutMs: READY_TIMEOUT_MS, cancelled: () => stopped });
