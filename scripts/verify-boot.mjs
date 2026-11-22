@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Datastore, clusterNewSignals } from '../packages/core/src/index.ts';
 import { checkDryRunOutput } from '../packages/core/src/containment-policy.ts';
-import { groupAlive, httpGet, spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
+import { groupAlive, httpGet, privateBuildEnv, spawnNuxtDev, stopGroup, waitForNuxtReady } from './nuxt-dev-server.mjs';
 import { activityProblem, pageProblem, pageRoutes, serverLogProblem } from './warroom-pages.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -199,7 +199,8 @@ async function stepWarroom(dir, ids) {
   }
   const logFile = path.join(dir, 'warroom.log');
   // ARGUS_NO_DOTENV: /api/research reads the config from the environment; never the operator's .env (CODING_STANDARDS rule 16).
-  const env = { ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1' };
+  // ARGUS_NUXT_BUILD_DIR: own build dir, so it neither shares the live War Room's .nuxt nor trips its Nuxt dev lock.
+  const env = privateBuildEnv({ ...process.env, ARGUS_DB: path.join(dir, 'argus.db'), ARGUS_DATA_DIR: dir, ARGUS_NO_DOTENV: '1' }, dir);
   const server = spawnNuxtDev({ root: ROOT, port: WARROOM_PORT, env, logFile });
   const pgid = server.pgid;
   try {

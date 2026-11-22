@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
-import { groupAlive, httpGet, logTail, stopGroup, waitForNuxtReady } from "./nuxt-dev-server.mjs";
+import { groupAlive, httpGet, logTail, privateBuildEnv, stopGroup, waitForNuxtReady } from "./nuxt-dev-server.mjs";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -58,6 +58,12 @@ describe("shared Nuxt dev server helpers (verify-boot step 4 and page:check --se
     const deadline = Date.now() + 3000;
     while (groupAlive(pgid) && Date.now() < deadline) await sleep(20);
     expect(groupAlive(pgid)).toBe(false);
+  });
+
+  it("privateBuildEnv gives a throwaway server its own absolute build dir, so it never shares the live .nuxt or its dev lock", () => {
+    const env = privateBuildEnv({ KEEP: "1", ARGUS_NUXT_BUILD_DIR: "/elsewhere" }, "/scratch/run");
+    expect(env.ARGUS_NUXT_BUILD_DIR).toBe("/scratch/run/nuxt");
+    expect(env.KEEP).toBe("1");
   });
 
   it("waitForNuxtReady reports an exit, a timeout, and a server that is up but not on the log's port", async () => {

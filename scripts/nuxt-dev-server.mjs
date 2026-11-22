@@ -4,6 +4,7 @@
 // Ticket: .scratch/warroom-redesign/issues/18-dedupe-verify-boot.md
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -26,6 +27,11 @@ export async function httpGet(url, timeoutMs) {
     return { status: 0, body: String(err.message ?? err) };
   }
 }
+
+// Env for a throwaway dev server: its own build dir under `dir` (see apps/warroom/nuxt.config.ts). Nuxt keeps one dev lock per
+// build dir, so a second `nuxt dev` on the shared .nuxt exits 1 ("Another Nuxt dev server is already running") while the live War
+// Room runs, and would rewrite the live server's build output.
+export const privateBuildEnv = (env, dir) => ({ ...env, ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt') });
 
 export const logTail = (logFile) => fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
 
