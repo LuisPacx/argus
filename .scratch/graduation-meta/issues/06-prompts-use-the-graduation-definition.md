@@ -15,14 +15,14 @@ meta-group changes only its definition wording: its grouping instructions, outpu
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Every prompt and skill that defines a Meta says graduations on one narrative, with market cap as context only, and passes grads counts where a Meta is listed.
-- [ ] No "n/a" and no "at -" for an unpriced leader in any generated text.
-- [ ] meta-group changes only its definition wording, not its grouping instructions or output shape.
-- [ ] The untrusted-data fences are unchanged.
-- [ ] Tests pin the new wording and the unpriced-leader text.
-- [ ] `pnpm check` passes.
+- [x] Every prompt and skill that defines a Meta says graduations on one narrative, with market cap as context only, and passes grads counts where a Meta is listed.
+- [x] No "n/a" and no "at -" for an unpriced leader in any generated text.
+- [x] meta-group changes only its definition wording, not its grouping instructions or output shape.
+- [x] The untrusted-data fences are unchanged.
+- [x] Tests pin the new wording and the unpriced-leader text.
+- [x] `pnpm check` passes.
 
 ## Notes
 - Builds on ticket 05 (`leaderMoney`, the summary prompt wording) and the `grads` counts of ticket 01.
