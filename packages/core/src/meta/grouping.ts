@@ -57,13 +57,16 @@ const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /**
  * The items of one tick: the trending tokens at or above `minMarketCapUsd`, highest first, at most 40, as `T1`..; then the launch themes with
  * the most distinct creators, at most 30, as `H1`... Ties go to the smaller mint or key, so the list never depends on input order.
+ * `keep` is a set of theme keys that are always sent, even below the 30-theme cut (the member themes of the previous run's subjects, so a
+ * subject can be recognised again); the cut for every other theme is unchanged, so the list can hold more than 30 themes. Same order.
  */
-export function buildGroupItems(trending: readonly TrendingInput[], themes: readonly ThemeInput[], minMarketCapUsd: number): GroupItem[] {
+export function buildGroupItems(trending: readonly TrendingInput[], themes: readonly ThemeInput[], minMarketCapUsd: number, keep: ReadonlySet<string> = new Set()): GroupItem[] {
   const tokens = trending
     .filter((t) => t.marketCapUsd >= minMarketCapUsd)
     .sort((a, b) => b.marketCapUsd - a.marketCapUsd || cmpStr(a.mint, b.mint))
     .slice(0, GROUP_MAX_TOKENS);
-  const top = [...themes].sort((a, b) => b.creators - a.creators || b.tokens - a.tokens || cmpStr(a.key, b.key)).slice(0, GROUP_MAX_THEMES);
+  const ranked = [...themes].sort((a, b) => b.creators - a.creators || b.tokens - a.tokens || cmpStr(a.key, b.key));
+  const top = ranked.filter((t, i) => i < GROUP_MAX_THEMES || keep.has(t.key));
   return [
     ...tokens.map((t, i): GroupItem => ({ id: `T${i + 1}`, kind: "token", ref: `T:${t.mint}`, mint: t.mint, name: t.name, symbol: t.symbol, marketCapUsd: t.marketCapUsd, lists: [...t.lists] })),
     ...top.map((t, i): GroupItem => ({ id: `H${i + 1}`, kind: "theme", ref: `H:${t.key}`, key: t.key, label: t.label, tokens: t.tokens, creators: t.creators, names: [...t.names] })),
@@ -140,6 +143,8 @@ export interface GroupAnswer {
 export interface GroupSubject {
   name: string;
   items: string[];
+  /** Set only by `stabiliseSubjects`: the key a subject inherited from the previous run. `applyGrouping` uses it instead of the derived key. */
+  key?: string;
 }
 
 export type GroupParse = { ok: true; subjects: GroupSubject[] } | { ok: false; problem: string };
@@ -275,7 +280,7 @@ export function applyGrouping<S>(items: readonly GroupItem[], subjects: readonly
       return item?.kind === "token" ? [item.mint] : [];
     });
     const ranked = [...themes].sort((a, b) => b.creators - a.creators || b.tokens - a.tokens || cmpStr(a.key, b.key));
-    const key = (ranked[0] as (typeof ranked)[number]).key;
+    const key = s.key ?? (ranked[0] as (typeof ranked)[number]).key;
     const stat = merge(
       themes.map((t) => statOf(t.key) as S),
       key,
