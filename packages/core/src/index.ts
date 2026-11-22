@@ -27,6 +27,7 @@ export * from "./meta/theme.ts";
 export * from "./meta/prompt-block.ts";
 export * from "./meta/config.ts";
 export * from "./meta/coverage.ts";
+export * from "./meta/gap.ts";
 export * from "./meta/store.ts";
 export * from "./meta/compute.ts";
 export * from "./meta/topdown.ts";

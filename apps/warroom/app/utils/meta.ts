@@ -232,6 +232,8 @@ export function metaView(payload: MetaPayload | null | undefined, nowMs: number,
 export interface CurrentMetaPayload {
   computedAt: string | null;
   coverageNote?: string | null;
+  /** A recording gap that overlaps the 24 h window (graduation Meta ticket 04); absent when there is none. */
+  gap?: { from: string; to: string | null; covered: number; of: number; endedAt: string | null };
   metas: CurrentMetaPayloadRow[];
   watching: CurrentMetaPayloadRow[];
 }
@@ -257,6 +259,7 @@ export interface CurrentMetaPayloadRow {
     creators24h: number;
     share: number;
     coverage?: { covered: number; of: number };
+    sinceGap?: number;
     newest?: MetaPayloadToken[];
     rising?: boolean;
   };
@@ -267,6 +270,8 @@ export interface CurrentMetaRowView {
   gradLine: string | null;
   /** "covered 5 of 24 h" when the 24 h window is thin; null otherwise. Ticket 04 adds the gap warning beside it. */
   gradCoverage: string | null;
+  /** "3 graduated since the last gap ended" when a gap ended inside the window; null otherwise. */
+  sinceGap: string | null;
   /** The newest graduates (at most 3) as "Name ($TICK) $12K", with "-" where no price is known. */
   newest: MetaTokenView[];
   /** "rising: 3 in 6h" for a Watching subject that qualifies by the 6 h rule; null otherwise. */
@@ -316,6 +321,18 @@ export interface CurrentMetaView {
   note: string | null;
   footer: string | null;
   coverageNote: string | null;
+  /** "Argus was not recording from 20 Nov 02:00 UTC to 20 Nov 06:00 UTC; counts cover 20 of 24 h" while a gap overlaps the window; null otherwise. */
+  gapWarning: string | null;
+}
+
+/** The gap warning in UTC text (the same on the server and in any browser); null when there is no readable gap. */
+function gapWarningText(gap: CurrentMetaPayload["gap"]): string | null {
+  if (!gap || !finite(gap.covered) || !finite(gap.of) || gap.of <= 0) return null;
+  const iso = (s: unknown): string => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}T/.test(s) ? fmtUtc(s) : "");
+  const from = iso(gap.from);
+  if (from === "") return null;
+  const to = iso(gap.to);
+  return `Argus was not recording from ${from} to ${to !== "" ? to : "now"}; counts cover ${Math.round(gap.covered)} of ${Math.round(gap.of)} h`;
 }
 
 const COOLING_WHY = "Cooling: fewer tokens graduated than it takes to become a Meta, but enough to stay one.";
@@ -328,10 +345,10 @@ function shareText(share: unknown): string | null {
   return pct < 1 ? "under 1% of all graduations" : `${Math.min(pct, 100)}% of all graduations`;
 }
 
-function gradViews(g: CurrentMetaPayloadRow["grads"]): Pick<CurrentMetaRowView, "gradLine" | "gradCoverage" | "newest" | "rising"> {
+function gradViews(g: CurrentMetaPayloadRow["grads"], gapEnded: boolean): Pick<CurrentMetaRowView, "gradLine" | "gradCoverage" | "sinceGap" | "newest" | "rising"> {
   const n24 = g?.["24h"];
   const n6 = g?.["6h"];
-  if (!g || !finite(n24) || !finite(n6)) return { gradLine: null, gradCoverage: null, newest: [], rising: null };
+  if (!g || !finite(n24) || !finite(n6)) return { gradLine: null, gradCoverage: null, sinceGap: null, newest: [], rising: null };
   const creators = finite(g.creators24h) ? plural(Math.max(0, Math.round(g.creators24h)), "creator") : null;
   const share = shareText(g.share);
   const cov = g.coverage;
@@ -346,6 +363,7 @@ function gradViews(g: CurrentMetaPayloadRow["grads"]): Pick<CurrentMetaRowView, 
   return {
     gradLine: [`${n24} graduated in 24h (${n6} in the last 6h)`, creators, share].filter((s) => s !== null).join(", "),
     gradCoverage: covered,
+    sinceGap: gapEnded && finite(g.sinceGap) && g.sinceGap >= 0 ? `${Math.round(g.sinceGap)} graduated since the last gap ended` : null,
     newest,
     rising: g.rising === true && n6 > 0 ? `rising: ${n6} in 6h` : null,
   };
@@ -369,7 +387,7 @@ function themeViews(themes: CurrentMetaPayloadRow["themes"], title: string): Pic
   return { themes: all.slice(0, THEMES_SHOWN).map((t) => ({ text: t.text })), moreThemes: Math.max(0, all.length - THEMES_SHOWN), grouped: true };
 }
 
-function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean, angles?: readonly AngleRequestPayload[] | null): CurrentMetaRowView {
+function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean, angles?: readonly AngleRequestPayload[] | null, gapEnded = false): CurrentMetaRowView {
   const name = clampText(m?.leader?.name, TOKEN_NAME_CHARS);
   const symbol = clampText(m?.leader?.symbol, TICKER_CHARS);
   const leader = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "unknown token";
@@ -382,7 +400,7 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
   const cooling = isMeta && m?.holding === true;
   const label = clampText(m?.label, LABEL_CHARS);
   const key = typeof m?.key === "string" && m.key !== "" ? m.key : null;
-  const grads = gradViews(m?.grads);
+  const grads = gradViews(m?.grads, gapEnded);
   return {
     ...(ideas.length > 0 ? { ideas } : {}),
     key,
@@ -408,17 +426,19 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
 /** What the Current Meta section renders, from the API payload (null when it has not loaded) and the clock. */
 export function currentMetaView(payload: CurrentMetaPayload | null | undefined, nowMs: number, angles?: readonly AngleRequestPayload[] | null): CurrentMetaView {
   const computedAt = payload?.computedAt;
-  if (!payload || typeof computedAt !== "string") return { state: "waiting", metas: [], watching: [], emptyNote: null, note: "No Meta run yet. The worker computes it every 15 minutes.", footer: null, coverageNote: null };
+  if (!payload || typeof computedAt !== "string") return { state: "waiting", metas: [], watching: [], emptyNote: null, note: "No Meta run yet. The worker computes it every 15 minutes.", footer: null, coverageNote: null, gapWarning: null };
   const age = ageText(computedAt, nowMs);
   const footer = age === null ? null : age === "just now" ? "computed just now" : `computed ${age}`;
-  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true, angles));
-  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false, angles));
+  const gapWarning = gapWarningText(payload.gap);
+  const gapEnded = gapWarning !== null && typeof payload.gap?.endedAt === "string";
+  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true, angles, gapEnded));
+  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false, angles, gapEnded));
   const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const emptyNote = metas.length === 0 ? "No Meta right now" : null;
   const computedMs = Date.parse(computedAt);
   if (nowMs > 0 && Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {
     const hours = Math.floor((nowMs - computedMs) / 3_600_000);
-    return { state: "stale", metas, watching, emptyNote, note: `The Meta run is stale (computed ${plural(hours, "hour")} ago).`, footer, coverageNote };
+    return { state: "stale", metas, watching, emptyNote, note: `The Meta run is stale (computed ${plural(hours, "hour")} ago).`, footer, coverageNote, gapWarning };
   }
-  return { state: "ok", metas, watching, emptyNote, note: null, footer, coverageNote };
+  return { state: "ok", metas, watching, emptyNote, note: null, footer, coverageNote, gapWarning };
 }

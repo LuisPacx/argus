@@ -22,6 +22,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
     <p v-if="view.state === 'waiting'" class="surface note muted" data-test="meta-note">{{ view.note }}</p>
     <p v-else-if="view.state === 'stale'" class="note note-amber" data-test="meta-stale">{{ view.note }}</p>
     <p v-if="view.coverageNote" class="faint text-xs" data-test="meta-coverage-note">{{ view.coverageNote }}</p>
+    <p v-if="view.gapWarning" class="note note-amber" role="status" data-test="meta-gap-warning">{{ view.gapWarning }}</p>
     <p v-if="view.emptyNote" class="surface note" data-test="meta-empty"><strong>{{ view.emptyNote }}</strong></p>
 
     <ol v-if="view.metas.length > 0" class="grid gap-3 md:grid-cols-3" data-test="metas">
@@ -40,6 +41,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
         </p>
         <p v-if="m.gradLine" class="min-w-0 break-words font-medium" data-test="current-grads">{{ m.label }}: {{ m.gradLine }}</p>
         <p v-if="m.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ m.gradCoverage }}</p>
+        <p v-if="m.sinceGap" class="faint text-xs tabular-nums" data-test="current-since-gap">{{ m.sinceGap }}</p>
         <div v-if="m.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
           <p class="faint font-medium">Newest graduates</p>
           <ul class="grid min-w-0 gap-0.5" data-test="current-newest">
@@ -108,6 +110,7 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
           </p>
           <p v-if="w.gradLine" class="min-w-0 break-words text-xs font-medium" data-test="current-grads">{{ w.label }}: {{ w.gradLine }}</p>
           <p v-if="w.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ w.gradCoverage }}</p>
+          <p v-if="w.sinceGap" class="faint text-xs tabular-nums" data-test="current-since-gap">{{ w.sinceGap }}</p>
           <div v-if="w.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
             <p class="faint font-medium">Newest graduates</p>
             <ul class="grid min-w-0 gap-0.5" data-test="current-newest">

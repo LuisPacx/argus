@@ -3,6 +3,7 @@ import type { MemeIdeaRef } from "../meme/types.ts";
 import type { CurrentMeta, MetaCounts, MetaCurrent, MetaRow, MetaRun, MetaSummaryRecord, MetaTopToken } from "./store.ts";
 import { META_RULE, type MetaWindow } from "./config.ts";
 import { coverageNote, type MetaCoverage } from "./coverage.ts";
+import type { WindowGap } from "./gap.ts";
 import { currentMetaLine, metaLine, type MetaSummarySource } from "./summary.ts";
 
 /**
@@ -142,6 +143,8 @@ export interface CurrentGradsApi {
   share: number;
   /** Present when the 24 h window is thin: the covered hours. */
   coverage?: { covered: number; of: number };
+  /** Graduations since the last recording gap ended; present only when a gap ended inside the window (ticket 04). */
+  sinceGap?: number;
   /** The 3 newest graduates, newest first; `marketCapUsd` only when the token was priced (else a dash). Untrusted text. */
   newest: MetaApiToken[];
   /** True for a Watching subject with at least the 6 h count that makes it "rising". */
@@ -179,6 +182,8 @@ export interface CurrentMetaResponse {
   computedAt: string | null;
   /** "Only 1 h of data in the last 24 h" when the 24 h window is thinly covered; null otherwise. */
   coverageNote: string | null;
+  /** Present when a recording gap (`study_gaps`) overlaps the 24 h window as of `computedAt` (ticket 04). */
+  gap?: WindowGap;
   metas: CurrentMetaApiRow[];
   watching: CurrentMetaApiRow[];
 }
@@ -210,6 +215,7 @@ export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummar
             creators24h: m.grads.creators24h,
             share: m.grads.share,
             ...(m.grads.coverage ? { coverage: m.grads.coverage } : {}),
+            ...(m.grads.sinceGap !== undefined ? { sinceGap: m.grads.sinceGap } : {}),
             newest: (m.grads.newest ?? []).slice(0, 3).map(apiToken),
             ...(!isMeta && m.grads["6h"] >= rising6h ? { rising: true as const } : {}),
           },
@@ -232,6 +238,7 @@ export function currentMetaResponse(
   ideas: ReadonlyMap<string, readonly MemeIdeaRef[]> = new Map(),
   noteBelow: number = META_RULE.coverageNoteBelow,
   rising6h: number = META_RULE.watchGrads6h,
+  gap: WindowGap | null = null,
 ): CurrentMetaResponse {
   if (!current) return { computedAt: null, coverageNote: null, metas: [], watching: [] };
   const nowMs = Date.parse(current.computedAt);
@@ -239,6 +246,7 @@ export function currentMetaResponse(
   return {
     computedAt: current.computedAt,
     coverageNote: coverageNote(coverage, "24h", noteBelow),
+    ...(gap ? { gap } : {}),
     metas: current.metas.slice(0, CURRENT_META_SHOWN).map((m) => row(m, true)),
     watching: current.watching.slice(0, CURRENT_META_SHOWN).map((m) => row(m, false)),
   };

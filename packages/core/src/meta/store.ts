@@ -83,6 +83,8 @@ export interface CurrentGrads {
   share: number;
   /** Present only when the 24 h window is thin (a stream gap or a restart left few hours of data): the covered hours of the window. The subject still qualifies. */
   coverage?: { covered: number; of: number };
+  /** Present only when a recording gap ended inside the 24 h window (ticket 04): the subject's graduations since that gap ended. */
+  sinceGap?: number;
   /** The subject's newest graduates (at most 3, newest first), with the market cap where a token was priced this run; absent on a row stored before ticket 02. Untrusted text. */
   newest?: CurrentNewest[];
 }
@@ -487,6 +489,7 @@ function parseGrads(text: string): CurrentGrads | undefined {
     creators24h: n(g.creators24h),
     share: n(g.share),
     ...(isRecord(cov) ? { coverage: { covered: n(cov.covered), of: n(cov.of) } } : {}),
+    ...(typeof g.sinceGap === "number" && Number.isFinite(g.sinceGap) && g.sinceGap >= 0 ? { sinceGap: g.sinceGap } : {}),
   };
 }
 

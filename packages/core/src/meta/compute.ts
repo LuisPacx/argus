@@ -10,6 +10,7 @@ import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type 
 import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaGrouping, NewMetaRow, NewMetaRun } from "./store.ts";
 import { mergeThemes } from "./theme.ts";
 import { assignGraduates } from "./graduates.ts";
+import { windowGap } from "./gap.ts";
 import { verifyAgainstDex, verifyThemeToken, type DroppedCandidate, type TopDownCandidate, type TopDownResult } from "./topdown.ts";
 
 /**
@@ -427,9 +428,13 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   // A thin window (a stream gap or a restart left few hours of data) still qualifies a subject; the row carries the covered hours.
   const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
   const thin = isThin(coverage["24h"], config.coverageNoteBelow);
+  // A recording gap that ended inside the window (ticket 04): each subject also counts its graduations since the gap ended.
+  const gapEnd = windowGap(store.study.gaps(), nowMs, META_WINDOW_HOURS["24h"])?.endedAt ?? null;
+  const gapEndMs = gapEnd !== null ? Date.parse(gapEnd) : Number.NaN;
   const subjects: LeaderSubject[] = subjectStats.flatMap(({ stat, extra }, j) => {
-    const grads = (assigned.grads[j] as (typeof assigned.grads)[number]);
-    if (grads["24h"] === 0) return [];
+    const found = (assigned.grads[j] as (typeof assigned.grads)[number]);
+    if (found["24h"] === 0) return [];
+    const grads = gapEnd !== null ? { ...found, sinceGap: (assigned.graduates[j] as GraduatedToken[]).filter((g) => Date.parse(g.migratedAt) >= gapEndMs).length } : found;
     return [
       {
         key: stat.group.key,

@@ -233,6 +233,44 @@ it("a thin window shows the coverage flag; a full window and an old row show non
   expect(old).toContain("45 creators copying in 24 h"); // an old row keeps its old line
 });
 
+// ---- the gap warning and the since-the-last-gap counter (graduation Meta ticket 04) ----
+
+const GAP = { from: "2026-11-15T02:00:00.000Z", to: "2026-11-15T06:30:00.000Z", covered: 19, of: 24, endedAt: "2026-11-15T06:30:00.000Z" };
+const withGap = (gap: typeof GAP | undefined, ...rows: CurrentMetaApiRow[][]) => ({ ...response(rows[0] ?? [], rows[1] ?? []), ...(gap ? { gap } : {}) });
+
+it("a gap in the window shows the warning with both times and 'covers N of 24 h', and each subject its count since the gap ended", async () => {
+  const meta = subject("Christmas", "BULL", 12_000, { grads: grads({ sinceGap: 4 }) });
+  const watch = subject("Rising", "RIS", 0, { grads: grads({ "24h": 4, "6h": 3, sinceGap: 0 }) });
+  const html = await draw(withGap(GAP, [meta], [watch]));
+  expect(html).toContain('data-test="meta-gap-warning"');
+  expect(html).toContain("Argus was not recording from 15 Nov 02:00 UTC to 15 Nov 06:30 UTC; counts cover 19 of 24 h");
+  expect(html.match(/data-test="current-since-gap">/g)).toHaveLength(2);
+  expect(html).toContain("4 graduated since the last gap ended");
+  expect(html).toContain("0 graduated since the last gap ended");
+  expect(html).not.toMatch(/undefined|NaN|null/);
+});
+
+it("an open gap reads 'to now' and shows no counter, since no gap has ended", async () => {
+  const html = await draw(withGap({ ...GAP, to: null as never, endedAt: null as never }, [subject("Christmas", "BULL", 12_000, { grads: grads({ sinceGap: 4 }) })]));
+  expect(html).toContain("not recording from 15 Nov 02:00 UTC to now; counts cover 19 of 24 h");
+  expect(html).not.toContain("current-since-gap");
+});
+
+it("with no gap there is no warning and no counter", async () => {
+  const html = await draw(withGap(undefined, [subject("Christmas", "BULL", 12_000, { grads: grads({ sinceGap: 4 }) })], [W1]));
+  expect(html).not.toContain("meta-gap-warning");
+  expect(html).not.toContain("not recording");
+  expect(html).not.toContain("current-since-gap");
+  expect(html).not.toContain("since the last gap");
+});
+
+it("a hostile gap payload is text only, and an unreadable one gives no warning", async () => {
+  const html = await draw(withGap({ ...GAP, from: `<img src=x onerror=1>` }, [CHRISTMAS]));
+  expect(html).not.toContain("<img");
+  expect(html).not.toContain("meta-gap-warning"); // the start is not a date
+  expect(await draw(withGap({ ...GAP, covered: Number.NaN }, [CHRISTMAS]))).not.toContain("meta-gap-warning");
+});
+
 it("a Watching subject with 3 in 6 h shows 'rising: 3 in 6h'; a Meta and a quieter subject do not", async () => {
   const rising = subject("Rising", "RIS", 0, { grads: grads({ "24h": 4, "6h": 3, creators24h: 4, share: 0.04, rising: true }) });
   const quiet = subject("Quiet", "QUI", 0, { grads: grads({ "24h": 5, "6h": 1, creators24h: 5, share: 0.05 }) });

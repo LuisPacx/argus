@@ -1,4 +1,4 @@
-import { currentMetaResponse, liveNewMetas, memeIdeasByKey, metaConfigFromEnv } from "@argus/core";
+import { currentMetaResponse, liveNewMetas, memeIdeasByKey, META_WINDOW_HOURS, metaConfigFromEnv, windowGap } from "@argus/core";
 
 /**
  * The Current Meta (ADR 0018, graduation Meta ticket 02), read-only: at most 3 Metas (several tokens graduating on one narrative) and
@@ -19,5 +19,6 @@ export default defineEventHandler(() => {
     memeIdeasByKey(store.liveMemeProposals()),
     config.coverageNoteBelow,
     config.watchGrads6h,
+    current ? windowGap(store.studyGaps(), Date.parse(current.computedAt), META_WINDOW_HOURS["24h"]) : null,
   );
 });

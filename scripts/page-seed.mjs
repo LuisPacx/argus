@@ -72,9 +72,12 @@ export async function seedDatastore(store, now) {
   // Graduations (graduation Meta ticket 02): the chair is a full window with one unpriced newest graduate; the lobster is cooling on a thin window
   // with an unpriced leader (cap 0, a dash); the cloud is rising (3 in 6 h); the moon has no graduations stored (a row from before ticket 01).
   const newest = (name, symbol, cap) => ({ mint: `SEED${symbol}`.padEnd(40, 'N') + 'pump', name, symbol, ...(cap ? { marketCapUsd: cap } : {}) });
-  const chairGrads = { '24h': 12, '6h': 4, creators24h: 11, share: 0.12, newest: [newest('SEED Chair Two', 'CHAIR2', 18_000), newest('SEED Chair Three', 'CHAIR3'), newest(`SEED<b>Hostile</b> ${'Q'.repeat(60)}`, 'HOSTILE', 4_200)] };
-  const lobsterGrads = { '24h': 6, '6h': 1, creators24h: 6, share: 0.06, coverage: { covered: 5, of: 24 }, newest: [newest('SEED Lobster Two', 'LOB2')] };
-  const cloudGrads = { '24h': 4, '6h': 3, creators24h: 4, share: 0.04, newest: [newest('SEED Cloud Two', 'CLD2', 9_000)] };
+  // Ticket 04: a recording gap 10 h to 7 h before the run (study_gaps), so the gap warning and the since-the-last-gap counters show.
+  store.study.recordConnection({ state: 'down', at: at(10 * 60 + 5) });
+  store.study.recordConnection({ state: 'up', at: at(7 * 60 + 5) });
+  const chairGrads = { '24h': 12, '6h': 4, creators24h: 11, share: 0.12, sinceGap: 7, newest: [newest('SEED Chair Two', 'CHAIR2', 18_000), newest('SEED Chair Three', 'CHAIR3'), newest(`SEED<b>Hostile</b> ${'Q'.repeat(60)}`, 'HOSTILE', 4_200)] };
+  const lobsterGrads = { '24h': 6, '6h': 1, creators24h: 6, share: 0.06, sinceGap: 2, coverage: { covered: 5, of: 24 }, newest: [newest('SEED Lobster Two', 'LOB2')] };
+  const cloudGrads = { '24h': 4, '6h': 3, creators24h: 4, share: 0.04, sinceGap: 1, newest: [newest('SEED Cloud Two', 'CLD2', 9_000)] };
   const chair = aMeta('seed-chair', { label: 'SEED Empty Chair', leaderName: 'SEED Chair coin', leaderSymbol: 'SEEDCHAIR', cap: 2_400_000, creators: 14, enteredAt: at(180), namedBy: 'ai', themes: chairThemes, grads: chairGrads });
   const lobster = aMeta('seed-lobster', { label: 'SEED Lobster Hat', leaderName: 'SEED Lobster coin', leaderSymbol: 'SEEDLOB', cap: 0, creators: 9, holding: true, enteredAt: at(20 * 60), namedBy: 'ai', themes: lobsterThemes, grads: lobsterGrads });
   const cloud = aMeta('seed-cloud', { label: 'SEED Cloud Cat', leaderName: 'SEED Cloud coin', leaderSymbol: 'SEEDCLD', cap: 380_000, creators: 6, enteredAt: at(120), grads: cloudGrads });

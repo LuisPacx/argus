@@ -528,6 +528,26 @@ describe("recomputeMetas: the Meta ticks (graduation Meta ticket 01; leaders fro
   /** 12 creators launch "Jensen" 30 minutes before NOW and each token graduates five minutes later: 12 graduations from 12 creators, all in the last 6 h. */
   const jensenWave = (store: Datastore, creators = 12) => launchMany(store, creators, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}`, migratedAfterSec: 300 }));
 
+  it("a recording gap that ended inside the window gives each subject its graduations since the gap ended (ticket 04); no gap, an open gap or a blip gives none", async () => {
+    const run = async (gap?: { downMin: number; upMin?: number }) => {
+      const store = Datastore.open(":memory:");
+      jensenWave(store); // 12 graduations, 25 minutes before NOW
+      const J = mintOf();
+      trend(store, J, "Jensen Huang ($JENSEN)", 96_000);
+      if (gap) {
+        store.study.recordConnection({ state: "down", at: T(-gap.downMin).toISOString() });
+        if (gap.upMin !== undefined) store.study.recordConnection({ state: "up", at: T(-gap.upMin).toISOString() });
+      }
+      await recompute(store, fakeDex(new Map([[J, 96_000]])).client, 0);
+      return store.currentMetas()!.metas[0]!.grads;
+    };
+    expect((await run({ downMin: 120, upMin: 27 }))?.sinceGap).toBe(12); // ended before the graduations
+    expect((await run({ downMin: 120, upMin: 20 }))?.sinceGap).toBe(0); // ended after them
+    expect((await run())?.sinceGap).toBeUndefined();
+    expect((await run({ downMin: 120 }))?.sinceGap).toBeUndefined(); // still open: nothing has ended
+    expect((await run({ downMin: 32, upMin: 30 }))?.sinceGap).toBeUndefined(); // a 2-minute blip
+  });
+
   it("replay of run 143's shape: the Jensen wave is a Meta at a $96k leader and at a $2M one, and with only 6 graduations it is Watching (a fixture, not the live database)", async () => {
     const lowStore = Datastore.open(":memory:");
     jensenWave(lowStore);

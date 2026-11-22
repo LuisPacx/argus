@@ -28,7 +28,7 @@ import { insertResearchRequest,listResearchRequests, migrateResearch, toResearch
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
 import { ChainStore, migrateChain } from "./study/chain-store.ts";
-import { StudyStore, migrateStudy, type StudyStats } from "./study/store.ts";
+import { StudyStore, migrateStudy, type StudyGap, type StudyStats } from "./study/store.ts";
 import { MomentStore, migrateMoments, type MomentsView } from "./moments/store.ts";
 import { XSessionStore, migrateXSession, type ResumeRequest } from "./x-session/state.ts";
 import { RadarStore, migrateRadar, type RadarView } from "./radar/store.ts";
@@ -844,6 +844,7 @@ export type WarRoomStore = Pick<
   | "newestNarratives"
   | "recentBrainRuns"
   | "studyStats"
+  | "studyGaps"
   | "momentsView"
   | "radarView"
   | "radarStrip"
@@ -1126,6 +1127,11 @@ export class Datastore {
   /** The Study page's health numbers (see StudyStats); `since` (ISO) limits them to tokens first seen at or after it. */
   studyStats(now: Date = new Date(), since?: string, captureRunCap?: number): StudyStats {
     return this.study.stats(now, since, captureRunCap);
+  }
+
+  /** The recording gaps of the pump stream (`study_gaps`), oldest first; read by the Meta page's gap warning. */
+  studyGaps(): StudyGap[] {
+    return this.study.gaps();
   }
 
   /** Opens (creating if needed) the database in WAL mode and applies migrations. */
