@@ -371,7 +371,6 @@ interface Retry {
   problem?: string;
 }
 
-/** The prompt inputs of a retry. */
 /**
  * The lessons a Make ideas try shows (human researcher tickets 09 and 19), read once: the newest non-empty Pick lessons and the newest idea lessons, which
  * may come from different versions. `playbookVersions` is what each new Proposal records: `playbookVersion` is the Pick lessons' version (the ideas
@@ -387,7 +386,8 @@ function readLessons(store: Datastore): { playbook?: { id: string; text: string 
   };
 }
 
-const retryFields =(retry: Retry | undefined): { retryCopies?: readonly string[]; retryProblem?: string } => ({
+/** The prompt inputs of a retry. */
+const retryFields = (retry: Retry | undefined): { retryCopies?: readonly string[]; retryProblem?: string } => ({
   ...(retry?.copies ? { retryCopies: retry.copies } : {}),
   ...(retry?.problem ? { retryProblem: retry.problem } : {}),
 });
