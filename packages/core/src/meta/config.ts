@@ -85,6 +85,10 @@ export interface MetaConfig {
   leaderCalls: number;
   /** Stored Meta state older than this many minutes (a pause) is not carried into the next run. */
   stateMaxMinutes: number;
+  /** Exit hysteresis (Christmas fix, ticket 07): a Meta below the stay rule is kept (holding) until it has been below it for this many minutes. */
+  metaExitMinutes: number;
+  /** A subject raised as a New Meta less than this many minutes ago is not raised again when it re-enters (0 turns the guard off). */
+  reentryMinutes: number;
   /** Top-down leaders (ADR 0015): HTTP requests per tick to the two trending lists together, retries included. A normal tick makes 4. */
   topDownCalls: number;
   /** The fake-token filter: a candidate's liquidity must be at least this many USD. */
@@ -126,6 +130,8 @@ export const META_RULE: MetaConfig = {
   watching: 3,
   leaderCalls: 4,
   stateMaxMinutes: 120,
+  metaExitMinutes: 45,
+  reentryMinutes: 360,
   topDownCalls: 5,
   topDownMinLiquidityUsd: 50_000,
   topDownMaxCapLiquidityRatio: 100,
@@ -177,7 +183,8 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
  * become a Meta), `ARGUS_META_STAY_GRADS` (to stay one; above the first keeps both defaults), `ARGUS_META_GRAD_CREATORS` (distinct creators),
  * `ARGUS_META_LIVE_GRADS_6H`, `ARGUS_META_WATCH_MIN_GRADS` and `ARGUS_META_WATCH_GRADS_6H` (each 1 to 1000), `ARGUS_META_ENTER_MCAP_USD` (1 to 999999999:
  * the trending cap the grouping step reads), `ARGUS_META_MAX_METAS` and `ARGUS_META_WATCHING` (0 to 20), `ARGUS_META_LEADER_CALLS` (0 to 20) and
- * `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080).
+ * `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080), the exit hysteresis `ARGUS_META_EXIT_MINUTES` (0 to 1440: how long a Meta below the stay rule is kept)
+ * and the New Meta re-entry guard `ARGUS_META_REENTRY_MINUTES` (0 to 10080; 0 is off).
  * The top-down leaders (ADR 0015): `ARGUS_META_TOPDOWN_CALLS` (1 to 10 requests a tick), and the fake-token filter `ARGUS_META_TOPDOWN_MIN_LIQ_USD` and
  * `ARGUS_META_TOPDOWN_MIN_VOLUME_USD` (0 to 999999999) and `ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO` (1 to 100000), and
  * `ARGUS_META_TOPDOWN_MIN_ORGANIC` (0 to 100): the Jupiter organic score a token needs for the list's liquidity to count in verification.
@@ -207,6 +214,8 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     watching: intIn(env.ARGUS_META_WATCHING, 0, 20, META_RULE.watching),
     leaderCalls: intIn(env.ARGUS_META_LEADER_CALLS, 0, 20, META_RULE.leaderCalls),
     stateMaxMinutes: intIn(env.ARGUS_META_STATE_MAX_MINUTES, 1, 10_080, META_RULE.stateMaxMinutes),
+    metaExitMinutes: intIn(env.ARGUS_META_EXIT_MINUTES, 0, 1_440, META_RULE.metaExitMinutes),
+    reentryMinutes: intIn(env.ARGUS_META_REENTRY_MINUTES, 0, 10_080, META_RULE.reentryMinutes),
     topDownCalls: intIn(env.ARGUS_META_TOPDOWN_CALLS, 1, 10, META_RULE.topDownCalls),
     topDownMinLiquidityUsd: intIn(env.ARGUS_META_TOPDOWN_MIN_LIQ_USD, 0, 999_999_999, META_RULE.topDownMinLiquidityUsd),
     topDownMaxCapLiquidityRatio: intIn(env.ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO, 1, 100_000, META_RULE.topDownMaxCapLiquidityRatio),

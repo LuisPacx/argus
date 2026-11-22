@@ -6,7 +6,9 @@ import { DexScreenerClient, type DexPair } from "../sources/dexscreener.ts";
 import { tempDir } from "../testing/temp.ts";
 import { recomputeMetas as recomputeWithRule, type MetaDexClient, type RecomputeOptions } from "./compute.ts";
 import { metasResponse } from "./api.ts";
-import { META_RULE, metaConfigFromEnv } from "./config.ts";
+import { RUNS } from "./christmas-627-637.fixture.ts";
+import { META_RULE, metaConfigFromEnv, type MetaConfig } from "./config.ts";
+import { raiseNewMetas } from "./new-meta.ts";
 import type { GroupAnswer, GroupInput } from "./grouping.ts";
 import { metaLines, selectMetas } from "./prompt-block.ts";
 import type { TopDownCandidate, TopDownResult } from "./topdown.ts";
@@ -1070,7 +1072,7 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     const seen: Array<[number, number, boolean]> = [];
     let watchingAt315: Array<[string, number]> = [];
     for (let at = 0; at <= 315; at += 15) {
-      await recompute(store, at);
+      await recompute(store, at, { config: { ...cfg, metaExitMinutes: 0 } }); // no exit delay: this test is the stay bar alone
       if (at === 315) watchingAt315 = watching(store).map((w) => [w.key, w.grads!["24h"]]);
       const m = metas(store)[0];
       if (m) expect(m.enteredAt).toBe(T(0).toISOString()); // one Meta from the first run to the last
@@ -1378,5 +1380,109 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(metas(store)[0]).toMatchObject({ label: "Santa season", enteredAt: T(200).toISOString() });
     expect(metas(store)[0]!.key).not.toBe("santa");
     expect(watching(store)).toEqual([]);
+  });
+
+  // Christmas fix ticket 07: exit hysteresis, the New Meta re-entry guard, and the replay of the live runs 626 to 637.
+  it("exit hysteresis: a Meta that falls below the stay bar is kept (holding, with its clock) for metaExitMinutes, then drops to Watching", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 10, (i) => (i < 3 ? 30 + i : 1440 - 60 * (i - 3)));
+    const seen: Array<{ at: number; grads: number; holding: boolean; since?: string }> = [];
+    for (let at = 0; at <= 400; at += 15) {
+      await recompute(store, at); // the default rule: a 45-minute exit delay
+      const m = metas(store)[0];
+      if (m) expect(m.enteredAt).toBe(T(0).toISOString());
+      seen.push({ at, grads: m?.grads?.["24h"] ?? -1, holding: m?.holding ?? false, ...(m?.belowStaySince ? { since: m.belowStaySince } : {}) });
+    }
+    const firstBelow = seen.find((s) => s.since !== undefined)!;
+    expect(firstBelow.grads).toBe(4); // below the stay bar of 5, kept
+    expect(firstBelow).toMatchObject({ holding: true, since: T(firstBelow.at).toISOString() });
+    const last = [...seen].reverse().find((s) => s.grads >= 0)!;
+    expect(last.at).toBe(firstBelow.at + 30); // kept at +0, +15, +30; gone at +45 (metaExitMinutes)
+    expect(seen.find((s) => s.at === firstBelow.at + cfg.metaExitMinutes)?.grads).toBe(-1);
+  });
+
+  it("exit hysteresis: back at the stay bar inside the delay, the clock is cleared and the Meta is the same episode", async () => {
+    const store = Datastore.open(":memory:");
+    // 5 recent graduations and 5 at the far end of the day: at +15 min the old ones are about to leave, a late graduate then brings it back to 5
+    launchMany(store, 5, (i) => ({ name: "Santa", creator: `s${i}`, createdMin: 180, graduatedMin: 30 + i }));
+    launchMany(store, 5, (i) => ({ name: "Santa", creator: `old${i}`, createdMin: 180, graduatedMin: 1440 + 5 + i * 3 }));
+    await recompute(store, -20); // the five old ones are inside the 24 h window at -20: 10 graduations, a Meta
+    expect(metas(store)).toHaveLength(1);
+    await recompute(store, 0); // they have left: 5 remain from the recent ones, which is the stay bar
+    expect(metas(store)[0]).toMatchObject({ holding: true });
+    expect(metas(store)[0]!.belowStaySince).toBeUndefined();
+  });
+
+  describe("the live Christmas runs 626 to 637 (fixture read from the live database, 2026-11-22)", () => {
+    /**
+     * The graduations behind the live rows: Xmas 8 in 24 h from 8 creators, 5 of them in the last 6 h (live runs 626 and 630 to 634), Snowball 3 that
+     * the AI merged into Christmas for run 627 only, Grinch a launch theme with none, and two more Xmas graduations in the last 20 minutes that
+     * lift it to 10 for run 637. All times in minutes before run 637.
+     */
+    const seedChristmas = (store: Datastore) => {
+      launchMany(store, 5, (i) => ({ name: "Xmas", creator: `xmas-r${i}`, createdMin: 400, graduatedMin: 175 + i * 4 }));
+      launchMany(store, 3, (i) => ({ name: "Xmas", creator: `xmas-o${i}`, createdMin: 800, graduatedMin: 700 + i * 60 }));
+      launchMany(store, 2, (i) => ({ name: "Xmas", creator: `xmas-n${i}`, createdMin: 180, graduatedMin: 20 - i * 10 }));
+      launchMany(store, 3, (i) => ({ name: "Snowball", creator: `snow-${i}`, createdMin: 400, graduatedMin: 158 + i }));
+      launchMany(store, 3, (i) => ({ name: "Grinch", creator: `grinch-${i}`, createdMin: 400 }));
+    };
+    const atOf = (run: number) => (run - 637) * 15;
+    const answerOf = (run: number) => {
+      const r = RUNS.find((x) => x.run === run)!;
+      return r.subjects.length === 0 ? undefined : groupsOf(Object.fromEntries(r.subjects.map((s) => [s.name, s.themes])));
+    };
+
+    async function replay(config: MetaConfig) {
+      const store = Datastore.open(":memory:");
+      seedChristmas(store);
+      const episodes: Array<{ run: number; key: string; enteredAt: string; holding: boolean }[]> = [];
+      const events: Array<{ run: number; key: string }> = [];
+      for (const r of RUNS) {
+        const answer = answerOf(r.run);
+        await recompute(store, atOf(r.run), { config, ...(answer ? { group: answer } : { group: async () => undefined }) });
+        for (const e of raiseNewMetas(store, config)) events.push({ run: r.run, key: e.key });
+        episodes.push(metas(store).map((m) => ({ run: r.run, key: m.key, enteredAt: m.enteredAt, holding: m.holding })));
+      }
+      return { episodes, events };
+    }
+
+    it("is one Meta episode from run 627 to run 637 (key xmas, entered at 627, never re-keyed) and one New Meta event", async () => {
+      const { episodes, events } = await replay(cfg);
+      expect(episodes[0]).toEqual([]); // run 626: Christmas is Watching at 8 graduations
+      const rest = episodes.slice(1); // runs 627 to 637
+      expect(rest.map((rows) => rows.map((m) => m.key))).toEqual(rest.map(() => ["xmas"]));
+      expect(new Set(rest.flat().map((m) => m.enteredAt))).toEqual(new Set([T(atOf(627)).toISOString()]));
+      expect(events).toEqual([{ run: 627, key: "xmas" }]);
+    });
+
+    it("the leader leaving the subject does not end the Meta: Snowball leads Christmas at 627 and is its own subject from 630, and the Meta goes on", async () => {
+      const store = Datastore.open(":memory:");
+      seedChristmas(store);
+      const leaders: string[] = [];
+      for (const r of RUNS.filter((x) => x.run >= 627 && x.run <= 631)) {
+        const answer = answerOf(r.run);
+        await recompute(store, atOf(r.run), { group: answer ?? (async () => undefined) });
+        leaders.push(`${r.run}:${metas(store).map((m) => `${m.key}/${m.leader.name}`).join(",")}`);
+      }
+      expect(leaders[0]).toBe("627:xmas/Snowball"); // the latest graduate of the merged subject
+      expect(leaders.slice(1).map((l) => l.split(":")[1]!.split("/")[0])).toEqual(["xmas", "xmas", "xmas", "xmas"]);
+      expect(leaders[4]).toBe("631:xmas/Xmas");
+    });
+  });
+
+  it("New Meta re-entry guard: a Meta that drops to Watching and returns inside reentryMinutes raises no second event; with the guard off it does", async () => {
+    const run = async (config: MetaConfig) => {
+      const store = Datastore.open(":memory:");
+      wave(store, "Santa", 10, (i) => 30 + i);
+      const strict = { ...cfg, metaMinGrads: 11, metaStayGrads: 11, metaExitMinutes: 0 }; // 10 graduations are Watching under it
+      const raisedAt: number[] = [];
+      for (const [at, c] of [[-30, strict], [-15, strict], [0, config], [15, strict], [30, config], [45, config]] as const) {
+        await recompute(store, at, { config: c });
+        for (const _ of raiseNewMetas(store, config)) raisedAt.push(at);
+      }
+      return raisedAt;
+    };
+    expect(await run(cfg)).toEqual([0]); // raised at 0; the return at 30 is the same narrative
+    expect(await run({ ...cfg, reentryMinutes: 0 })).toEqual([0, 30]);
   });
 });

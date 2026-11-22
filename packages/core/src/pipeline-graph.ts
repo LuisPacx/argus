@@ -362,6 +362,8 @@ export const PIPELINE: PipelineGraph = {
         { label: "A trending token needs 24 h volume of at least", key: "META_RULE.topDownMinVolumeUsd", ref: () => META_RULE.topDownMinVolumeUsd, unit: "usd", live: (env) => metaConfigFromEnv(env).topDownMinVolumeUsd },
         { label: "Jupiter organic score at which the list's liquidity counts in DexScreener's verification", key: "META_RULE.topDownMinOrganicScore", ref: () => META_RULE.topDownMinOrganicScore, unit: "score", live: (env) => metaConfigFromEnv(env).topDownMinOrganicScore },
         { label: "Earlier Meta state older than this is not carried", key: "META_RULE.stateMaxMinutes", ref: () => META_RULE.stateMaxMinutes, unit: "min", live: (env) => metaConfigFromEnv(env).stateMaxMinutes },
+        { label: "A Meta below the stay bar is kept (cooling) for", key: "META_RULE.metaExitMinutes", ref: () => META_RULE.metaExitMinutes, unit: "min", live: (env) => metaConfigFromEnv(env).metaExitMinutes },
+        { label: "A subject raised as a New Meta is not raised again within", key: "META_RULE.reentryMinutes", ref: () => META_RULE.reentryMinutes, unit: "min", live: (env) => metaConfigFromEnv(env).reentryMinutes },
         { label: "Ranked every", key: "DEFAULT_META_INTERVAL_MINUTES", ref: () => metaIntervalMinutes({}), unit: "min", diagram: true, live: (env) => metaIntervalMinutes(env) },
         { label: "Windows", key: "META_WINDOWS", ref: () => META_WINDOWS.join(", "), unit: "text" },
         { label: "Rank order, first decides", key: "META_RULE.rankOrder", ref: () => META_RULE.rankOrder.join(", "), unit: "text", live: (env) => metaConfigFromEnv(env).rankOrder.join(", ") },

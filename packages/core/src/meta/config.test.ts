@@ -30,6 +30,14 @@ describe("meta config", () => {
     expect(META_RULE).not.toHaveProperty("minCopies");
   });
 
+  it("the exit hysteresis defaults (ADR 0020) are 45 minutes of cooling and a 6 h New Meta re-entry guard; each is bounded and 0 is allowed", () => {
+    expect(META_RULE).toMatchObject({ metaExitMinutes: 45, reentryMinutes: 360 });
+    expect(metaConfigFromEnv({ ARGUS_META_EXIT_MINUTES: "0", ARGUS_META_REENTRY_MINUTES: "0" })).toMatchObject({ metaExitMinutes: 0, reentryMinutes: 0 });
+    expect(metaConfigFromEnv({ ARGUS_META_EXIT_MINUTES: "90", ARGUS_META_REENTRY_MINUTES: "720" })).toMatchObject({ metaExitMinutes: 90, reentryMinutes: 720 });
+    expect(metaConfigFromEnv({ ARGUS_META_EXIT_MINUTES: "1441", ARGUS_META_REENTRY_MINUTES: "10081" })).toMatchObject({ metaExitMinutes: 45, reentryMinutes: 360 });
+    expect(metaConfigFromEnv({ ARGUS_META_EXIT_MINUTES: "-1", ARGUS_META_REENTRY_MINUTES: "x" })).toMatchObject({ metaExitMinutes: 45, reentryMinutes: 360 });
+  });
+
   it("reads each graduation knob and the other Meta knobs, bounded, and junk keeps the default", () => {
     const c = metaConfigFromEnv({
       ARGUS_META_MIN_GRADS: "12", ARGUS_META_STAY_GRADS: "6", ARGUS_META_GRAD_CREATORS: "8", ARGUS_META_LIVE_GRADS_6H: "4", ARGUS_META_WATCH_MIN_GRADS: "7", ARGUS_META_WATCH_GRADS_6H: "2",

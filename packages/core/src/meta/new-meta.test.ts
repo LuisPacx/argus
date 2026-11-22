@@ -89,8 +89,35 @@ describe("raiseNewMetas (the store)", () => {
     saveCurrentRun(store, at(30), { metas: [aMeta("gta6")] });
     expect(raiseNewMetas(store)).toEqual([]); // jensen left: nothing is raised for a departure
     saveCurrentRun(store, at(45), { metas: [aMeta("gta6"), aMeta("jensen")] });
-    expect(raiseNewMetas(store).map((e) => e.key)).toEqual(["jensen"]); // and it is new again on return
+    expect(raiseNewMetas(store, { ...META_RULE, reentryMinutes: 0 }).map((e) => e.key)).toEqual(["jensen"]); // with the re-entry guard off it is new again on return
     expect(store.newMetaEvents(at(-60)).map((e) => e.raisedAt)).toEqual([at(45), at(15)]);
+  });
+
+  it("re-entry guard (ticket 07): a key raised less than reentryMinutes ago is not raised again; one raised longer ago is", () => {
+    const store = Datastore.open(":memory:");
+    saveCurrentRun(store, at(0), { metas: [aMeta("gta6")] });
+    saveCurrentRun(store, at(15), { metas: [aMeta("gta6"), aMeta("jensen")] });
+    expect(raiseNewMetas(store).map((e) => e.key)).toEqual(["jensen"]);
+    saveCurrentRun(store, at(30), { metas: [aMeta("gta6")] });
+    expect(raiseNewMetas(store)).toEqual([]);
+    saveCurrentRun(store, at(45), { metas: [aMeta("gta6"), aMeta("jensen")] });
+    expect(raiseNewMetas(store)).toEqual([]); // back after 30 minutes: the same narrative, no second event
+    expect(store.newMetaEvents(at(-60)).map((e) => e.key)).toEqual(["jensen"]);
+
+    // the same departure and return, but outside the window: raised again
+    const later = 15 + META_RULE.reentryMinutes;
+    saveCurrentRun(store, at(later), { metas: [aMeta("gta6")] });
+    expect(raiseNewMetas(store)).toEqual([]);
+    saveCurrentRun(store, at(later + 15), { metas: [aMeta("gta6"), aMeta("jensen")] });
+    expect(raiseNewMetas(store).map((e) => e.key)).toEqual(["jensen"]);
+  });
+
+  it("re-entry guard: a different key is new at once, and the pure function takes the last-raised map", () => {
+    const prev = current(0, []);
+    const now = current(15, [aMeta("jensen"), aMeta("gta6")]);
+    expect(newMetaEvents(now, prev, META_RULE, new Map([["jensen", at(-60)]])).map((e) => e.key)).toEqual(["gta6"]);
+    expect(newMetaEvents(now, prev, META_RULE, new Map([["jensen", at(-META_RULE.reentryMinutes - 1)]])).map((e) => e.key)).toEqual(["jensen", "gta6"]);
+    expect(newMetaEvents(now, prev, { ...META_RULE, reentryMinutes: 0 }, new Map([["jensen", at(-60)]])).map((e) => e.key)).toEqual(["jensen", "gta6"]);
   });
 
   it("after a pause longer than the limit the first run raises nothing, whatever it holds", () => {

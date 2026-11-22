@@ -65,7 +65,7 @@ export interface PreviousMetas {
   watching: readonly CurrentMeta[];
 }
 
-export type LeaderConfig = Pick<MetaConfig, "metaMinGrads" | "metaStayGrads" | "metaMinCreators" | "metaLiveGrads6h" | "watchMinGrads" | "watchGrads6h" | "maxMetas" | "watching" | "stateMaxMinutes" | "newsMinKeyChars">;
+export type LeaderConfig = Pick<MetaConfig, "metaMinGrads" | "metaStayGrads" | "metaMinCreators" | "metaLiveGrads6h" | "watchMinGrads" | "watchGrads6h" | "maxMetas" | "watching" | "stateMaxMinutes" | "metaExitMinutes" | "newsMinKeyChars">;
 
 export interface CurrentMetasInput {
   subjects: readonly LeaderSubject[];
@@ -251,8 +251,16 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
     return y["6h"] - x["6h"] || y["24h"] - x["24h"] || y.creators24h - x.creators24h || cmpStr((subjects[a] as LeaderSubject).key, (subjects[b] as LeaderSubject).key);
   };
   const all = subjects.map((_, i) => i).filter((i) => !unkeyed(i));
+  // Exit hysteresis (ticket 07): a continuing Meta that fell below the stay rule is cooling, not gone: it is kept (holding) until it has been
+  // below for `metaExitMinutes`. The clock starts the first run it is seen below (`belowStaySince`, carried from run to run) and ends as soon as
+  // it meets the stay rule again. A subject with no graduation in 24 h is not in `subjects` at all, so it ends at once.
+  const belowSince = (i: number): string | undefined => (canStay(i) ? undefined : (continues.get(i)?.belowStaySince ?? nowIso));
+  const cooling = (i: number) => {
+    const since = belowSince(i);
+    return since !== undefined && now.getTime() - Date.parse(since) < config.metaExitMinutes * MINUTE_MS;
+  };
   const metaIdx = all
-    .filter((i) => enters(i) || (continues.has(i) && canStay(i)))
+    .filter((i) => enters(i) || (continues.has(i) && (canStay(i) || cooling(i))))
     .sort(byGrads24)
     .slice(0, config.maxMetas);
   const isMeta = new Set(metaIdx);
@@ -299,6 +307,7 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
     const leader = priced ? publicLeader(priced) : (latestGraduate(subject.graduates, nowIso) ?? (kind === "meta" ? continues.get(i)?.leader : prevWatchingByKey.get(subject.key)?.leader));
     if (!leader) return undefined;
     const sameKind = kind === "meta" ? continues.get(i) : prevWatchingByKey.get(subject.key);
+    const since = kind === "meta" && !enters(i) ? belowSince(i) : undefined;
     return {
       key: subject.key,
       label: subject.label,
@@ -309,6 +318,7 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
       enteredAt: sameKind?.enteredAt ?? nowIso,
       counts: subject.counts,
       grads: withNewest(subject.grads, subject.graduates, tokens),
+      ...(since !== undefined ? { belowStaySince: since } : {}),
       topTokens: subject.topTokens,
     };
   };

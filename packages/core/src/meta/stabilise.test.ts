@@ -138,6 +138,30 @@ describe("stabiliseSubjects: two new subjects over one previous subject", () => 
     }
   });
 
+  it("on equal overlaps the subject holding the previous key's own theme wins, not the smaller derived key (live run 628: Grinch took Christmas' key)", () => {
+    const { items, subject } = world([theme("snowball", 26, 24), theme("xmas", 33, 18), theme("grinch", 8, 6)]);
+    const prev = previousAt(15, [prevMeta("xmas", ["snowball", "xmas", "grinch"])]);
+    const christmas = subject("Christmas", "xmas");
+    const grinch = subject("Grinch", "grinch");
+
+    for (const answer of [[christmas, grinch], [grinch, christmas]]) {
+      const out = stabiliseSubjects(answer, items, prev, NOW, STATE_MAX);
+      expect(Object.fromEntries(applied(items, out.subjects).map((s) => [s.name, s.key]))).toEqual({ Christmas: "xmas", Grinch: "grinch" });
+      // snowball, which the answer left out, comes back with the subject that kept the key
+      expect(applied(items, out.subjects).find((s) => s.name === "Christmas")?.themeKeys.sort()).toEqual(["snowball", "xmas"]);
+    }
+  });
+
+  it("with neither holding the previous key, the subject with more creators behind the shared themes wins", () => {
+    const { items, subject } = world([theme("alpha", 10, 3), theme("beta", 10, 9)]);
+    const prev = previousAt(5, [prevMeta("gone", ["gone", "alpha", "beta"])]);
+
+    for (const answer of [[subject("A", "alpha"), subject("B", "beta")], [subject("B", "beta"), subject("A", "alpha")]]) {
+      const keys = Object.fromEntries(applied(items, stabiliseSubjects(answer, items, prev, NOW, STATE_MAX).subjects).map((s) => [s.name, s.key]));
+      expect(keys).toEqual({ A: "alpha", B: "gone" });
+    }
+  });
+
   it("decides equal overlaps over two previous subjects by the smaller previous key", () => {
     const { items, subject } = world([theme("alpha", 10, 9), theme("beta", 10, 5)]);
     const prevs = [prevMeta("zed", ["alpha", "beta"]), prevMeta("amy", ["alpha", "beta"])];

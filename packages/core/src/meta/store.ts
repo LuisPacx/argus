@@ -118,6 +118,8 @@ export interface CurrentMeta {
   counts: Record<MetaWindow, MetaCounts>;
   /** The subject's graduations; absent on a row stored before graduation Metas. */
   grads?: CurrentGrads;
+  /** A Meta in its cooling state: when it first fell below the stay rule. It is dropped once it has been below for `metaExitMinutes`. Kept in the counts JSON (no schema change); absent while the Meta meets the stay rule. */
+  belowStaySince?: string;
   topTokens: MetaTopToken[];
 }
 
@@ -496,6 +498,17 @@ function parseGrads(text: string): CurrentGrads | undefined {
   };
 }
 
+/** When a Meta first fell below the stay rule, kept in a row's counts JSON; undefined when absent or not a readable time. */
+function parseBelowStaySince(text: string): string | undefined {
+  try {
+    const data: unknown = JSON.parse(text);
+    const v = isRecord(data) ? data.belowStaySince : undefined;
+    return typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseStoredAnswer(text: string): StoredGroupAnswer | undefined {
   let data: unknown;
   try {
@@ -534,6 +547,7 @@ function parseThemes(text: unknown): CurrentTheme[] {
 
 function toCurrent(r: Row, runAt: string): CurrentMeta {
   const grads = parseGrads(r.counts as string);
+  const belowStaySince = parseBelowStaySince(r.counts as string);
   return {
     key: r.key as string,
     label: r.label as string,
@@ -553,6 +567,7 @@ function toCurrent(r: Row, runAt: string): CurrentMeta {
     enteredAt: r.entered_at as string,
     counts: parseCounts(r.counts as string),
     ...(grads ? { grads } : {}),
+    ...(belowStaySince ? { belowStaySince } : {}),
     topTokens: parseTopTokens(r.top_tokens as string),
   };
 }
@@ -607,7 +622,7 @@ export class MetaStore {
         const list = kind === "meta" ? run.current?.metas : run.current?.watching;
         (list ?? []).forEach((m, i) => {
           const l = m.leader;
-          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.grads ? { ...m.counts, grads: m.grads } : m.counts), JSON.stringify(m.topTokens), m.namedBy ?? "rules", JSON.stringify(m.themes ?? []));
+          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify({ ...m.counts, ...(m.grads ? { grads: m.grads } : {}), ...(m.belowStaySince ? { belowStaySince: m.belowStaySince } : {}) }), JSON.stringify(m.topTokens), m.namedBy ?? "rules", JSON.stringify(m.themes ?? []));
         });
       }
       if (run.grouping) insertGrouping.run(run.computedAt, id, run.grouping.inputHash, JSON.stringify(run.grouping.answer), run.grouping.costUsd, run.grouping.brainRunId);

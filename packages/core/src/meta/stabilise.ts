@@ -38,6 +38,10 @@ interface Candidate {
   at: number;
   prev: CurrentMeta;
   overlap: number;
+  /** Whether the subject holds the theme the previous subject was keyed by: its own identity, not a theme it merely shared. */
+  ownKey: boolean;
+  /** The creators behind the shared themes (this run's figures): the weight of what the subject really took over. */
+  sharedCreators: number;
   derived: string;
 }
 
@@ -55,17 +59,22 @@ export function stabiliseSubjects(subjects: readonly GroupSubject[], items: read
   const rankedBy = subjects.map(ranked);
   const derived = rankedBy.map((r) => r[0]?.key);
 
-  // Every pair of a subject and a previous subject that share a member theme, strongest first. The tie-breaks (smaller previous key, then
-  // smaller derived key) come from the data, so the result does not depend on the order of the answer or of the previous run.
+  // Every pair of a subject and a previous subject that share a member theme, strongest first: the most shared themes, then the subject that
+  // holds the previous subject's own key theme, then the one with more creators behind the shared themes (ticket 07: Christmas {xmas} and
+  // Grinch {grinch} both shared one theme with the previous Christmas {snowball, xmas, grinch}, and the order of the names gave Christmas'
+  // key to Grinch). The last tie-breaks (smaller previous key, then smaller derived key) come from the data, so the result does not depend on
+  // the order of the answer or of the previous run.
   const candidates: Candidate[] = [];
   for (const [at, r] of rankedBy.entries()) {
     const keys = new Set(r.map((t) => t.key));
     for (const prev of prevs) {
-      const overlap = [...membersOf(prev)].filter((k) => keys.has(k)).length;
-      if (overlap > 0) candidates.push({ at, prev, overlap, derived: derived[at] as string });
+      const shared = [...membersOf(prev)].filter((k) => keys.has(k));
+      if (shared.length === 0) continue;
+      const sharedCreators = r.filter((t) => shared.includes(t.key)).reduce((n, t) => n + t.creators, 0);
+      candidates.push({ at, prev, overlap: shared.length, ownKey: keys.has(prev.key), sharedCreators, derived: derived[at] as string });
     }
   }
-  candidates.sort((a, b) => b.overlap - a.overlap || cmpStr(a.prev.key, b.prev.key) || cmpStr(a.derived, b.derived));
+  candidates.sort((a, b) => b.overlap - a.overlap || Number(b.ownKey) - Number(a.ownKey) || b.sharedCreators - a.sharedCreators || cmpStr(a.prev.key, b.prev.key) || cmpStr(a.derived, b.derived));
 
   const inherited = new Map<number, CurrentMeta>();
   const matchedPrev = new Set<CurrentMeta>();

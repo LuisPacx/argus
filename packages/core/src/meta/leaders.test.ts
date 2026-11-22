@@ -101,11 +101,60 @@ describe("currentMetas: who is a Meta and who is Watching (graduations, not mark
     expect(at5.metas[0]).toMatchObject({ key: "jensen", holding: true, enteredAt: "2026-11-15T09:00:00.000Z" });
     expect(at5.watching).toEqual([]);
 
-    const at4 = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [before]) });
+    const noExit = { ...config, metaExitMinutes: 0 };
+    const at4 = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [before]), config: noExit });
     expect(at4).toEqual({ metas: [], watching: [] });
-    const at4Live = run({ subjects: [jensen(grads(4, 3, 3))], previous: previousAt(15, [before]) });
+    const at4Live = run({ subjects: [jensen(grads(4, 3, 3))], previous: previousAt(15, [before]), config: noExit });
     expect(at4Live.metas).toEqual([]);
     expect(at4Live.watching[0]).toMatchObject({ key: "jensen", holding: false, enteredAt: NOW.toISOString() });
+  });
+
+  describe("exit hysteresis (Christmas fix ticket 07): a Meta below the stay rule cools before it drops", () => {
+    const before = () => prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000));
+    const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString();
+
+    it("the first run below 5 graduations keeps the Meta, holding, and starts the clock at this run", () => {
+      const r = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [before()]) });
+      expect(r.metas[0]).toMatchObject({ key: "jensen", holding: true, enteredAt: "2026-11-15T09:00:00.000Z", belowStaySince: NOW.toISOString() });
+      expect(r.watching).toEqual([]);
+    });
+
+    it("keeps the original clock while cooling, drops at metaExitMinutes, and the Watching row has no clock", () => {
+      const cooling = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000), { holding: true, belowStaySince: minutesAgo(config.metaExitMinutes - 1) });
+      const still = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [cooling]) });
+      expect(still.metas[0]).toMatchObject({ holding: true, belowStaySince: minutesAgo(config.metaExitMinutes - 1) });
+
+      const over = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000), { holding: true, belowStaySince: minutesAgo(config.metaExitMinutes) });
+      const gone = run({ subjects: [jensen(grads(4, 3, 3))], previous: previousAt(15, [over]) });
+      expect(gone.metas).toEqual([]);
+      expect(gone.watching[0]).toMatchObject({ key: "jensen", holding: false });
+      expect(gone.watching[0]?.belowStaySince).toBeUndefined();
+    });
+
+    it("meeting the stay rule again ends the cooling: the clock is cleared and a later dip starts a fresh one", () => {
+      const cooling = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000), { holding: true, belowStaySince: minutesAgo(40) });
+      const back = run({ subjects: [jensen(grads(5, 1, 3))], previous: previousAt(15, [cooling]) });
+      expect(back.metas[0]?.belowStaySince).toBeUndefined();
+      expect(back.metas[0]).toMatchObject({ holding: true });
+    });
+
+    it("a subject that was not a Meta last run does not get the delay: 4 graduations stay Watching", () => {
+      const r = run({ subjects: [jensen(grads(4, 3, 3))], previous: previousAt(15, []) });
+      expect(r.metas).toEqual([]);
+    });
+
+    it("metaExitMinutes 0 is the old rule: a Meta below 5 graduations drops at once", () => {
+      const r = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [before()]), config: { ...config, metaExitMinutes: 0 } });
+      expect(r.metas).toEqual([]);
+    });
+
+    it("a cooling Meta still counts against maxMetas, so cooling cannot add a fourth Meta", () => {
+      const subs = ["a", "b", "c"].map((k) => subject(k, grads(14, 4, 14)));
+      const cooler = jensen(grads(4, 1, 3));
+      const prevs = [before()];
+      const r = run({ subjects: [...subs, cooler], previous: previousAt(15, prevs) });
+      expect(keys(r.metas)).toEqual(["a", "b", "c"]);
+    });
   });
 
   it("a subject at 5 graduations that was not a Meta last run is only Watching, and a Meta that meets the enter rule again is not holding", () => {

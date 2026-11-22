@@ -10,8 +10,9 @@ import { leaderAt } from "./summary.ts";
  *
  * - With no run before, or one older than `stateMaxMinutes` (a first run, a restart, a pause), nothing is raised: that run only
  *   re-establishes the baseline, so a restart or a gap never raises a burst of "new" Metas that were there all along.
- * - Hysteresis (ADR 0014) already stops a Meta flapping at the entry cap, so there is no cool-down here; a subject that fell out and
- *   comes back is a new Meta again.
+ * - Hysteresis (the stay rule and the exit delay, `currentMetas`) keeps a Meta through a short dip. A subject that fell out and comes back is
+ *   a new Meta again only when its key was not raised within `reentryMinutes` (default 6 h, ticket 07): one narrative that dipped and
+ *   returned the same day is one New Meta, not two. A key that was never raised, or last raised longer ago, is new.
  * - A subject that was only Watching and is now a Meta is new.
  * - A Meta that was re-keyed or renamed (the grouping step of ADR 0015) is not new while its leader is the one that led a Meta in the run before.
  */
@@ -34,9 +35,22 @@ export function newMetaReason(m: CurrentMeta): string {
   return `became a Meta: ${grads}${leaderTag(m.leader)}${leaderAt(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
 }
 
+type NewMetaConfig = Pick<MetaConfig, "stateMaxMinutes"> & Partial<Pick<MetaConfig, "reentryMinutes">>;
+
 /** The events of `current` against `previous`, in Meta order (highest leader market cap first). Pure: no clock, no store. */
-export function newMetaEvents(current: MetaCurrent, previous: MetaCurrent | undefined, config: Pick<MetaConfig, "stateMaxMinutes"> = META_RULE): NewMetaNewEvent[] {
+export function newMetaEvents(
+  current: MetaCurrent,
+  previous: MetaCurrent | undefined,
+  config: NewMetaConfig = META_RULE,
+  /** When each key was last raised (ISO), for the keys raised inside the re-entry window. A key in it is not raised again. */
+  lastRaised: ReadonlyMap<string, string> = new Map(),
+): NewMetaNewEvent[] {
   if (!previous) return [];
+  const reentryMs = (config.reentryMinutes ?? META_RULE.reentryMinutes) * MIN_MS;
+  const recently = (key: string): boolean => {
+    const at = Date.parse(lastRaised.get(key) ?? "");
+    return reentryMs > 0 && Number.isFinite(at) && Date.parse(current.computedAt) - at < reentryMs;
+  };
   const gapMin = (Date.parse(current.computedAt) - Date.parse(previous.computedAt)) / MIN_MS;
   if (!Number.isFinite(gapMin) || gapMin > config.stateMaxMinutes) return [];
   const was = new Set(previous.metas.map((m) => m.key));
@@ -45,7 +59,7 @@ export function newMetaEvents(current: MetaCurrent, previous: MetaCurrent | unde
   const ledBefore = new Set(previous.metas.map((m) => m.leader.mint));
   const out: NewMetaNewEvent[] = [];
   current.metas.forEach((m, i) => {
-    if (was.has(m.key) || ledBefore.has(m.leader.mint)) return;
+    if (was.has(m.key) || ledBefore.has(m.leader.mint) || recently(m.key)) return;
     out.push({
       key: m.key,
       label: m.label,
@@ -65,11 +79,16 @@ export function newMetaEvents(current: MetaCurrent, previous: MetaCurrent | unde
  * stored (those already stored for the run are not stored again, so a second call for the same run returns none). Nothing here creates a
  * Narrative, Proposal or Score.
  */
-export function raiseNewMetas(store: Datastore, config: Pick<MetaConfig, "stateMaxMinutes"> = META_RULE): NewMetaNewEvent[] {
+export function raiseNewMetas(store: Datastore, config: NewMetaConfig = META_RULE): NewMetaNewEvent[] {
   const current = store.currentMetas();
   if (!current) return [];
   const raised: NewMetaNewEvent[] = [];
-  for (const e of newMetaEvents(current, store.meta.currentBefore(current.runId), config)) if (store.meta.saveNewMeta(e)) raised.push(e);
+  // Events of this run are excluded, so storing a run's events a second time still stores them once (and reports none).
+  const reentryMs = (config.reentryMinutes ?? META_RULE.reentryMinutes) * MIN_MS;
+  const lastRaised = new Map<string, string>();
+  if (reentryMs > 0)
+    for (const e of store.meta.newMetaSince(new Date(Date.parse(current.computedAt) - reentryMs).toISOString())) if (e.runId !== current.runId && !lastRaised.has(e.key)) lastRaised.set(e.key, e.raisedAt);
+  for (const e of newMetaEvents(current, store.meta.currentBefore(current.runId), config, lastRaised)) if (store.meta.saveNewMeta(e)) raised.push(e);
   return raised;
 }
 
@@ -77,7 +96,7 @@ export function raiseNewMetas(store: Datastore, config: Pick<MetaConfig, "stateM
  * WORKER ONLY. `raiseNewMetas` for the Meta tick: a failure is logged and swallowed, so a New Meta problem never stops the ranking tick that
  * called it or the summary tick that follows it. Returns the events stored (none on failure).
  */
-export function raiseNewMetasSafely(store: Datastore, config: Pick<MetaConfig, "stateMaxMinutes"> = META_RULE, log: (line: string, error?: unknown) => void = console.error): NewMetaNewEvent[] {
+export function raiseNewMetasSafely(store: Datastore, config: NewMetaConfig = META_RULE, log: (line: string, error?: unknown) => void = console.error): NewMetaNewEvent[] {
   try {
     return raiseNewMetas(store, config);
   } catch (e) {
