@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// `pnpm doctor`: a preflight for the Operator's setup (human researcher ticket 16). One PASS/WARN/FAIL line per check with a fix hint;
+// `pnpm setup-check`: a preflight for the Operator's setup (human researcher ticket 16). One PASS/WARN/FAIL line per check with a fix hint;
 // exits 1 on any FAIL. It starts no browser, makes no model call and never prints a value (paths and booleans only).
-// Usage: node scripts/doctor.mjs [--root <repo dir>]   (--root reads that checkout's .env and .data, e.g. the main one from a worktree)
+// Usage: node scripts/setup-check.mjs [--root <repo dir>]   (--root reads that checkout's .env and .data, e.g. the main one from a worktree)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withDotenvArgus } from './dev-env.mjs';
-import { cookieState } from './doctor-cookies.mjs';
-import { exitCodeOf, formatLine, runChecks } from './doctor-checks.mjs';
+import { cookieState } from './setup-check-cookies.mjs';
+import { exitCodeOf, formatLine, runChecks } from './setup-check-checks.mjs';
 
 const argv = process.argv.slice(2);
 const rootFlag = argv.indexOf('--root');
@@ -59,5 +59,5 @@ const checks = await runChecks({ env, home: os.homedir(), root: ROOT, run, exist
 for (const c of checks) console.log(formatLine(c));
 const fails = checks.filter((c) => c.status === 'FAIL').length;
 const warns = checks.filter((c) => c.status === 'WARN').length;
-console.log(`doctor: ${checks.length - fails - warns} pass, ${warns} warn, ${fails} fail`);
+console.log(`setup-check:${checks.length - fails - warns} pass, ${warns} warn, ${fails} fail`);
 process.exitCode = exitCodeOf(checks);

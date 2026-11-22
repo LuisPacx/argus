@@ -1,4 +1,4 @@
-// The checks behind `pnpm doctor` (human researcher ticket 16). Pure logic over injected dependencies, so tests use fakes.
+// The checks behind `pnpm setup-check` (human researcher ticket 16). Pure logic over injected dependencies, so tests use fakes.
 // A check is { status: 'PASS' | 'WARN' | 'FAIL', name, detail, fix? }. Details carry paths and booleans only, never a value from the
 // environment, a cookie or the Claude login (the login status is read only for its `loggedIn` boolean).
 import path from 'node:path';

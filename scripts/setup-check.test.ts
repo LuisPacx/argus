@@ -4,9 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
-import { cookieState } from "./doctor-cookies.mjs";
+import { cookieState } from "./setup-check-cookies.mjs";
 // @ts-expect-error plain .mjs script, no types
-import { exitCodeOf, formatLine, runChecks } from "./doctor-checks.mjs";
+import { exitCodeOf, formatLine, runChecks } from "./setup-check-checks.mjs";
 
 interface Check {
   status: string;
@@ -29,7 +29,7 @@ const good = {
 const run = (over: Partial<typeof good>): Promise<Check[]> => runChecks({ ...good, ...over });
 const byName = (cs: Check[], name: string) => cs.find((c) => c.name === name)!;
 
-describe("doctor checks", () => {
+describe("setup-check checks", () => {
   it("all good: every line PASS, exit 0, no value printed", async () => {
     const cs = await run({});
     expect(cs.map((c) => c.status)).toEqual(Array(cs.length).fill("PASS"));
@@ -89,7 +89,7 @@ describe("doctor checks", () => {
 
 describe("cookieState", () => {
   function profile(rows: Array<[string, string]>): string {
-    const dir = tempDir("doctor-");
+    const dir = tempDir("setup-check-");
     mkdirSync(join(dir, "Default"));
     const db = new DatabaseSync(join(dir, "Default", "Cookies"));
     db.exec("CREATE TABLE cookies (host_key TEXT, name TEXT, encrypted_value BLOB)");
@@ -102,7 +102,7 @@ describe("cookieState", () => {
   it("finds the X auth cookie, rejects other cookies, says unknown with no store", () => {
     expect(cookieState(profile([[".x.com", "auth_token"]]))).toBe(true);
     expect(cookieState(profile([[".x.com", "guest_id"], [".example.com", "auth_token"]]))).toBe(false);
-    expect(cookieState(tempDir("doctor-empty-"))).toBeNull();
+    expect(cookieState(tempDir("setup-check-empty-"))).toBeNull();
   });
 
   it("creates no file beside Chrome's cookie store", () => {
@@ -114,7 +114,7 @@ describe("cookieState", () => {
   });
 
   it("an unreadable cookie store is cannot-tell (null), not a throw", () => {
-    const dir = tempDir("doctor-bad-");
+    const dir = tempDir("setup-check-bad-");
     mkdirSync(join(dir, "Default"));
     writeFileSync(join(dir, "Default", "Cookies"), "this is not a sqlite file at all, just text padding".repeat(20));
     expect(cookieState(dir)).toBeNull();
