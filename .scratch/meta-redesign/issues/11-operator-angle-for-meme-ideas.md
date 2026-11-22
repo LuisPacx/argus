@@ -3,7 +3,7 @@
 
 **What to build:** on `/meta` (and the strip on `/`), the Operator types an angle for a current Meta, for example `GTA 6 iguana: official screenshot https://www.rockstargames.com/VI/only-in-leonida shows an iguana walking in front of a mobility scooter in the Leonida Keys`, and presses one button. The worker runs the same `meme-ideas` path with the angle in the prompt and files the ideas as normal `meme` Proposals (new, shortlist or dismiss like any other). Each Proposal shows the angle and its source URL. Requested by the Operator on 2026-11-17.
 
-Status: done
+Status: in-progress
 Status note: done (the live-read box stays open until the Operator files the GTA 6 iguana angle after the worker restart)
 
 **Blocked by:** none. (Ticket 10, expiry, is on another branch and touches the `meme` lifetime; the two do not share files except possibly `pass.ts` and the docs. Rebase over 10 if it lands first.)
@@ -75,3 +75,4 @@ Status note: done (the live-read box stays open until the Operator files the GTA
   - **Browser, seeded** (seeded: `pnpm page:check --seed --all`, never the live data): all 9 pages exit 0 after one fix (the new `/proposals/{angle}` page overflowed at 390 px, the "Why this idea" column of `MemeCard.vue` had no `minmax(0,1fr)`; fixed). Screenshots read: `/var/tmp/page-check/meta-1240.png` and `meta-390-keys.png` (form, done, capped and pending lines, the Angle pill), `proposals-4-390.png` (hostile angle as text, `javascript:` source as plain text). Keyboard: `--seed /meta --keys "focus=[data-test=angle-summary],Enter,Escape" --watch "[data-test=angle-form] textarea"` gives hidden, visible, hidden, exit 0, at 390 and 1240 px.
   - **Live read**: open. It needs the worker restarted on this code and ARGUS_MEME_IDEAS=1; the Operator files the GTA 6 iguana angle from `/meta`.
   - **Cap accounting in one place**: `dailyMemeRunLimit` and `ANGLE_EXTRA_DAILY_MEME_RUNS` (0) in `packages/core/src/meme/pass.ts`. The 30 a day cap is read as `researchProposalsSince` (the figure that cap is held to; a Meta trio is not in it today), so an angle request is `capped` only when that is full.
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

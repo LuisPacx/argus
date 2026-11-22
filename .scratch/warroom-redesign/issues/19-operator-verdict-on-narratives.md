@@ -1,8 +1,7 @@
 # 19: The Operator records a verdict on a Narrative in the War Room
 **Model:** sonnet / effort: medium. One additive table, one POST, one GET export, a form and a pill on two pages, a link block; the pattern is the Proposal command route and `meme-angle`. No judge, prompt or Rubric change.
 
-Status: done
-
+Status: in-progress
 **Blocked by:** none.
 
 ## Problem
@@ -47,3 +46,6 @@ Defaults above stand unless changed. Decided by user 11-17: all defaults accepte
 5. Narrative page links to its Proposal(s), in this ticket?
 6. Validation like the Proposal command route; UI like existing components; `pnpm page:check` on the changed pages?
 7. CSRF on War Room POSTs stays out of scope?
+
+## Comments
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 7 unticked box(es).

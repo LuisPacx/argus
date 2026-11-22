@@ -6,7 +6,7 @@ Source: `.scratch/phase-3-feedback/research/proposal-quality-2026-11-11.md` (fin
 
 **Blocked by:** none
 
-Status: done
+Status: in-progress
 Status note: deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
 
 - [ ] `propose` SKILL.md and the propose prompt state the Tech-value rule and the required `reason` key (tested: the prompt contains both; the SKILL.md example still parses)
@@ -29,3 +29,4 @@ Left open (no evidence recorded in the journal for these):
 - Prompt/SKILL.md states rule and `reason` key; `parseProposeOutput` reason validation; display-only validator; `interaction` validator; repair retry. Only the overall green checks cover them, with no per-test record.
 - New Rubric version: the rehearsals record Rubric v2 (hook + Tech-value line) added once, no v3 on second open, but no record of the fresh-database seed in version 1.
 - "No write to `.data/argus.db` by hand": not ticked. The rehearsals used `.backup` copies, but the deploy deleted proposals from the live DB by hand (user-approved reset).
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 7 unticked box(es).

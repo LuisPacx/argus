@@ -3,8 +3,7 @@
 
 **What to build:** Add a **Source class** (`context` or `market`) declared as data in one place next to the Source definitions. RSS feeds, Google Trends and GitHub trending are `context`; PumpPortal and DexScreener are `market`. Context Sources stay ingested and clustered, but a Narrative with no market Signal is never judged and never proposed. A bounded block of recent context (top news Narratives) goes to Propose, Judge and the Meta summary as background, so agents still know what is happening in the world.
 
-Status: done
-
+Status: in-progress
 **Blocked by:** the deploy stack on `main` (17, 19, 21, 22; branch `ipfs-gateway` at 95d6c79 is its tip), because 17 changes the propose code this ticket edits. For the Meta summary part, slice 5 of `viral-sources/03`; that part waits for it and is a follow-up commit.
 
 Origin: the Operator, 2026-11-11: no good Proposal ever came from RSS, Google Trends or GitHub trending.
@@ -104,3 +103,4 @@ Subject `Phase 3 ticket 24: <what changed>`, body ending with `Ticket: .scratch/
 
 **Deploy 2026-11-11 (`.scratch/cos.md`).** All other boxes were already ticked; nothing new to tick. Deployed per "DEPLOYED" (main 1270357); "MIGRATION REHEARSAL 2" records no schema for 24 and, on a DB copy, selectors returning 0 context-only (judge 129, propose 25), matching the replay box; "TIP VERIFIED" check 112/1790 stamp c8bb0d433e. Left open: "Meta summary context (follow-up)": the journal records slice 5 (`meta-summary` task) deployed but no change making its prompt carry the context block, and no Comment saying why not.
 - 2026-11-21 cos triage: deployed c18e3f5/e9f72a9; open box was a live-run read
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

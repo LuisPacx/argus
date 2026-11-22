@@ -3,7 +3,7 @@
 
 **What to build:** the home card "Research usage, last 24 hours" is half the content width, tall and wordy. It becomes one short bar, 100% of the content width, directly under the Meta strip. Every number it shows today stays available.
 
-Status: done
+Status: in-progress
 Status note: deployed (b5a1398, 8f1313c); browser check box open
 
 **Blocked by:** none (04 is on main, f91b825).
@@ -31,3 +31,4 @@ Status note: deployed (b5a1398, 8f1313c); browser check box open
 One commit after the tests are green, subject `War Room ticket 06: <what changed>`, body ending with `Ticket: .scratch/warroom-redesign/issues/06-compact-research-usage.md`. Boxes ticked in a follow-up docs commit if `pnpm check` stamps the clean tree.
 
 ## Comments
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

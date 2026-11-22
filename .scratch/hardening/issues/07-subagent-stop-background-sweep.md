@@ -1,5 +1,5 @@
 # 07: SubagentStop hook that stops the background work a subagent leaves running after it reports
-Status: done
+Status: in-progress
 **Model:** sonnet / medium — one small hook script plus a test; the care is in not killing what the subagent did not start.
 
 **What to build:** workers and verifiers sometimes report "done" while a background task they started (a `pnpm check`, a vitest run, a monitor) is still running. cos then stops it by hand. Such an orphan holds one of the two machine-wide test slots (`docs/agents/worker-rules.md`, ticket 05) and makes later timings unreliable. A `SubagentStop` hook in `.claude/settings.json` should catch this when the subagent stops.
@@ -71,3 +71,4 @@ Because the hook cannot see the subagent's processes and the task list is sessio
 6. 2.1.326 is the version of the (non-firing) run.
 Decision: built the main approach, because it is safe whatever the answers are: it never signals anything, exits 2 only when a running shell/monitor task's command names the subagent's own worktree, and exits 0 when `stop_hook_active` is true. It logs `tasks=<n> matched=<n>` per event to `~/.local/state/argus/subagent-stop.log`, so the first real session shows whether Q1 holds (tasks=0 for subagents that left work running means the list lacks subagent tasks; then use E or B/C). Files: `.claude/hooks/subagent-stop-sweep.sh`, `.test.sh`; worker-rules line 19 updated. Acceptance criteria are met by the hook tests; the live behaviour (Q1, Q3) is still to be confirmed from the log.
 - 2026-11-21 cos triage: already built (subagent-stop sweep hook in .claude/hooks + SubagentStop entry).
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 10 unticked box(es).

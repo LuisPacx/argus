@@ -1,7 +1,7 @@
 # 13: War Room restarts itself after an exit, and logs why it exited
 **Model:** sonnet / effort: medium — one small supervisor script, a wiring change in `dev-server.mjs`, one test file.
 
-Status: done
+Status: in-progress
 Status note: done (see Comments)
 
 ## Problem
@@ -43,3 +43,4 @@ Why not systemd --user units: the repo's scripts do not use them (the start scri
 - Conclusion: not found. The remaining candidate is a signal sent by a person or agent session at that moment (a `kill` of the Nuxt group, or a `dev:stop` run by an agent), which no system log records. With this ticket the log will show the signal and the time of the next occurrence; the supervisor also records when the group got a SIGTERM that was not a `dev:stop`.
 
 **Build.** `scripts/supervise.mjs` (new), `scripts/dev-server.mjs` (spawns through it, writes the stop marker, status), `scripts/supervise.test.ts` (new, slow tier). Existing live processes were started without a supervisor: `dev:status` shows no restart info for them until cos restarts them with `pnpm dev:stop` and `pnpm dev:start`.
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

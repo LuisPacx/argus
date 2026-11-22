@@ -3,7 +3,7 @@
 
 **What to build:** the home page's "Current Meta (last 24h)" section (ticket 03) takes too much vertical space. On home it becomes a compact horizontal strip of the top Metas; clicking one opens a new page `/meta` with everything the old section showed, for all Metas.
 
-Status: done
+Status: in-progress
 Status note: deployed (a059061, f91b825, c670366); browser check and verify:boot boxes open
 
 **Blocked by:** none (03 is deployed, main 1270357).
@@ -40,3 +40,4 @@ One commit after the tests are green, subject `War Room ticket 04: <what changed
 - **Anchor:** derived from the label, as decided; a label change between runs changes its anchor. A stable group key in `/api/metas` would be the fix if that matters.
 - **Window toggle:** `?window=6h` re-fetches `/api/metas` with that window; the numbers follow the ranked window, the trend text stays "6 h of 24 h".
 - **Left open:** the browser check (cos, after merge).
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 2 unticked box(es).

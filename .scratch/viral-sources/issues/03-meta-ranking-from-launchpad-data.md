@@ -3,8 +3,7 @@
 
 **What to build:** Argus does not know what the market's live Metas are. The term exists only in `GLOSSARY.md:48`; there is no Meta code. Add a periodic job that groups launchpad tokens (pump.fun creates and migrations, from `study_tokens` and the stored launchpad Signals) into Metas by shared name, ticker and description, ranks the groups by distinct tokens, distinct creators, migrations and market cap, and makes the ranking available to the judge and propose steps, so a Proposal can ride a Meta that is live now and not only a Google Trends or news item.
 
-Status: done
-
+Status: in-progress
 **Blocked by:** nothing in the code. Start after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it (see Interplay).
 
 **Order (Operator priority, 2026-11-11):** this ticket first, then **04 Beta finder (top priority after tonight's deploy)**, then `warroom-redesign/03` (Current Meta on the home page), then 01, then 02. Because 04 waits on this ticket, deliver it in two parts and commit them separately:
@@ -184,3 +183,4 @@ Commits: slice 2 `f29416b`, slice 4 `bbeac3d`, ADR 0012 and glossary `c4d5726`, 
 
 Replay data note: the live DB copy already holds the deployed instance's own `meta_runs`, which are newer than an as-of replay and are what `latestMetas` returns; the replay was run after deleting the copy's `meta_*` tables (scratch copy only, deleted afterwards).
 - 2026-11-21 cos triage: deployed on main
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

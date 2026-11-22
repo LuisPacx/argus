@@ -3,7 +3,7 @@
 
 **What to build:** dismissing a `building` Proposal aborts its Build at the next safe point. No deploy and no GitHub repo creation may run after the dismissal. The run closes as aborted or interrupted, and the page says so. Also, a re-queue and a clean-up for the same Proposal can never run at the same time.
 
-Status: done
+Status: in-progress
 Status note: done browser check deferred to the next real Build that is dismissed while building (user, 2026-11-12)
 
 **Blocked by:** none. Interplay: this ticket touches `build-runner.ts`, `lifecycle.ts` and `cleanup-build.ts`. Run it after the `pnpm check` speed-up branch (test files only) is merged, or in a worktree.
@@ -63,3 +63,4 @@ Implemented (commit f89a1fd; `pnpm check` passed, stamped tree 7d8e2f01bb; the f
 - No token in any new line or row: the new log lines name no credential (tested with the sentinel secrets of the harness).
 - Browser check by cos: not done. It needs a real Build dismissed while running: the stopped note, the artifacts, and a Clean up build after it.
 - 2026-11-12 (cos): merged and pushed at f710520, after the review fixes e5bdd35 and f710520. The browser box stays open by the user's decision: it is deferred to the next real Build that is dismissed while building (no throwaway Build for it). Check it then: the stopped note, the three artifact results, and a Clean up build after it. The box stays unticked.
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).

@@ -1,8 +1,7 @@
 # 12: Worktree dependencies installed when a worker starts
 **Model:** sonnet / effort: low — one small script, one settings entry, one docs line.
 
-Status: done
-
+Status: in-progress
 **User decision:** do NOT replace Claude Code's own worktree creation (no `WorktreeCreate` hook): we keep its lock, its cleanup sweep and `.worktreeinclude`. Install dependencies when a worker starts in a copy that has no `node_modules`. The `tsc` cache is out of scope.
 
 ## Problem
@@ -45,3 +44,6 @@ Wire it as `pnpm wt:setup`, as a `SubagentStart` hook (timeout 300 s) and as a `
 
 - Does `SubagentStart` report the isolated worktree as `cwd`? Check in the first new session that spawns a worktree agent; if not, the rules line is what works.
 - 2026-11-21 cos triage: already built (subagent-stop sweep hook / Build budget gate / wt-setup SubagentStart hook)
+
+## Comments
+- 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 6 unticked box(es).
