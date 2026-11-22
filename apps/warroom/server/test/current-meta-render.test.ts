@@ -214,6 +214,18 @@ it("a Meta on the Christmas fixture reads the graduation sentence, the 3 newest 
   expect(html).not.toMatch(/\$0\b|undefined|NaN|null/);
 });
 
+it("a templated numbers line under the graduation line is not drawn (no double statement); a model line, and a template line on an old row, still are", async () => {
+  const templated = "10 graduated in 24 h (3 in 6 h) from 10 creators; leader Bullmas, market cap $12K";
+  const drop = await draw(response([subject("Christmas", "BULL", 12_000, { grads: grads(), summary: templated, summarySource: "template" })], []));
+  expect(drop).toContain('data-test="current-grads"');
+  expect(drop).not.toContain('data-test="current-summary"');
+  expect(drop).not.toContain("from 10 creators; leader");
+  expect(await draw(response([CHRISTMAS], []))).toContain('data-test="current-summary">Christmas tokens are graduating<');
+  const oldLine = "led by Jensen Huang at -; 20 tokens from 14 creators in 24 h, 5 migrated (unfiltered)";
+  const old = await draw(response([subject("Jensen Huang", "JENSEN", 0, { summary: oldLine, summarySource: "template" })], []));
+  expect(old).toContain(`data-test="current-summary">${oldLine}<`);
+});
+
 it("a leader with no price shows a dash, not $0, and no stale note", async () => {
   const dash = subject("Christmas", "SANTA", 0, { grads: grads(), leader: { mint: "M1", name: "Santa Inu", symbol: "SANTA", marketCapUsd: 0, stale: false } });
   const html = await draw(response([dash], [{ ...dash, leader: { ...dash.leader, mint: "M2" } }]));

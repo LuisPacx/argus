@@ -27,7 +27,7 @@ export function leaderTag(leader: { name: string; symbol: string }): string {
   return name === "" ? "its leader" : name;
 }
 
-/** `became a Meta: 12 graduated in 24 h, $JENSEN at $2.4M, 14 creators in 24 h` (no graduation part on a row stored before graduation Metas; `at n/a` for a leader with no price): written by code from the stored numbers; the leader's tag is creator text, cleaned and cut. */
+/** `became a Meta: 12 graduated in 24 h, $JENSEN at $2.4M, 14 creators in 24 h` (no graduation part on a row stored before graduation Metas; `at -` for a leader with no price): written by code from the stored numbers; the leader's tag is creator text, cleaned and cut. */
 export function newMetaReason(m: CurrentMeta): string {
   const copies = m.counts["24h"].creators;
   const grads = m.grads ? `${m.grads["24h"]} graduated in 24 h, ` : "";

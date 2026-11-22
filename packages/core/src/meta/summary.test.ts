@@ -130,6 +130,29 @@ describe("currentSummaryFresh and currentMetaLine: a Meta's or Watching subject'
     expect(numbers).toEqual({ summary: "led by Jensen Huang at $2.4M; 20 tokens from 14 creators in 24 h, 5 migrated (unfiltered)", summarySource: "template" });
     expect(currentTemplateLine({ ...m, counts: { "6h": counts(0, 0, 0), "24h": counts(0, 0, 0) } })).toBe("led by Jensen Huang at $2.4M; no copies launched in the last 24 h");
   });
+
+  it("a row with graduations leads with them (24 h, 6 h, creators) and keeps the leader and its cap as context", () => {
+    const m = aMeta("seed", { cap: 2_400_000, leaderName: "SEED Chair coin", creators: 14, tokens: 28, grads: { "24h": 10, "6h": 3, creators24h: 10, share: 0.1 } });
+    const line = currentTemplateLine(m);
+    expect(line).toBe("10 graduated in 24 h (3 in 6 h) from 10 creators; leader SEED Chair coin, market cap $2.4M");
+    expect(line).not.toContain("led by");
+    expect(line).not.toContain("migrated");
+    expect(currentTemplateLine({ ...m, grads: { "24h": 5, "6h": 1, creators24h: 1, share: 0.05 } })).toBe("5 graduated in 24 h (1 in 6 h) from 1 creator; leader SEED Chair coin, market cap $2.4M");
+    expect(currentMetaLine(m, undefined, NOW)).toEqual({ summary: line, summarySource: "template" });
+  });
+
+  it("an old row without grads keeps the old form", () => {
+    expect(currentTemplateLine(aMeta("seed", { cap: 2_400_000, leaderName: "SEED Chair coin", creators: 14, tokens: 28 }))).toBe("led by SEED Chair coin at $2.4M; 28 tokens from 14 creators in 24 h, 7 migrated (unfiltered)");
+  });
+
+  it("an unpriced leader shows a dash, never n/a or $0, in both forms", () => {
+    const grads = { "24h": 10, "6h": 3, creators24h: 10, share: 0.1 };
+    const withGrads = currentTemplateLine(aMeta("seed", { cap: 0, leaderName: "SEED Chair coin", grads }));
+    const old = currentTemplateLine(aMeta("seed", { cap: 0, leaderName: "SEED Chair coin" }));
+    expect(withGrads).toBe("10 graduated in 24 h (3 in 6 h) from 10 creators; leader SEED Chair coin, market cap -");
+    expect(old).toMatch(/^led by SEED Chair coin at -; /);
+    for (const l of [withGrads, old]) expect(l).not.toMatch(/n\/a|\$0/);
+  });
 });
 
 describe("metaSummaryShownText: only what the prompt showed", () => {
@@ -150,7 +173,7 @@ describe("metaSummaryPromptFor: no figures in the line", () => {
   it("tells the model to use no figures, in words only, while the counts stay in the data block", () => {
     const prompt = metaSummaryPromptFor(NI_HAO, [{ name: "woohao", symbol: "woohao", migrated: false }]);
     expect(prompt).toMatch(/Use no figures at all: no counts/);
-    expect(prompt).toContain("many launches or few");
+    expect(prompt).toContain("many graduations or few");
     expect(prompt).toContain("312 tokens, 190 creators");
   });
 });
@@ -182,6 +205,13 @@ describe("metaInputHash: when a summary is out of date", () => {
     expect(metaInputHash(subject(1_200_000, { kind: "watching" }))).not.toBe(h); // a Meta that falls to Watching is a different line
     expect(metaInputHash(subject(1_200_000))).not.toBe(metaInputHash(base)); // a launch-theme row has no leader
   });
+
+  it("graduations count by power-of-two bucket: 10 to 12 hashes alike, 16 rewrites, and a row without grads is unchanged", () => {
+    const withGrads = (n: number): MetaSummarySubject => ({ ...base, grads: { "24h": n, "6h": 3, creators24h: 6 } });
+    expect(metaInputHash(withGrads(12))).toBe(metaInputHash(withGrads(10)));
+    expect(metaInputHash(withGrads(16))).not.toBe(metaInputHash(withGrads(10)));
+    expect(metaInputHash(withGrads(10))).not.toBe(metaInputHash(base));
+  });
 });
 
 describe("metaSummaryPromptFor: a Meta and a Watching subject, led by a token", () => {
@@ -195,19 +225,35 @@ describe("metaSummaryPromptFor: a Meta and a Watching subject, led by a token", 
     ...over,
   });
 
-  it("says a Meta is a current trend led by a token with a large market cap, shows the leader first with its cap, and keeps the no-figures rule", () => {
+  it("says a Meta is several tokens graduating on one narrative with the leader's market cap as context only, shows the leader with its cap, and keeps the no-figures rule", () => {
     const p = metaSummaryPromptFor(meta("meta"), [{ name: "Jensen Huang", symbol: "JENSEN", migrated: true, marketCapUsd: 2_400_000 }]);
-    expect(p).toContain("A Meta is a current trend led by a token with a large market cap");
+    expect(p).toContain("A Meta is several tokens graduating on one narrative");
+    expect(p).toContain("market cap is context only");
+    expect(p).not.toContain("a current trend led by a token with a large market cap");
     expect(p).not.toContain("only being watched");
-    expect(p).toContain("Leader: Jensen Huang (JENSEN), market cap $2.4M");
+    expect(p).toContain("Leader: Jensen Huang (JENSEN), market cap $2.4M (context only)");
     expect(p.indexOf("Leader: ")).toBeLessThan(p.indexOf("last 6 h"));
     expect(p).toMatch(/Use no figures at all: no counts/);
+  });
+
+  it("passes the grads counts as data lines before the leader, and none for a row without grads", () => {
+    const p = metaSummaryPromptFor(meta("meta", { grads: { "24h": 12, "6h": 4, creators24h: 9 } }), []);
+    expect(p).toContain("Graduations: last 24 h: 12, last 6 h: 4, creators of the 24 h graduations: 9");
+    expect(p.indexOf("Graduations: ")).toBeLessThan(p.indexOf("Leader: "));
+    expect(p).toContain("Describe the story by its graduations, not by the leader's market cap");
+    expect(metaSummaryPromptFor(meta("meta"), [])).not.toContain("Graduations:");
+  });
+
+  it("an unpriced leader is a dash in the prompt, not n/a", () => {
+    const p = metaSummaryPromptFor(meta("meta", { leader: { mint: "L", name: "Unpriced", symbol: "UP", marketCapUsd: 0 } }), []);
+    expect(p).toContain("Leader: Unpriced (UP), market cap - (context only)");
+    expect(p).not.toContain("n/a");
   });
 
   it("a Watching subject is written as one that is only watched, not a Meta", () => {
     const p = metaSummaryPromptFor(meta("watching", { leader: { mint: "L", name: "Small", symbol: "SM", marketCapUsd: 90_000 } }), []);
     expect(p).toContain("Write the one-line summary of the subject below");
-    expect(p).toContain("only being watched: it is not a Meta");
+    expect(p).toContain("only being watched: it is not a Meta, because not enough tokens have graduated on it yet");
     expect(p).toContain("Leader: Small (SM), market cap $90K");
   });
 

@@ -120,7 +120,7 @@ export async function summariseMetas(
 
   for (const { meta, kind } of subjects) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
-    const row: MetaSummarySubject & { key: string } = { key: meta.key, label: meta.label, firstSeenAt: meta.enteredAt, counts: meta.counts, topTokens: meta.topTokens, leader: meta.leader, kind };
+    const row: MetaSummarySubject & { key: string } = { key: meta.key, label: meta.label, firstSeenAt: meta.enteredAt, counts: meta.counts, topTokens: meta.topTokens, leader: meta.leader, kind, ...(meta.grads ? { grads: meta.grads } : {}) };
     const hash = metaInputHash(row);
     const rec = saved.get(row.key);
     // A stored line older than a day counts as missing (it is no longer shown), so it is rewritten.

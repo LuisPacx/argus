@@ -178,6 +178,17 @@ describe("summariseMetas: the task", () => {
     expect(prompts[0]).toContain("12 tokens, 12 creators, 2 migrations (unfiltered)");
   });
 
+  it("a Meta with graduations passes the grads counts to the model, with the leader's cap marked as context only; a row without grads has no Graduations line", async () => {
+    const store = Datastore.open(":memory:");
+    saveCurrentRun(store, at(0), { metas: [aMeta("grad", { label: "Gradcats", grads: { "24h": 11, "6h": 4, creators24h: 9, share: 0.2 } }), aMeta("old", { label: "Oldcats" })] });
+    const { brain, prompts } = fakeBrain(() => GOOD);
+    await run(store, brain);
+    const grad = prompts.find((p) => p.includes("Label: Gradcats"))!;
+    expect(grad).toContain("Graduations: last 24 h: 11, last 6 h: 4, creators of the 24 h graduations: 9");
+    expect(grad).toMatch(/market cap \$2\.4M \(context only\)/);
+    expect(prompts.find((p) => p.includes("Label: Oldcats"))).not.toContain("Graduations:");
+  });
+
   it("writes a line for a Meta that outlived its launch wave (no copies in 24 h, no tokens of its group)", async () => {
     const store = Datastore.open(":memory:");
     saveCurrentRun(store, at(0), { metas: [{ ...aMeta("jensen", { cap: 2_400_000, leaderName: "Jensen Huang", leaderSymbol: "JENSEN" }), counts: { "6h": { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 }, "24h": { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 } } }] });

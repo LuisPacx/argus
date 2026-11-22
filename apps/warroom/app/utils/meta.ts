@@ -414,7 +414,8 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
     leaderHref: safeHttpUrl(m?.leader?.url),
     copies: grads.gradLine !== null ? null : finite(creators) && creators > 0 ? `${plural(creators, "creator")} copying in 24 h` : "no copies launched in 24 h",
     since: age !== null ? `${isMeta ? "Meta" : "Watching"} since ${age}` : null,
-    summary: summary !== "" ? summary : null,
+    // A templated numbers line under a graduation line would state the Meta twice (ADR 0018): the card keeps the graduation line and shows only a model line.
+    summary: summary !== "" && !(grads.gradLine !== null && m?.summarySource === "template") ? summary : null,
     // the leader is already shown above; list only the other top tokens
     tokens: tokenViews(Array.isArray(m?.topTokens) ? m.topTokens.filter((t) => t?.mint === undefined || t.mint !== m?.leader?.mint) : undefined),
     cooling,
