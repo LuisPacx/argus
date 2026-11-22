@@ -1,12 +1,14 @@
 import { BrainError, type Brain } from "../brain.ts";
 import type { Datastore } from "../datastore.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
-import { PLAYBOOK_MAX_RUNS_PER_DAY, PLAYBOOK_MIN_PICKS, PLAYBOOK_RUN_MAX_USD, parsePlaybookOutput, playbookPromptFor, provenanceOf, tooFewMessage } from "./playbook.ts";
+import { PLAYBOOK_MAX_RUNS_PER_DAY, PLAYBOOK_RUN_MAX_USD, ideaProvenanceOf, ideaRatingsOf, parsePlaybookOutput, playbookPromptFor, playbookSections, provenanceOf } from "./playbook.ts";
 
 /**
  * The worker's Playbook step (human researcher ticket 09, ADR 0017): takes each pending `playbook_requests` row (written by the Operator's "Rebuild playbook"
  * button and nothing else) and makes a new Playbook version of it with ONE `playbook` Brain run:
- *  1. fewer than `PLAYBOOK_MIN_PICKS` finished Picks ends the request `refused` with the reason, before any cap is read or any run is opened;
+ *  1. neither enough finished Picks (`PLAYBOOK_MIN_PICKS`) nor enough rated ideas (ticket 18: `PLAYBOOK_MIN_IDEAS`, `PLAYBOOK_MIN_IDEA_MINORITY` on the smaller
+ *     side) ends the request `refused` with the reason, before any cap is read or any run is opened; one of the two is enough, and the section below its
+ *     minimum is left out of the prompt and the answer, with its reason kept on the request;
  *  2. the caps: `PLAYBOOK_MAX_RUNS_PER_DAY` runs in 24 hours, then the shared research budget (a capped request ends `capped` with the reason);
  *  3. the run is opened in `brain_runs` before the child starts and its cost recorded the moment it returns, so it counts in the research budget;
  *  4. the answer must fit `parsePlaybookOutput`; a miss ends the request `failed` with the reason (a rebuild is one run, there is no retry);
@@ -45,9 +47,9 @@ export async function runPlaybookRequests(store: Datastore, brain: Brain, opts: 
   for (const req of store.pendingPlaybookRequests()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
     const now = clock();
-    const have = store.countFinishedPicks();
-    if (have < PLAYBOOK_MIN_PICKS) {
-      const why = tooFewMessage(have);
+    const early = playbookSections(store.countFinishedPicks(), ideaRatingsOf(store.playbookIdeas()));
+    if (early.refusal !== null) {
+      const why = early.refusal;
       log(`[worker] playbook: ${why}; request ${req.id} is refused, no model call`);
       store.resolvePlaybookRequest(req.id, { status: "refused", detail: why }, now);
       out.refused++;
@@ -70,13 +72,20 @@ export async function runPlaybookRequests(store: Datastore, brain: Brain, opts: 
     if (!store.claimPlaybookRequest(req.id)) continue;
 
     // What the run is shown, read once: the ids and the cutoff stored on the version are computed from these same rows.
-    const picks = store.playbookPicks();
-    const provenance = provenanceOf(picks);
-    if (provenance === null || picks.length < PLAYBOOK_MIN_PICKS) {
-      store.resolvePlaybookRequest(req.id, { status: "refused", detail: tooFewMessage(picks.length) }, clock());
+    const allPicks = store.playbookPicks();
+    const allIdeas = store.playbookIdeas();
+    const sections = playbookSections(allPicks.length, ideaRatingsOf(allIdeas));
+    const pickProvenance = sections.picks ? provenanceOf(allPicks) : null;
+    const ideaProvenance = sections.ideas ? ideaProvenanceOf(allIdeas) : null;
+    if (pickProvenance === null && ideaProvenance === null) {
+      store.resolvePlaybookRequest(req.id, { status: "refused", detail: sections.refusal ?? sections.picksWhy ?? "nothing to read" }, clock());
       out.refused++;
       continue;
     }
+    // A section that does not qualify is not shown to the run at all, and its lessons are refused if the answer has them.
+    const picks = pickProvenance === null ? [] : allPicks;
+    const ideas = ideaProvenance === null ? [] : allIdeas;
+    const shown = { picks: pickProvenance !== null, ideas: ideaProvenance !== null };
 
     const runId = store.startBrainRun({ proposalId: 0, task: "playbook", ...brain.routeFor("playbook") }, clock());
     store.attachPlaybookRun(req.id, runId);
@@ -84,7 +93,7 @@ export async function runPlaybookRequests(store: Datastore, brain: Brain, opts: 
     let result;
     try {
       // The per-run cap is the constant here: the Brain takes the lower of it and the route's, so a routing override cannot raise it.
-      result = await brain.run<string>("playbook", { prompt: playbookPromptFor(picks) }, { signal: opts.signal, maxBudgetUsd: PLAYBOOK_RUN_MAX_USD, onBackend: (r) => store.setBrainRunBackend(runId, r.backend, r.model) });
+      result = await brain.run<string>("playbook", { prompt: playbookPromptFor(picks, ideas) }, { signal: opts.signal, maxBudgetUsd: PLAYBOOK_RUN_MAX_USD, onBackend: (r) => store.setBrainRunBackend(runId, r.backend, r.model) });
     } catch (e) {
       const brainError = e instanceof BrainError ? e : undefined;
       const kind = brainError?.kind ?? "failed";
@@ -110,7 +119,7 @@ export async function runPlaybookRequests(store: Datastore, brain: Brain, opts: 
       store.releasePlaybookRequest(req.id);
       return { ...out, stoppedBy: "dry-run" };
     }
-    const parsed = parsePlaybookOutput(result.output);
+    const parsed = parsePlaybookOutput(result.output, shown);
     store.finishBrainRun(runId, { sessionId: result.sessionId ?? null, totalCostUsd: result.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: result.backend, model: result.model });
     if (!parsed.ok) {
       log(`[worker] playbook: request ${req.id} refused the answer: ${parsed.problem}`);
@@ -118,10 +127,25 @@ export async function runPlaybookRequests(store: Datastore, brain: Brain, opts: 
       out.failed++;
       continue;
     }
-    const id = store.savePlaybookVersion(req.id, { text: parsed.text, pickIds: provenance.pickIds, settleCutoff: provenance.settleCutoff }, clock());
+    const savedAt = clock();
+    const omitted = [shown.picks ? null : `no pick lessons: ${sections.picksWhy ?? "their settle times could not be read"}`, shown.ideas ? null : `no idea lessons: ${sections.ideasWhy ?? "their times could not be read"}`].filter((s) => s !== null).join("; ");
+    const id = store.savePlaybookVersion(
+      req.id,
+      {
+        text: parsed.text,
+        // No Picks (an ideas-only version): the cutoff is the build time, and its empty text is never a Shadow pick's Playbook.
+        pickIds: pickProvenance?.pickIds ?? [],
+        settleCutoff: pickProvenance?.settleCutoff ?? savedAt.toISOString(),
+        ideasText: parsed.ideasText,
+        verdictIds: ideaProvenance?.verdictIds ?? [],
+        verdictCutoff: ideaProvenance?.verdictCutoff ?? null,
+        ...(omitted !== "" ? { omitted } : {}),
+      },
+      savedAt,
+    );
     if (id !== undefined) {
       out.done++;
-      log(`[worker] playbook: request ${req.id} done, version ${id} from ${provenance.pickIds.length} Picks`);
+      log(`[worker] playbook: request ${req.id} done, version ${id} from ${pickProvenance?.pickIds.length ?? 0} Picks and ${ideaProvenance?.verdictIds.length ?? 0} rated ideas`);
     }
   }
   return out;

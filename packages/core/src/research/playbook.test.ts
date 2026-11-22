@@ -75,9 +75,9 @@ describe("the Rebuild playbook button and the worker's one run", () => {
     // The cutoff is the latest settle time among the Picks it was built from: the 12th settled at -600 + 110.
     expect(versions[0]!.settleCutoff).toBe(at(-490).toISOString());
     const state = store.playbookState();
-    expect(state.versions[0]).toMatchObject({ id: "1", createdAt: NOW.toISOString(), pickCount: 12, settleCutoff: at(-490).toISOString() });
+    expect(state.versions[0]).toMatchObject({ id: "1", createdAt: NOW.toISOString(), pickCount: 12, ideaCount: 0, ideasText: "", settleCutoff: at(-490).toISOString() });
     expect(state.requests[0]).toMatchObject({ id: req.id, status: "done", costUsd: 0.05 });
-    expect(store.latestPlaybook()).toEqual({ id: "1", text: versions[0]!.text });
+    expect(store.latestPlaybook()).toEqual({ id: "1", text: versions[0]!.text, ideasText: "" });
   });
 
   it("the prompt holds the Picks, their reasons and outcomes as one fenced untrusted block under a fresh boundary; a reason cannot end the block", async () => {

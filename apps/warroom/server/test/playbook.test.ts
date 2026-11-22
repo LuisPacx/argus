@@ -56,7 +56,8 @@ describe("POST /api/playbook-requests", () => {
   it("with fewer than 10 finished Picks it is refused with 409 and the reason, and nothing is written", async () => {
     finishedPicks(PLAYBOOK_MIN_PICKS - 1);
     expect(await status(post({ body: {} }))).toBe(409);
-    expect(await message(post({ body: {} }))).toBe("A rebuild needs at least 10 of your Picks with a finished bonded or not-bonded result; you have 9");
+    // Ticket 18: the reason also says what idea lessons would need, since either section is enough.
+    expect(await message(post({ body: {} }))).toBe("A rebuild needs at least 10 of your Picks with a finished bonded or not-bonded result; you have 9. Idea lessons need at least 10 rated ideas with at least 3 on the smaller side (Good or Bad); you have 0 rated (0 Good, 0 Bad)");
     expect(state()).toMatchObject({ requests: [], finishedPicks: 9, refusal: expect.stringContaining("you have 9") });
   });
 

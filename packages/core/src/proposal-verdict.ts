@@ -5,7 +5,7 @@ import { MAX_VERDICT_NOTE_CHARS, VERDICTS, type Verdict } from "./narrative-verd
  * The Operator's Idea verdict (War Room ticket 21, GLOSSARY: Idea verdict): Good or Bad on a meme-kind Proposal's idea, one click, with optional
  * reason tags and a note. Only an explicit Good or Bad counts: a dismissal is never a signal. Append-only (the newest row per Proposal is the
  * current one, the rest are history), with the Proposal's kind and Playbook version read from the store and a clamped snapshot of the idea
- * (name, ticker, angle) as it was at verdict time. Nothing reads it back into a prompt or the Playbook yet (human-researcher ticket 18 will).
+ * (name, ticker, angle) as it was at verdict time. The Playbook rebuild reads the current ones (human researcher ticket 18, `loadPlaybookIdeas`); no other prompt does yet.
  */
 
 /** What the Operator may say about an idea. The good ones come first, then the bad ones. */

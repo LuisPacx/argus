@@ -23,7 +23,7 @@ import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
 import { loadShadowPicks, migrateShadow, pickSettledAt, type PlaybookSource, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
 import { loadScoreboard, type Scoreboard } from "./research/scoreboard.ts";
-import { countFinishedPicks, insertPlaybookRequest, latestPlaybook, loadPlaybookPicks, loadPlaybookState, loadPlaybookVersions, migratePlaybook, toPlaybookRequest, type PlaybookPick, type PlaybookRequest, type PlaybookState, type PlaybookStatus } from "./research/playbook.ts";
+import { countFinishedPicks, insertPlaybookRequest, latestPlaybook, loadPlaybookIdeas, loadPlaybookPicks, loadPlaybookState, loadPlaybookVersions, migratePlaybook, toPlaybookRequest, type PlaybookPick, type PlaybookRequest, type PlaybookState, type PlaybookStatus } from "./research/playbook.ts";
 import { insertResearchRequest,listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -615,6 +615,10 @@ export function migrate(db: DatabaseSync): void {
   migrateResearch(db);
   // The Playbook (ticket 09): its request and version tables, and the version in use recorded on each brief and each Proposal made with it.
   migratePlaybook(db);
+  // Idea lessons (human researcher ticket 18): nullable, so every older version row still opens. The write-once triggers guard UPDATE, not ALTER.
+  ensureColumn(db, "playbook_versions", "ideas_text", "TEXT");
+  ensureColumn(db, "playbook_versions", "verdict_ids", "TEXT");
+  ensureColumn(db, "playbook_versions", "verdict_cutoff", "TEXT");
   ensureColumn(db, "research_briefs", "playbook_version", "TEXT");
   ensureColumn(db, "research_briefs", "terms_note", "TEXT");
   ensureColumn(db, "proposals", "playbook_version", "TEXT");
@@ -1570,9 +1574,14 @@ export class Datastore {
     return { versions: () => loadPlaybookVersions(this.db) };
   }
 
-  /** The newest Playbook version, or null: what Make ideas carries (ticket 09). READ ONLY. */
-  latestPlaybook(): { id: string; text: string } | null {
+  /** The newest Playbook version, or null: what Make ideas carries (ticket 09), with its idea lessons (`ideasText`, "" when none; ticket 18). READ ONLY. */
+  latestPlaybook(): { id: string; text: string; ideasText: string } | null {
     return latestPlaybook(this.db);
+  }
+
+  /** The Idea verdicts a rebuild reads (ticket 18): the newest 60 current meme verdicts, newest first. READ ONLY. */
+  playbookIdeas(): ProposalVerdict[] {
+    return loadPlaybookIdeas(this.db);
   }
 
   /** How many of the Operator's Picks have a finished bonded or not-bonded result. READ ONLY. */
@@ -1630,13 +1639,23 @@ export class Datastore {
    * the latest time any of them settled (`settleCutoff`), which is what the Shadow pick's leak guard checks. A request already ended stores nothing. Returns the
    * version id (text), or undefined.
    */
-  savePlaybookVersion(requestId: number, v: { text: string; pickIds: readonly number[]; settleCutoff: string }, now: Date = new Date()): string | undefined {
+  savePlaybookVersion(
+    requestId: number,
+    v: { text: string; pickIds: readonly number[]; settleCutoff: string; ideasText?: string; verdictIds?: readonly number[]; verdictCutoff?: string | null; omitted?: string },
+    now: Date = new Date(),
+  ): string | undefined {
     return this.inTransaction(() => {
       const open = this.db.prepare("SELECT 1 FROM playbook_requests WHERE id = ? AND status IN ('pending', 'running')").get(requestId);
       if (!open) return undefined;
-      const res = this.db.prepare("INSERT INTO playbook_versions (request_id, text, pick_ids, settle_cutoff, created_at) VALUES (?, ?, ?, ?, ?)").run(requestId, v.text, JSON.stringify([...v.pickIds]), v.settleCutoff, now.toISOString());
+      // Ticket 18: the idea lessons and the verdicts they were built from sit in their own columns (null when the version has none); `text` stays the Pick lessons only.
+      const verdictIds = v.verdictIds ?? [];
+      const ideasText = v.ideasText ?? "";
+      const res = this.db
+        .prepare("INSERT INTO playbook_versions (request_id, text, pick_ids, settle_cutoff, created_at, ideas_text, verdict_ids, verdict_cutoff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(requestId, v.text, JSON.stringify([...v.pickIds]), v.settleCutoff, now.toISOString(), ideasText === "" ? null : ideasText, verdictIds.length === 0 ? null : JSON.stringify([...verdictIds]), v.verdictCutoff ?? null);
       const id = String(Number(res.lastInsertRowid));
-      this.db.prepare("UPDATE playbook_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`version ${id} from ${v.pickIds.length} Picks`, now.toISOString(), requestId);
+      const from = [v.pickIds.length > 0 || verdictIds.length === 0 ? `${v.pickIds.length} Picks` : "", verdictIds.length > 0 ? `${verdictIds.length} rated ideas` : ""].filter((s) => s !== "").join(" and ");
+      this.db.prepare("UPDATE playbook_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`version ${id} from ${from}${v.omitted ? `; ${v.omitted}` : ""}`, now.toISOString(), requestId);
       return id;
     });
   }
