@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-Status: ready-for-agent
+Status: in-progress
 - [ ] Christmas fixture where the exact passes leave Bullmas, CATEMAS and pepesanta unassigned: the blend pass assigns them to Christmas and the subject reaches 10 graduations, 10 creators, 3 in 6 h.
 - [ ] A stem used by only 2 distinct creators is not learned; one used by 3 is.
 - [ ] A stem with 69% self-consistency is not learned; 70% is.
