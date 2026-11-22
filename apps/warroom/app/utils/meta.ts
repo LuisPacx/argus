@@ -431,9 +431,11 @@ export function currentMetaView(payload: CurrentMetaPayload | null | undefined, 
   const footer = age === null ? null : age === "just now" ? "computed just now" : `computed ${age}`;
   const gapWarning = gapWarningText(payload.gap);
   const gapEnded = gapWarning !== null && typeof payload.gap?.endedAt === "string";
-  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, true, angles, gapEnded));
-  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => currentRowView(m, nowMs, false, angles, gapEnded));
-  const coverageNote = clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
+  // With a gap the gap banner is the only coverage figure; the create-based note and "covered N of 24 h" are the fallback when none is recorded.
+  const noCreateCoverage = (r: CurrentMetaRowView): CurrentMetaRowView => (gapWarning !== null ? { ...r, gradCoverage: null } : r);
+  const metas = (Array.isArray(payload.metas) ? payload.metas : []).slice(0, SHOWN).map((m) => noCreateCoverage(currentRowView(m, nowMs, true, angles, gapEnded)));
+  const watching = (Array.isArray(payload.watching) ? payload.watching : []).slice(0, SHOWN).map((m) => noCreateCoverage(currentRowView(m, nowMs, false, angles, gapEnded)));
+  const coverageNote = gapWarning !== null ? null : clampText(payload.coverageNote, COVERAGE_NOTE_CHARS) || null;
   const emptyNote = metas.length === 0 ? "No Meta right now" : null;
   const computedMs = Date.parse(computedAt);
   if (nowMs > 0 && Number.isFinite(computedMs) && nowMs - computedMs > META_STALE_MS) {

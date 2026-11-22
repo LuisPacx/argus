@@ -256,6 +256,20 @@ it("an open gap reads 'to now' and shows no counter, since no gap has ended", as
   expect(html).not.toContain("current-since-gap");
 });
 
+it("with a gap only the banner shows coverage; with no gap the create-based note and 'covered N of 24 h' stay", async () => {
+  const thin = subject("Christmas", "BULL", 12_000, { grads: grads({ coverage: { covered: 5, of: 24 } }) });
+  const note = "Only 5 h of data in the last 24 h";
+  const gapped = await draw({ ...withGap(GAP, [thin]), coverageNote: note });
+  expect(gapped).toContain("counts cover 19 of 24 h");
+  expect(gapped).not.toContain("covered 5 of 24 h");
+  expect(gapped).not.toContain("current-grads-coverage");
+  expect(gapped).not.toContain(note);
+  const plain = await draw({ ...withGap(undefined, [thin]), coverageNote: note });
+  expect(plain).toContain(note);
+  expect(plain).toContain("covered 5 of 24 h");
+  expect(plain).not.toContain("meta-gap-warning");
+});
+
 it("with no gap there is no warning and no counter", async () => {
   const html = await draw(withGap(undefined, [subject("Christmas", "BULL", 12_000, { grads: grads({ sinceGap: 4 }) })], [W1]));
   expect(html).not.toContain("meta-gap-warning");
