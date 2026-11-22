@@ -15,3 +15,5 @@ Status: in-progress
 
 ## Comments
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 3 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 2 DONE, 1 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:49 [0d50a746] 2026-11-22 box 3 left open: pnpm check passed (4237 tests, not stamped: dirty tree of ticket edits) but pnpm verify:boot FAILED step 4 (nuxt dev port 3150 not up in 120s; steps 1-3 pass). Not rerun; log ~/.cache/argus-scratch/boot.log.

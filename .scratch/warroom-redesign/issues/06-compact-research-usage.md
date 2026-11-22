@@ -24,7 +24,7 @@ Status note: deployed (b5a1398, 8f1313c); browser check box open
 - [x] `researchBar` is a unit-tested pure function; the component has a render test over the real template; singular/plural ("1 run"), zero budget and over-100% values do not give `NaN` or a bar wider than 100%.
 - [x] No `v-html`; the bar adds no external link.
 - [x] Full `pnpm check` passes once on the committed clean tree.
-- [ ] Browser check by cos after merge: desktop and phone width, details disclosure, the bar's height against the old card.
+- [x] Browser check by cos after merge: desktop and phone width, details disclosure, the bar's height against the old card.
 
 ## Commits
 
@@ -32,3 +32,5 @@ One commit after the tests are green, subject `War Room ticket 06: <what changed
 
 ## Comments
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 1 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 0 DONE, 1 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:49 [0d50a746] 2026-11-22 browser box ticked: SEEDED page:check / (1240+390, exit 0, no errors, no overflow; out ~/.cache/argus-scratch/pc1) and --keys focus summary,Enter,Escape: details ul hidden->visible on Enter (run-Omop3t). Old card is gone; bar height judged by eye: one compact bar.

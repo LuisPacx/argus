@@ -47,9 +47,9 @@ Because the hook cannot see the subagent's processes and the task list is sessio
 - [ ] Test: empty `background_tasks`, tasks with `status` not running, and an empty `agent_type` all exit 0 with no output.
 - [ ] The hook never signals a pid it did not verify itself (alive, start time matches, belongs to the subagent's tag or group); no `kill -9` of a pid taken from a pattern match.
 - [ ] Every process the test starts is stopped by the test's own cleanup, and the test leaves nothing in `/tmp` (temp files under `TMPDIR`).
-- [ ] The open questions below are answered in `## Comments` by a short manual run (a real throwaway subagent that leaves `sleep 600` in the background), and the chosen approach is updated if the answer changes it.
+- [x] The open questions below are answered in `## Comments` by a short manual run (a real throwaway subagent that leaves `sleep 600` in the background), and the chosen approach is updated if the answer changes it.
 - [ ] `docs/agents/worker-rules.md` line 19 gets a half-line pointing to the hook ("a SubagentStop hook checks this; it will send you back to stop leftovers"), and cos.md's briefs need no extra text.
-- [ ] `pnpm check` is green, run once before the commit.
+- [x] `pnpm check` is green, run once before the commit.
 
 ## Open questions (not verified; the docs do not say)
 
@@ -72,3 +72,8 @@ Because the hook cannot see the subagent's processes and the task list is sessio
 Decision: built the main approach, because it is safe whatever the answers are: it never signals anything, exits 2 only when a running shell/monitor task's command names the subagent's own worktree, and exits 0 when `stop_hook_active` is true. It logs `tasks=<n> matched=<n>` per event to `~/.local/state/argus/subagent-stop.log`, so the first real session shows whether Q1 holds (tasks=0 for subagents that left work running means the list lacks subagent tasks; then use E or B/C). Files: `.claude/hooks/subagent-stop-sweep.sh`, `.test.sh`; worker-rules line 19 updated. Acceptance criteria are met by the hook tests; the live behaviour (Q1, Q3) is still to be confirmed from the log.
 - 2026-11-21 cos triage: already built (subagent-stop sweep hook in .claude/hooks + SubagentStop entry).
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 10 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 8 DONE, 2 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 [0d50a746] Open questions answered from `~/.local/state/argus/subagent-stop.log` (real sessions since 2026-11-17; 57 lines with matched>=1, tasks 1-6, cwd `.claude/worktrees/agent-*`; e.g. agent-aa4ba0243821e0eb4 2026-11-19 13:31 `active=false tasks=3 matched=1`, then `active=true` on the retry turn):
+  Q1 yes, subagent-started tasks are in `background_tasks`. Q2 only the `command` containing the worktree path ties a task to a subagent (the hook relies on that). Q3 yes, exit 2 gives the subagent another turn and `stop_hook_active=true` follows.
+  Q4 yes, the repo hook fires for subagents in worktrees. Q5 not tried, no kill is built (the hook never signals). Q6 version not recorded in the log; the first run was 2.1.326 (hook did not fire there).
+- 2026-11-22 [0d50a746] Box 10 ticked: `pnpm check` on main (tree with only .scratch ticket edits, so "passed, not stamped"): exit 0, 4237 tests passed, log ~/.cache/argus-scratch/check.log. Boxes 1-7 and 9 are DONE per the triage but left for the ticket's owner to tick.

@@ -24,7 +24,7 @@ The Operator can decide on Proposals (`apps/warroom/server/api/proposals/[id]/co
 - [ ] **API** (`apps/warroom/server/test/narrative-verdict.test.ts`): a good body returns 200 and a row; 404 unknown Narrative; 400 for unknown verdict, tag or dimension, dimensions without a score tag, wrong types, extra keys, a 501-character note, non-JSON body; nothing stored on any 400/404; a body that tries to set `scoreId` or `rubricVersion` has no effect; no Proposal or Narrative row changes.
 - [ ] **Export**: GET returns every verdict with the Score at the time and the latest Score, `scoreChanged` true when a newer Score exists; empty array with no verdicts; a POST to it is 405; nothing is written.
 - [ ] **Render** (`renderToString`): the form shows verdict buttons, tags, dimensions only when a score tag is on, a 500-character counter and the current verdict plus its history; a note with `<img src=x onerror=1>` shows as escaped text; the list shows the filter and the pill and filtering by Good/Bad/None returns the right rows; the page links its Proposals (none: no block); no `v-html` in new code (the repo's grep test).
-- [ ] **Browser** (`pnpm page:check` on `/narratives` and `/narratives/{id}`, `--seed` if live cards are empty and say so; add a keyboard run `--keys "focus=<selector>,Enter,Escape"` for the form toggle if it is a `<details>`): exit 0, no console, page or request errors, no overflow at 390 or 1240 px, screenshots read for the form, the pill, the filter and the Proposal links. The script blocks POST, so submit is tested by the API and render boxes.
+- [x] **Browser** (`pnpm page:check` on `/narratives` and `/narratives/{id}`, `--seed` if live cards are empty and say so; add a keyboard run `--keys "focus=<selector>,Enter,Escape"` for the form toggle if it is a `<details>`): exit 0, no console, page or request errors, no overflow at 390 or 1240 px, screenshots read for the form, the pill, the filter and the Proposal links. The script blocks POST, so submit is tested by the API and render boxes.
 - [ ] `GLOSSARY.md` gets a **Verdict** term (the Operator's call on a Narrative, kept as history, used to calibrate the judge); `docs/architecture.md` gets one line for the table and the export.
 - [ ] Type-check (`tsc --noEmit --checkers 1`), lint and the full `pnpm check` pass once before the commit.
 
@@ -49,3 +49,5 @@ Defaults above stand unless changed. Decided by user 11-17: all defaults accepte
 
 ## Comments
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 7 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 6 DONE, 1 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:49 [0d50a746] 2026-11-22 browser box ticked, SEEDED: /narratives exit 0 (run-LZe8ev); /narratives/{narrative} --keys focus=verdict-summary,Enter,Escape exit 0, note hidden->visible->hidden, no errors/overflow at 390+1240 (run-Hoslf0). Screenshots read.

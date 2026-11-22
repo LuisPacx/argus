@@ -41,3 +41,5 @@ One commit after the tests are green, subject `War Room ticket 04: <what changed
 - **Window toggle:** `?window=6h` re-fetches `/api/metas` with that window; the numbers follow the ranked window, the trend text stays "6 h of 24 h".
 - **Left open:** the browser check (cos, after merge).
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 2 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 0 DONE, 2 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:49 [0d50a746] 2026-11-22 both boxes left open. verify:boot FAILED step 4 (nuxt dev --port 3150 not up in 120s; steps 1-3 pass; live dev server on 3100 shares .nuxt). Seeded page:check / and /meta exit 0 (strip clipped at 390 = scrolls); anchor Enter reached /meta but scroll position not shown.
