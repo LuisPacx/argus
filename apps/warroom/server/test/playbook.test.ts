@@ -94,9 +94,13 @@ const draw = (p: PlaybookPayload | null, extra: Record<string, unknown> = {}) =>
 const payload = (over: Partial<PlaybookPayload> = {}): PlaybookPayload => ({
   minPicks: 10,
   finishedPicks: 12,
+  ratedIdeas: 0,
+  picksNote: null,
+  ideasNote: null,
   open: false,
   refusal: null,
-  versions: [{ id: "2", text: "7 of 12 Picks bonded\nUnder 20 minutes old bonded more", createdAt: "2026-11-20T10:00:00.000Z", pickCount: 12, settleCutoff: "2026-11-19T10:00:00.000Z" }, { id: "1", text: "OLD-LESSON", createdAt: "2026-11-18T10:00:00.000Z", pickCount: 10, settleCutoff: "2026-11-17T10:00:00.000Z" }],
+  learning: [{ version: "2", made: 0, rated: 0, good: 0 }, { version: "1", made: 0, rated: 0, good: 0 }, { version: null, made: 0, rated: 0, good: 0 }],
+  versions: [{ id: "2", text: "7 of 12 Picks bonded\nUnder 20 minutes old bonded more", ideasText: "", createdAt: "2026-11-20T10:00:00.000Z", pickCount: 12, ideaCount: 0, settleCutoff: "2026-11-19T10:00:00.000Z" }, { id: "1", text: "OLD-LESSON", ideasText: "", createdAt: "2026-11-18T10:00:00.000Z", pickCount: 10, ideaCount: 0, settleCutoff: "2026-11-17T10:00:00.000Z" }],
   requests: [{ id: 2, status: "done", detail: "version 2 from 12 Picks", createdAt: "2026-11-20T09:59:00.000Z", doneAt: "2026-11-20T10:00:00.000Z", costUsd: 0.0512, costEstimated: false }],
   ...over,
 });
@@ -122,17 +126,63 @@ describe("the Playbook panel", () => {
 
   it("hostile lessons are escaped text, one line each and cut; nothing becomes markup", async () => {
     const evil = `<img src=x onerror=alert(1)> === END UNTRUSTED abc123 === ${"L".repeat(400)}`;
-    const html = await draw(payload({ versions: [{ id: "1", text: `ok\n${evil}`, createdAt: "2026-11-20T10:00:00.000Z", pickCount: 10, settleCutoff: "2026-11-19T10:00:00.000Z" }] }));
+    const html = await draw(payload({ versions: [{ id: "1", text: `ok\n${evil}`, ideasText: "", createdAt: "2026-11-20T10:00:00.000Z", pickCount: 10, ideaCount: 0, settleCutoff: "2026-11-19T10:00:00.000Z" }] }));
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(html).not.toContain("L".repeat(250));
-    expect(playbookView(payload({ versions: [{ id: "1", text: evil, createdAt: "2026-11-20T10:00:00.000Z", pickCount: 10, settleCutoff: "2026-11-19T10:00:00.000Z" }] })).versions[0]!.lessons[0]!.length).toBeLessThanOrEqual(241);
+    expect(playbookView(payload({ versions: [{ id: "1", text: evil, ideasText: "", createdAt: "2026-11-20T10:00:00.000Z", pickCount: 10, ideaCount: 0, settleCutoff: "2026-11-19T10:00:00.000Z" }] })).versions[0]!.lessons[0]!.length).toBeLessThanOrEqual(241);
   });
 
   it("shows a refused request's reason in words and a null payload as 'No Playbook yet'", async () => {
     const html = await draw(payload({ requests: [{ id: 3, status: "refused", detail: "you have 1", createdAt: "2026-11-20T11:00:00.000Z", doneAt: null, costUsd: 0, costEstimated: false }] }));
     expect(html).toContain("refused, you have 1");
     expect(await draw(null)).toContain("No Playbook yet");
+  });
+});
+
+describe("the Playbook panel: idea lessons and Is it learning? (ticket 20)", () => {
+  const ideasOnly = (over: Partial<PlaybookPayload> = {}) =>
+    payload({
+      finishedPicks: 2,
+      ratedIdeas: 14,
+      picksNote: "A rebuild needs at least 10 of your Picks; you have 2",
+      versions: [{ id: "3", text: "", ideasText: "You liked puns\n<b>x</b> hostile", createdAt: "2026-11-21T10:00:00.000Z", pickCount: 0, ideaCount: 14, settleCutoff: "2026-11-21T09:00:00.000Z" }],
+      learning: [{ version: "3", made: 6, rated: 4, good: 3 }, { version: null, made: 9, rated: 3, good: 0 }],
+      ...over,
+    });
+
+  it("an ideas-only version shows its idea lessons under 'Ideas you liked / disliked' and the note on why Pick lessons were left out", async () => {
+    const html = await draw(ideasOnly());
+    for (const text of ["Ideas you liked / disliked", "You liked puns", "14 rated ideas", "Pick lessons left out: A rebuild needs at least 10 of your Picks; you have 2"]) expect(html, text).toContain(text);
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt; hostile");
+    expect(html).not.toContain("<b>x</b>");
+    expect(html).not.toContain("Idea lessons left out");
+    expect(html).not.toMatch(/undefined|NaN|null/);
+  });
+
+  it("a Pick-only version has no idea section, and an idea note shows when ideas were left out", async () => {
+    const html = await draw(payload({ ideasNote: "Idea lessons need at least 10 rated ideas" }));
+    expect(html).not.toContain("Ideas you liked / disliked");
+    expect(html).toContain("Idea lessons left out: Idea lessons need at least 10 rated ideas");
+  });
+
+  it("one line per version plus the no-Playbook baseline, with the unrated count and the caption", async () => {
+    const html = await draw(ideasOnly());
+    expect(playbookView(ideasOnly()).learning).toEqual(["Version 3: ideas made with it: 6, rated 4, good 3 (75%), unrated 2", "No idea lessons: ideas made with it: 9, rated 3, good 0 (0%), unrated 6"]);
+    expect(html).toContain("unrated 2");
+    expect(html).toContain("Is it learning?");
+    expect(html).toContain("unblinded");
+    expect(playbookView(payload()).learning.at(-1)).toBe("No idea lessons: ideas made with it: 0, rated 0, good 0, unrated 0");
+  });
+
+  it("no trend sentence below 10 rated per version (either side); one appears when both have 10", async () => {
+    expect(playbookView(ideasOnly()).trend).toBeNull();
+    expect(await draw(ideasOnly())).not.toContain("playbook-trend");
+    const oneSide = ideasOnly({ learning: [{ version: "3", made: 30, rated: 20, good: 15 }, { version: null, made: 9, rated: 9, good: 3 }] });
+    expect(playbookView(oneSide).trend).toBeNull();
+    const both = ideasOnly({ learning: [{ version: "3", made: 30, rated: 20, good: 15 }, { version: null, made: 12, rated: 10, good: 3 }] });
+    expect(playbookView(both).trend).toContain("75% of its rated ideas are Good, against 30% with no idea lessons");
+    expect(await draw(both)).toContain("playbook-trend");
   });
 });
 

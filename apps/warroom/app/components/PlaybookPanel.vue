@@ -38,6 +38,8 @@ onBeforeUnmount(() => clearInterval(timer));
     </p>
     <p class="min-w-0 break-words text-sm font-semibold" data-test="playbook-headline">{{ view.headline }}</p>
     <p class="muted min-w-0 break-words text-xs" data-test="playbook-picks">{{ view.picks }}</p>
+    <p v-if="view.picksNote" class="muted min-w-0 break-words text-xs" data-test="playbook-picks-note">Pick lessons left out: {{ view.picksNote }}</p>
+    <p v-if="view.ideasNote" class="muted min-w-0 break-words text-xs" data-test="playbook-ideas-note">Idea lessons left out: {{ view.ideasNote }}</p>
     <div class="flex min-w-0 flex-wrap items-center gap-2">
       <button type="button" class="btn btn-primary" :disabled="busy || !view.canRebuild" data-test="playbook-rebuild" @click="rebuild">{{ busy ? "Sending…" : "Rebuild playbook" }}</button>
       <p v-if="view.refusal" class="note note-amber min-w-0 flex-1 break-words text-xs" data-test="playbook-refusal">{{ view.refusal }}</p>
@@ -49,6 +51,20 @@ onBeforeUnmount(() => clearInterval(timer));
       <ul class="grid min-w-0 gap-1">
         <li v-for="(l, i) in v.lessons" :key="i" class="min-w-0 break-words text-sm" data-test="playbook-lesson">{{ l }}</li>
       </ul>
+      <template v-if="v.ideaLessons.length">
+        <p class="min-w-0 break-words text-xs font-semibold" data-test="playbook-ideas-title">Ideas you liked / disliked</p>
+        <ul class="grid min-w-0 gap-1">
+          <li v-for="(l, i) in v.ideaLessons" :key="i" class="min-w-0 break-words text-sm" data-test="playbook-idea-lesson">{{ l }}</li>
+        </ul>
+      </template>
+    </div>
+    <div class="grid min-w-0 gap-1" data-test="playbook-learning">
+      <p class="min-w-0 break-words text-xs font-semibold">Is it learning?</p>
+      <ul class="grid min-w-0 gap-1">
+        <li v-for="(l, i) in view.learning" :key="i" class="min-w-0 break-words text-sm" data-test="playbook-learning-line">{{ l }}</li>
+      </ul>
+      <p v-if="view.trend" class="min-w-0 break-words text-sm" data-test="playbook-trend">{{ view.trend }}</p>
+      <p class="faint min-w-0 break-words text-xs" data-test="playbook-learning-caption">{{ view.caption }}</p>
     </div>
     <p v-for="(r, i) in view.requests" :key="i" class="faint min-w-0 break-words text-xs" data-test="playbook-request">{{ r }}</p>
   </section>

@@ -135,6 +135,28 @@ export interface PlaybookRequestView extends PlaybookRequest {
   costEstimated: boolean;
 }
 
+/** One "Is it learning?" row (ticket 20): meme ideas made with one Playbook version (`version` null: made with none), how many have a Good or Bad verdict, how many Good. */
+export interface PlaybookLearningRow {
+  version: string | null;
+  made: number;
+  rated: number;
+  good: number;
+}
+
+/** Per Playbook version whose idea lessons a prompt carried, and the no-idea-lessons baseline (`ideas_playbook_version` NULL, ticket 19): from `proposals` LEFT JOIN each meme Proposal's newest Idea verdict. READ ONLY. */
+export function loadPlaybookLearning(db: DatabaseSync, versionIds: readonly string[]): PlaybookLearningRow[] {
+  const rows = db
+    .prepare(
+      `SELECT p.ideas_playbook_version AS v, COUNT(*) AS made, COUNT(x.id) AS rated, COALESCE(SUM(x.verdict = 'good'), 0) AS good
+       FROM proposals p LEFT JOIN proposal_verdicts x ON x.id = (SELECT MAX(id) FROM proposal_verdicts WHERE proposal_id = p.id AND kind = 'meme')
+       WHERE p.kind = 'meme' GROUP BY p.ideas_playbook_version`,
+    )
+    .all() as { v: string | null; made: number; rated: number; good: number }[];
+  const by = new Map(rows.map((r) => [r.v, r]));
+  const row = (v: string | null): PlaybookLearningRow => ({ version: v, made: by.get(v)?.made ?? 0, rated: by.get(v)?.rated ?? 0, good: by.get(v)?.good ?? 0 });
+  return [...versionIds.map(row), row(null)];
+}
+
 /** What GET /api/playbook sends: the versions (newest first, all stay readable), the latest requests and whether a rebuild may be pressed now. */
 export interface PlaybookState {
   minPicks: number;
@@ -151,6 +173,8 @@ export interface PlaybookState {
   refusal: string | null;
   versions: PlaybookVersionView[];
   requests: PlaybookRequestView[];
+  /** "Is it learning?" (ticket 20): one row per listed version (newest first), then the no-Playbook baseline. */
+  learning: PlaybookLearningRow[];
 }
 
 // ---------------------------------------------------------------- storage
@@ -327,7 +351,7 @@ export function loadPlaybookState(db: DatabaseSync): PlaybookState {
     return { ...req, costUsd: spent.cost, costEstimated: spent.inexact > 0 };
   });
   const refusal = open ? "A playbook rebuild is already waiting for the worker" : sections.refusal;
-  return { minPicks: PLAYBOOK_MIN_PICKS, finishedPicks, ratedIdeas: ideas.length, picksNote: sections.picksWhy, ideasNote: sections.ideasWhy, open, refusal, versions, requests };
+  return { minPicks: PLAYBOOK_MIN_PICKS, finishedPicks, ratedIdeas: ideas.length, picksNote: sections.picksWhy, ideasNote: sections.ideasWhy, open, refusal, versions, requests, learning: loadPlaybookLearning(db, versions.map((v) => v.id)) };
 }
 
 // ---------------------------------------------------------------- the prompt and the answer
