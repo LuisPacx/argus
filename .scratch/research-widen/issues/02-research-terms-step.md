@@ -5,17 +5,18 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] With a fake brain returning 12 terms and a fake DexScreener that returns CATEMAS only for "catemas", CATEMAS is a candidate.
-- [ ] Terms are validated in code (2 to 20 plain characters, de-duplicated, at most 15); invalid output counts as a failure.
-- [ ] A terms failure still produces a brief, with a note that the topic alone was used.
-- [ ] A dry-run makes no terms call; the terms call happens after the cap check and before the researcher run.
-- [ ] The run is recorded under `research-terms` with the Brain runs and counted in the research spend and the shared budget; a test shows the total for one request is at most $0.80.
-- [ ] At most 8 term searches, sequential; a 429 or error mid-way keeps the earlier hits and does not fail the request.
-- [ ] No new schedule, switch or automatic run; no Claude call outside an Operator request.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] With a fake brain returning 12 terms and a fake DexScreener that returns CATEMAS only for "catemas", CATEMAS is a candidate.
+- [x] Terms are validated in code (2 to 20 plain characters, de-duplicated, at most 15); invalid output counts as a failure.
+- [x] A terms failure still produces a brief, with a note that the topic alone was used.
+- [x] A dry-run makes no terms call; the terms call happens after the cap check and before the researcher run.
+- [x] The run is recorded under `research-terms` with the Brain runs and counted in the research spend and the shared budget; a test shows the total for one request is at most $0.80.
+- [x] At most 8 term searches, sequential; a 429 or error mid-way keeps the earlier hits and does not fail the request.
+- [x] No new schedule, switch or automatic run; no Claude call outside an Operator request.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Pointers: `researchSpendSince` and the Brain task list/budgets in `packages/core`; the existing skills under `.claude/skills/` (add `research-terms`); the researcher in `packages/core/src/research/researcher.ts`.
 - Spec: `.scratch/research-widen/spec.md`.
+- 2026-11-22 cos: merged 23e6408. Reviewer (sonnet high) SHIP; verifier: pnpm check 246/4032, page:check 0; new tests fail on parent at import (terms.ts is new), accepted. Worst case $0.80/request ($1.55 with the pre-existing repair retry).

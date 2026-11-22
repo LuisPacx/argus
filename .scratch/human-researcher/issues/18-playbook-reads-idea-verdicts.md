@@ -11,16 +11,17 @@
 
 **Blocked by:** War Room 21
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Ideas-only and picks-only builds both work; a section below its minimum is omitted with a reason shown.
-- [ ] Injection tests: a fake END line in a note or an idea cannot close the fence.
-- [ ] Shadow is unchanged and tested (`eligiblePlaybook` ignores `ideas_text`).
-- [ ] One run costs ≤$0.25; the gate runs before any model call in all three places.
-- [ ] Old version rows (null new columns) still open.
-- [ ] `.claude/skills/playbook/SKILL.md` updated.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Ideas-only and picks-only builds both work; a section below its minimum is omitted with a reason shown.
+- [x] Injection tests: a fake END line in a note or an idea cannot close the fence.
+- [x] Shadow is unchanged and tested (`eligiblePlaybook` ignores `ideas_text`).
+- [x] One run costs ≤$0.25; the gate runs before any model call in all three places.
+- [x] Old version rows (null new columns) still open.
+- [x] `.claude/skills/playbook/SKILL.md` updated.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Operator approved 2026-11-22. Allowlist tags and thresholds come from War Room 21.
 - Pointers: `packages/core/src/playbook.ts`, `playbook-run.ts`, `shadow.ts`, `.claude/skills/playbook/SKILL.md`, `playbook.test.ts`.
+- 2026-11-22 cos: merged 51f4873. Reviewer (sonnet high) SHIP; verifier PASS 7281cf6 (249/4064; 17/19 new tests fail on parent by assertion; Shadow blindness tested). Rebase adapted one test (research prompt is prompts[1] after the terms step), stamped 005d69199f. Carry-over for HR/19: use newest non-empty text and newest non-null ideasText.

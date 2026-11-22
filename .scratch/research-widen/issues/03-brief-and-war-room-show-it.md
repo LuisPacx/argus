@@ -5,16 +5,17 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The brief's coin shape has an optional code-set `via`; a stored brief without it still parses.
-- [ ] The Research page shows "found via <term>" beside the bonded pill, and lists bonded coins before the others.
-- [ ] The brief note lists the terms used and "local set: last 7 days seen by Argus".
-- [ ] A render test covers the label and the order; an old brief without `via` renders.
-- [ ] `pnpm page:check /research` exits 0.
-- [ ] No raw bound `:href` (lint-links passes); any link goes through the safe-link helper.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] The brief's coin shape has an optional code-set `via`; a stored brief without it still parses.
+- [x] The Research page shows "found via <term>" beside the bonded pill, and lists bonded coins before the others.
+- [x] The brief note lists the terms used and "local set: last 7 days seen by Argus".
+- [x] A render test covers the label and the order; an old brief without `via` renders.
+- [x] `pnpm page:check /research` exits 0.
+- [x] No raw bound `:href` (lint-links passes); any link goes through the safe-link helper.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Pointers: `BriefCoin` in `packages/core/src/research/brief.ts`; the brief component `ResearchBriefs.vue` in the War Room app.
 - Spec: `.scratch/research-widen/spec.md`.
+- 2026-11-22 cos: merged 95bc5b9. Reviewer SHIP; verifier PASS (249/4098; 12 new tests fail on parent by assertion; screenshot shows "found via" labels, terms note, bonded first).
