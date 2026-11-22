@@ -10,24 +10,54 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 // vue is a dependency of apps/warroom only, so resolve it from there.
-const { parse } = createRequire(join(root, 'apps/warroom/package.json'))('vue/compiler-sfc');
+const { parse, babelParse } = createRequire(join(root, 'apps/warroom/package.json'))('vue/compiler-sfc');
 
 export const RULE = 'argus/no-raw-href';
 const ELEMENT = 1;
 const DIRECTIVE = 7;
-const SAFE_CALL = /^safeHttpUrl\([^]*\)( \?\? undefined)?$/;
+// Attributes that navigate or submit to an address (compared lower-case). `:src` and NuxtLink `:to` are not covered yet.
+const LINK_ATTRS = new Set(['href', 'xlink:href', 'formaction', 'action']);
+// Elements whose bare `v-bind="..."` is always flagged: a spread can carry an href.
+const LINK_TAGS = new Set(['a', 'UrlLink', 'NuxtLink']);
+
+const parseExp = (text) => {
+  try {
+    return babelParse(`(${text})`, { plugins: ['typescript'], sourceType: 'module' }).program.body[0]?.expression ?? null;
+  } catch {
+    return null;
+  }
+};
+const isSafeCall = (n) => n?.type === 'CallExpression' && n.callee.type === 'Identifier' && n.callee.name === 'safeHttpUrl';
+/** Exactly `safeHttpUrl(<arg>)`, optionally `?? undefined`, and nothing else. */
+const isSafeExp = (text) => {
+  const n = parseExp(text);
+  if (!n) return false;
+  if (isSafeCall(n)) return true;
+  return n.type === 'LogicalExpression' && n.operator === '??' && isSafeCall(n.left) && n.right.type === 'Identifier' && n.right.name === 'undefined';
+};
+/** An object literal with only plain keys, none of them link attributes: clearly free of href. */
+const isPlainObject = (text) => {
+  const n = parseExp(text);
+  return n?.type === 'ObjectExpression' && n.properties.every((p) => {
+    if (p.type !== 'ObjectProperty' || p.computed) return false;
+    const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'StringLiteral' ? p.key.value : null;
+    return key !== null && !LINK_ATTRS.has(key.toLowerCase());
+  });
+};
 
 /** The raw bound hrefs in one .vue file's template: [{ line, text }]. */
 export function findRawHrefs(source, filename = 'file.vue') {
   const ast = parse(source, { filename }).descriptor.template?.ast;
   const found = [];
   const walk = (node) => {
-    if (node.type === ELEMENT && node.tag !== 'UrlLink') {
+    if (node.type === ELEMENT) {
       for (const p of node.props) {
         if (p.type !== DIRECTIVE || p.name !== 'bind') continue;
         const exp = p.exp?.loc.source.trim() ?? '';
-        const named = p.arg ? !p.arg.isStatic || p.arg.content === 'href' : /\bhref\b/.test(exp);
-        if (named && !SAFE_CALL.test(exp)) found.push({ line: p.loc.start.line, text: p.loc.source });
+        let bad;
+        if (p.arg) bad = (!p.arg.isStatic || LINK_ATTRS.has(p.arg.content.toLowerCase())) && node.tag !== 'UrlLink' && !isSafeExp(exp);
+        else bad = LINK_TAGS.has(node.tag) || !isPlainObject(exp);
+        if (bad) found.push({ line: p.loc.start.line, text: p.loc.source });
       }
     }
     for (const c of node.children ?? []) if (typeof c === 'object') walk(c);

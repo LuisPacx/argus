@@ -12,6 +12,25 @@ describe("argus/no-raw-href", () => {
     ['<a v-bind="{ href: x }">t</a>'],
     ['<a :[attr]="x">t</a>'],
     ['<NuxtLink :href="x">t</NuxtLink>'],
+    ['<a :href="safeHttpUrl(a) || evil(b)">t</a>'],
+    ['<a :href="safeHttpUrl(a) ?? evil(b)">t</a>'],
+    ['<a :href="evil(safeHttpUrl(a))">t</a>'],
+    ['<a :href="safeHttpUrl(a), evil(b)">t</a>'],
+    ['<a :href="x ? safeHttpUrl(a) : b">t</a>'],
+    ['<a :HREF="x">t</a>'],
+    ['<a :Href="x">t</a>'],
+    ['<a v-bind:HREF="x">t</a>'],
+    ['<a :xlink:href="x">t</a>'],
+    ['<form :action="x">t</form>'],
+    ['<button :formaction="x">t</button>'],
+    ['<a v-bind="attrs">t</a>'],
+    ['<a v-bind="{ class: c }">t</a>'],
+    ['<UrlLink v-bind="attrs" />'],
+    ['<NuxtLink v-bind="attrs">t</NuxtLink>'],
+    ['<div v-bind="attrs">t</div>'],
+    ['<div v-bind="{ [k]: x }">t</div>'],
+    ['<div v-bind="{ ...rest }">t</div>'],
+    ['<div v-bind="{ HREF: x }">t</div>'],
     ['<ul><li v-for="s in list"><a v-if="s.href" :href="s.href">t</a></li></ul>'],
   ])("fails a raw bound href: %s", (body) => {
     expect(findRawHrefs(tpl(body)).length).toBeGreaterThan(0);
@@ -24,6 +43,9 @@ describe("argus/no-raw-href", () => {
     ['<a :title="x" href="#top">t</a>'],
     ['<UrlLink :href="x" label="t" />'],
     ['<NuxtLink :to="x">t</NuxtLink>'],
+    ['<img :src="x" />'],
+    ['<form :action="safeHttpUrl(x)">t</form>'],
+    ['<div v-bind="{ class: c, id: i }">t</div>'],
   ])("passes: %s", (body) => {
     expect(findRawHrefs(tpl(body))).toEqual([]);
   });
