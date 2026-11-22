@@ -3,7 +3,7 @@
 
 **What to build:** argus proposes **Betas** (GLOSSARY: a token whose narrative resembles that of a Meta token already running high, riding the demand of people looking for something similar) for the live top Metas, so the Operator can launch into a Meta that is still carrying tokens to migration. The hard part is not finding the biggest Meta but the one with **room left**: some Metas are saturated (Dacity/Audacity: 1 migration in 228 creates in 24 h), others are still converting (GTA VI: 31 of 153, about 20%). Rank Metas by room left, and for the best few propose a Beta name, ticker and angle that is distinct from every existing clone. Launching stays manual (the Operator, ADR 0002); argus spends no SOL, signs nothing and holds no keys.
 
-Status: in-progress
+Status: needs-info
 Status note: closed (slices 3 and 4 dropped 2026-11-18)
 
 **Blocked by:** 03 Part A (slices 1 and 3 of `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`: the token subject key, clone clusters, and the stored 6 h and 24 h Meta ranking with the base migration rate, per-group saturation and market cap). Also start only after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it.
@@ -170,3 +170,4 @@ Slices 3 (the Beta proposal task and the `beta` Proposal kind) and 4 (War Room) 
 
 2026-11-18: re-run backtest (commit 254d1e8; success = migrated more than 60 s after create OR market cap reached $1M) shows no lift. Window 11-10 to 11-18, 24 h: room-left 16/780 (2.1%) vs base 1.2%, difference CI -0.9 to +1.7 pts; new data only (since 11-11 15:00Z), 24 h: 13/634 (2.1%) vs 1.2%, CI -1.2 to +1.9 pts; 6 h arms at or below base. The Operator decided to drop slices 3 and 4. The switch stays off. Ticket closed.
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 6 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 0 DONE, 0 SMALL, 1 HUMAN, 5 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
