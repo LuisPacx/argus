@@ -21,11 +21,15 @@ let seq = 0;
 const mintOf = () => `M${String(seq++).padStart(8, "0")}`.padEnd(40, "x") + "pump";
 const creatorOf = (c: string) => `C${c}`.padEnd(44, "_");
 
+/** A create, and its graduation five minutes later (a Meta is several tokens graduating: every launch here graduates). */
 function launch(store: Datastore, name: string, creator: string, minutesAgo = 30, at = T0) {
-  store.study.recordTokenEvent({ kind: "create", mint: mintOf(), receivedAt: new Date(at - minutesAgo * 60_000).toISOString(), signature: "", name, symbol: name.toUpperCase().slice(0, 8), creator: creatorOf(creator), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
+  const mint = mintOf();
+  const createdAt = at - minutesAgo * 60_000;
+  store.study.recordTokenEvent({ kind: "create", mint, receivedAt: new Date(createdAt).toISOString(), signature: "", name, symbol: name.toUpperCase().slice(0, 8), creator: creatorOf(creator), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
+  store.study.recordTokenEvent({ kind: "migrate", mint, receivedAt: new Date(createdAt + 5 * 60_000).toISOString(), signature: "", name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
 }
 
-/** Two launch themes of 12 creators each (alpha, beta). */
+/** Two launch themes of 12 creators each (alpha, beta), each token graduated: 12 graduations from 12 creators in the last 6 h make each a Meta. */
 function seedThemes(store: Datastore) {
   for (let i = 0; i < 12; i++) {
     launch(store, "Alpha", `a${i}`);
@@ -298,26 +302,26 @@ describe("the cost cap and reuse", () => {
 });
 
 describe("the grouping step's limits", () => {
-  it("a fake Brain answering 'everything is one subject' cannot create a Meta whose members have under 10 real creators or a leader under the entry cap", async () => {
+  it("a fake Brain answering 'everything is one subject' cannot create a Meta whose members have under 10 real graduations, whatever the leader's cap", async () => {
     const everything = () => `{"subjects":[{"name":"Everything","items":[${["T1", "H1", "H2", "H3", "H4"].map((i) => `"${i}"`).join(",")}]}]}`;
-    // Four themes of 3 creators each (12 real creators in all, but only the union counts) with a leader at $5M: 4 x 3 = 12 creators is a Meta by the rules...
+    // Four themes of 2 graduates each: 8 real graduations in all, under the 10 a Meta needs, whatever the model grouped (and a $5M leader changes nothing).
     const small = Datastore.open(":memory:");
     for (let t = 0; t < 4; t++) for (let i = 0; i < 2; i++) launch(small, `Theme${t}`, `s${t}_${i}`);
     const fake = fakeBrain(everything, small);
     const step = createGroupStep(small, fake.brain, { log: () => {} });
     const opts = (cap: number): RecomputeOptions => ({ now: T(0), config: CFG, dex: dexWith(() => cap), topDown: trending(() => "TRENDING1".padEnd(40, "x")), group: step, log: () => {} });
-    // ...here each theme has 2 creators: 8 real creators in all, under the 10 a Meta needs, whatever the model grouped.
     const r = await recomputeMetas(small, opts(5_000_000));
     expect(r.group.source).toBe("ai");
-    expect(r).toMatchObject({ metas: 0, watching: 0 });
+    expect(r).toMatchObject({ metas: 0, watching: 1 });
+    expect(small.currentMetas()!.watching[0]).toMatchObject({ label: "Everything", grads: { "24h": 8, "6h": 8, creators24h: 8 } });
     expect(fake.prompts).toHaveLength(1);
   });
 
-  it("a subject whose leader is under the entry cap is no Meta however it was grouped", async () => {
+  it("a $900k leader still leads a Meta however it was grouped: the cap is display only", async () => {
     const { store, tick } = rig({ answer: () => '{"subjects":[{"name":"Alpha Story","items":["H1","H2"]}]}' }); // the $900k token is not an item: only the two themes are
     await tick(0, { dex: dexWith(() => 900_000) });
-    expect(store.currentMetas()!.metas).toEqual([]);
-    expect(store.currentMetas()!.watching[0]).toMatchObject({ label: "Alpha Story", namedBy: "ai", leader: { marketCapUsd: 900_000 } });
+    expect(store.currentMetas()!.watching).toEqual([]);
+    expect(store.currentMetas()!.metas[0]).toMatchObject({ label: "Alpha Story", namedBy: "ai", leader: { marketCapUsd: 900_000 }, grads: { "24h": 24, creators24h: 24 } });
   });
 
   it("a Meta whose key was lucia before is continued through its leader and raises no second New Meta event", async () => {

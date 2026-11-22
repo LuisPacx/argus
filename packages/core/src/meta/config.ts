@@ -60,15 +60,26 @@ export interface MetaConfig {
   newsMaxItems: number;
   /** Matching news: a Meta key shorter than this many characters (spaces removed) is too short to name a subject in a headline. */
   newsMinKeyChars: number;
-  /** Market-led Metas (ADR 0014): a leader token at or above this market cap, with the copies rule, makes its subject a Meta. */
+  /**
+   * A trending token at or above this market cap is shown to the AI grouping step (ADR 0015). Market cap is no longer part of the Meta rule:
+   * a Meta is several tokens graduating on one narrative (graduation Meta ticket 01), so this only bounds what the grouping step reads.
+   */
   enterMcapUsd: number;
-  /** A Meta stays one while its leader is at or above this market cap (never above `enterMcapUsd`); between the two it is `holding`. */
-  stayMcapUsd: number;
-  /** Distinct creators of the subject in the last 24 h that a subject needs to become a Meta or to be Watching (not to stay a Meta). */
-  minCopies: number;
-  /** At most this many Metas, highest leader market cap first. */
+  /** Graduation Meta: a subject becomes a Meta with at least this many graduations in 24 h ... */
+  metaMinGrads: number;
+  /** ... and a Meta stays one with at least this many graduations in 24 h (never above `metaMinGrads`). */
+  metaStayGrads: number;
+  /** ... from at least this many distinct creators in 24 h ... */
+  metaMinCreators: number;
+  /** ... and at least this many graduations in the last 6 h (a live wave, not a finished one). */
+  metaLiveGrads6h: number;
+  /** Watching: a subject that is not a Meta with at least this many graduations in 24 h ... */
+  watchMinGrads: number;
+  /** ... or at least this many in the last 6 h. */
+  watchGrads6h: number;
+  /** At most this many Metas, most 24 h graduations first, then 6 h, then creators. */
   maxMetas: number;
-  /** At most this many Watching subjects: the top ones below `enterMcapUsd` that meet the copies rule. */
+  /** At most this many Watching subjects, most 6 h graduations first, then 24 h. */
   watching: number;
   /** DexScreener calls per Meta tick for the leaders' current market caps (each takes up to 30 tokens), beside the launch-theme lookups. */
   leaderCalls: number;
@@ -105,8 +116,12 @@ export const META_RULE: MetaConfig = {
   newsMaxItems: 5,
   newsMinKeyChars: 4,
   enterMcapUsd: 1_000_000,
-  stayMcapUsd: 500_000,
-  minCopies: 10,
+  metaMinGrads: 10,
+  metaStayGrads: 5,
+  metaMinCreators: 6,
+  metaLiveGrads6h: 3,
+  watchMinGrads: 5,
+  watchGrads6h: 3,
   maxMetas: 3,
   watching: 3,
   leaderCalls: 4,
@@ -158,17 +173,19 @@ function parseRankOrder(raw: string | undefined): RankKey[] | undefined {
  * the DexScreener budget `ARGUS_META_DEX_GROUPS` (0 to 50) and `ARGUS_META_DEX_CALLS` (0 to 60, below the rate limit), and
  * `ARGUS_META_THEMES=0` (theme merging off: clone clusters only), the size floor `ARGUS_META_MIN_TOKENS` and `ARGUS_META_MIN_CREATORS`
  * (1 to 1000), and the window coverage measure `ARGUS_META_COVERAGE_MIN_CREATES` (1 to 100000 creates for an hour to count) and
- * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8). The market-led rule (ADR 0014): `ARGUS_META_ENTER_MCAP_USD`
- * and `ARGUS_META_STAY_MCAP_USD` (1 to 999999999; stay above enter keeps both defaults), `ARGUS_META_MIN_COPIES` (1 to 1000),
- * `ARGUS_META_MAX_METAS` and `ARGUS_META_WATCHING` (0 to 20), `ARGUS_META_LEADER_CALLS` (0 to 20) and `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080).
+ * `ARGUS_META_COVERAGE_NOTE_BELOW` (a share from 0 to 1, as a decimal like 0.8). The graduation rule: `ARGUS_META_MIN_GRADS` (graduations in 24 h to
+ * become a Meta), `ARGUS_META_STAY_GRADS` (to stay one; above the first keeps both defaults), `ARGUS_META_GRAD_CREATORS` (distinct creators),
+ * `ARGUS_META_LIVE_GRADS_6H`, `ARGUS_META_WATCH_MIN_GRADS` and `ARGUS_META_WATCH_GRADS_6H` (each 1 to 1000), `ARGUS_META_ENTER_MCAP_USD` (1 to 999999999:
+ * the trending cap the grouping step reads), `ARGUS_META_MAX_METAS` and `ARGUS_META_WATCHING` (0 to 20), `ARGUS_META_LEADER_CALLS` (0 to 20) and
+ * `ARGUS_META_STATE_MAX_MINUTES` (1 to 10080).
  * The top-down leaders (ADR 0015): `ARGUS_META_TOPDOWN_CALLS` (1 to 10 requests a tick), and the fake-token filter `ARGUS_META_TOPDOWN_MIN_LIQ_USD` and
  * `ARGUS_META_TOPDOWN_MIN_VOLUME_USD` (0 to 999999999) and `ARGUS_META_TOPDOWN_MAX_CAP_LIQ_RATIO` (1 to 100000), and
  * `ARGUS_META_TOPDOWN_MIN_ORGANIC` (0 to 100): the Jupiter organic score a token needs for the list's liquidity to count in verification.
  */
 export function metaConfigFromEnv(env: Record<string, string | undefined> = process.env): MetaConfig {
-  const enter = intIn(env.ARGUS_META_ENTER_MCAP_USD, 1, 999_999_999, META_RULE.enterMcapUsd);
-  const stay = intIn(env.ARGUS_META_STAY_MCAP_USD, 1, 999_999_999, META_RULE.stayMcapUsd);
-  const pairOk = stay <= enter;
+  const minGrads = intIn(env.ARGUS_META_MIN_GRADS, 1, 1_000, META_RULE.metaMinGrads);
+  const stayGrads = intIn(env.ARGUS_META_STAY_GRADS, 1, 1_000, META_RULE.metaStayGrads);
+  const pairOk = stayGrads <= minGrads;
   return {
     ...META_RULE,
     rankOrder: parseRankOrder(env.ARGUS_META_RANK_ORDER) ?? META_RULE.rankOrder,
@@ -179,9 +196,13 @@ export function metaConfigFromEnv(env: Record<string, string | undefined> = proc
     minCreators: intIn(env.ARGUS_META_MIN_CREATORS, 1, 1_000, META_RULE.minCreators),
     coverageMinCreates: intIn(env.ARGUS_META_COVERAGE_MIN_CREATES, 1, 100_000, META_RULE.coverageMinCreates),
     coverageNoteBelow: shareIn(env.ARGUS_META_COVERAGE_NOTE_BELOW, META_RULE.coverageNoteBelow),
-    enterMcapUsd: pairOk ? enter : META_RULE.enterMcapUsd,
-    stayMcapUsd: pairOk ? stay : META_RULE.stayMcapUsd,
-    minCopies: intIn(env.ARGUS_META_MIN_COPIES, 1, 1_000, META_RULE.minCopies),
+    enterMcapUsd: intIn(env.ARGUS_META_ENTER_MCAP_USD, 1, 999_999_999, META_RULE.enterMcapUsd),
+    metaMinGrads: pairOk ? minGrads : META_RULE.metaMinGrads,
+    metaStayGrads: pairOk ? stayGrads : META_RULE.metaStayGrads,
+    metaMinCreators: intIn(env.ARGUS_META_GRAD_CREATORS, 1, 1_000, META_RULE.metaMinCreators),
+    metaLiveGrads6h: intIn(env.ARGUS_META_LIVE_GRADS_6H, 1, 1_000, META_RULE.metaLiveGrads6h),
+    watchMinGrads: intIn(env.ARGUS_META_WATCH_MIN_GRADS, 1, 1_000, META_RULE.watchMinGrads),
+    watchGrads6h: intIn(env.ARGUS_META_WATCH_GRADS_6H, 1, 1_000, META_RULE.watchGrads6h),
     maxMetas: intIn(env.ARGUS_META_MAX_METAS, 0, 20, META_RULE.maxMetas),
     watching: intIn(env.ARGUS_META_WATCHING, 0, 20, META_RULE.watching),
     leaderCalls: intIn(env.ARGUS_META_LEADER_CALLS, 0, 20, META_RULE.leaderCalls),

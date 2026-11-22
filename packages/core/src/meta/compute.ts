@@ -1,15 +1,16 @@
 import type { Datastore } from "../datastore.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
-import type { LaunchedToken } from "../study/store.ts";
+import type { GraduatedToken, LaunchedToken } from "../study/store.ts";
 import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaWindow, type RankKey } from "./config.ts";
-import { metaCoverage } from "./coverage.ts";
+import { isThin, metaCoverage } from "./coverage.ts";
 import { cleanLabel, groupTokens, isGenericKey, type TokenGroup } from "./group.ts";
 import { subjectKey } from "./key.ts";
 import { applyGrouping, buildGroupItems, GROUP_MAX_THEMES, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type ThemeInput, type TrendingInput } from "./grouping.ts";
 import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
 import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaGrouping, NewMetaRow, NewMetaRun } from "./store.ts";
 import { mergeThemes } from "./theme.ts";
-import { verifyAgainstDex, type DroppedCandidate, type TopDownCandidate, type TopDownResult } from "./topdown.ts";
+import { assignGraduates } from "./graduates.ts";
+import { verifyAgainstDex, verifyThemeToken, type DroppedCandidate, type TopDownCandidate, type TopDownResult } from "./topdown.ts";
 
 /**
  * The Meta recompute (ticket 03, slice 3): reads the last 24 h of launchpad creates from the Study, groups them into clone clusters
@@ -19,8 +20,11 @@ import { verifyAgainstDex, type DroppedCandidate, type TopDownCandidate, type To
  * Order of work matters for the database: the read, the grouping and the network calls all happen before one short insert
  * transaction (`MetaStore.saveRun`), so no write lock is held while DexScreener or the trending lists answer.
  *
- * Leaders are found top-down (ADR 0015): the worker passes `topDown`, which reads Jupiter's and GeckoTerminal's trending lists and filters
- * out fakes and tokenized stocks; DexScreener only verifies what survives. A subject's copiers count bonk launches as well (decision 3).
+ * A Meta is several tokens graduating on one narrative (graduation Meta ticket 01): the subjects are the AI-grouped launch themes, each
+ * graduate (`study.graduatedBetween`) joins one subject (`graduates.ts`), and `leaders.ts` decides the Metas on the graduation counts alone.
+ * Market caps are display: the worker passes `topDown` (Jupiter's and GeckoTerminal's trending lists, fakes and tokenized stocks filtered
+ * out, DexScreener verifying what survives) so a big token can lead the subject it names; it never makes a Meta. The stored counts of a
+ * subject count bonk launches as well (ADR 0015 decision 3).
  */
 
 /** The one DexScreener method this job needs; `DexScreenerClient` satisfies it, tests pass a counting fake. */
@@ -218,10 +222,13 @@ function countsFor(recs: readonly Rec[], fromMs: number, organicAfterSec: number
   return { tokens, creators: creators.size, migrations, migrationsAfter60s: after };
 }
 
-/** Lookup candidates of a group: migrated tokens first (they have pools), then the earliest creates; at most `limit`. */
+/**
+ * Lookup candidates of a group: the newest graduates first (they have pools, and a wave's newest are the ones still trading; the oldest 30
+ * of a big group were the stale ones), then the earliest creates; at most `limit`.
+ */
 function candidates(s: GroupStat, limit: number): string[] {
   return [...s.recs]
-    .sort((a, b) => (a.migratedMs === null ? 1 : 0) - (b.migratedMs === null ? 1 : 0) || a.createdMs - b.createdMs || cmpStr(a.token.mint, b.token.mint))
+    .sort((a, b) => (a.migratedMs === null ? 1 : 0) - (b.migratedMs === null ? 1 : 0) || (b.migratedMs ?? 0) - (a.migratedMs ?? 0) || a.createdMs - b.createdMs || cmpStr(a.token.mint, b.token.mint))
     .slice(0, limit)
     .map((r) => r.token.mint);
 }
@@ -254,6 +261,8 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const everyone = store.study.createdBetween(new Date(windowFrom("24h")).toISOString(), now.toISOString(), { includeBonk: true });
   const tokens = everyone.filter((t) => t.pool !== "bonk");
   const bonk = everyone.filter((t) => t.pool === "bonk");
+  // The graduations of the same window, by graduation time: a late graduate of an old create counts, a bonk launch has no receipt and never does.
+  const graduated = store.study.graduatedBetween(new Date(windowFrom("24h")).toISOString(), now.toISOString());
   const recs = new Map<string, Rec>();
   for (const token of tokens) {
     const migratedMs = token.migratedAt !== null ? Date.parse(token.migratedAt) : Number.NaN;
@@ -348,9 +357,10 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
           if (list) list.push(p);
           else byMint.set(p.tokenAddress, [p]);
         }
-        // Every leader passes the one fake-token filter (ADR 0015, Q16), a theme's own token too: a token that fails has no cap here.
+        // A theme's own token is priced without the $50k liquidity and volume floors (a fresh graduate rarely has them); the cap-to-liquidity
+        // test stays, so a fake cap still has no figure here (graduation Meta ticket 01).
         for (const [mint, pairs] of byMint) {
-          const verdict = verifyAgainstDex(pairs, config);
+          const verdict = verifyThemeToken(pairs, config);
           if (verdict.ok && verdict.marketCapUsd !== undefined) s.caps.set(mint, Math.max(s.caps.get(mint) ?? 0, verdict.marketCapUsd));
         }
         streak = 0;
@@ -386,7 +396,6 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   fresh.push(...lookedUp.tokens);
   dexCalls += lookedUp.calls;
   dexFailures += lookedUp.failures;
-  const prevKeys = new Set((carried?.metas ?? []).map((m) => m.key));
 
   // 4c. The AI grouping step (ticket 06, ADR 0015 decision 4): the trending tokens that passed the filter at the entry cap and the top launch
   // themes go to it as ids; its checked answer says which belong together and what to call them. Awaited before the write transaction, bounded,
@@ -395,14 +404,45 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   const answer = await askGroupStep(opts, items, now);
   const statOf = new Map(stats.map((s) => [s.group.key, s]));
   const applied = answer ? applyGrouping(items, answer.subjects, (key) => statOf.get(key), mergeStats) : undefined;
-  // The copies rule and the counts a Meta stores include bonk launches; the launch-theme rows below keep the pump counts.
+  // The stored counts of a Meta include bonk launches; the launch-theme rows below keep the pump counts.
   const subjectStats: Array<{ stat: GroupStat; extra: Pick<LeaderSubject, "namedBy" | "memberKeys" | "memberMints" | "themes"> }> = [
     ...(applied?.subjects ?? []).map((a) => ({ stat: a.stat, extra: { namedBy: "ai" as const, memberKeys: a.themeKeys, memberMints: a.mints, themes: a.themes } })),
     ...stats.filter((s) => !applied?.groupedThemeKeys.has(s.group.key)).map((stat) => ({ stat, extra: { namedBy: "rules" as const } })),
   ];
-  const subjects: LeaderSubject[] = subjectStats
-    .filter(({ stat, extra }) => stat.copies["24h"].creators >= config.minCopies || prevKeys.has(stat.group.key) || (extra.memberKeys ?? []).some((k) => prevKeys.has(k)))
-    .map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, counts: stat.copies, topTokens: topTokensOf(stat, config.topTokens), tokens: stat.group.tokens, ...extra }));
+  // The graduations (graduation Meta ticket 01): each graduate joins the subject that holds its create, or the one its name and ticker name.
+  // A create-less graduate is matched only to subjects with a graduate of their own or enough creators to be a theme at all.
+  const mintSubject = new Map<string, number>();
+  subjectStats.forEach(({ stat }, j) => {
+    for (const t of stat.group.tokens) mintSubject.set(t.mint, j);
+  });
+  const hasGraduate = new Set(graduated.flatMap((g) => (mintSubject.has(g.mint) ? [mintSubject.get(g.mint) as number] : [])));
+  const assigned = assignGraduates({
+    subjects: subjectStats.map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, tokens: stat.group.tokens, ...(extra.memberKeys ? { memberKeys: extra.memberKeys } : {}) })),
+    graduates: graduated,
+    mintSubject,
+    nameable: (j) => hasGraduate.has(j) || (subjectStats[j] as (typeof subjectStats)[number]).stat.counts["24h"].creators >= config.metaMinCreators,
+    nowMs,
+    minKeyChars: config.newsMinKeyChars,
+  });
+  // A thin window (a stream gap or a restart left few hours of data) still qualifies a subject; the row carries the covered hours.
+  const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
+  const thin = isThin(coverage["24h"], config.coverageNoteBelow);
+  const subjects: LeaderSubject[] = subjectStats.flatMap(({ stat, extra }, j) => {
+    const grads = (assigned.grads[j] as (typeof assigned.grads)[number]);
+    if (grads["24h"] === 0) return [];
+    return [
+      {
+        key: stat.group.key,
+        label: stat.group.label,
+        counts: stat.copies,
+        topTokens: topTokensOf(stat, config.topTokens),
+        tokens: stat.group.tokens,
+        grads: thin ? { ...grads, coverage: { ...coverage["24h"] } } : grads,
+        graduates: (assigned.graduates[j] as GraduatedToken[]).map((g) => ({ mint: g.mint, name: cleanLabel(g.name), symbol: cleanLabel(g.symbol), ...(g.createdAt !== null ? { createdAt: g.createdAt } : {}), migratedAt: g.migratedAt })),
+        ...extra,
+      },
+    ];
+  });
   const shownTokens = applied ? new Set(items.flatMap((i) => (i.kind === "token" ? [i.mint] : []))) : undefined;
   const current = currentMetas({ subjects, tokens: fresh, previous: carried, ...(shownTokens ? { grouped: shownTokens } : {}), now, config });
 
@@ -428,7 +468,6 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
 
   // 6. One short write transaction: the inserts, then the prune.
   const computedAt = now.toISOString();
-  const coverage = metaCoverage(tokens.map((t) => Date.parse(t.createdAt)), nowMs, config.coverageMinCreates);
   const candidateRows = candidatesOf(topDown, lookedUp.verdicts);
   // An answer the Brain was called for this tick is stored with the run (a reused one is stored already, and keeps its own time so the reuse window ends).
   const grouping: NewMetaGrouping | undefined = answer && !answer.reused ? { inputHash: answer.inputHash, answer: storeAnswer(items, answer.subjects), costUsd: answer.costUsd, brainRunId: answer.brainRunId } : undefined;
@@ -563,6 +602,8 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
     createdAt?: string;
     /** A top-down candidate: verified on DexScreener's figures, not taken on the max-cap rule. */
     topDown: boolean;
+    /** A previous leader that had no price (a graduate shown with a dash): asked again for a price, and its failing is no news, so not logged. */
+    unpriced?: boolean;
     /** The token-level liquidity the trending lists gave a top-down candidate (read by the cap-to-liquidity test of the verification). */
     listLiquidityUsd?: number;
     /** The list's market cap and 24 h volume: read only when every DexScreener pair of the token is unpriced. */
@@ -581,7 +622,7 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
   };
   for (const row of [...(input.previous?.metas ?? []), ...(input.previous?.watching ?? [])]) {
     const l = row.leader;
-    want(l.mint, { name: l.name, symbol: l.symbol, source: l.source, topDown: false, ...(l.createdAt !== undefined ? { createdAt: l.createdAt } : {}) });
+    want(l.mint, { name: l.name, symbol: l.symbol, source: l.source, topDown: false, ...(l.marketCapUsd <= 0 ? { unpriced: true } : {}), ...(l.createdAt !== undefined ? { createdAt: l.createdAt } : {}) });
   }
   const byCap = (a: TopDownCandidate, b: TopDownCandidate) => b.marketCapUsd - a.marketCapUsd || cmpStr(a.mint, b.mint);
   for (const c of [...input.candidates].sort(byCap)) {
@@ -621,12 +662,16 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
         const first = createdMs.length > 0 ? Math.min(...createdMs) : undefined;
         const created = k.createdAt ?? (first !== undefined && Number.isFinite(new Date(first).getTime()) ? new Date(first).toISOString() : undefined);
         let cap: number | undefined;
-        const verdict = verifyAgainstDex(pairs, config, {
-          ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}),
-          ...(k.listMarketCapUsd !== undefined ? { marketCapUsd: k.listMarketCapUsd } : {}),
-          ...(k.listVolume24hUsd !== undefined ? { volume24hUsd: k.listVolume24hUsd } : {}),
-          ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}),
-        });
+        // A previous leader that came from a launch theme (a graduate, priced or not) is judged like a theme token: no floors, the fake-cap test only.
+        const verdict =
+          !k.topDown && k.source === "theme" && k.listLiquidityUsd === undefined
+            ? verifyThemeToken(pairs, config)
+            : verifyAgainstDex(pairs, config, {
+                ...(k.listLiquidityUsd !== undefined ? { liquidityUsd: k.listLiquidityUsd } : {}),
+                ...(k.listMarketCapUsd !== undefined ? { marketCapUsd: k.listMarketCapUsd } : {}),
+                ...(k.listVolume24hUsd !== undefined ? { volume24hUsd: k.listVolume24hUsd } : {}),
+                ...(k.listOrganicScore !== undefined ? { organicScore: k.listOrganicScore } : {}),
+              });
         if (verdict.ok) {
           cap = verdict.marketCapUsd;
           if (k.topDown) out.verdicts.set(mint, { verified: true });
@@ -635,7 +680,7 @@ async function lookUpLeaders(input: LeaderLookupInput): Promise<{ tokens: Leader
           if (k.topDown) out.verdicts.set(mint, { verified: false, reason: `failed verification: ${verdict.reason ?? "unknown"}` });
           // Once per state change: the same mint failing for the same reason on the next tick is not logged again.
           const seen = loggedFailure(input.log);
-          if (seen?.get(mint) !== verdict.reason) {
+          if (!k.unpriced && seen?.get(mint) !== verdict.reason) {
             seen?.set(mint, verdict.reason);
             input.log?.(`[meta] leader ${cleanLabel(k.symbol) || cleanLabel(k.name) || mint.slice(0, 8)} failed verification: ${verdict.reason ?? "unknown"}`);
           }

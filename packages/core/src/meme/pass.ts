@@ -9,7 +9,7 @@ import { groupTokens } from "../meta/group.ts";
 import { headlineNamesKey, newsForKeys } from "../meta/news.ts";
 import { leaderTag } from "../meta/new-meta.ts";
 import type { CurrentMeta, MetaNewEvent, MetaRun } from "../meta/store.ts";
-import { currentSummaryFresh, metaMoney } from "../meta/summary.ts";
+import { currentSummaryFresh, leaderMoney } from "../meta/summary.ts";
 import { mergeThemes } from "../meta/theme.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
@@ -302,7 +302,7 @@ export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<stri
 /** "$JENSEN at $2.4M, 14 creators in 24 h": a Meta's leader, cap and copies as the stored reason and the prompt state them. Creator text is cleaned and cut. */
 export function metaFacts(m: Pick<CurrentMeta, "leader" | "counts">): string {
   const copies = m.counts["24h"].creators;
-  return `${leaderTag(m.leader)} at ${metaMoney(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
+  return `${leaderTag(m.leader)} at ${leaderMoney(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
 }
 
 /** A news story the pass has decided to try. */
@@ -892,7 +892,7 @@ export function runMemeAngles(store: Datastore, brain: Brain, opts: MemeOptions 
 
 /** The list line of an idea: the Meta, its leader and cap, and what triggered the run, written by code from the stored Meta (text still creator-derived: cleaned and cut). */
 export function summaryLine(meta: Pick<CurrentMeta, "label" | "leader" | "counts">, kind: MemeTriggerKind): string {
-  return `Meta ${cleanLine(meta.label, 60)}: led by ${cleanLine(leaderTag(meta.leader), 40)} at ${metaMoney(meta.leader.marketCapUsd)}, ${meta.counts["24h"].creators} creators in 24 h. ${kind === "new-meta" ? "New Meta" : "Refresh after 12 h"}.`;
+  return `Meta ${cleanLine(meta.label, 60)}: led by ${cleanLine(leaderTag(meta.leader), 40)} at ${leaderMoney(meta.leader.marketCapUsd)}, ${meta.counts["24h"].creators} creators in 24 h. ${kind === "new-meta" ? "New Meta" : "Refresh after 12 h"}.`;
 }
 
 /** An answer that passed the schema and the Meta's tokens, with one note per idea (undefined when none) for a dead token that uses its name or ticker. */

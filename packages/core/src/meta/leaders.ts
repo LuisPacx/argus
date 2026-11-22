@@ -1,24 +1,35 @@
 import type { MetaConfig, MetaWindow } from "./config.ts";
 import { isGenericKey } from "./group.ts";
 import { subjectKey } from "./key.ts";
-import type { CurrentLeader, CurrentMeta, CurrentTheme, MetaCounts, MetaTopToken } from "./store.ts";
+import type { CurrentGrads, CurrentLeader, CurrentMeta, CurrentTheme, MetaCounts, MetaTopToken } from "./store.ts";
 import { DEFAULT_THEME_CONFIG, tokenWholeForms } from "./theme.ts";
 
 /**
- * The market-led Meta rule (ADR 0014), pure: given the launch-theme subjects, the tokens with a current market cap and the last run's state,
- * says which subjects are Metas and which are Watching. No clock, no network, no database: the compute step gathers the inputs and stores
- * the answer.
+ * The graduation Meta rule (graduation Meta ticket 01, ADR 0018), pure: given the subjects with their graduation counts, the tokens with a
+ * current market cap and the last run's state, says which subjects are Metas and which are Watching. No clock, no network, no database: the
+ * compute step gathers the inputs (`graduates.ts` counts a subject's graduations) and stores the answer.
  *
- *   - A subject is a launch-theme group. Its leader is the token of any age with the highest market cap that carries the subject: either
- *     the token names the group (a `subjectKey` form of it equals the group's key or a whole name of one of the group's tokens, never
- *     through a generic or too-short form, and a token's form counts only when a tenth of the group's tokens carry it, ticket 13), or the
- *     compute step says it belongs to the group (`groupKey`, the biggest token of a theme).
- *   - Becomes a Meta: leader at or above `enterMcapUsd`, looked up this run, and at least `minCopies` distinct creators in 24 h.
- *   - Stays a Meta: leader at or above `stayMcapUsd`, whatever the copies; between the two it is `holding`. At most `maxMetas`.
- *   - Watching: the top `watching` other subjects below `enterMcapUsd` that meet the copies rule.
- *   - A leader that was not looked up this run keeps its last figure (`stale`); it can keep a subject where it was but never creates a Meta.
+ *   - A subject is a launch-theme group, or the AI grouping step's merge of several. A Meta is several tokens graduating on one narrative.
+ *   - Becomes a Meta: at least `metaMinGrads` graduations in 24 h, from at least `metaMinCreators` distinct creators, and at least
+ *     `metaLiveGrads6h` of them in the last 6 h.
+ *   - Stays a Meta: at least `metaStayGrads` graduations in 24 h, for as long as the previous run is within `stateMaxMinutes`; below the enter
+ *     rule it is `holding`. At most `maxMetas`, ranked by 24 h graduations, then 6 h, then creators.
+ *   - Watching: a subject that is not a Meta with at least `watchMinGrads` in 24 h or `watchGrads6h` in 6 h; the top `watching` by 6 h, then 24 h.
+ *   - Market cap leaves the rule. The leader is the highest-priced token that carries the subject (a graduate, a launch-theme token or a
+ *     trending token that names it), else the subject's latest graduate with a cap of 0 (shown as a dash). A trending token never makes a Meta.
  * Names are written by token creators: nothing here builds a RegExp from them, and every normaliser cuts its input.
  */
+
+/** A token that graduated on a subject: what a leader needs when no token of the subject has a price. */
+export interface LeaderGraduate {
+  mint: string;
+  /** Cleaned creator text: untrusted. */
+  name: string;
+  symbol: string;
+  createdAt?: string;
+  /** PumpPortal receipt time of the migrate event (ISO). */
+  migratedAt: string;
+}
 
 export interface LeaderSubject {
   /** The launch-theme group key. */
@@ -28,6 +39,10 @@ export interface LeaderSubject {
   topTokens: MetaTopToken[];
   /** The group's tokens; their whole names are what a leader can match. */
   tokens: readonly { name: string; symbol: string }[];
+  /** The subject's graduations (the rule reads these). */
+  grads: CurrentGrads;
+  /** The subject's graduates of the last 24 h: they belong to it whatever their names, and the latest leads it when none is priced. */
+  graduates?: readonly LeaderGraduate[];
   /** Who named it; absent reads as `rules`. */
   namedBy?: "ai" | "rules";
   /** A subject the grouping step built: the launch-theme keys it merged (a leader or a previous Meta that names one of them belongs to it). */
@@ -50,7 +65,7 @@ export interface PreviousMetas {
   watching: readonly CurrentMeta[];
 }
 
-export type LeaderConfig = Pick<MetaConfig, "enterMcapUsd" | "stayMcapUsd" | "minCopies" | "maxMetas" | "watching" | "stateMaxMinutes" | "newsMinKeyChars">;
+export type LeaderConfig = Pick<MetaConfig, "metaMinGrads" | "metaStayGrads" | "metaMinCreators" | "metaLiveGrads6h" | "watchMinGrads" | "watchGrads6h" | "maxMetas" | "watching" | "stateMaxMinutes" | "newsMinKeyChars">;
 
 export interface CurrentMetasInput {
   subjects: readonly LeaderSubject[];
@@ -72,11 +87,10 @@ export interface CurrentMetasResult {
 }
 
 const MINUTE_MS = 60_000;
-const ZERO: MetaCounts = { tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 };
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The forms of a token's name and ticker that can name a subject: each key and its spaces-removed twin, and the whole names. */
-function tokenForms(t: { name: string; symbol: string }, minChars: number): Set<string> {
+export function tokenForms(t: { name: string; symbol: string }, minChars: number): Set<string> {
   const usable = (f: string) => f !== "" && [...f].length >= minChars && !isGenericKey(f);
   const out = new Set<string>();
   for (const k of subjectKey(t.name, t.symbol)) {
@@ -90,13 +104,17 @@ function tokenForms(t: { name: string; symbol: string }, minChars: number): Set<
   return out;
 }
 
+/** The parts of a subject a form index reads. */
+export type IndexedSubject = Pick<LeaderSubject, "key" | "label" | "tokens" | "memberKeys">;
+
 /**
- * Which subjects a form names. Built once per run. The subject's own key always names it; a form of one of its tokens names it only when at
- * least `DEFAULT_THEME_CONFIG.keyShare` (10 %) of the subject's tokens carry it (the share rule `theme.ts` uses for an anchor's subject
- * forms). One spam launch that copies a big token's ticker (two `dacity coin / fartcoin` creates inside the 559-token GTA 6 cluster, meta
- * redesign ticket 13) is not the subject's name, so that big token cannot match the subject through it.
+ * Which subjects a form names. Built once per run. The subject's own key, its name and the keys of the launch themes it merged always name it;
+ * a form of one of its tokens names it only when at least `DEFAULT_THEME_CONFIG.keyShare` (10 %) of the subject's tokens carry it (the share rule
+ * `theme.ts` uses for an anchor's subject forms). One spam launch that copies a big token's ticker (two `dacity coin / fartcoin` creates inside
+ * the 559-token GTA 6 cluster, meta redesign ticket 13) is not the subject's name, so that big token cannot match the subject through it.
+ * `include` leaves subjects out (a subject nobody could match is not indexed).
  */
-function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<string, number[]> {
+export function formIndex(subjects: readonly IndexedSubject[], minChars: number, include: (i: number) => boolean = () => true): Map<string, number[]> {
   const index = new Map<string, number[]>();
   const add = (form: string, i: number) => {
     const list = index.get(form);
@@ -104,8 +122,8 @@ function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<st
     else if (list[list.length - 1] !== i) list.push(i);
   };
   subjects.forEach((s, i) => {
-    if (s.key.startsWith("unkeyed:")) return;
-    for (const f of tokenForms({ name: s.key, symbol: "" }, minChars)) add(f, i);
+    if (s.key.startsWith("unkeyed:") || !include(i)) return;
+    for (const name of [s.key, s.label, ...(s.memberKeys ?? [])]) for (const f of tokenForms({ name, symbol: "" }, minChars)) add(f, i);
     const carried = new Map<string, number>();
     for (const t of s.tokens) for (const f of tokenForms(t, minChars)) carried.set(f, (carried.get(f) ?? 0) + 1);
     const need = Math.ceil(s.tokens.length * DEFAULT_THEME_CONFIG.keyShare);
@@ -113,9 +131,6 @@ function formIndex(subjects: readonly LeaderSubject[], minChars: number): Map<st
   });
   return index;
 }
-
-/** Counts of a subject that no copy was launched for in 24 h (a Meta that outlived its launch wave). */
-const noCounts = (): Record<MetaWindow, MetaCounts> => ({ "6h": { ...ZERO }, "24h": { ...ZERO } });
 
 function publicLeader(t: LeaderToken): CurrentLeader {
   return { mint: t.mint, name: t.name, symbol: t.symbol, marketCapUsd: t.marketCapUsd, ...(t.createdAt !== undefined ? { createdAt: t.createdAt } : {}), source: t.source, stale: t.stale, freshAt: t.freshAt };
@@ -125,20 +140,23 @@ function publicLeader(t: LeaderToken): CurrentLeader {
 const betterLeader = (a: LeaderToken, b: LeaderToken): boolean =>
   a.marketCapUsd !== b.marketCapUsd ? a.marketCapUsd > b.marketCapUsd : a.stale !== b.stale ? !a.stale : a.mint < b.mint;
 
+/** The latest graduate (by graduation time, then the smaller mint), as a leader with no market cap: a dash on every page. */
+function latestGraduate(list: readonly LeaderGraduate[] | undefined, nowIso: string): CurrentLeader | undefined {
+  let best: LeaderGraduate | undefined;
+  for (const g of list ?? []) if (!best || g.migratedAt > best.migratedAt || (g.migratedAt === best.migratedAt && g.mint < best.mint)) best = g;
+  if (!best) return undefined;
+  return { mint: best.mint, name: best.name, symbol: best.symbol, marketCapUsd: 0, ...(best.createdAt !== undefined ? { createdAt: best.createdAt } : {}), source: "theme", stale: false, freshAt: nowIso };
+}
+
 /**
- * The previous run's state that may be carried: none when the run itself is older than `stateMaxMinutes` (a pause) or its time is unreadable,
- * and of its rows only those whose leader's market cap was read from DexScreener within that time. The second test is what ends a stale
- * carry: every run re-saves a carried row under a new run time, so only the leader's own `freshAt` says how old the figure is.
+ * The previous run's state that may be carried: none when the run itself is older than `stateMaxMinutes` (a pause) or its time is unreadable.
+ * A Meta stays on the stay rule alone (graduation counts are read live every run), so its rows need no fresh leader figure to be carried; a
+ * leader's figure older than `stateMaxMinutes` is dropped by `currentMetas`, which then shows the dash.
  */
 export function carriedState(previous: PreviousMetas | undefined, now: Date, stateMaxMinutes: number): PreviousMetas | undefined {
   if (!previous) return undefined;
-  const limit = stateMaxMinutes * MINUTE_MS;
-  const within = (iso: string) => {
-    const at = Date.parse(iso);
-    return Number.isFinite(at) && now.getTime() - at <= limit;
-  };
-  if (!within(previous.computedAt)) return undefined;
-  return { ...previous, metas: previous.metas.filter((m) => within(m.leader.freshAt)), watching: previous.watching.filter((m) => within(m.leader.freshAt)) };
+  const at = Date.parse(previous.computedAt);
+  return Number.isFinite(at) && now.getTime() - at <= stateMaxMinutes * MINUTE_MS ? previous : undefined;
 }
 
 export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
@@ -150,15 +168,17 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   const prevMetas = previous?.metas ?? [];
   const prevWatching = previous?.watching ?? [];
 
-  // The tokens of this run, plus each previous leader the lookup did not answer, at its last figure.
+  // The tokens of this run, plus each previous leader the lookup did not answer, at its last figure (marked stale) while that figure is
+  // younger than `stateMaxMinutes`.
   const tokens = new Map<string, LeaderToken>();
   for (const t of input.tokens) {
     const cur = tokens.get(t.mint);
     if (t.marketCapUsd > 0 && (!cur || betterLeader(t, cur))) tokens.set(t.mint, t);
   }
+  const figureAge = (l: CurrentLeader) => now.getTime() - Date.parse(l.freshAt);
   for (const row of [...prevMetas, ...prevWatching]) {
     const l = row.leader;
-    if (!tokens.has(l.mint) && l.marketCapUsd > 0) tokens.set(l.mint, { ...l, stale: true });
+    if (!tokens.has(l.mint) && l.marketCapUsd > 0 && figureAge(l) <= config.stateMaxMinutes * MINUTE_MS) tokens.set(l.mint, { ...l, stale: true });
   }
 
   const subjects: LeaderSubject[] = [...input.subjects];
@@ -170,30 +190,24 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   });
   subjects.forEach((s, i) => byKey.set(s.key, i));
   const members = new Map<string, number>();
+  const graduateOf = new Map<string, number>();
   subjects.forEach((s, i) => {
     for (const m of s.memberMints ?? []) members.set(m, i);
+    for (const g of s.graduates ?? []) graduateOf.set(g.mint, i);
   });
   const index = formIndex(subjects, minChars);
-  const copies = (i: number) => (subjects[i] as LeaderSubject).counts["24h"].creators;
-  const prevMetaKeys = new Set(prevMetas.map((m) => m.key));
-  /** A subject can be led when it meets the copies rule, or is a Meta already (staying does not need copies); a merged subject is one when any theme in it was. */
-  const open = (i: number) => {
-    const s = subjects[i] as LeaderSubject;
-    return copies(i) >= config.minCopies || prevMetaKeys.has(s.key) || (s.memberKeys ?? []).some((k) => prevMetaKeys.has(k));
-  };
-  /** The subject that holds this trending token by membership, when it can be led. */
-  const heldBy = (mint: string): number | undefined => {
-    const i = members.get(mint);
-    return i !== undefined && open(i) ? i : undefined;
-  };
+  const g24 = (i: number) => (subjects[i] as LeaderSubject).grads["24h"];
 
-  /** The best subject a token names among those that pass `ok`: most distinct creators, then the smaller key. */
+  /** The subject that holds this token without a name match: a trending token the grouping step placed, or a graduate of the subject. */
+  const heldBy = (mint: string): number | undefined => members.get(mint) ?? graduateOf.get(mint);
+
+  /** The best subject a token names among those that pass `ok`: most 24 h graduations, then the smaller key. */
   const match = (t: LeaderToken, ok: (i: number) => boolean): number | undefined => {
     let best: number | undefined;
     for (const f of tokenForms(t, minChars))
       for (const i of index.get(f) ?? []) {
         if (!ok(i)) continue;
-        if (best === undefined || copies(i) > copies(best) || (copies(i) === copies(best) && cmpStr((subjects[i] as LeaderSubject).key, (subjects[best] as LeaderSubject).key) < 0)) best = i;
+        if (best === undefined || g24(i) > g24(best) || (g24(i) === g24(best) && cmpStr((subjects[i] as LeaderSubject).key, (subjects[best] as LeaderSubject).key) < 0)) best = i;
       }
     return best;
   };
@@ -201,23 +215,47 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   /** Whether one of the token's name forms names subject `i`. */
   const names = (t: LeaderToken, i: number): boolean => [...tokenForms(t, minChars)].some((f) => index.get(f)?.includes(i));
 
-  // Which previous Meta each subject continues: by key, else through the previous leader's name, else a subject with no copies left.
+  // Which previous Meta each subject continues: by key, else through the previous leader's place in a subject, else it has ended.
+  const canStay = (i: number) => g24(i) >= config.metaStayGrads;
   const continues = new Map<number, CurrentMeta>();
   for (const p of prevMetas) {
     let i = byKey.get(p.key);
     if (i === undefined) {
       const lead = tokens.get(p.leader.mint);
-      i = lead ? (heldBy(lead.mint) ?? match(lead, open)) : undefined;
+      i = heldBy(p.leader.mint) ?? (lead ? match(lead, canStay) : undefined);
     }
-    if (i === undefined) {
-      subjects.push({ key: p.key, label: p.label, counts: noCounts(), topTokens: p.topTokens, tokens: [], ...(p.namedBy !== undefined ? { namedBy: p.namedBy } : {}), ...(p.themes !== undefined ? { themes: p.themes } : {}) });
-      i = subjects.length - 1;
-      byKey.set(p.key, i);
-    }
-    if (!continues.has(i)) continues.set(i, p);
+    if (i !== undefined && !continues.has(i)) continues.set(i, p);
   }
 
-  // The leader of each subject: its highest-cap token.
+  // Who is a Meta and who is Watching: graduation counts only, no market cap and no leader needed.
+  const unkeyed = (i: number) => (subjects[i] as LeaderSubject).key.startsWith("unkeyed:");
+  const enters = (i: number) => {
+    const g = (subjects[i] as LeaderSubject).grads;
+    return g["24h"] >= config.metaMinGrads && g.creators24h >= config.metaMinCreators && g["6h"] >= config.metaLiveGrads6h;
+  };
+  const byGrads24 = (a: number, b: number) => {
+    const x = (subjects[a] as LeaderSubject).grads;
+    const y = (subjects[b] as LeaderSubject).grads;
+    return y["24h"] - x["24h"] || y["6h"] - x["6h"] || y.creators24h - x.creators24h || cmpStr((subjects[a] as LeaderSubject).key, (subjects[b] as LeaderSubject).key);
+  };
+  const byGrads6 = (a: number, b: number) => {
+    const x = (subjects[a] as LeaderSubject).grads;
+    const y = (subjects[b] as LeaderSubject).grads;
+    return y["6h"] - x["6h"] || y["24h"] - x["24h"] || y.creators24h - x.creators24h || cmpStr((subjects[a] as LeaderSubject).key, (subjects[b] as LeaderSubject).key);
+  };
+  const all = subjects.map((_, i) => i).filter((i) => !unkeyed(i));
+  const metaIdx = all
+    .filter((i) => enters(i) || (continues.has(i) && canStay(i)))
+    .sort(byGrads24)
+    .slice(0, config.maxMetas);
+  const isMeta = new Set(metaIdx);
+  const watchingIdx = all
+    .filter((i) => !isMeta.has(i) && ((subjects[i] as LeaderSubject).grads["24h"] >= config.watchMinGrads || (subjects[i] as LeaderSubject).grads["6h"] >= config.watchGrads6h))
+    .sort(byGrads6)
+    .slice(0, config.watching);
+  const open = new Set([...metaIdx, ...watchingIdx]);
+
+  // The leader of each Meta and Watching subject: its highest-cap token.
   const leaders = new Map<number, LeaderToken>();
   const offer = (i: number, t: LeaderToken) => {
     const cur = leaders.get(i);
@@ -227,58 +265,46 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
   for (const t of tokens.values()) {
     const held = heldBy(t.mint);
     if (held !== undefined) {
-      offer(held, t);
+      if (open.has(held)) offer(held, t);
       continue;
     }
     if (t.groupKey !== undefined) {
       const i = byKey.get(t.groupKey);
-      if (i !== undefined && open(i)) offer(i, t);
+      if (i !== undefined && open.has(i)) offer(i, t);
       continue;
     }
     const i = ownByMint.get(t.mint);
     // A previous leader keeps its subject without a name match, unless the AI step saw it this run and left it out of that subject: a wrong
     // leader cannot hold a Meta for ever by having led it (ticket 13). On a run with no AI answer the carry stands.
-    if (i !== undefined && (!input.grouped?.has(t.mint) || names(t, i))) offer(i, t);
-    else {
-      const j = match(t, open);
+    if (i !== undefined && (!input.grouped?.has(t.mint) || names(t, i))) {
+      if (open.has(i)) offer(i, t);
+    } else {
+      const j = match(t, (k) => open.has(k));
       if (j !== undefined) offer(j, t);
     }
   }
 
-  interface Standing {
-    i: number;
-    leader: LeaderToken;
-    prev: CurrentMeta | undefined;
-  }
-  const standing: Standing[] = [];
-  for (const [i, leader] of leaders) standing.push({ i, leader, prev: continues.get(i) });
-  const rank = (a: Standing, b: Standing) => b.leader.marketCapUsd - a.leader.marketCapUsd || cmpStr((subjects[a.i] as LeaderSubject).key, (subjects[b.i] as LeaderSubject).key);
-
-  const metaCandidates = standing
-    .filter((s) => (s.prev ? s.leader.marketCapUsd >= config.stayMcapUsd : s.leader.marketCapUsd >= config.enterMcapUsd && !s.leader.stale && copies(s.i) >= config.minCopies))
-    .sort(rank)
-    .slice(0, config.maxMetas);
-  const isMeta = new Set(metaCandidates.map((s) => s.i));
-  const watchingCandidates = standing
-    .filter((s) => !isMeta.has(s.i) && s.leader.marketCapUsd < config.enterMcapUsd && copies(s.i) >= config.minCopies)
-    .sort(rank)
-    .slice(0, config.watching);
-
   const prevWatchingByKey = new Map(prevWatching.map((w) => [w.key, w]));
-  const row = (s: Standing, kind: "meta" | "watching"): CurrentMeta => {
-    const subject = subjects[s.i] as LeaderSubject;
-    const sameKind = kind === "meta" ? s.prev : prevWatchingByKey.get(subject.key);
+  const row = (i: number, kind: "meta" | "watching"): CurrentMeta | undefined => {
+    const subject = subjects[i] as LeaderSubject;
+    const priced = leaders.get(i);
+    // No priced token: the latest graduate with the cap shown as a dash, else the previous leader as it was (a row stored before this run).
+    const leader = priced ? publicLeader(priced) : (latestGraduate(subject.graduates, nowIso) ?? (kind === "meta" ? continues.get(i)?.leader : prevWatchingByKey.get(subject.key)?.leader));
+    if (!leader) return undefined;
+    const sameKind = kind === "meta" ? continues.get(i) : prevWatchingByKey.get(subject.key);
     return {
       key: subject.key,
       label: subject.label,
       namedBy: subject.namedBy ?? "rules",
       themes: subject.themes ?? [],
-      leader: publicLeader(s.leader),
-      holding: kind === "meta" && s.leader.marketCapUsd < config.enterMcapUsd,
+      leader,
+      holding: kind === "meta" && !enters(i),
       enteredAt: sameKind?.enteredAt ?? nowIso,
       counts: subject.counts,
+      grads: subject.grads,
       topTokens: subject.topTokens,
     };
   };
-  return { metas: metaCandidates.map((s) => row(s, "meta")), watching: watchingCandidates.map((s) => row(s, "watching")) };
+  const rows = (list: readonly number[], kind: "meta" | "watching") => list.flatMap((i) => row(i, kind) ?? []);
+  return { metas: rows(metaIdx, "meta"), watching: rows(watchingIdx, "watching") };
 }

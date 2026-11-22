@@ -5,7 +5,7 @@ import type { PumpConnectionEvent, PumpTokenEvent } from "../sources/pumpportal.
 import { tempDir } from "../testing/temp.ts";
 import { join } from "node:path";
 import { MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./config.ts";
-import { migrateStudy, SnapshotNotAllowedError, snapshotHash, StudyStore, type NewSnapshot } from "./store.ts";
+import { GRADUATED_BETWEEN_SQL, migrateStudy, SnapshotNotAllowedError, snapshotHash, StudyStore, type NewSnapshot } from "./store.ts";
 
 const T0 = Date.parse("2026-11-08T10:00:00.000Z");
 const at = (sec: number) => new Date(T0 + sec * 1000);
@@ -469,5 +469,53 @@ describe("createdBetween (the Meta ranking's read; bonk launches only on request
   it("the window still applies to bonk creates", () => {
     expect(seeded().study.createdBetween(iso(5_000), iso(6_000), { includeBonk: true }).map((r) => r.name)).toEqual(["Late bonk"]);
     expect(seeded().study.createdBetween(iso(2_000), iso(3_000), { includeBonk: true })).toEqual([]);
+  });
+});
+
+describe("graduatedBetween (the graduation Meta rule's read, graduation Meta ticket 01)", () => {
+  function seeded() {
+    const db = new DatabaseSync(":memory:");
+    migrateStudy(db);
+    const study = new StudyStore(db);
+    study.recordTokenEvent(create(1, 0, { name: "Early create, late graduate", creator: "CreatorA" }));
+    study.recordTokenEvent(migrate(1, 5_000)); // graduated long after its create
+    study.recordTokenEvent(create(2, 4_000, { name: "Same window", creator: "CreatorB" }));
+    study.recordTokenEvent(migrate(2, 4_100));
+    study.recordTokenEvent(create(3, 4_000, { name: "Never graduated", creator: "CreatorC" }));
+    study.recordTokenEvent(create(4, 4_000, { name: "Bonk graduate", symbol: "BG", creator: "CreatorD", pool: "bonk" }));
+    study.recordTokenEvent(migrate(4, 4_200)); // a bonk launch has no receipt in life; if a row said otherwise it is still not a pump.fun graduation
+    study.recordTokenEvent(migrate(99, 4_300)); // a migration whose create was never seen
+    study.recordTokenEvent(create(5, 100, { name: "Too early", creator: "CreatorE" }));
+    study.recordTokenEvent(migrate(5, 150));
+    return { db, study };
+  }
+
+  it("returns the graduates by graduation time, not create time: a late graduate of an old create is in, a never-graduated and a bonk token are out", () => {
+    const { study } = seeded();
+    const rows = study.graduatedBetween(iso(4_000), iso(6_000));
+    expect(rows.map((r) => r.name)).toEqual(["Same window", "", "Early create, late graduate"]);
+    expect(rows[2]).toEqual({ mint: mintOf(1), name: "Early create, late graduate", symbol: "T1", creator: "CreatorA", createdAt: iso(0), migratedAt: iso(5_000) });
+  });
+
+  it("a migration whose create was never seen comes with an empty name and no create time, so it counts but names no subject", () => {
+    const { study } = seeded();
+    expect(study.graduatedBetween(iso(4_250), iso(4_350))).toEqual([{ mint: mintOf(99), name: "", symbol: "", creator: "", createdAt: null, migratedAt: iso(4_300) }]);
+  });
+
+  it("the window is inclusive at both ends and empty outside it", () => {
+    const { study } = seeded();
+    expect(study.graduatedBetween(iso(4_100), iso(4_100)).map((r) => r.mint)).toEqual([mintOf(2)]);
+    expect(study.graduatedBetween(iso(6_000), iso(7_000))).toEqual([]);
+    expect(study.graduatedBetween(iso(200), iso(4_000))).toEqual([]);
+  });
+
+  it("is read only and uses the migrated_at index", () => {
+    const { db, study } = seeded();
+    const before = (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+    study.graduatedBetween(iso(0), iso(9_000));
+    expect((db.prepare("SELECT total_changes() AS n").get() as { n: number }).n).toBe(before);
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${GRADUATED_BETWEEN_SQL}`).all(iso(0), iso(9_000)) as Array<{ detail: string }>).map((r) => r.detail).join(" | ");
+    expect(plan).toContain("USING INDEX study_tokens_migrated_at");
+    expect(GRADUATED_BETWEEN_SQL).not.toMatch(/\b(INSERT|UPDATE|DELETE|REPLACE)\b/i);
   });
 });

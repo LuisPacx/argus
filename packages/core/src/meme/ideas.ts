@@ -372,7 +372,7 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
     "",
     `${b} START meta (untrusted)`,
     `Label: ${line(input.label, LABEL_CHARS)}`,
-    `Leader: ${line(input.leader.name, TOKEN_NAME_CHARS)} (${line(input.leader.symbol, TOKEN_SYMBOL_CHARS)}), market cap ${money(input.leader.marketCapUsd)}`,
+    `Leader: ${line(input.leader.name, TOKEN_NAME_CHARS)} (${line(input.leader.symbol, TOKEN_SYMBOL_CHARS)}), market cap ${input.leader.marketCapUsd > 0 ? money(input.leader.marketCapUsd) : "n/a"}`,
     `Trigger: ${fromAngle ? "the Operator asked for ideas on an angle" : input.trigger.kind === "new-meta" ? "became a Meta" : "refresh after 12 h while it stays a Meta"}: ${line(input.trigger.reason, 120)}`,
     ...counts,
     `Became a Meta ${line(input.enteredAt, 40)}`,

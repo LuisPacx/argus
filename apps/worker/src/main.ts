@@ -397,10 +397,10 @@ const metaTick = reentrant(
     const r = await recomputeMetas(store, { dex: metaDex, topDown: metaTopDown, config: metaConfig, group: metaGroup, log: console.error });
     console.log(`[worker] meta tick: ${r.tokensRead} tokens, ${r.groups} groups, ${r.dexCalls} DexScreener call(s) (${r.leaderCalls} for leaders), ${r.dexFailures} failed, top-down ${r.topDown.requests} request(s) ${r.topDown.kept} kept ${r.topDown.dropped} dropped${r.topDown.errors.length > 0 ? ` (${r.topDown.errors.length} failed)` : ""}, ${r.metas} Meta(s), ${r.watching} Watching`);
     // Market-led Metas (ADR 0014): who leads each one, so the log says why a Meta is (or is not) there.
-    for (const m of r.current.metas) console.log(`[worker] Meta "${m.label}": leader ${m.leader.symbol || m.leader.name} $${Math.round(m.leader.marketCapUsd).toLocaleString("en-US")}${m.holding ? " (holding)" : ""}${m.leader.stale ? " (stale)" : ""}`);
+    for (const m of r.current.metas) console.log(`[worker] Meta "${m.label}": ${m.grads ? `${m.grads["24h"]} graduated in 24 h (${m.grads["6h"]} in 6 h, ${m.grads.creators24h} creators), ` : ""}leader ${m.leader.symbol || m.leader.name} ${m.leader.marketCapUsd > 0 ? `$${Math.round(m.leader.marketCapUsd).toLocaleString("en-US")}` : "no price"}${m.holding ? " (holding)" : ""}${m.leader.stale ? " (stale)" : ""}`);
     // New Meta (meta redesign ticket 03): plain code over the two newest stored runs, one event each time a subject becomes a Meta. Never a
     // Narrative, Proposal or Score. A failure is logged inside and never skips the summary tick that follows this tick.
-    for (const e of raiseNewMetasSafely(store, metaConfig)) console.log(`[worker] new meta: "${e.label}" (leader ${e.leader.symbol || e.leader.name} at $${Math.round(e.leader.marketCapUsd).toLocaleString("en-US")}): ${e.reason}`);
+    for (const e of raiseNewMetasSafely(store, metaConfig)) console.log(`[worker] new meta: "${e.label}" (leader ${e.leader.symbol || e.leader.name}${e.leader.marketCapUsd > 0 ? ` at $${Math.round(e.leader.marketCapUsd).toLocaleString("en-US")}` : ", no price"}): ${e.reason}`);
   },
   () => {}, // a slow lookup is still running: the next tick starts fresh
 );

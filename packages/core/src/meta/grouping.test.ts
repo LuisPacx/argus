@@ -16,7 +16,7 @@ import {
   type TrendingInput,
 } from "./grouping.ts";
 import { currentMetas, type LeaderSubject, type LeaderToken } from "./leaders.ts";
-import type { MetaCounts } from "./store.ts";
+import type { CurrentGrads, MetaCounts } from "./store.ts";
 
 const NOW = new Date("2026-11-16T12:00:00.000Z");
 
@@ -212,18 +212,21 @@ describe("applyGrouping on the 2026-11-16 GTA numbers", () => {
   const apply = (ids: string[]) => applyGrouping(items, answerFor(...ids), (k) => stats.get(k), merge);
 
   const zero = (): MetaCounts => ({ tokens: 0, creators: 0, migrations: 0, migrationsAfter60s: 0 });
-  const subjectOf = (a: AppliedSubject<Stat>): LeaderSubject => ({
+  /** What a subject's graduations come to: a Meta by default (12 in 24 h from 8 creators, 4 in the last 6 h); a test passes a smaller figure to make Watching or nothing. */
+  const grads = (g24 = 12, g6 = 4, creatorsOf = 8): CurrentGrads => ({ "24h": g24, "6h": g6, creators24h: creatorsOf, share: 0.1 });
+  const subjectOf = (a: AppliedSubject<Stat>, g: CurrentGrads = grads()): LeaderSubject => ({
     key: a.key,
     label: a.name,
     counts: { "6h": zero(), "24h": { ...zero(), tokens: a.stat.tokens, creators: a.stat.creators.size } },
     topTokens: [],
     tokens: [],
+    grads: g,
     namedBy: "ai",
     memberKeys: a.themeKeys,
     memberMints: a.mints,
     themes: a.themes,
   });
-  const ruleSubject = (s: Stat): LeaderSubject => ({ key: s.key, label: s.label, counts: { "6h": zero(), "24h": { ...zero(), tokens: s.tokens, creators: s.creators.size } }, topTokens: [], tokens: [], namedBy: "rules" });
+  const ruleSubject = (s: Stat, g: CurrentGrads = grads()): LeaderSubject => ({ key: s.key, label: s.label, counts: { "6h": zero(), "24h": { ...zero(), tokens: s.tokens, creators: s.creators.size } }, topTokens: [], tokens: [], grads: g, namedBy: "rules" });
   const lead = (mint: string, name: string, symbol: string, cap: number, over: Partial<LeaderToken> = {}): LeaderToken => ({ mint, name, symbol, marketCapUsd: cap, source: "trending", stale: false, freshAt: NOW.toISOString(), ...over });
   const run = (subjects: LeaderSubject[], tokens: LeaderToken[], previous?: Parameters<typeof currentMetas>[0]["previous"]) => currentMetas({ subjects, tokens, now: NOW, config: META_RULE, ...(previous ? { previous } : {}) });
 
@@ -256,9 +259,9 @@ describe("applyGrouping on the 2026-11-16 GTA numbers", () => {
     expect([...applied.groupedThemeKeys].sort()).toEqual(["gta6", "lucia"]);
     expect(applied.subjects[0]!.themes.map((t) => t.key)).toEqual(["lucia", "gta6"]);
     // the caller keeps the left-out theme as its own subject by rules
-    const r = run([subjectOf(applied.subjects[0] as AppliedSubject<Stat>), ruleSubject(vice)], [lead(GTA_VI, "GTA VI", "GTA6", 7_050_000), lead("vc", "Vice City", "VICE", 600_000, { source: "theme", groupKey: "vice city" })]);
+    const r = run([subjectOf(applied.subjects[0] as AppliedSubject<Stat>), ruleSubject(vice, grads(6, 1, 4))], [lead(GTA_VI, "GTA VI", "GTA6", 7_050_000), lead("vc", "Vice City", "VICE", 600_000, { source: "theme", groupKey: "vice city" })]);
     expect(r.metas.map((m) => m.label)).toEqual(["GTA 6"]);
-    expect(r.watching.map((m) => [m.label, m.namedBy])).toEqual([["Vice City", "rules"]]); // only 14 creators and a leader under the entry cap: Watching
+    expect(r.watching.map((m) => [m.label, m.namedBy])).toEqual([["Vice City", "rules"]]); // only 6 graduations, 1 of them in the last 6 h: Watching
   });
 
   it("a subject with only token members has no copiers and no theme: it is dropped, and its token matches by rules", () => {
@@ -272,11 +275,11 @@ describe("applyGrouping on the 2026-11-16 GTA numbers", () => {
   it("a trending token the answer puts in a subject leads it by membership, not by its name", () => {
     const applied = apply([idOf("vice city"), "T1"]);
     const r = run([subjectOf(applied.subjects[0] as AppliedSubject<Stat>)], [lead(GTA_VI, "GTA VI", "GTA6", 7_050_000)]);
-    // vice city has 14 creators (enough to open it), and the token named nothing like it
+    // the subject has the graduations to be a Meta, and the token named nothing like it
     expect(r.metas[0]).toMatchObject({ key: "vice city", label: "GTA 6", leader: { mint: GTA_VI } });
   });
 
-  it("the answer cannot raise a subject's cap or creators above what its members really have, and a subject below the rules is no Meta", () => {
+  it("the answer cannot raise a subject's creators above what its members really have, and a subject below the graduation rule is no Meta whatever its leader's cap", () => {
     // Everything in one subject, as a Brain answering 'everything is one subject' would: thirty tiny themes of 3 creators each.
     const tiny = Array.from({ length: 30 }, (_, i): Stat => ({ key: `t${i}`, label: `T${i}`, tokens: 4, creators: creators("p", 3, i * 3) }));
     const many = buildGroupItems([token("big", "Big", "BIG", 9_000_000)], tiny.map((s) => theme(s.key, s.tokens, s.creators.size)), 1_000_000);
@@ -285,12 +288,13 @@ describe("applyGrouping on the 2026-11-16 GTA numbers", () => {
     expect(a.stat.creators.size).toBe(24 * 3); // only the 24 themes among its 25 items count, and only their 72 real creators
     // A narrower grouping of three themes has 9 real creators, whatever the token's cap:
     const narrow = applyGrouping(many, [{ name: "Few", items: [many[1]!.id, many[2]!.id, many[3]!.id] }], (k) => new Map(tiny.map((s) => [s.key, s])).get(k), merge);
-    const none = run([subjectOf(narrow.subjects[0] as AppliedSubject<Stat>)], [lead("big", "Big", "BIG", 9_000_000)]);
-    expect(none).toEqual({ metas: [], watching: [] }); // 9 real creators: under the copies rule, so not a Meta and not Watching, whatever the token's cap
-    // and a leader under the entry cap cannot become a Meta however the themes are grouped
+    // 9 real creators and 4 graduations, 1 of them in the last 6 h: under both graduation rules, so not a Meta and not Watching, whatever the token's cap
+    const none = run([subjectOf(narrow.subjects[0] as AppliedSubject<Stat>, grads(4, 1, 3))], [lead("big", "Big", "BIG", 9_000_000)]);
+    expect(none).toEqual({ metas: [], watching: [] });
+    // and the cap is only display: a $900k leader leads a subject with the graduations just as a $9M one does
     const low = run([subjectOf(a)], [lead("big", "Big", "BIG", 900_000)]);
-    expect(low.metas).toEqual([]);
-    expect(low.watching).toHaveLength(1);
+    expect(low.metas).toHaveLength(1);
+    expect(low.watching).toEqual([]);
   });
 
   it("a Meta that was keyed lucia before this ticket is continued by its leader's mint and keeps its entry time", () => {

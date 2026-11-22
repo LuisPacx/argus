@@ -99,6 +99,22 @@ export interface LaunchedToken {
   pool: string;
 }
 
+/** The read of `StudyStore.graduatedBetween`: a range on the `migrated_at` index (exported so a test can ask SQLite for its plan). */
+export const GRADUATED_BETWEEN_SQL = "SELECT mint, name, symbol, creator, created_at, migrated_at FROM study_tokens WHERE migrated_at >= ? AND migrated_at <= ? AND pool <> 'bonk' ORDER BY migrated_at, mint";
+
+/** A pump.fun token that graduated (a migrate receipt) as the Meta rule reads it: the create fields are empty when the create was never seen. */
+export interface GraduatedToken {
+  mint: string;
+  /** Creator-written text: untrusted. Empty for a migration whose create was never seen. */
+  name: string;
+  symbol: string;
+  creator: string;
+  /** Null when the create was never seen, or was made before the Study read it. */
+  createdAt: string | null;
+  /** PumpPortal receipt time of the migrate event (ISO). */
+  migratedAt: string;
+}
+
 export interface NewSnapshot {
   mint: string;
   description: string;
@@ -500,6 +516,24 @@ export class StudyStore {
       createdAt: r.created_at as string,
       migratedAt: r.migrated_at as string | null,
       pool: r.pool as string,
+    }));
+  }
+
+  /**
+   * READ ONLY. The pump.fun tokens that graduated from `fromIso` to `toIso` (both ISO, inclusive), by `migrated_at` and not by create time, so a
+   * late graduate of an old create counts (graduation Meta ticket 01). One pass over the `migrated_at` index; nothing is written. A migration
+   * whose create was never seen comes too (empty name, so it matches no subject but still counts in the window's total). Bonk launches
+   * (pool `bonk`) are left out: the bonk launchpad has no migrate receipt, so a graduation is a pump.fun one. Text is creator-written.
+   */
+  graduatedBetween(fromIso: string, toIso: string): GraduatedToken[] {
+    const rows = this.db.prepare(GRADUATED_BETWEEN_SQL).all(fromIso, toIso) as Row[];
+    return rows.map((r) => ({
+      mint: r.mint as string,
+      name: r.name as string,
+      symbol: r.symbol as string,
+      creator: r.creator as string,
+      createdAt: r.created_at as string | null,
+      migratedAt: r.migrated_at as string,
     }));
   }
 

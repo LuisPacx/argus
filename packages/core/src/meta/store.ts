@@ -71,7 +71,21 @@ export interface CurrentTheme {
   creators: number;
 }
 
-/** A subject led by a token's market cap (ADR 0014): a Meta, or a Watching subject. `key` is the launch-theme group key. */
+/**
+ * What a subject's graduations came to (graduation Meta ticket 01), stored inside the row's counts JSON: pump launchpad tokens that graduated on the
+ * subject in the last 24 h and 6 h, the distinct creators of the 24 h ones, and the subject's share of all graduations in 24 h (display only).
+ */
+export interface CurrentGrads {
+  "24h": number;
+  "6h": number;
+  creators24h: number;
+  /** 0 to 1: the subject's graduations over every graduation in the 24 h window. Never part of the rule. */
+  share: number;
+  /** Present only when the 24 h window is thin (a stream gap or a restart left few hours of data): the covered hours of the window. The subject still qualifies. */
+  coverage?: { covered: number; of: number };
+}
+
+/** A subject that is a Meta or Watching (graduation Meta ticket 01; ADR 0014 for the older market-led shape). `key` is the launch-theme group key. */
 export interface CurrentMeta {
   key: string;
   /** The subject's name: the grouping step's (`namedBy: ai`) or the group's creator-voted label (`rules`). Creator-written text, cleaned and cut: still untrusted. */
@@ -80,13 +94,16 @@ export interface CurrentMeta {
   namedBy?: "ai" | "rules";
   /** The member launch themes the grouping step merged into this subject, most creators first, at most 12; empty for a subject named by rules. */
   themes?: CurrentTheme[];
+  /** The highest-priced token of the subject, else its latest graduate with `marketCapUsd` 0 (no price known: shown as a dash). */
   leader: CurrentLeader;
-  /** A Meta whose leader is between the stay and the enter market cap. Always false for Watching. */
+  /** A Meta that stays on the stay rule without meeting the enter rule now (fewer graduations than it took to enter). Always false for Watching. */
   holding: boolean;
   /** When the subject entered its present state (Meta or Watching), carried from run to run. */
   enteredAt: string;
   /** The subject's launch-theme counts now (zero when no copy was launched in 24 h). */
   counts: Record<MetaWindow, MetaCounts>;
+  /** The subject's graduations; absent on a row stored before graduation Metas. */
+  grads?: CurrentGrads;
   topTokens: MetaTopToken[];
 }
 
@@ -438,6 +455,27 @@ function parseCounts(text: string): Record<MetaWindow, MetaCounts> {
   return isRecord(data) ? { "6h": one(data["6h"]), "24h": one(data["24h"]) } : { "6h": zero, "24h": zero };
 }
 
+/** The graduations kept in a row's counts JSON beside the two windows; undefined on a row stored before graduation Metas or one that is unreadable. */
+function parseGrads(text: string): CurrentGrads | undefined {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const g = isRecord(data) ? data.grads : undefined;
+  if (!isRecord(g)) return undefined;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  const cov = g.coverage;
+  return {
+    "24h": n(g["24h"]),
+    "6h": n(g["6h"]),
+    creators24h: n(g.creators24h),
+    share: n(g.share),
+    ...(isRecord(cov) ? { coverage: { covered: n(cov.covered), of: n(cov.of) } } : {}),
+  };
+}
+
 function parseStoredAnswer(text: string): StoredGroupAnswer | undefined {
   let data: unknown;
   try {
@@ -475,6 +513,7 @@ function parseThemes(text: unknown): CurrentTheme[] {
 }
 
 function toCurrent(r: Row, runAt: string): CurrentMeta {
+  const grads = parseGrads(r.counts as string);
   return {
     key: r.key as string,
     label: r.label as string,
@@ -493,6 +532,7 @@ function toCurrent(r: Row, runAt: string): CurrentMeta {
     holding: r.holding === 1,
     enteredAt: r.entered_at as string,
     counts: parseCounts(r.counts as string),
+    ...(grads ? { grads } : {}),
     topTokens: parseTopTokens(r.top_tokens as string),
   };
 }
@@ -547,7 +587,7 @@ export class MetaStore {
         const list = kind === "meta" ? run.current?.metas : run.current?.watching;
         (list ?? []).forEach((m, i) => {
           const l = m.leader;
-          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.counts), JSON.stringify(m.topTokens), m.namedBy ?? "rules", JSON.stringify(m.themes ?? []));
+          insertCurrent.run(id, kind, i + 1, m.key, m.label, l.mint, l.name, l.symbol, l.marketCapUsd, l.createdAt ?? null, l.freshAt, l.source, l.stale ? 1 : 0, m.holding ? 1 : 0, m.enteredAt, JSON.stringify(m.grads ? { ...m.counts, grads: m.grads } : m.counts), JSON.stringify(m.topTokens), m.namedBy ?? "rules", JSON.stringify(m.themes ?? []));
         });
       }
       if (run.grouping) insertGrouping.run(run.computedAt, id, run.grouping.inputHash, JSON.stringify(run.grouping.answer), run.grouping.costUsd, run.grouping.brainRunId);

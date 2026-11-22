@@ -194,6 +194,31 @@ export interface DexVerdict {
 }
 
 /**
+ * The price check of a launch-theme token (graduation Meta ticket 01): a graduate's cap is shown beside a Meta, it does not make one, so the
+ * $50k liquidity and volume floors of the trending filter do not apply (a fresh graduate rarely has them). One test stays, the fake-cap one: with
+ * liquidity above 0 the cap may be at most `topDownMaxCapLiquidityRatio` times it. The cap is the deepest priced pair's, as in `verifyAgainstDex`.
+ */
+export function verifyThemeToken(allPairs: readonly DexPair[], config: Pick<MetaConfig, "topDownMaxCapLiquidityRatio">): DexVerdict {
+  if (allPairs.length === 0) return { ok: false, reason: "no DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
+  const pairs = allPairs.filter((p) => p.unpriced !== true);
+  if (pairs.length === 0) return { ok: false, reason: "no priced DexScreener pair", liquidityUsd: 0, volume24hUsd: 0 };
+  let deepest = pairs[0] as DexPair;
+  let liquidityUsd = 0;
+  let volume24hUsd = 0;
+  for (const p of pairs) {
+    liquidityUsd += p.liquidityUsd;
+    volume24hUsd += p.volume24hUsd;
+    if (p.liquidityUsd > deepest.liquidityUsd) deepest = p;
+  }
+  const marketCapUsd = positive(deepest.marketCapUsd) ? deepest.marketCapUsd : positive(deepest.fdvUsd) ? deepest.fdvUsd : undefined;
+  if (marketCapUsd === undefined) return { ok: false, reason: "market cap missing", liquidityUsd, volume24hUsd };
+  if (liquidityUsd > 0 && marketCapUsd > config.topDownMaxCapLiquidityRatio * liquidityUsd) {
+    return { ok: false, reason: `cap ${Math.round(marketCapUsd / liquidityUsd)}x liquidity (over ${config.topDownMaxCapLiquidityRatio}x)`, marketCapUsd, liquidityUsd, volume24hUsd };
+  }
+  return { ok: true, marketCapUsd, liquidityUsd, volume24hUsd };
+}
+
+/**
  * The DexScreener side of the filter: liquidity and 24 h volume summed over the token's pairs, market cap from the pair with the most
  * liquidity (market cap, else FDV). `pairs` are the answer's pairs for this one token.
  *

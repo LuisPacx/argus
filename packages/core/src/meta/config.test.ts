@@ -24,14 +24,22 @@ describe("meta config", () => {
     expect(metaConfigFromEnv({ ARGUS_META_THEMES: "1" }).theme).toEqual(META_RULE.theme);
   });
 
-  it("the market-led rule defaults are the user's numbers (ADR 0014)", () => {
-    expect(META_RULE).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000, minCopies: 10, maxMetas: 3, watching: 3, leaderCalls: 4, stateMaxMinutes: 120 });
+  it("the graduation rule defaults are the Operator's numbers (graduation Meta spec): 10 in 24 h, stay at 5, 6 creators, 3 in 6 h; Watching at 5 or 3 in 6 h", () => {
+    expect(META_RULE).toMatchObject({ metaMinGrads: 10, metaStayGrads: 5, metaMinCreators: 6, metaLiveGrads6h: 3, watchMinGrads: 5, watchGrads6h: 3, maxMetas: 3, watching: 3, leaderCalls: 4, stateMaxMinutes: 120 });
+    expect(META_RULE).not.toHaveProperty("stayMcapUsd"); // market cap left the rule
+    expect(META_RULE).not.toHaveProperty("minCopies");
   });
 
-  it("reads each market-led knob, bounded, and junk keeps the default", () => {
-    const c = metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "2000000", ARGUS_META_STAY_MCAP_USD: "750000", ARGUS_META_MIN_COPIES: "12", ARGUS_META_MAX_METAS: "2", ARGUS_META_WATCHING: "0", ARGUS_META_LEADER_CALLS: "6", ARGUS_META_STATE_MAX_MINUTES: "60" });
-    expect(c).toMatchObject({ enterMcapUsd: 2_000_000, stayMcapUsd: 750_000, minCopies: 12, maxMetas: 2, watching: 0, leaderCalls: 6, stateMaxMinutes: 60 });
-    const junk = metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "lots", ARGUS_META_STAY_MCAP_USD: "-5", ARGUS_META_MIN_COPIES: "0", ARGUS_META_MAX_METAS: "99", ARGUS_META_WATCHING: "1.5", ARGUS_META_LEADER_CALLS: "999", ARGUS_META_STATE_MAX_MINUTES: "0" });
+  it("reads each graduation knob and the other Meta knobs, bounded, and junk keeps the default", () => {
+    const c = metaConfigFromEnv({
+      ARGUS_META_MIN_GRADS: "12", ARGUS_META_STAY_GRADS: "6", ARGUS_META_GRAD_CREATORS: "8", ARGUS_META_LIVE_GRADS_6H: "4", ARGUS_META_WATCH_MIN_GRADS: "7", ARGUS_META_WATCH_GRADS_6H: "2",
+      ARGUS_META_ENTER_MCAP_USD: "2000000", ARGUS_META_MAX_METAS: "2", ARGUS_META_WATCHING: "0", ARGUS_META_LEADER_CALLS: "6", ARGUS_META_STATE_MAX_MINUTES: "60",
+    });
+    expect(c).toMatchObject({ metaMinGrads: 12, metaStayGrads: 6, metaMinCreators: 8, metaLiveGrads6h: 4, watchMinGrads: 7, watchGrads6h: 2, enterMcapUsd: 2_000_000, maxMetas: 2, watching: 0, leaderCalls: 6, stateMaxMinutes: 60 });
+    const junk = metaConfigFromEnv({
+      ARGUS_META_MIN_GRADS: "0", ARGUS_META_STAY_GRADS: "-5", ARGUS_META_GRAD_CREATORS: "1001", ARGUS_META_LIVE_GRADS_6H: "x", ARGUS_META_WATCH_MIN_GRADS: "1.5", ARGUS_META_WATCH_GRADS_6H: "",
+      ARGUS_META_ENTER_MCAP_USD: "lots", ARGUS_META_MAX_METAS: "99", ARGUS_META_WATCHING: "1.5", ARGUS_META_LEADER_CALLS: "999", ARGUS_META_STATE_MAX_MINUTES: "0",
+    });
     expect(junk).toEqual(META_RULE);
   });
 
@@ -57,9 +65,9 @@ describe("meta config", () => {
   });
 
   it("a stay above enter keeps both defaults, and stay equal to enter is allowed", () => {
-    expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "400000", ARGUS_META_STAY_MCAP_USD: "800000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
-    expect(metaConfigFromEnv({ ARGUS_META_STAY_MCAP_USD: "1500000" })).toMatchObject({ enterMcapUsd: 1_000_000, stayMcapUsd: 500_000 });
-    expect(metaConfigFromEnv({ ARGUS_META_ENTER_MCAP_USD: "600000", ARGUS_META_STAY_MCAP_USD: "600000" })).toMatchObject({ enterMcapUsd: 600_000, stayMcapUsd: 600_000 });
+    expect(metaConfigFromEnv({ ARGUS_META_MIN_GRADS: "8", ARGUS_META_STAY_GRADS: "9" })).toMatchObject({ metaMinGrads: 10, metaStayGrads: 5 });
+    expect(metaConfigFromEnv({ ARGUS_META_STAY_GRADS: "11" })).toMatchObject({ metaMinGrads: 10, metaStayGrads: 5 });
+    expect(metaConfigFromEnv({ ARGUS_META_MIN_GRADS: "6", ARGUS_META_STAY_GRADS: "6" })).toMatchObject({ metaMinGrads: 6, metaStayGrads: 6 });
   });
 
   it("reads the DexScreener budget and the interval, ignoring junk and out-of-range numbers", () => {

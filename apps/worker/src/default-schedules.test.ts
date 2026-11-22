@@ -149,9 +149,10 @@ const taskAwareClaude = (dir: string, log: string): string => {
 it("at the defaults a tick ranks Metas, ingests, groups and summarises (fake sources, fake Brain) and runs none of the switched-off agents", async () => {
   const seed = (store: Datastore) => {
     for (let i = 0; i < 12; i++) {
-      // 12 copies by 12 creators: over the Meta rule's default floor of 10 distinct creators.
+      // 12 tokens by 12 creators, each graduated: over the graduation Meta rule's defaults (10 graduations, 6 creators, 3 in the last 6 h).
       const mint = `Mcat${i}`.padEnd(40, "x") + "pump";
       store.study.recordTokenEvent({ kind: "create", mint, receivedAt: new Date(Date.now() - 30 * 60_000).toISOString(), signature: "", name: "Chinese Cat", symbol: "CCAT", creator: `C${i}`.padEnd(44, "x"), uri: "https://ipfs.io/ipfs/x", pool: "pump" });
+      store.study.recordTokenEvent({ kind: "migrate", mint, receivedAt: new Date(Date.now() - 25 * 60_000).toISOString(), signature: "", name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
     }
   };
   const route = (url: string) => {

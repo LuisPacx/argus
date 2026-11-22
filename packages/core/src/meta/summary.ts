@@ -22,6 +22,9 @@ export interface MetaLine {
 
 const NAME_CHARS = 30;
 
+/** A leader's market cap for a line of text: `metaMoney`, or "n/a" for a figure of 0 or less (a Meta whose leader has no price, a graduate shown with a dash). */
+export const leaderMoney = (usd: number): string => (usd > 0 ? metaMoney(usd) : "n/a");
+
 /** "$13M", "$2.1M", "$850K", "$123": a market cap for a line of text. */
 export function metaMoney(usd: number): string {
   const units: Array<[number, string]> = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
@@ -64,7 +67,7 @@ export function metaLine(row: MetaRow): MetaLine {
 export function currentTemplateLine(m: Pick<CurrentMeta, "leader" | "counts">): string {
   const c = m.counts["24h"];
   const name = shortName(m.leader);
-  const lead = `led by ${name === "" ? "its top token" : name} at ${metaMoney(m.leader.marketCapUsd)}`;
+  const lead = `led by ${name === "" ? "its top token" : name} at ${leaderMoney(m.leader.marketCapUsd)}`;
   return c.tokens > 0 ? `${lead}; ${c.tokens} tokens from ${c.creators} creators in 24 h, ${c.migrations} migrated (unfiltered)` : `${lead}; no copies launched in the last 24 h`;
 }
 
@@ -270,7 +273,7 @@ export function metaSummaryPromptFor(row: MetaSummarySubject, tokens: readonly M
     "",
     `${b} START meta (untrusted)`,
     `Label: ${shownLabel(row)}`,
-    ...(leader && row.leader ? [`Leader: ${leader.name} (${leader.symbol}), market cap ${metaMoney(row.leader.marketCapUsd)}`] : []),
+    ...(leader && row.leader ? [`Leader: ${leader.name} (${leader.symbol}), market cap ${leaderMoney(row.leader.marketCapUsd)}`] : []),
     ...counts,
     `First seen ${row.firstSeenAt}`,
     "Tokens:",

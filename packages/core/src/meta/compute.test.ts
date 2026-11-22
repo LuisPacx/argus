@@ -7,6 +7,7 @@ import { tempDir } from "../testing/temp.ts";
 import { recomputeMetas as recomputeWithRule, type MetaDexClient, type RecomputeOptions } from "./compute.ts";
 import { metasResponse } from "./api.ts";
 import { META_RULE, metaConfigFromEnv } from "./config.ts";
+import type { GroupAnswer, GroupInput } from "./grouping.ts";
 import { metaLines, selectMetas } from "./prompt-block.ts";
 import type { TopDownCandidate, TopDownResult } from "./topdown.ts";
 
@@ -28,6 +29,8 @@ interface Spec {
   createdMin?: number;
   /** Seconds after the create; omitted means never migrated. */
   migratedAfterSec?: number;
+  /** Minutes before NOW the token graduated (a migrate receipt); wins over `migratedAfterSec`, and can be long after a much older create. */
+  graduatedMin?: number;
   pool?: string;
 }
 
@@ -39,8 +42,9 @@ function launch(store: Datastore, s: Spec): string {
     kind: "create", mint, receivedAt: new Date(createdMs).toISOString(), signature: "", name: s.name, symbol: s.symbol ?? s.name.toUpperCase().slice(0, 8),
     creator: creatorOf(s.creator ?? seq), uri: "https://ipfs.io/ipfs/x", pool: s.pool ?? "pump",
   });
-  if (s.migratedAfterSec !== undefined)
-    store.study.recordTokenEvent({ kind: "migrate", mint, receivedAt: new Date(createdMs + s.migratedAfterSec * 1000).toISOString(), signature: "", name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
+  const graduatedMs = s.graduatedMin !== undefined ? NOW - s.graduatedMin * 60_000 : s.migratedAfterSec !== undefined ? createdMs + s.migratedAfterSec * 1000 : undefined;
+  if (graduatedMs !== undefined)
+    store.study.recordTokenEvent({ kind: "migrate", mint, receivedAt: new Date(graduatedMs).toISOString(), signature: "", name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
   return mint;
 }
 
@@ -270,7 +274,8 @@ describe("recomputeMetas: market cap", () => {
 
   it("replay of the 111 failures: every request fails its first attempt; with retries the run has 0 failures, without them the streak ends the lookups", async () => {
     const store = Datastore.open(":memory:");
-    for (let g = 0; g < 6; g++) launchMany(store, 3, (i) => ({ name: `Theme${g}`, creator: `t${g}-${i}`, migratedAfterSec: 20 }));
+    // No token graduates here: three graduations in 6 h would make each theme Watching, and a Watching leader is looked up on the next run (that is not what this test counts).
+    for (let g = 0; g < 6; g++) launchMany(store, 3, (i) => ({ name: `Theme${g}`, creator: `t${g}-${i}` }));
     const run = async (retries: number) => {
       const seen = new Set<string>();
       let fetches = 0;
@@ -500,7 +505,10 @@ describe("recomputeMetas: window coverage (ticket 05)", () => {
   });
 });
 
-describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)", () => {
+// A Meta is several tokens graduating on one narrative (graduation Meta ticket 01): the fixtures below graduate their tokens, and a market cap only
+// leads the subject it names (the "leader"), it never makes or ends a Meta. The earlier market-led fixtures (ADR 0014) are kept where they still
+// test something (leader lookups, verification, carried state) and changed where the rule moved.
+describe("recomputeMetas: the Meta ticks (graduation Meta ticket 01; leaders from ADR 0014 and 0015)", () => {
   const cfg = { ...META_RULE, minTokens: 2, minCreators: 1 };
   const T = (min: number) => new Date(NOW + min * 60_000);
 
@@ -517,9 +525,10 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
   }
   const topDownOf = (store: Datastore) => async (): Promise<TopDownResult> => ({ candidates: candidatesOf.get(store) ?? [], dropped: [], requests: 0, errors: [] });
   const recompute = (store: Datastore, dex: MetaDexClient | undefined, at: number, over: Partial<typeof cfg> = {}) => recomputeWithRule(store, { now: T(at), dex, topDown: topDownOf(store), config: { ...cfg, ...over } });
-  const jensenWave = (store: Datastore, creators = 12) => launchMany(store, creators, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}` }));
+  /** 12 creators launch "Jensen" 30 minutes before NOW and each token graduates five minutes later: 12 graduations from 12 creators, all in the last 6 h. */
+  const jensenWave = (store: Datastore, creators = 12) => launchMany(store, creators, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}`, migratedAfterSec: 300 }));
 
-  it("replay of run 143's shape: the Jensen leader at $96k gives no Meta and Watching; at $2M it gives one Meta (a fixture, not the live database)", async () => {
+  it("replay of run 143's shape: the Jensen wave is a Meta at a $96k leader and at a $2M one, and with only 6 graduations it is Watching (a fixture, not the live database)", async () => {
     const lowStore = Datastore.open(":memory:");
     jensenWave(lowStore);
     launchMany(lowStore, 4, (i) => ({ name: "ASTRALIS", creator: `a${i}` }));
@@ -527,8 +536,8 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     trend(lowStore, J, "Jensen Huang ($JENSEN)", 96_000);
     trend(lowStore, mintOf(), "Stand with Jensen ($STAND)", 95_000);
     const low = await recompute(lowStore, fakeDex(new Map([[J, 96_000]])).client, 0);
-    expect(low).toMatchObject({ metas: 0, watching: 1 });
-    expect(lowStore.currentMetas()).toMatchObject({ metas: [], watching: [{ key: "jensen", leader: { mint: J, symbol: "JENSEN", marketCapUsd: 96_000, source: "trending", stale: false }, holding: false, counts: { "24h": { creators: 12 } } }] });
+    expect(low).toMatchObject({ metas: 1, watching: 0 }); // $96k was Watching under the market-led rule: market cap no longer decides
+    expect(lowStore.currentMetas()).toMatchObject({ metas: [{ key: "jensen", leader: { mint: J, symbol: "JENSEN", marketCapUsd: 96_000, source: "trending", stale: false }, holding: false, counts: { "24h": { creators: 12 } }, grads: { "24h": 12, "6h": 12, creators24h: 12 } }], watching: [] });
 
     const highStore = Datastore.open(":memory:");
     jensenWave(highStore);
@@ -536,6 +545,11 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     trend(highStore, H, "Jensen Huang ($JENSEN)", 96_000);
     expect(await recompute(highStore, fakeDex(new Map([[H, 2_000_000]])).client, 0)).toMatchObject({ metas: 1, watching: 0 });
     expect(highStore.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: H, marketCapUsd: 2_000_000 } });
+
+    // the same wave with 6 graduations (the rest never graduated) is Watching, at any cap
+    const sixStore = Datastore.open(":memory:");
+    launchMany(sixStore, 12, (i) => ({ name: "Jensen", creator: `jc${String(i).padStart(3, "0")}`, migratedAfterSec: i < 6 ? 300 : undefined }));
+    expect(await recompute(sixStore, fakeDex(new Map()).client, 0)).toMatchObject({ metas: 0, watching: 1 });
   });
 
   it("the biggest token of a top launch theme leads it with no trending Signal (the theme lookup the ranking already makes)", async () => {
@@ -547,7 +561,7 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: mints[3], source: "theme", marketCapUsd: 1_500_000 } });
   });
 
-  it("a theme-lookup token passes the same fake-token filter as any leader: one at 124x its liquidity is no leader, one within 100x is", async () => {
+  it("a theme-lookup token keeps the fake-cap test: one at 124x its liquidity is no leader, one within 100x is (the $50k floors do not apply to it)", async () => {
     const answer = (fake: string, real: string): MetaDexClient => ({
       async tokenPairs(_chain, addresses) {
         return addresses.flatMap((a) => (a === fake ? [pair(a, 76_900_000, { liquidityUsd: 618_000 })] : a === real ? [pair(a, 1_500_000, { liquidityUsd: 400_000 })] : []));
@@ -558,10 +572,36 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     const [fake, real] = [mints[3] as string, mints[5] as string];
     await recompute(store, answer(fake, real), 0);
     expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", leader: { mint: real, source: "theme", marketCapUsd: 1_500_000 } });
-    // with only the fake answered, the subject has no leader at all
+    // with only the fake answered, the subject is still a Meta (its graduations make it one) but has no priced leader: its latest graduate leads, the cap a dash
     const only = Datastore.open(":memory:");
     const fakeOnly = jensenWave(only)[3] as string;
-    expect(await recompute(only, answer(fakeOnly, "none"), 0)).toMatchObject({ metas: 0 });
+    expect(await recompute(only, answer(fakeOnly, "none"), 0)).toMatchObject({ metas: 1 });
+    expect(only.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 0, source: "theme", stale: false });
+    expect(only.currentMetas()!.metas[0]!.leader.mint).not.toBe(fakeOnly);
+  });
+
+  it("theme-token pricing needs no $50k floors: a pair with $2k of liquidity and $300 of volume prices a graduate, and a pair with no liquidity figure at all still does", async () => {
+    const store = Datastore.open(":memory:");
+    const [a, b] = jensenWave(store) as [string, string];
+    const thin: MetaDexClient = { async tokenPairs(_c, addresses) { return addresses.flatMap((x) => (x === a ? [pair(x, 120_000, { liquidityUsd: 2_000, volume24hUsd: 300 })] : x === b ? [pair(x, 90_000, { liquidityUsd: 0, volume24hUsd: 0 })] : [])); } };
+    await recompute(store, thin, 0);
+    expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: a, marketCapUsd: 120_000, source: "theme" }); // 60x its liquidity: under the 100x line
+    expect(store.currentMetas()!.metas[0]!.topTokens.filter((t) => t.marketCapUsd !== undefined).map((t) => [t.mint, t.marketCapUsd])).toEqual([[a, 120_000], [b, 90_000]]);
+    // the same pair at 124x is still refused: the fake-cap test stays
+    const fake = Datastore.open(":memory:");
+    const [f] = jensenWave(fake) as [string];
+    await recompute(fake, { async tokenPairs(_c, addresses) { return addresses.includes(f) ? [pair(f, 248_000, { liquidityUsd: 2_000, volume24hUsd: 300 })] : []; } }, 0);
+    expect(fake.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 0 });
+  });
+
+  it("the theme lookup asks for a group's newest graduates, not its oldest 30", async () => {
+    const store = Datastore.open(":memory:");
+    // 40 graduates of one theme: token i graduated (40 - i) minutes before NOW, created 3 hours before it, so the earliest creates are the oldest graduates
+    const mints = launchMany(store, 40, (i) => ({ name: "Santa", creator: `s${String(i).padStart(3, "0")}`, createdMin: 180 - i, graduatedMin: 40 - i }));
+    const { client, calls } = fakeDex(new Map());
+    await recompute(store, client, 0);
+    expect(calls).toHaveLength(1);
+    expect(new Set(calls[0])).toEqual(new Set(mints.slice(10))); // the newest 30 graduated: tokens 10 to 39
   });
 
   it("lookups never exceed leaderCalls (30 tokens each), highest stored figure first", async () => {
@@ -610,12 +650,14 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     expect(failing.calls.length).toBeLessThanOrEqual(1 + cfg.leaderCalls); // the theme lookup plus at most leaderCalls
     expect(store.currentMetas()!.metas.map((m) => [m.key, m.leader.mint, m.leader.marketCapUsd, m.leader.stale])).toEqual([["jensen", J, 1_800_000, true]]);
 
-    // A pause longer than stateMaxMinutes: the stale state is not carried, and a failed lookup alone makes no Meta.
+    // A pause longer than stateMaxMinutes: the stale state is not carried. The graduations still make it a Meta, but a new one (new entry time), and with no
+    // figure to carry its latest graduate leads and the cap is a dash.
     const fourth = await recompute(store, fakeDex(new Map(), { failOn: () => true }).client, 30 + cfg.stateMaxMinutes + 1);
-    expect(fourth).toMatchObject({ metas: 0, watching: 0 });
+    expect(fourth).toMatchObject({ metas: 1, watching: 0 });
+    expect(store.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", enteredAt: T(30 + cfg.stateMaxMinutes + 1).toISOString(), leader: { marketCapUsd: 0, stale: false } });
   });
 
-  it("a stale Meta ends stateMaxMinutes after its figure was last read, though every run re-saves it (persistent failure, and leaderCalls 0)", async () => {
+  it("a stale figure ends stateMaxMinutes after it was last read, though every run re-saves it (persistent failure, and leaderCalls 0): the Meta stays, on its latest graduate", async () => {
     for (const mode of ["failing", "off"] as const) {
       const store = Datastore.open(":memory:");
       jensenWave(store);
@@ -626,19 +668,23 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       for (let at = 15; at <= 150; at += 15) {
         const dex = mode === "failing" ? fakeDex(new Map(), { failOn: () => true }).client : fakeDex(new Map()).client;
         seen.push((await recompute(store, dex, at, mode === "off" ? { leaderCalls: 0 } : {})).metas);
-        if (at === 120) expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ stale: true, freshAt: T(0).toISOString() });
+        if (at === 120) expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 3_000_000, stale: true, freshAt: T(0).toISOString() });
+        if (at === 135) expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 0, stale: false }); // the figure is 135 minutes old: dropped, a dash
+        expect(store.currentMetas()!.metas[0]!.enteredAt).toBe(T(0).toISOString()); // the Meta itself never ended: its graduations hold it
       }
-      expect(seen, mode).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 0, 0]); // carried through 120 minutes, gone at 135
+      expect(seen, mode).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     }
   });
 
-  it("with no client no Meta is created and none is lost", async () => {
+  it("with no client the Meta still stands on its graduations with a dash; a price later leads it, and losing the lookup keeps the figure (stale)", async () => {
     const store = Datastore.open(":memory:");
     jensenWave(store);
     const J = mintOf();
     trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
-    expect(await recompute(store, undefined, 0)).toMatchObject({ metas: 0, watching: 0, dexCalls: 0 });
+    expect(await recompute(store, undefined, 0)).toMatchObject({ metas: 1, watching: 0, dexCalls: 0 });
+    expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 0 });
     expect(await recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 5)).toMatchObject({ metas: 1 });
+    expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, marketCapUsd: 3_000_000, stale: false });
     expect(await recompute(store, undefined, 10)).toMatchObject({ metas: 1 });
     expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: J, stale: true });
   });
@@ -671,7 +717,7 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     };
     const run = (store: Datastore, dex: MetaDexClient | undefined, at: number, extra: Partial<RecomputeOptions> = {}) => recomputeWithRule(store, { now: T(at), dex, topDown: topDownOf(store), config: cfg, ...extra });
 
-    it("no Meta from an unverified token: one DexScreener cannot answer, or answers with $20 of volume, is not a leader; one within the filter at $7.05M is", async () => {
+    it("no leader from an unverified token: one DexScreener cannot answer, or answers with $20 of volume, is not a leader (the Meta shows a dash); one within the filter at $7.05M is", async () => {
       const store = Datastore.open(":memory:");
       jensenWave(store);
       const [silent, thin, real] = [mintOf(), mintOf(), mintOf()];
@@ -683,9 +729,9 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
         },
       };
       const first = logged();
-      expect(await run(store, dex, 0, { log: first.log })).toMatchObject({ metas: 0, watching: 0 });
+      expect(await run(store, dex, 0, { log: first.log })).toMatchObject({ metas: 1, watching: 0 });
       expect(first.lines).toContain("[meta] leader JTHIN failed verification: 24 h volume $20 under $50,000");
-      expect(store.currentMetas()!.metas).toEqual([]);
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ marketCapUsd: 0, source: "theme" }); // neither trending token leads: the wave's latest graduate does, no price
       const stored = store.meta.candidates(store.meta.current()!.runId);
       expect(stored.find((c) => c.mint === silent)).toMatchObject({ verified: false, reason: "failed verification: no DexScreener pair" });
       expect(stored.find((c) => c.mint === thin)).toMatchObject({ verified: false });
@@ -710,7 +756,8 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       const F = mintOf();
       trend(thin, F, "Jensen Huang ($JENSEN)", 7_000_000);
       const thinDex: MetaDexClient = { async tokenPairs() { return [pair(F, 5_000_000, { liquidityUsd: 20_000, volume24hUsd: 900_000 })]; } };
-      expect(await run(thin, thinDex, 0)).toMatchObject({ metas: 0 });
+      expect(await run(thin, thinDex, 0)).toMatchObject({ metas: 1 });
+      expect(thin.currentMetas()!.metas[0]!.leader.marketCapUsd).toBe(0);
     });
 
     it("the list's liquidity counts in the cap-to-liquidity test only for a Jupiter organic score of 50 or more: GTA VI (73) passes; a low score, or no score, is judged on DexScreener alone", async () => {
@@ -719,22 +766,30 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       const dex: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054, { liquidityUsd: 62_331, volume24hUsd: 746_088 })]; } };
       const fresh = () => {
         const s = Datastore.open(":memory:");
-        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}`, migratedAfterSec: 300 }));
         return s;
       };
       const real = fresh();
       expect(await run(real, dex, 0, { topDown: lists(271_000, 73) })).toMatchObject({ metas: 1 });
       expect(real.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: GTA_MINT, marketCapUsd: 7_670_054, source: "trending" });
       // the fake: inflated list liquidity, low score
+      // (the wave's 12 graduations make a Meta in every case; what changes is whether the GTA VI token leads it)
+      const leaderOf = (s: Datastore) => s.currentMetas()!.metas[0]!.leader;
       const low = logged();
-      expect(await run(fresh(), dex, 0, { topDown: lists(48_300_000, 12), log: low.log })).toMatchObject({ metas: 0 });
+      const lowStore = fresh();
+      expect(await run(lowStore, dex, 0, { topDown: lists(48_300_000, 12), log: low.log })).toMatchObject({ metas: 1 });
+      expect(leaderOf(lowStore)).toMatchObject({ marketCapUsd: 0, source: "theme" });
       expect(low.lines).toEqual(["[meta] leader GTA6 failed verification: cap 123x liquidity (over 100x)"]);
       // no score (GeckoTerminal only): DexScreener's liquidity alone
       const none = logged();
-      expect(await run(fresh(), dex, 0, { topDown: lists(48_300_000), log: none.log })).toMatchObject({ metas: 0 });
+      const noneStore = fresh();
+      expect(await run(noneStore, dex, 0, { topDown: lists(48_300_000), log: none.log })).toMatchObject({ metas: 1 });
+      expect(leaderOf(noneStore).mint).not.toBe(GTA_MINT);
       expect(none.lines).toEqual(low.lines);
       // the knob moves the line
-      expect(await run(fresh(), dex, 0, { topDown: lists(271_000, 73), config: { ...cfg, topDownMinOrganicScore: 80 } })).toMatchObject({ metas: 0 });
+      const strict = fresh();
+      expect(await run(strict, dex, 0, { topDown: lists(271_000, 73), config: { ...cfg, topDownMinOrganicScore: 80 } })).toMatchObject({ metas: 1 });
+      expect(leaderOf(strict).mint).not.toBe(GTA_MINT);
     });
 
     it("GTAVI (2026-11-17): its only DexScreener pair is unpriced, so the list's GeckoTerminal figures verify it, and a failure is logged once across ticks", async () => {
@@ -747,12 +802,12 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       });
       const fresh = () => {
         const s = Datastore.open(":memory:");
-        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTAVI", creator: `g${String(i).padStart(3, "0")}` }));
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTAVI", creator: `g${String(i).padStart(3, "0")}`, migratedAfterSec: 300 }));
         return s;
       };
       const ok = fresh();
       await run(ok, dex, 0, { topDown: lists(true) });
-      expect(ok.currentMetas()!.watching[0]!.leader).toMatchObject({ mint, marketCapUsd: 260_000, stale: false }); // $260K is under the Meta floor: Watching, but priced
+      expect(ok.currentMetas()!.metas[0]!.leader).toMatchObject({ mint, marketCapUsd: 260_000, stale: false }); // $260K: priced, and leads its Meta
       // no usable list liquidity: one reason, logged on the first tick only
       const log = logged();
       const store = fresh();
@@ -792,7 +847,7 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
       const thin: MetaDexClient = { async tokenPairs() { return [pair(GTA_MINT, 7_670_054, { liquidityUsd: 62_331, volume24hUsd: 746_088 })]; } };
       const twoTicks = async (organicScore: number) => {
         const s = Datastore.open(":memory:");
-        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}` }));
+        launchMany(s, 12, (i) => ({ name: "GTA VI", symbol: "GTA6", creator: `g${String(i).padStart(3, "0")}`, migratedAfterSec: 300 }));
         await run(s, deep, 0, { topDown: lists(organicScore) });
         await run(s, thin, 15, { topDown: lists(organicScore) });
         return s.currentMetas()!.metas[0]!.leader;
@@ -846,9 +901,10 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     it("with neither dex nor topDown the tick still works, and the launch themes and the themes' lookups are as before", async () => {
       const store = Datastore.open(":memory:");
       const mints = jensenWave(store);
-      expect(await recomputeWithRule(store, { now: T(0), config: cfg })).toMatchObject({ metas: 0, dexCalls: 0, topDown: { requests: 0, kept: 0, dropped: 0, errors: [] } });
-      // The theme lookup alone still makes a Meta (no top-down read involved).
+      expect(await recomputeWithRule(store, { now: T(0), config: cfg })).toMatchObject({ metas: 1, dexCalls: 0, topDown: { requests: 0, kept: 0, dropped: 0, errors: [] } }); // the graduations alone make the Meta
+      // The theme lookup alone prices its leader (no top-down read involved).
       expect(await recomputeWithRule(store, { now: T(1), dex: fakeDex(new Map([[mints[2] as string, 2_000_000]])).client, config: cfg })).toMatchObject({ metas: 1 });
+      expect(store.currentMetas()!.metas[0]!.leader).toMatchObject({ mint: mints[2], marketCapUsd: 2_000_000, source: "theme" });
     });
 
     it("stores every candidate it read, kept and dropped, with the reason, and prunes them with the run", async () => {
@@ -889,26 +945,27 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
     });
   });
 
-  describe("bonk launches count as copiers (ADR 0015 decision 3)", () => {
-    const wave = (store: Datastore, pump: number, bonk: number, name = "Jensen") => {
-      launchMany(store, pump, (i) => ({ name, creator: `p${String(i).padStart(3, "0")}` }));
-      launchMany(store, bonk, (i) => ({ name, creator: `b${String(i).padStart(3, "0")}`, pool: "bonk" }));
+  describe("bonk launches are copiers in the stored counts only, never graduations (ADR 0015 decision 3; graduation Meta ticket 01)", () => {
+    const wave = (store: Datastore, pump: number, bonk: number, name = "Jensen", graduate = true) => {
+      launchMany(store, pump, (i) => ({ name, creator: `p${String(i).padStart(3, "0")}`, ...(graduate ? { migratedAfterSec: 300 } : {}) }));
+      launchMany(store, bonk, (i) => ({ name, creator: `b${String(i).padStart(3, "0")}`, pool: "bonk", ...(graduate ? { migratedAfterSec: 300 } : {}) }));
     };
     const withLeader = async (store: Datastore) => {
       const J = mintOf();
       trend(store, J, "Jensen Huang ($JENSEN)", 3_000_000);
-      return recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 0, { minCopies: 11 });
+      return recompute(store, fakeDex(new Map([[J, 3_000_000]])).client, 0);
     };
 
-    it("a subject with 6 pump creators and 5 bonk creators has 11 copiers and is a Meta; with 6 and 3 it is not", async () => {
+    it("bonk creates add copiers to a Meta's stored counts but never a graduation: 12 pump graduations are a Meta whose counts show 17 creators; 6 pump and 5 bonk graduates are not", async () => {
       const yes = Datastore.open(":memory:");
-      wave(yes, 6, 5);
+      wave(yes, 12, 5);
       expect(await withLeader(yes)).toMatchObject({ metas: 1 });
-      expect(yes.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", counts: { "24h": { creators: 11, tokens: 11 } } }); // the stored counts include the bonk creators
+      expect(yes.currentMetas()!.metas[0]).toMatchObject({ key: "jensen", counts: { "24h": { creators: 17, tokens: 17 } }, grads: { "24h": 12, creators24h: 12 } }); // the stored counts include the bonk creators, the graduations do not
 
       const no = Datastore.open(":memory:");
-      wave(no, 6, 3);
-      expect(await withLeader(no)).toMatchObject({ metas: 0, watching: 0 });
+      wave(no, 6, 5);
+      expect(await withLeader(no)).toMatchObject({ metas: 0, watching: 1 }); // 6 pump graduations, whatever bonk migrate rows say
+      expect(no.currentMetas()!.watching[0]).toMatchObject({ grads: { "24h": 6 } });
     });
 
     it("the launch-theme rows, base rate, size floor and coverage are identical with and without bonk creates in the store", async () => {
@@ -931,16 +988,195 @@ describe("recomputeMetas: market-led Metas (ADR 0014, meta-redesign ticket 01)",
 
     it("a bonk token joins the group that holds one of its name or ticker keys; one whose keys point at two groups, or at none, joins neither", async () => {
       const store = Datastore.open(":memory:");
-      launchMany(store, 3, (i) => ({ name: "Alphaone", symbol: "ALPHAONE", creator: `a${i}` }));
+      launchMany(store, 10, (i) => ({ name: "Alphaone", symbol: "ALPHAONE", creator: `a${i}`, migratedAfterSec: 300 }));
       launchMany(store, 3, (i) => ({ name: "Betatwo", symbol: "BETATWO", creator: `c${i}` }));
       launchMany(store, 2, (i) => ({ name: "Something else", symbol: "ALPHAONE", creator: `e${i}`, pool: "bonk" })); // its ticker key is Alphaone's: joins
       launchMany(store, 2, (i) => ({ name: "Alphaone", symbol: "BETATWO", creator: `f${i}`, pool: "bonk" })); // two keys, two groups: joins neither
       launchMany(store, 2, (i) => ({ name: "Gammathree", symbol: "GAMMA", creator: `g${i}`, pool: "bonk" })); // no group at all
       const A = mintOf();
       trend(store, A, "Alphaone ($ALPHAONE)", 3_000_000);
-      await recompute(store, fakeDex(new Map([[A, 3_000_000]])).client, 0, { minCopies: 1 });
+      await recompute(store, fakeDex(new Map([[A, 3_000_000]])).client, 0);
       const m = store.currentMetas()!.metas.find((x) => x.key === "alphaone")!;
-      expect(m.counts["24h"]).toMatchObject({ creators: 5, tokens: 5 }); // 3 pump creators and the 2 bonk creators of the first kind
+      expect(m.counts["24h"]).toMatchObject({ creators: 12, tokens: 12 }); // 10 pump creators and the 2 bonk creators of the first kind
     });
+  });
+});
+
+describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
+  const cfg = { ...META_RULE, minTokens: 2, minCreators: 1 };
+  const T = (min: number) => new Date(NOW + min * 60_000);
+  const recompute = (store: Datastore, at = 0, extra: Partial<RecomputeOptions> = {}) => recomputeWithRule(store, { now: T(at), config: cfg, ...extra });
+  const metas = (store: Datastore) => store.currentMetas()!.metas;
+  const watching = (store: Datastore) => store.currentMetas()!.watching;
+  /** `count` graduates of one name, one creator each (or `creators` distinct ones), created 3 hours before NOW; graduation times come from `at(i)` in minutes before NOW. */
+  const wave = (store: Datastore, name: string, count: number, at: (i: number) => number, creators = count) =>
+    launchMany(store, count, (i) => ({ name, creator: `${name}-c${i % creators}`, createdMin: 180, graduatedMin: at(i) }));
+
+  it("10 graduations from 10 creators with 3 in the last 6 h and no priced token is a Meta, the latest graduate leading with the cap a dash", async () => {
+    const store = Datastore.open(":memory:");
+    const mints = wave(store, "Santa", 10, (i) => (i < 3 ? 30 : 400 + i * 60)); // 3 in the last hour, 7 spread over the rest of the day
+    await recompute(store, 0);
+    expect(metas(store)).toHaveLength(1);
+    expect(metas(store)[0]).toMatchObject({ key: "santa", holding: false, grads: { "24h": 10, "6h": 3, creators24h: 10 }, leader: { mint: mints[0], marketCapUsd: 0, source: "theme", stale: false } });
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("9 graduations make it Watching, not a Meta; 10 by one creator are not a Meta either; 10 with only 2 in the last 6 h are not", async () => {
+    const nine = Datastore.open(":memory:");
+    wave(nine, "Santa", 9, (i) => 30 + i);
+    await recompute(nine);
+    expect([metas(nine).length, watching(nine).map((w) => w.key)]).toEqual([0, ["santa"]]);
+
+    const oneCreator = Datastore.open(":memory:");
+    wave(oneCreator, "Santa", 10, (i) => 30 + i, 1);
+    await recompute(oneCreator);
+    expect([metas(oneCreator).length, watching(oneCreator).length]).toEqual([0, 1]);
+
+    const fewCreators = Datastore.open(":memory:");
+    wave(fewCreators, "Santa", 10, (i) => 30 + i, 5);
+    await recompute(fewCreators);
+    expect(metas(fewCreators)).toHaveLength(0);
+
+    const stale = Datastore.open(":memory:");
+    wave(stale, "Santa", 10, (i) => (i < 2 ? 30 : 600 + i)); // 2 in 6 h
+    await recompute(stale);
+    expect([metas(stale).length, watching(stale).length]).toEqual([0, 1]);
+  });
+
+  it("a Meta stays at 5 graduations and drops at 4, and its state is carried for stateMaxMinutes", async () => {
+    const store = Datastore.open(":memory:");
+    // 3 recent graduations and 7 older ones (24 h, 23 h, ... before NOW): as the ticks move on the old ones leave the 24 h window one by one
+    wave(store, "Santa", 10, (i) => (i < 3 ? 30 + i : 1440 - 60 * (i - 3)));
+    const seen: Array<[number, number, boolean]> = [];
+    let watchingAt315: Array<[string, number]> = [];
+    for (let at = 0; at <= 315; at += 15) {
+      await recompute(store, at);
+      if (at === 315) watchingAt315 = watching(store).map((w) => [w.key, w.grads!["24h"]]);
+      const m = metas(store)[0];
+      if (m) expect(m.enteredAt).toBe(T(0).toISOString()); // one Meta from the first run to the last
+      seen.push([at, m?.grads?.["24h"] ?? -1, m?.holding ?? false]);
+    }
+    const countsAt = (at: number) => seen.find((s) => s[0] === at)!;
+    expect(countsAt(0)).toEqual([0, 10, false]); // enters at 10
+    expect(countsAt(255)).toEqual([255, 5, true]); // stays at 5, holding, with its entry time
+    expect(seen.filter(([, , h]) => h).every(([at]) => at > 0)).toBe(true);
+    expect(countsAt(315)[1]).toBe(-1); // drops at 4: no Meta (3 in the last 6 h keep it Watching)
+    expect(watchingAt315).toEqual([["santa", 4]]);
+
+    // state is carried for stateMaxMinutes: the Meta at 10 graduations that no longer meets a stricter enter rule stays within 120 minutes and is not carried after 121
+    const strict = { ...cfg, metaMinGrads: 11, metaStayGrads: 5 };
+    const carried = Datastore.open(":memory:");
+    wave(carried, "Santa", 10, (i) => 30 + i);
+    await recompute(carried, 0);
+    await recompute(carried, cfg.stateMaxMinutes, { config: strict });
+    expect(metas(carried)[0]).toMatchObject({ key: "santa", holding: true, enteredAt: T(0).toISOString() });
+    const paused = Datastore.open(":memory:");
+    wave(paused, "Santa", 10, (i) => 30 + i);
+    await recompute(paused, 0);
+    await recompute(paused, cfg.stateMaxMinutes + 1, { config: strict });
+    expect(metas(paused)).toEqual([]);
+    expect(watching(paused)).toHaveLength(1);
+  });
+
+  it("the Christmas fixture: eleven themes, ten graduates from ten creators (three in the last 6 h) give one Meta 'Christmas' with 10 in 24 h, 3 in 6 h and 10 creators", async () => {
+    const store = Datastore.open(":memory:");
+    const themes = ["santa", "snowball", "xmas", "grinch", "goonmas", "christmas", "bullmas", "holdmas", "pepemas", "catemas", "fomomas"];
+    // Each theme has creates in the window (so it is a launch theme): three creators each, the graduates among them or created long ago
+    const make = (name: string, symbol: string, creator: string, createdMin: number, graduatedMin: number) => launch(store, { name, symbol, creator, createdMin, graduatedMin });
+    for (const t of themes) for (let i = 0; i < 3; i++) launch(store, { name: t, symbol: t.toUpperCase(), creator: `${t}-fan-${i}`, createdMin: 400 + i });
+    // six graduates whose create is in the window (they join their theme by mint), 3 of them in the last 6 h
+    make("Bullmas", "BULLMAS", "c01", 500, 100);
+    make("snowball", "SNOWBALL", "c02", 500, 200);
+    make("ChristmASS", "XMAS", "c03", 600, 300);
+    make("CATEMAS", "CATEMAS", "c04", 700, 700);
+    make("pepesanta", "PEPEMAS", "c05", 700, 800);
+    make("Snowball", "SNOWB", "c06", 800, 900);
+    // four late graduates of old creates (created two days ago): matched by the forms of their names
+    make("Santa Inu", "SINU", "c07", 3000, 1000);
+    make("snowball-v2", "SNOWBALL", "c08", 3000, 1100); // the hyphen drops out of the key (`snowballv2`), so its ticker is what names the subject
+    make("Saint Nicholas SANTA", "SANTA", "c09", 3000, 1200);
+    make("Christmas Inu", "CHRINU", "c10", 3000, 1300);
+    // a group token that is not a graduate and a bonk graduation do not count
+    launch(store, { name: "Santa Hat", symbol: "HAT", creator: "c11", createdMin: 100 });
+    launch(store, { name: "Santa Bonk", symbol: "BONKSANTA", creator: "c12", createdMin: 100, graduatedMin: 50, pool: "bonk" });
+    const group = async (input: GroupInput): Promise<GroupAnswer> => ({
+      subjects: [{ name: "Christmas", items: input.items.filter((i) => i.kind === "theme" && themes.includes(i.key)).map((i) => i.id) }],
+      inputHash: input.inputHash, computedAt: input.now.toISOString(), reused: false, costUsd: 0, brainRunId: null,
+    });
+    const r = await recompute(store, 0, { group });
+    expect(r.group).toMatchObject({ source: "ai", subjects: 1 });
+    expect(metas(store)).toHaveLength(1);
+    expect(metas(store)[0]).toMatchObject({ label: "Christmas", namedBy: "ai", grads: { "24h": 10, "6h": 3, creators24h: 10 } });
+    expect(metas(store)[0]!.themes!.map((t) => t.key).sort()).toEqual([...themes].sort());
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("a late graduate of an old create is counted, a bonk graduation is not", async () => {
+    const store = Datastore.open(":memory:");
+    launchMany(store, 9, (i) => ({ name: "Santa", creator: `s${i}`, createdMin: 120, graduatedMin: 30 + i }));
+    expect(await recompute(store, 0)).toMatchObject({ metas: 0 });
+    launch(store, { name: "Santa", creator: "late", createdMin: 5 * 24 * 60, graduatedMin: 20 }); // created five days ago, graduated now
+    launch(store, { name: "Santa", creator: "bonker", createdMin: 120, graduatedMin: 10, pool: "bonk" });
+    await recompute(store, 1);
+    expect(metas(store)[0]).toMatchObject({ key: "santa", grads: { "24h": 10, creators24h: 10 } });
+  });
+
+  it("at most 3 Metas, ranked by graduations in 24 h", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Alpha", 14, (i) => 30 + i);
+    wave(store, "Bravo", 12, (i) => 30 + i);
+    wave(store, "Charlie", 11, (i) => 30 + i);
+    wave(store, "Delta", 10, (i) => 30 + i);
+    await recompute(store, 0);
+    expect(metas(store).map((m) => m.key)).toEqual(["alpha", "bravo", "charlie"]);
+    expect(watching(store).map((m) => m.key)).toEqual(["delta"]);
+  });
+
+  it("a trending-list token no longer creates a Meta: it appears only as the leader inside its subject", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 12, (i) => 30 + i);
+    launchMany(store, 12, (i) => ({ name: "Quiet", creator: `q${i}` })); // a crowd of creates, no graduations
+    const big = mintOf();
+    const hot = mintOf();
+    const topDown = async (): Promise<TopDownResult> => ({
+      candidates: [
+        { mint: big, name: "Santa Claus", symbol: "SANTA", marketCapUsd: 30_000_000, liquidityUsd: 900_000, volume24hUsd: 900_000, sources: ["jupiter"], ranks: { jupiter: 1 } },
+        { mint: hot, name: "Quiet Hot", symbol: "QUIET", marketCapUsd: 40_000_000, liquidityUsd: 900_000, volume24hUsd: 900_000, sources: ["jupiter"], ranks: { jupiter: 2 } },
+      ],
+      dropped: [], requests: 1, errors: [],
+    });
+    const dex: MetaDexClient = { async tokenPairs(_c, addresses) { return addresses.flatMap((a) => (a === big ? [pair(a, 30_000_000)] : a === hot ? [pair(a, 40_000_000)] : [])); } };
+    await recompute(store, 0, { dex, topDown });
+    expect(metas(store).map((m) => m.key)).toEqual(["santa"]); // Quiet has the trending token at $40M and the creates, but no graduations
+    expect(metas(store)[0]!.leader).toMatchObject({ mint: big, marketCapUsd: 30_000_000, source: "trending" });
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("a thin window still qualifies and carries the coverage flag; a well-covered one carries none", async () => {
+    const thin = Datastore.open(":memory:");
+    wave(thin, "Santa", 10, (i) => 30 + i);
+    await recompute(thin);
+    expect(metas(thin)).toHaveLength(1);
+    expect(metas(thin)[0]!.grads!.coverage).toEqual({ covered: 1, of: 24 }); // one hour of the day had enough creates to count
+
+    const covered = Datastore.open(":memory:");
+    wave(covered, "Santa", 10, (i) => 30 + i);
+    for (let h = 0; h < 24; h++) launchMany(covered, 10, (i) => ({ name: `Filler ${h} ${i}`, symbol: `F${h}X${i}`, createdMin: h * 60 + 5 }));
+    await recompute(covered);
+    expect(metas(covered)[0]!.grads).not.toHaveProperty("coverage");
+  });
+
+  it("the graduation counts are stored in the counts JSON and read back through currentMetas, and the run's rule carries the six knobs", async () => {
+    const path = join(tempDir("meta-grads-"), "argus.db");
+    const store = Datastore.open(path);
+    wave(store, "Santa", 10, (i) => 30 + i);
+    await recompute(store);
+    store.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    const counts = JSON.parse((db.prepare("SELECT counts FROM meta_current WHERE kind = 'meta'").get() as { counts: string }).counts) as Record<string, unknown>;
+    const rule = JSON.parse((db.prepare("SELECT rule FROM meta_runs").get() as { rule: string }).rule) as Record<string, unknown>;
+    db.close();
+    expect(counts).toMatchObject({ grads: { "24h": 10, "6h": 10, creators24h: 10 }, "24h": { tokens: 10 } });
+    expect(rule).toMatchObject({ metaMinGrads: 10, metaStayGrads: 5, metaMinCreators: 6, metaLiveGrads6h: 3, watchMinGrads: 5, watchGrads6h: 3 });
   });
 });

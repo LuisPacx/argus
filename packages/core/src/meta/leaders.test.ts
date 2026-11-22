@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { META_RULE } from "./config.ts";
-import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
-import type { CurrentMeta, MetaCounts } from "./store.ts";
+import { carriedState, currentMetas, type LeaderGraduate, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
+import type { CurrentGrads, CurrentMeta, MetaCounts } from "./store.ts";
 
 const NOW = new Date("2026-11-15T15:35:00.000Z");
 const config = META_RULE;
@@ -11,16 +11,24 @@ const counts = (creators: number): Record<"6h" | "24h", MetaCounts> => ({
   "24h": { tokens: creators * 2, creators, migrations: 1, migrationsAfter60s: 1 },
 });
 
-/** A launch-theme subject: `key` is the group key, `names` are the names of its tokens. */
-const subject = (key: string, creators: number, names: string[] = [key], label = key): LeaderSubject => ({
-  key,
-  label,
-  counts: counts(creators),
-  topTokens: [],
-  tokens: names.map((name) => ({ name, symbol: name.toUpperCase().slice(0, 8) })),
-});
+const grads = (g24: number, g6 = Math.min(g24, 4), creators24h = g24): CurrentGrads => ({ "24h": g24, "6h": g6, creators24h, share: 0.1 });
 
 const mintOf = (n: string) => `${n}`.padEnd(40, "x") + "pump";
+
+/**
+ * A subject: `key` is the group key, `names` are the names of its tokens, `g` its graduations (a Meta with 12 in 24 h from 12 creators, 4 in 6 h, by
+ * default). It has one graduate (named after the key), so a Meta with no priced token has a leader to show.
+ */
+const subject = (key: string, g: CurrentGrads | number = 12, names: string[] = [key], over: Partial<LeaderSubject> = {}): LeaderSubject => ({
+  key,
+  label: key,
+  counts: counts(typeof g === "number" ? g : g["24h"]),
+  topTokens: [],
+  tokens: names.map((name) => ({ name, symbol: name.toUpperCase().slice(0, 8) })),
+  grads: typeof g === "number" ? grads(g) : g,
+  graduates: [{ mint: mintOf(`grad-${key}`.slice(0, 30)), name: `Grad ${key}`.slice(0, 40), symbol: "GRAD", migratedAt: new Date(NOW.getTime() - 45 * 60_000).toISOString() }],
+  ...over,
+});
 const token = (n: string, name: string, symbol: string, marketCapUsd: number, over: Partial<LeaderToken> = {}): LeaderToken => ({
   mint: mintOf(n),
   name,
@@ -31,8 +39,9 @@ const token = (n: string, name: string, symbol: string, marketCapUsd: number, ov
   freshAt: NOW.toISOString(),
   ...over,
 });
+const graduate = (n: string, name: string, symbol: string, minutesAgo: number): LeaderGraduate => ({ mint: mintOf(n), name, symbol, migratedAt: new Date(NOW.getTime() - minutesAgo * 60_000).toISOString() });
 
-const run = (over: { subjects: LeaderSubject[]; tokens: LeaderToken[]; previous?: PreviousMetas; grouped?: ReadonlySet<string>; now?: Date }) => currentMetas({ now: NOW, config, ...over });
+const run = (over: { subjects: LeaderSubject[]; tokens?: LeaderToken[]; previous?: PreviousMetas; grouped?: ReadonlySet<string>; now?: Date; config?: typeof config }) => currentMetas({ now: NOW, config, tokens: [], ...over });
 const keys = (rows: CurrentMeta[]) => rows.map((r) => r.key);
 
 /** A stored previous row for a subject whose leader was `lead`. */
@@ -52,147 +61,163 @@ const previousAt = (minutesAgo: number, metas: CurrentMeta[], watching: CurrentM
   watching,
 });
 
-describe("currentMetas: who is a Meta and who is Watching", () => {
-  const jensen = subject("jensen", 14, ["Jensen Huang", "Jensen", "Stand with Jensen"]);
+describe("currentMetas: who is a Meta and who is Watching (graduations, not market cap)", () => {
+  const jensen = (g: CurrentGrads | number) => subject("jensen", g, ["Jensen Huang", "Jensen", "Stand with Jensen"], { graduates: [graduate("g1", "Jensen Huang", "JENSEN", 30), graduate("g2", "Jensen", "JEN", 90)] });
 
-  it("a leader at $2.1M with 14 creators becomes a Meta; the same at $96k is Watching; at $2.1M with 9 creators it is neither", () => {
-    const big = run({ subjects: [jensen], tokens: [token("j", "Jensen Huang", "JENSEN", 2_100_000)] });
-    expect(keys(big.metas)).toEqual(["jensen"]);
-    expect(big.metas[0]).toMatchObject({ holding: false, enteredAt: NOW.toISOString(), leader: { symbol: "JENSEN", marketCapUsd: 2_100_000, stale: false }, counts: counts(14) });
-    expect(big.watching).toEqual([]);
-
-    const small = run({ subjects: [jensen], tokens: [token("j", "Jensen Huang", "JENSEN", 96_000)] });
-    expect(small.metas).toEqual([]);
-    expect(keys(small.watching)).toEqual(["jensen"]);
-
-    const few = run({ subjects: [subject("jensen", 9, ["Jensen"])], tokens: [token("j", "Jensen Huang", "JENSEN", 2_100_000)] });
-    expect(few).toEqual({ metas: [], watching: [] });
-  });
-
-  it("a Meta stays while its leader holds $500k (holding between the two caps), keeps its entry time, and a copy count below 10 does not end it", () => {
-    const lead = token("j", "Jensen Huang", "JENSEN", 800_000);
-    const before = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000));
-    const stays = run({ subjects: [jensen], tokens: [lead], previous: previousAt(15, [before]) });
-    expect(stays.metas[0]).toMatchObject({ key: "jensen", holding: true, enteredAt: "2026-11-15T09:00:00.000Z" });
-    expect(stays.watching).toEqual([]);
-
-    const fewCopies = run({ subjects: [subject("jensen", 3, ["Jensen"])], tokens: [lead], previous: previousAt(15, [before]) });
-    expect(keys(fewCopies.metas)).toEqual(["jensen"]);
-    expect(fewCopies.metas[0]!.counts["24h"].creators).toBe(3);
-  });
-
-  it("the same $800k leader that was not a Meta last run is Watching, and a Meta at $400k drops and competes for Watching", () => {
-    const lead = token("j", "Jensen Huang", "JENSEN", 800_000);
-    const never = run({ subjects: [jensen], tokens: [lead], previous: previousAt(15, []) });
-    expect(never.metas).toEqual([]);
-    expect(keys(never.watching)).toEqual(["jensen"]);
-
-    const dropped = run({ subjects: [jensen], tokens: [token("j", "Jensen Huang", "JENSEN", 400_000)], previous: previousAt(15, [prevRow("jensen", lead)]) });
-    expect(dropped.metas).toEqual([]);
-    expect(keys(dropped.watching)).toEqual(["jensen"]);
-    expect(dropped.watching[0]).toMatchObject({ holding: false, enteredAt: NOW.toISOString() });
-
-    const droppedNoCopies = run({ subjects: [subject("jensen", 4, ["Jensen"])], tokens: [token("j", "Jensen Huang", "JENSEN", 400_000)], previous: previousAt(15, [prevRow("jensen", lead)]) });
-    expect(droppedNoCopies).toEqual({ metas: [], watching: [] });
-  });
-
-  it("at most 3 Metas, highest cap first, ties by key; a fourth over $1M is not a Meta and not Watching", () => {
-    const names = ["alpha", "bravo", "charlie", "delta", "echo"];
-    const subjects = names.map((n) => subject(n, 12, [n]));
-    const tokens = [
-      token("1", "alpha", "ALPHA", 3_000_000),
-      token("2", "bravo", "BRAVO", 2_000_000),
-      token("3", "charlie", "CHARLIE", 2_000_000),
-      token("4", "delta", "DELTA", 1_500_000),
-      token("5", "echo", "ECHO", 700_000),
-    ];
-    const r = run({ subjects, tokens });
-    expect(keys(r.metas)).toEqual(["alpha", "bravo", "charlie"]);
-    expect(keys(r.watching)).toEqual(["echo"]);
-  });
-
-  it("Watching holds the top 3 below $1M, by cap, and never a Meta", () => {
-    const names = ["alpha", "bravo", "charlie", "delta", "echo"];
-    const subjects = names.map((n) => subject(n, 12, [n]));
-    const tokens = [
-      token("1", "alpha", "ALPHA", 1_200_000),
-      token("2", "bravo", "BRAVO", 900_000),
-      token("3", "charlie", "CHARLIE", 300_000),
-      token("4", "delta", "DELTA", 200_000),
-      token("5", "echo", "ECHO", 100_000),
-    ];
-    const r = run({ subjects, tokens });
-    expect(keys(r.metas)).toEqual(["alpha"]);
-    expect(keys(r.watching)).toEqual(["bravo", "charlie", "delta"]);
-  });
-
-  it("the knobs move the rule: a $2M enter cap, 12 copies, one Meta, no Watching", () => {
-    const subjects = [subject("alpha", 11, ["alpha"]), subject("bravo", 13, ["bravo"]), subject("charlie", 13, ["charlie"])];
-    const tokens = [token("1", "alpha", "ALPHA", 5_000_000), token("2", "bravo", "BRAVO", 2_500_000), token("3", "charlie", "CHARLIE", 1_500_000)];
-    const r = currentMetas({ subjects, tokens, now: NOW, config: { ...config, enterMcapUsd: 2_000_000, minCopies: 12, maxMetas: 1, watching: 0 } });
-    expect(keys(r.metas)).toEqual(["bravo"]);
+  it("10 graduations from 6 creators with 3 in the last 6 h is a Meta with no priced token: the latest graduate leads, its cap a dash", () => {
+    const r = run({ subjects: [jensen(grads(10, 3, 6))] });
+    expect(keys(r.metas)).toEqual(["jensen"]);
+    expect(r.metas[0]).toMatchObject({ holding: false, enteredAt: NOW.toISOString(), leader: { mint: mintOf("g1"), symbol: "JENSEN", marketCapUsd: 0, source: "theme", stale: false, freshAt: NOW.toISOString() }, grads: grads(10, 3, 6) });
     expect(r.watching).toEqual([]);
   });
 
-  it("a theme's own token needs no name match (groupKey), and the biggest token leads", () => {
+  it("9 graduations are Watching, not a Meta", () => {
+    const r = run({ subjects: [jensen(grads(9, 3, 9))] });
+    expect(r.metas).toEqual([]);
+    expect(keys(r.watching)).toEqual(["jensen"]);
+  });
+
+  it("10 graduations by one creator are not a Meta (Watching), and neither are 10 from 6 creators with only 2 in the last 6 h", () => {
+    const one = run({ subjects: [jensen(grads(10, 3, 1))] });
+    expect(one.metas).toEqual([]);
+    expect(keys(one.watching)).toEqual(["jensen"]);
+    const old = run({ subjects: [jensen(grads(10, 2, 6))] });
+    expect(old.metas).toEqual([]);
+    expect(keys(old.watching)).toEqual(["jensen"]);
+  });
+
+  it("a market cap changes nothing: a $96k leader and a $2.1M leader both lead a Meta, and neither makes one for a subject below the rule", () => {
+    const small = run({ subjects: [jensen(12)], tokens: [token("j", "Jensen Huang", "JENSEN", 96_000)] });
+    expect(small.metas[0]).toMatchObject({ key: "jensen", leader: { symbol: "JENSEN", marketCapUsd: 96_000, stale: false } });
+    const big = run({ subjects: [jensen(12)], tokens: [token("j", "Jensen Huang", "JENSEN", 2_100_000)] });
+    expect(big.metas[0]).toMatchObject({ key: "jensen", leader: { marketCapUsd: 2_100_000 } });
+    const few = run({ subjects: [jensen(grads(4, 1, 4))], tokens: [token("j", "Jensen Huang", "JENSEN", 2_100_000)] });
+    expect(few).toEqual({ metas: [], watching: [] });
+  });
+
+  it("a Meta stays at 5 graduations (holding, with its entry time) and drops at 4; below 5 it is Watching only with 3 in the last 6 h", () => {
+    const before = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000));
+    const at5 = run({ subjects: [jensen(grads(5, 1, 3))], previous: previousAt(15, [before]) });
+    expect(at5.metas[0]).toMatchObject({ key: "jensen", holding: true, enteredAt: "2026-11-15T09:00:00.000Z" });
+    expect(at5.watching).toEqual([]);
+
+    const at4 = run({ subjects: [jensen(grads(4, 1, 3))], previous: previousAt(15, [before]) });
+    expect(at4).toEqual({ metas: [], watching: [] });
+    const at4Live = run({ subjects: [jensen(grads(4, 3, 3))], previous: previousAt(15, [before]) });
+    expect(at4Live.metas).toEqual([]);
+    expect(at4Live.watching[0]).toMatchObject({ key: "jensen", holding: false, enteredAt: NOW.toISOString() });
+  });
+
+  it("a subject at 5 graduations that was not a Meta last run is only Watching, and a Meta that meets the enter rule again is not holding", () => {
+    const never = run({ subjects: [jensen(grads(7, 1, 6))], previous: previousAt(15, []) });
+    expect(never.metas).toEqual([]);
+    expect(keys(never.watching)).toEqual(["jensen"]);
+    const again = run({ subjects: [jensen(grads(10, 3, 6))], previous: previousAt(15, [prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 900_000))]) });
+    expect(again.metas[0]).toMatchObject({ holding: false, enteredAt: "2026-11-15T09:00:00.000Z" });
+  });
+
+  it("the state is carried for stateMaxMinutes: a Meta at 5 graduations stays after 120 minutes, and is a new subject after 121", () => {
+    const row = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_300_000));
+    const within = run({ subjects: [jensen(grads(5, 1, 3))], previous: previousAt(config.stateMaxMinutes, [row]) });
+    expect(keys(within.metas)).toEqual(["jensen"]);
+    const paused = run({ subjects: [jensen(grads(5, 1, 3))], previous: previousAt(config.stateMaxMinutes + 1, [row]) });
+    expect(paused.metas).toEqual([]);
+    expect(keys(paused.watching)).toEqual(["jensen"]);
+  });
+
+  it("at most 3 Metas, most graduations in 24 h first, then in 6 h, then creators; the fourth is Watching", () => {
+    const subjects = [subject("alpha", grads(14, 3, 10)), subject("bravo", grads(12, 5, 12)), subject("charlie", grads(12, 4, 12)), subject("delta", grads(12, 4, 9)), subject("echo", grads(12, 3, 8))];
+    const r = run({ subjects });
+    expect(keys(r.metas)).toEqual(["alpha", "bravo", "charlie"]);
+    expect(keys(r.watching)).toEqual(["delta", "echo"]);
+  });
+
+  it("Watching holds the top 3 by graduations in 6 h, then 24 h, and never a Meta", () => {
+    const subjects = [subject("alpha", grads(12, 4, 12)), subject("bravo", grads(6, 2, 6)), subject("charlie", grads(5, 4, 5)), subject("delta", grads(8, 3, 8)), subject("echo", grads(5, 1, 5)), subject("foxtrot", grads(4, 2, 4))];
+    const r = run({ subjects });
+    expect(keys(r.metas)).toEqual(["alpha"]);
+    expect(keys(r.watching)).toEqual(["charlie", "delta", "bravo"]); // 6 h: 4, 3, 2; echo (1 in 6 h) and foxtrot (4 in 24 h) are under a rule
+  });
+
+  it("the knobs move the rule: 12 graduations, 8 creators, one Meta, no Watching", () => {
+    const subjects = [subject("alpha", grads(11, 4, 11)), subject("bravo", grads(13, 4, 7)), subject("charlie", grads(13, 4, 13)), subject("delta", grads(13, 4, 13))];
+    const r = currentMetas({ subjects, tokens: [], now: NOW, config: { ...config, metaMinGrads: 12, metaMinCreators: 8, maxMetas: 1, watching: 0 } });
+    expect(keys(r.metas)).toEqual(["charlie"]); // 13 graduations, 13 creators; delta ties it and loses on the key
+    expect(r.watching).toEqual([]);
+  });
+
+  it("a theme's own token needs no name match (groupKey), and the highest-priced token leads", () => {
     const s = subject("gta6", 40, ["GTA 6 Cat", "GTA VI"]);
     const r = run({ subjects: [s], tokens: [token("a", "Mi", "M", 1_100_000, { source: "theme", groupKey: "gta6" }), token("b", "Whatever", "W", 400_000, { source: "theme", groupKey: "gta6" })] });
     expect(r.metas[0]).toMatchObject({ key: "gta6", leader: { symbol: "M", source: "theme" } });
   });
+
+  it("a graduate of the subject that has a price leads it, whatever its name, and beats the latest unpriced graduate", () => {
+    const s = subject("santa", 12, ["Santa"], { graduates: [graduate("late", "Late One", "LATE", 5), graduate("old", "Odd Name", "ODD", 600)] });
+    const r = run({ subjects: [s], tokens: [token("old", "Odd Name", "ODD", 250_000)] });
+    expect(r.metas[0]!.leader).toMatchObject({ mint: mintOf("old"), marketCapUsd: 250_000 });
+    const none = run({ subjects: [s] });
+    expect(none.metas[0]!.leader).toMatchObject({ mint: mintOf("late"), marketCapUsd: 0 });
+  });
+
+  it("a trending token never makes a Meta: it leads only a subject that has the graduations", () => {
+    const trending = token("t", "Jensen Huang", "JENSEN", 90_000_000);
+    expect(run({ subjects: [jensen(grads(3, 1, 3))], tokens: [trending] })).toEqual({ metas: [], watching: [] });
+    expect(run({ subjects: [jensen(12)], tokens: [trending] }).metas[0]!.leader).toMatchObject({ mint: trending.mint, marketCapUsd: 90_000_000 });
+  });
 });
 
-describe("currentMetas: replay of run 143", () => {
-  // Run 143: the 24 h window held 50 rows, none at or above $250k; the live leader was the Jensen token at $96k (11-14), another Jensen token at $95k, a $1.7k one.
-  const jensen = subject("jensen", 12, ["Jensen Huang", "Jensen", "Stand with Jensen", "Jensen Coin"]);
-  const others = [subject("ni hao", 156, ["Ni Hao Cat", "Mi Hao"]), subject("gta6", 65, ["GTA 6 Cat", "GTA VI"]), subject("astralis", 4, ["ASTRALIS"])];
+describe("currentMetas: replay of run 143 under the graduation rule", () => {
+  // Run 143: the Jensen token led at $96k with 12 copy creators, and no leader reached $250k. Market cap no longer decides: Jensen is a Meta only when
+  // 10 or more tokens graduated on it; the big launch themes that had no graduations (ni hao, gta6) are neither Meta nor Watching.
+  const jensenWave = subject("jensen", grads(12, 4, 12), ["Jensen Huang", "Jensen", "Stand with Jensen", "Jensen Coin"]);
+  const others = [subject("ni hao", grads(0, 0, 0), ["Ni Hao Cat", "Mi Hao"]), subject("gta6", grads(2, 0, 2), ["GTA 6 Cat", "GTA VI"]), subject("astralis", grads(0, 0, 0), ["ASTRALIS"])];
   const lowCaps = [
     token("n", "Ni Hao Cat", "NIHAO", 93_000, { source: "theme", groupKey: "ni hao" }),
     token("g", "GTA VI", "GTA6", 41_000, { source: "theme", groupKey: "gta6" }),
   ];
 
-  it("no leader at or above $250k and Jensen at $96k: no Meta, and Jensen is Watching with its copies", () => {
-    const r = run({
-      subjects: [...others, jensen],
-      tokens: [...lowCaps, token("j", "Jensen Huang", "JENSEN", 96_000), token("s", "Stand with Jensen", "STAND", 95_000), token("a", "ASTRALIS", "ASTRALIS", 1_700)],
-    });
-    expect(r.metas).toEqual([]);
-    expect(keys(r.watching)).toEqual(["jensen", "ni hao", "gta6"]);
-    expect(r.watching[0]!.leader).toMatchObject({ symbol: "JENSEN", marketCapUsd: 96_000 });
+  it("Jensen at $96k is a Meta on its 12 graduations; a launch theme with a bigger crowd but no graduations is nothing", () => {
+    const r = run({ subjects: [...others, jensenWave], tokens: [...lowCaps, token("j", "Jensen Huang", "JENSEN", 96_000), token("s", "Stand with Jensen", "STAND", 95_000), token("a", "ASTRALIS", "ASTRALIS", 1_700)] });
+    expect(keys(r.metas)).toEqual(["jensen"]);
+    expect(r.metas[0]!.leader).toMatchObject({ symbol: "JENSEN", marketCapUsd: 96_000 });
+    expect(r.watching).toEqual([]);
   });
 
-  it("the same fixture with the Jensen leader at $2M gives one Meta", () => {
-    const r = run({ subjects: [...others, jensen], tokens: [...lowCaps, token("j", "Jensen Huang", "JENSEN", 2_000_000), token("s", "Stand with Jensen", "STAND", 95_000)] });
+  it("the same fixture with the Jensen leader at $2M changes only the leader's figure", () => {
+    const r = run({ subjects: [...others, jensenWave], tokens: [...lowCaps, token("j", "Jensen Huang", "JENSEN", 2_000_000), token("s", "Stand with Jensen", "STAND", 95_000)] });
     expect(keys(r.metas)).toEqual(["jensen"]);
-    expect(r.metas[0]!.leader.symbol).toBe("JENSEN");
-    expect(keys(r.watching)).toEqual(["ni hao", "gta6"]);
+    expect(r.metas[0]!.leader).toMatchObject({ symbol: "JENSEN", marketCapUsd: 2_000_000 });
   });
 });
 
 describe("currentMetas: matching a leader to the subject that copies it", () => {
   it("a token of any age matches the group that names it: Jensen Huang ($JENSEN) matches the jensen group by its ticker form", () => {
-    const r = run({ subjects: [subject("jensen", 14, ["Jensen Huang"]), subject("other", 20, ["Other"])], tokens: [token("j", "Jensen Huang", "JENSEN", 1_500_000)] });
-    expect(keys(r.metas)).toEqual(["jensen"]);
+    const r = run({ subjects: [subject("jensen", 14, ["Jensen Huang"]), subject("other", 12, ["Other"])], tokens: [token("j", "Jensen Huang", "JENSEN", 1_500_000)] });
+    expect(r.metas.find((m) => m.key === "jensen")!.leader.marketCapUsd).toBe(1_500_000);
+    expect(r.metas.find((m) => m.key === "other")!.leader.marketCapUsd).toBe(0);
   });
 
   it("matches through a whole name of one of the group's tokens, spaces removed", () => {
     const r = run({ subjects: [subject("nihao", 30, ["Mi Hao Cat", "Ni Hao"])], tokens: [token("n", "NiHao", "NH", 1_500_000)] });
-    expect(keys(r.metas)).toEqual(["nihao"]);
+    expect(r.metas[0]!.leader.marketCapUsd).toBe(1_500_000);
   });
 
   it("a generic key and a key under 4 characters never match", () => {
     const r = run({ subjects: [subject("ai", 50, ["AI"]), subject("gpt", 50, ["GPT"]), subject("coin", 50, ["Coin"])], tokens: [token("a", "AI", "AI", 5_000_000), token("g", "GPT", "GPT", 5_000_000), token("c", "Coin", "COIN", 5_000_000)] });
-    expect(r).toEqual({ metas: [], watching: [] });
+    expect(r.metas.map((m) => m.leader.marketCapUsd)).toEqual([0, 0, 0]); // the subjects qualify on graduations; none of the tokens names one
   });
 
-  it("a token that names two eligible subjects goes to the one with more creators, then the smaller key", () => {
+  it("a token that names two subjects goes to the one with more graduations, then the smaller key", () => {
     const subjects = [subject("moon", 12, ["Moon Cat"]), subject("mooncat", 25, ["Moon Cat"])];
-    expect(keys(run({ subjects, tokens: [token("m", "Moon Cat", "MCAT", 2_000_000)] }).metas)).toEqual(["mooncat"]);
+    const led = (rows: CurrentMeta[]) => rows.filter((m) => m.leader.marketCapUsd > 0).map((m) => m.key);
+    expect(led(run({ subjects, tokens: [token("m", "Moon Cat", "MCAT", 2_000_000)] }).metas)).toEqual(["mooncat"]);
     const tied = [subject("moon", 12, ["Moon Cat"]), subject("mooncat", 12, ["Moon Cat"])];
-    expect(keys(run({ subjects: tied, tokens: [token("m", "Moon Cat", "MCAT", 2_000_000)] }).metas)).toEqual(["moon"]);
+    expect(led(run({ subjects: tied, tokens: [token("m", "Moon Cat", "MCAT", 2_000_000)] }).metas)).toEqual(["moon"]);
   });
 
-  it("a token matching only a group below the copies rule is not led by it", () => {
-    const r = run({ subjects: [subject("jensen", 3, ["Jensen"])], tokens: [token("j", "Jensen Huang", "JENSEN", 5_000_000)] });
+  it("a token matching only a subject below the graduation rules does not lead it", () => {
+    const r = run({ subjects: [subject("jensen", grads(3, 1, 3), ["Jensen"])], tokens: [token("j", "Jensen Huang", "JENSEN", 5_000_000)] });
     expect(r).toEqual({ metas: [], watching: [] });
   });
 
@@ -203,7 +228,7 @@ describe("currentMetas: matching a leader to the subject that copies it", () => 
     const r = run({ subjects, tokens: [token("e", "z".repeat(10_000), "(q+)+$[".repeat(1_500), 3_000_000), token("x", "y".repeat(10_000), ".*".repeat(5_000), 2_000_000), token("j", "Jensen!", "(jensen)+$", 1_200_000)] });
     expect(performance.now() - t0).toBeLessThan(2_000);
     // The hostile tokens name no subject; the metacharacters are plain characters and drop out of the key.
-    expect(r.metas.map((m) => [m.key, m.leader.mint])).toEqual([["jensen", mintOf("j")]]);
+    expect(r.metas.filter((m) => m.leader.marketCapUsd > 0).map((m) => [m.key, m.leader.mint])).toEqual([["jensen", mintOf("j")]]);
   });
 });
 
@@ -217,7 +242,7 @@ describe("currentMetas: an off-subject large-cap token cannot lead a Meta (ticke
   const gtaTokens = gtaNames.flatMap(([name, symbol, n]) => Array.from({ length: n }, () => ({ name, symbol })));
   const filler = Array.from({ length: 559 - gtaTokens.length - 2 }, (_, i) => ({ name: `GTA 6 Rp${i}`, symbol: `GTA6RP${i}` }));
   const spam = [{ name: "dacity coin", symbol: "fartcoin" }, { name: "dacity coin", symbol: "fartcoin" }];
-  const gta6: LeaderSubject = { key: "gta6", label: "GTA6", counts: counts(244), topTokens: [], tokens: [...gtaTokens, ...filler, ...spam] };
+  const gta6: LeaderSubject = { key: "gta6", label: "GTA6", counts: counts(244), topTokens: [], tokens: [...gtaTokens, ...filler, ...spam], grads: grads(40, 6, 30), graduates: [graduate("gradlast", "GTA 6 Latest", "GTA6L", 20)] };
   const gtaVi = token("gtavi", "GTA VI", "GTA VI", 15_550_730, { groupKey: "gta6" });
   const fartcoin = token("fart", "Fartcoin", "Fartcoin", 90_226_224);
 
@@ -227,8 +252,9 @@ describe("currentMetas: an off-subject large-cap token cannot lead a Meta (ticke
     expect(r.metas.map((m) => [m.key, m.leader.mint])).toEqual([["gta6", gtaVi.mint]]);
   });
 
-  it("a Fartcoin that is the only priced token leads nothing: no Meta, no Watching", () => {
-    expect(run({ subjects: [gta6], tokens: [fartcoin] })).toEqual({ metas: [], watching: [] });
+  it("a Fartcoin that is the only priced token leads nothing: the Meta shows the subject's latest graduate and a dash", () => {
+    const r = run({ subjects: [gta6], tokens: [fartcoin] });
+    expect(r.metas.map((m) => [m.key, m.leader.mint, m.leader.marketCapUsd])).toEqual([["gta6", mintOf("gradlast"), 0]]);
   });
 
   it("a Meta that already has Fartcoin as its leader corrects itself on the next AI-grouped run (the live state of run 446)", () => {
@@ -258,38 +284,42 @@ describe("currentMetas: an off-subject large-cap token cannot lead a Meta (ticke
 });
 
 describe("currentMetas: stale figures and carried state", () => {
-  const jensen = subject("jensen", 14, ["Jensen Huang", "Jensen"]);
+  const jensen = subject("jensen", 14, ["Jensen Huang", "Jensen"], { graduates: [graduate("g1", "Jensen Late", "JLATE", 10)] });
   const lead = token("j", "Jensen Huang", "JENSEN", 1_300_000);
 
   it("a previous Meta whose leader was not looked up this run stays at its last figure, marked stale", () => {
-    const r = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [prevRow("jensen", lead)]) });
+    const r = run({ subjects: [jensen], previous: previousAt(15, [prevRow("jensen", lead)]) });
     expect(r.metas[0]).toMatchObject({ key: "jensen", leader: { mint: lead.mint, marketCapUsd: 1_300_000, stale: true }, holding: false });
   });
 
-  it("a stale carry ends stateMaxMinutes after the figure was last read, however recent the run that re-saved it", () => {
+  it("a stale figure expires stateMaxMinutes after it was last read, however recent the run that re-saved it: the Meta stays, on the latest graduate and a dash", () => {
     const aged = (minutes: number) => prevRow("jensen", lead, { leader: { ...prevRow("jensen", lead).leader, stale: true, freshAt: new Date(NOW.getTime() - minutes * 60_000).toISOString() } });
     // the previous run was 15 minutes ago (it carried the row again), the figure is older
-    const edge = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [aged(config.stateMaxMinutes)]) });
-    expect(edge.metas[0]).toMatchObject({ key: "jensen", leader: { stale: true, freshAt: new Date(NOW.getTime() - config.stateMaxMinutes * 60_000).toISOString() } });
-    const past = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
-    expect(past).toEqual({ metas: [], watching: [] });
-    // a Watching row expires the same way, and carriedState says which rows survive
-    const kept = carriedState(previousAt(15, [aged(config.stateMaxMinutes + 1)], [aged(5)]), NOW, config.stateMaxMinutes)!;
-    expect([kept.metas.length, kept.watching.length]).toEqual([0, 1]);
-    // a fresh reading is not a carry: the expired row is gone (new entry time), and the enter rule alone decides
+    const edge = run({ subjects: [jensen], previous: previousAt(15, [aged(config.stateMaxMinutes)]) });
+    expect(edge.metas[0]).toMatchObject({ key: "jensen", leader: { mint: lead.mint, marketCapUsd: 1_300_000, stale: true, freshAt: new Date(NOW.getTime() - config.stateMaxMinutes * 60_000).toISOString() } });
+    const past = run({ subjects: [jensen], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
+    expect(past.metas[0]).toMatchObject({ key: "jensen", enteredAt: "2026-11-15T09:00:00.000Z", leader: { mint: mintOf("g1"), marketCapUsd: 0, stale: false } });
+    // a fresh reading is not a carry
     const again = run({ subjects: [jensen], tokens: [{ ...lead, marketCapUsd: 1_100_000 }], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
-    expect(again.metas[0]).toMatchObject({ key: "jensen", enteredAt: NOW.toISOString(), leader: { stale: false, freshAt: NOW.toISOString() } });
-    const below = run({ subjects: [jensen], tokens: [{ ...lead, marketCapUsd: 700_000 }], previous: previousAt(15, [aged(config.stateMaxMinutes + 1)]) });
-    expect(below.metas).toEqual([]); // holding needs a live previous row
+    expect(again.metas[0]).toMatchObject({ key: "jensen", leader: { marketCapUsd: 1_100_000, stale: false, freshAt: NOW.toISOString() } });
   });
 
-  it("a stale figure never creates a Meta: a previous Watching leader carried at $1.2M stays out", () => {
+  it("carriedState keeps a run within stateMaxMinutes whole, whatever its leaders' figures, and drops an older or unreadable one", () => {
+    const old = previousAt(config.stateMaxMinutes + 1, [prevRow("jensen", lead)]);
+    expect(carriedState(old, NOW, config.stateMaxMinutes)).toBeUndefined();
+    const edge = previousAt(config.stateMaxMinutes, [prevRow("jensen", lead)], [prevRow("jensen", lead)]);
+    expect(carriedState(edge, NOW, config.stateMaxMinutes)).toBe(edge);
+    expect(carriedState({ ...old, computedAt: "nonsense" }, NOW, 120)).toBeUndefined();
+    expect(carriedState(undefined, NOW, 120)).toBeUndefined();
+  });
+
+  it("a Meta needs no figure: a stale Watching leader never creates a Meta, and a subject with graduations and no price is a Meta with a dash", () => {
     const watchingRow = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 1_200_000));
-    const r = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [], [watchingRow]) });
+    const r = run({ subjects: [subject("jensen", grads(7, 1, 7), ["Jensen"], { graduates: [graduate("g1", "Jensen Late", "JLATE", 10)] })], previous: previousAt(15, [], [watchingRow]) });
     expect(r.metas).toEqual([]);
-    expect(r.watching).toEqual([]); // not below $1M either: a $1.2M figure is not Watching
-    const below = run({ subjects: [jensen], tokens: [], previous: previousAt(15, [], [prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 90_000))]) });
-    expect(below.watching[0]).toMatchObject({ key: "jensen", leader: { stale: true, marketCapUsd: 90_000 } });
+    expect(r.watching[0]).toMatchObject({ key: "jensen", leader: { mint: lead.mint, stale: true, marketCapUsd: 1_200_000 } });
+    const plain = run({ subjects: [jensen] });
+    expect(plain.metas[0]!.leader).toMatchObject({ mint: mintOf("g1"), marketCapUsd: 0 });
   });
 
   it("a fresh figure replaces the stale one, and a fresh lower token never drops a stale Meta below its last cap", () => {
@@ -297,36 +327,28 @@ describe("currentMetas: stale figures and carried state", () => {
     const r = run({ subjects: [jensen], tokens: [lower], previous: previousAt(15, [prevRow("jensen", lead)]) });
     expect(r.metas[0]!.leader).toMatchObject({ mint: lead.mint, stale: true, marketCapUsd: 1_300_000 });
     const fresh = run({ subjects: [jensen], tokens: [{ ...lead, marketCapUsd: 520_000 }], previous: previousAt(15, [prevRow("jensen", lead)]) });
-    expect(fresh.metas[0]).toMatchObject({ holding: true, leader: { marketCapUsd: 520_000, stale: false } });
+    expect(fresh.metas[0]).toMatchObject({ leader: { marketCapUsd: 520_000, stale: false } });
   });
 
-  it("state older than stateMaxMinutes (a pause) is not carried: the $800k Meta is plain Watching again", () => {
+  it("state older than stateMaxMinutes (a pause) is not carried: the Meta at 7 graduations is plain Watching again", () => {
     const old = previousAt(config.stateMaxMinutes + 1, [prevRow("jensen", lead)]);
-    expect(carriedState(old, NOW, config.stateMaxMinutes)).toBeUndefined();
-    expect(carriedState(previousAt(config.stateMaxMinutes, []), NOW, config.stateMaxMinutes)).toBeDefined();
-    expect(carriedState({ ...old, computedAt: "nonsense" }, NOW, 120)).toBeUndefined();
-    const r = run({ subjects: [jensen], tokens: [token("j", "Jensen Huang", "JENSEN", 800_000)], previous: old });
+    const r = run({ subjects: [subject("jensen", grads(7, 1, 7), ["Jensen"])], tokens: [token("j", "Jensen Huang", "JENSEN", 800_000)], previous: old });
     expect(r.metas).toEqual([]);
     expect(keys(r.watching)).toEqual(["jensen"]);
-    const gone = run({ subjects: [jensen], tokens: [], previous: old });
-    expect(gone).toEqual({ metas: [], watching: [] });
+    const gone = run({ subjects: [jensen], previous: old });
+    expect(gone.metas[0]!.enteredAt).toBe(NOW.toISOString());
   });
 
-  it("a Meta whose launch wave is over (no group left) stays on its leader's cap with zero counts", () => {
+  it("a Meta whose subject no longer exists (no graduations left to count) ends, and a Meta whose group key changed is continued by its leader's name", () => {
     const row = prevRow("jensen", lead, { label: "Jensen Huang", topTokens: [{ mint: lead.mint, name: "Jensen Huang", symbol: "JENSEN" }] });
-    const r = run({ subjects: [], tokens: [{ ...lead, marketCapUsd: 900_000 }], previous: previousAt(15, [row]) });
-    expect(r.metas[0]).toMatchObject({ key: "jensen", label: "Jensen Huang", holding: true, counts: { "24h": { tokens: 0, creators: 0 } }, enteredAt: row.enteredAt });
-    expect(r.metas[0]!.topTokens).toHaveLength(1);
-  });
-
-  it("a Meta whose group key changed is continued by its leader's name", () => {
-    const r = run({ subjects: [subject("jensen huang", 14, ["Jensen Huang"])], tokens: [{ ...lead, marketCapUsd: 700_000 }], previous: previousAt(15, [prevRow("jensen", lead)]) });
+    expect(run({ subjects: [], tokens: [{ ...lead, marketCapUsd: 900_000 }], previous: previousAt(15, [row]) })).toEqual({ metas: [], watching: [] });
+    const r = run({ subjects: [subject("jensen huang", grads(7, 1, 7), ["Jensen Huang"])], tokens: [{ ...lead, marketCapUsd: 700_000 }], previous: previousAt(15, [prevRow("jensen", lead)]) });
     expect(r.metas[0]).toMatchObject({ key: "jensen huang", holding: true, enteredAt: "2026-11-15T09:00:00.000Z" });
   });
 
   it("a Watching subject keeps its entry time while it stays Watching", () => {
     const w = prevRow("jensen", token("j", "Jensen Huang", "JENSEN", 90_000), { enteredAt: "2026-11-15T12:00:00.000Z" });
-    const r = run({ subjects: [jensen], tokens: [token("j", "Jensen Huang", "JENSEN", 96_000)], previous: previousAt(15, [], [w]) });
+    const r = run({ subjects: [subject("jensen", grads(6, 1, 6), ["Jensen Huang"])], tokens: [token("j", "Jensen Huang", "JENSEN", 96_000)], previous: previousAt(15, [], [w]) });
     expect(r.watching[0]!.enteredAt).toBe("2026-11-15T12:00:00.000Z");
   });
 });
