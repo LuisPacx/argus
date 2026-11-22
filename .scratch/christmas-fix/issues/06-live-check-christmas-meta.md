@@ -12,3 +12,4 @@ Status: ready-for-agent
 - [ ] The last box of `.scratch/graduation-meta/issues/01-graduation-count-meta-rule.md` is ticked once the check passes.
 
 ## Comments
+- 2026-11-22 18:07 [d37fa1ed] From 04 review: test CATEMAS joins only via hand-fed memberKeys ['mas']; no word-level stem matches it. Live check must confirm CATEMAS really joins Christmas on real data.

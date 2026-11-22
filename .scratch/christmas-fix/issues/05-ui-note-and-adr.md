@@ -5,11 +5,17 @@
 
 **Blocked by:** 04
 
-Status: ready-for-agent
-- [ ] The Meta page shows the blend note for a subject with blended graduates and none for a subject without.
-- [ ] The ADR exists with the next free number, lists every default above and names ADR 0018 as amended.
-- [ ] GLOSSARY.md and the architecture doc mention the blend pass in one place each, using the codebase's terms (subject, graduation, Meta, Watching).
-- [ ] The ADR does not contradict ADR 0012 (plain code decides) or ADR 0002 (nothing launches or signs).
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+Status: done
+- [x] The Meta page shows the blend note for a subject with blended graduates and none for a subject without.
+- [x] The ADR exists with the next free number, lists every default above and names ADR 0018 as amended.
+- [x] GLOSSARY.md and the architecture doc mention the blend pass in one place each, using the codebase's terms (subject, graduation, Meta, Watching).
+- [x] The ADR does not contradict ADR 0012 (plain code decides) or ADR 0002 (nothing launches or signs).
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-22 19:10 [d37fa1ed] Dispatched: Sonnet medium, branch christmas-05 in ~/.cache/argus-scratch/christmas-05. Next: verifier + reviewer, then ff-merge; then 06 live check.
+- 2026-11-22 19:13 [d37fa1ed] Worker 1 died (context thrash, likely a large read/output) with uncommitted edits in 6 files (api.ts, graduates.ts, store.ts, CurrentMeta.vue, meta.ts, render test), no ADR yet. Fresh Sonnet medium resumes in same tree.
+- 2026-11-22 19:21 [d37fa1ed] Worker 2: committed on christmas-05 (ADR 0019, blend note, glossary, architecture); pnpm check green 4237/4237. Boxes not ticked; needs verifier+reviewer, then ff-merge.
+- 2026-11-22 19:22 [d37fa1ed] 910b272 on christmas-05 (ADR 0019; worker check 4237/4237, lint not run separately). Haiku verifier (lint, check, parent-fail) + Sonnet reviewer running; ff-merge on pass.
+- 2026-11-22 19:23 [d37fa1ed] Review a76af4f..910b272: APPROVE (static, no finding >=80%). Blend note count-only, blended optional in grads JSON, ADR 0019 defaults match blend.ts/config.ts. stabilise.ts not read by reviewer. Waiting on verifier.
+- 2026-11-22 19:35 [d37fa1ed] Verifier 910b272: lint exit 0, check 4237/4237 stamped; new render test fails on parent a76af4f. ff-merged to main at 910b272; worktree and branch removed.
