@@ -24,7 +24,7 @@ Status note: deployed (a059061, f91b825, c670366); browser check and verify:boot
 - [x] "Meta" is in the nav, lit on `/meta`.
 - [x] Hostile payload (markup, `</script>`, `javascript:` URL, 10,000 characters) renders as clamped text in strip and page, no unsafe `<a>`, no raw HTML, no `v-html`.
 - [x] Home polls `/api/metas` every 60 s, not 3 s (unchanged); the page does too.
-- [ ] `verify:boot` still healthy (page list generated from `app/pages`).
+- [x] `verify:boot` still healthy (page list generated from `app/pages`).
 - [ ] Browser check by cos after merge: desktop and phone width, strip scroll, anchor jump from a card.
 - [x] Full `pnpm check` passes once on the committed clean tree.
 
@@ -43,3 +43,4 @@ One commit after the tests are green, subject `War Room ticket 04: <what changed
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 2 unticked box(es).
 - 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 0 DONE, 2 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
 - 2026-11-22 21:49 [0d50a746] 2026-11-22 both boxes left open. verify:boot FAILED step 4 (nuxt dev --port 3150 not up in 120s; steps 1-3 pass; live dev server on 3100 shares .nuxt). Seeded page:check / and /meta exit 0 (strip clipped at 390 = scrolls); anchor Enter reached /meta but scroll position not shown.
+- 2026-11-22 22:01 [0d50a746] verify:boot PASS 4/4 on 62895b0 with live :3100 up; box ticked
