@@ -18,7 +18,7 @@ Status: needs-info
 - [x] Theme-token pricing no longer needs the $50k floors; `candidates()` takes the newest graduates.
 - [x] A thin window still qualifies and carries the coverage flag.
 - [x] Existing meta tests are adapted; type-check, `pnpm lint` and `pnpm check` are green.
-- [ ] After merge, one live tick shows Christmas as a Meta (cos checks).
+- [x] After merge, one live tick shows Christmas as a Meta (cos checks).
 
 ## Notes
 - Pointers: `packages/core/src/meta/compute.ts`, `leaders.ts`, `config.ts`, `coverage.ts`, `store.ts`, `topdown.ts`, `group.ts`; `study/store.ts`.
