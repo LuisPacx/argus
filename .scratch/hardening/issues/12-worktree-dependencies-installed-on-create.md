@@ -1,7 +1,7 @@
 # 12: Worktree dependencies installed when a worker starts
 **Model:** sonnet / effort: low — one small script, one settings entry, one docs line.
 
-Status: in-progress
+Status: done
 **User decision:** do NOT replace Claude Code's own worktree creation (no `WorktreeCreate` hook): we keep its lock, its cleanup sweep and `.worktreeinclude`. Install dependencies when a worker starts in a copy that has no `node_modules`. The `tsc` cache is out of scope.
 
 ## Problem
@@ -28,12 +28,12 @@ Wire it as `pnpm wt:setup`, as a `SubagentStart` hook (timeout 300 s) and as a `
 
 ## Acceptance
 
-- [ ] `shouldInstall` is false for the main checkout, for a path outside `.claude/worktrees/`, and for a worktree that already has `node_modules`; true for a worktree dir (or a subdirectory of it) with `package.json` and no `node_modules`. Covered by `scripts/wt-setup.test.ts`.
-- [ ] A failing install prints one `wt-setup: ... failed` warning to stderr and exits 0 (test with an injected runner).
-- [ ] The script uses `--offline --frozen-lockfile`, and never writes to `/tmp`.
-- [ ] `.claude/settings.json` has `SubagentStart` and `SessionStart` hooks that run the script; the `PreToolUse` hook is unchanged; `package.json` has `wt:setup`.
-- [ ] `docs/agents/worker-rules.md` has one line: run `pnpm wt:setup` first when `node_modules` is missing.
-- [ ] `pnpm check` passes.
+- [x] `shouldInstall` is false for the main checkout, for a path outside `.claude/worktrees/`, and for a worktree that already has `node_modules`; true for a worktree dir (or a subdirectory of it) with `package.json` and no `node_modules`. Covered by `scripts/wt-setup.test.ts`.
+- [x] A failing install prints one `wt-setup: ... failed` warning to stderr and exits 0 (test with an injected runner).
+- [x] The script uses `--offline --frozen-lockfile`, and never writes to `/tmp`.
+- [x] `.claude/settings.json` has `SubagentStart` and `SessionStart` hooks that run the script; the `PreToolUse` hook is unchanged; `package.json` has `wt:setup`.
+- [x] `docs/agents/worker-rules.md` has one line: run `pnpm wt:setup` first when `node_modules` is missing.
+- [x] `pnpm check` passes.
 
 ## Not in scope
 
@@ -47,3 +47,5 @@ Wire it as `pnpm wt:setup`, as a `SubagentStart` hook (timeout 300 s) and as a `
 
 ## Comments
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 6 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 6 DONE, 0 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:38 [0d50a746] Boxes ticked on triage evidence, see .scratch/ops/issues/02-reopened-triage-notes.md

@@ -11,13 +11,13 @@
 
 **Blocked by:** 17 (branch `proposal-tech-value`: adds `reason` and `interaction`)
 
-Status: in-progress
+Status: done
 Status note: deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
 
-- [ ] `GET /api/proposals/:id` returns `signals` (max 5, newest first, with title, sourceLabel, url, publishedAt), `[]` for a Proposal with no Narrative (tested)
-- [ ] The panel shows reason, interaction, Signals, per-dimension scores with rationale and Rubric version, and evidence; absent `reason`/`interaction` ("") show a "not recorded" note, not a blank (tested)
-- [ ] A `<script>` in reason, interaction, rationale or a Signal title renders escaped, with no `v-html` in the panel (tested by rendering the component)
-- [ ] Only http(s) links become anchors; `javascript:`, `data:` and malformed URLs render as text (tested)
+- [x] `GET /api/proposals/:id` returns `signals` (max 5, newest first, with title, sourceLabel, url, publishedAt), `[]` for a Proposal with no Narrative (tested)
+- [x] The panel shows reason, interaction, Signals, per-dimension scores with rationale and Rubric version, and evidence; absent `reason`/`interaction` ("") show a "not recorded" note, not a blank (tested)
+- [x] A `<script>` in reason, interaction, rationale or a Signal title renders escaped, with no `v-html` in the panel (tested by rendering the component)
+- [x] Only http(s) links become anchors; `javascript:`, `data:` and malformed URLs render as text (tested)
 - [x] Full test suite and type-check pass once before the commit
 
 ## Comments
@@ -26,3 +26,5 @@ Ticked on deploy 2026-11-11: full test suite and type-check — DEPLOY STACK ent
 
 Left open (no per-item evidence in the journal): API `signals` (max 5, newest first, `[]` without a Narrative); panel content incl. scores, rationale, Rubric version, evidence and the "not recorded" note; escaping/no `v-html`; http(s)-only links. "DEPLOYED" records only that Chrome on /proposals/148 showed "Why this Proposal" with reason + interaction; "MIGRATION REHEARSAL" notes the Vue panel was not rendered there and `withSignals(129)` ok at server-helper level.
 - 2026-11-22 20:40 [d37fa1ed] Reopened 2026-11-22: marked done with 4 unticked box(es).
+- 2026-11-22 21:37 [0d50a746] Triage 2026-11-22: 4 DONE, 0 SMALL, 0 HUMAN, 0 OBSOLETE; see .scratch/ops/issues/02-reopened-triage-notes.md
+- 2026-11-22 21:38 [0d50a746] Boxes ticked on triage evidence, see .scratch/ops/issues/02-reopened-triage-notes.md
