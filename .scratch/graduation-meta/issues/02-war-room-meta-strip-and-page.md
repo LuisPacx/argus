@@ -5,16 +5,16 @@
 
 **Blocked by:** 01
 
-**Status:** open
+**Status:** done
 
-- [ ] A render test on the Christmas fixture shows the sentence above, the 3 newest graduate names and the theme chips.
-- [ ] An unpriced leader shows a dash.
-- [ ] A thin window shows the coverage flag; a full window does not.
-- [ ] A Watching subject with 3 in 6 h shows "rising: 3 in 6h".
-- [ ] Plain text only: no `v-html`, no raw bound `:href` (`UrlLink` / `safeHttpUrl` for links).
-- [ ] The new page intro is present.
-- [ ] `pnpm page:check` exit 0 at both widths (1240 and 390 px), screenshots cited, `--seed` named if used.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] A render test on the Christmas fixture shows the sentence above, the 3 newest graduate names and the theme chips.
+- [x] An unpriced leader shows a dash.
+- [x] A thin window shows the coverage flag; a full window does not.
+- [x] A Watching subject with 3 in 6 h shows "rising: 3 in 6h".
+- [x] Plain text only: no `v-html`, no raw bound `:href` (`UrlLink` / `safeHttpUrl` for links).
+- [x] The new page intro is present.
+- [x] `pnpm page:check` exit 0 at both widths (1240 and 390 px), screenshots cited, `--seed` named if used.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Reads the per-subject `{24h, 6h, creators24h, share}` kept by ticket 01 in the counts JSON.
