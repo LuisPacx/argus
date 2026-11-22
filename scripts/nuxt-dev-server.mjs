@@ -33,7 +33,7 @@ export async function httpGet(url, timeoutMs) {
 // Room runs, and would rewrite the live server's build output.
 export const privateBuildEnv = (env, dir) => ({ ...env, ARGUS_NUXT_BUILD_DIR: path.join(dir, 'nuxt') });
 
-export const logTail = (logFile) => fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-3).join(' | ');
+export const logTail = (logFile) => fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-20).join(' | ');
 
 // Spawns `nuxt dev --strictPort` for @argus/warroom in a new process group (pgid === pid), stdout and stderr appended to `logFile`.
 // Returns { pgid, hasExited() }.

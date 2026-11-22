@@ -68,12 +68,13 @@ describe("shared Nuxt dev server helpers (verify-boot step 4 and page:check --se
 
   it("waitForNuxtReady reports an exit, a timeout, and a server that is up but not on the log's port", async () => {
     const logFile = path.join(tempDir("nuxt-dev-server-"), "warroom.log");
-    fs.writeFileSync(logFile, "line1\nline2\nline3\nline4\n");
-    expect(logTail(logFile)).toBe("line2 | line3 | line4");
+    const logLines = Array.from({ length: 25 }, (_, i) => `line${i + 1}`);
+    fs.writeFileSync(logFile, logLines.join("\n") + "\n");
+    expect(logTail(logFile)).toBe(logLines.slice(-20).join(" | "));
     // Nothing listens on port 1; the process "exited" at once.
     const exited = await waitForNuxtReady({ port: 1, logFile, hasExited: () => true, timeoutMs: 5000 });
     expect(exited).toContain("dev server not up within 5s");
-    expect(exited).toContain("line4");
+    expect(exited).toContain("line25");
     // Cancelled before it came up.
     expect(await waitForNuxtReady({ port: 1, logFile, hasExited: () => false, timeoutMs: 5000, cancelled: () => true })).toContain("not up");
 
