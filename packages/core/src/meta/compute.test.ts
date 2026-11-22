@@ -1415,14 +1415,16 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
 
   describe("the live Christmas runs 626 to 637 (fixture read from the live database, 2026-11-22)", () => {
     /**
-     * The graduations behind the live rows: Xmas 8 in 24 h from 8 creators, 5 of them in the last 6 h (live runs 626 and 630 to 634), Snowball 3 that
-     * the AI merged into Christmas for run 627 only, Grinch a launch theme with none, and two more Xmas graduations in the last 20 minutes that
-     * lift it to 10 for run 637. All times in minutes before run 637.
+     * The graduations behind the live rows, built to give the live counts (not read from the live database): Xmas 8 in 24 h at runs 626 and 627 (7
+     * of them leave the 24 h window before run 628), so Christmas is 4 at run 628 with Snowball's 3 restored (the live count of that run, below the
+     * stay bar of 5); 5 more graduate before run 630 (6, then 8 by 636); 4 more in the last 20 minutes lift it to 10 for run 637. Snowball has 3
+     * graduations that the AI merged into Christmas for run 627 only; Grinch is a launch theme with none. Minutes before run 637.
      */
     const seedChristmas = (store: Datastore) => {
-      launchMany(store, 5, (i) => ({ name: "Xmas", creator: `xmas-r${i}`, createdMin: 400, graduatedMin: 175 + i * 4 }));
-      launchMany(store, 3, (i) => ({ name: "Xmas", creator: `xmas-o${i}`, createdMin: 800, graduatedMin: 700 + i * 60 }));
-      launchMany(store, 2, (i) => ({ name: "Xmas", creator: `xmas-n${i}`, createdMin: 180, graduatedMin: 20 - i * 10 }));
+      launch(store, { name: "Xmas", creator: "xmas-stay", createdMin: 400, graduatedMin: 180 });
+      launchMany(store, 7, (i) => ({ name: "Xmas", creator: `xmas-old${i}`, createdMin: 1700, graduatedMin: 1580 + i }));
+      launchMany(store, 5, (i) => ({ name: "Xmas", creator: `xmas-mid${i}`, createdMin: 180, graduatedMin: 118 - i * 2 }));
+      launchMany(store, 4, (i) => ({ name: "Xmas", creator: `xmas-new${i}`, createdMin: 180, graduatedMin: 20 - i * 5 }));
       launchMany(store, 3, (i) => ({ name: "Snowball", creator: `snow-${i}`, createdMin: 400, graduatedMin: 158 + i }));
       launchMany(store, 3, (i) => ({ name: "Grinch", creator: `grinch-${i}`, createdMin: 400 }));
     };
@@ -1453,6 +1455,16 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
       expect(rest.map((rows) => rows.map((m) => m.key))).toEqual(rest.map(() => ["xmas"]));
       expect(new Set(rest.flat().map((m) => m.enteredAt))).toEqual(new Set([T(atOf(627)).toISOString()]));
       expect(events).toEqual([{ run: 627, key: "xmas" }]);
+      // runs 628 and 629 are below the stay bar (4 graduations): the Meta is held, cooling, and is back at the bar by run 630
+      const holding = Object.fromEntries(rest.map((rows) => [rows[0]!.run, rows[0]!.holding]));
+      expect(holding[627]).toBe(false);
+      expect([holding[628], holding[629]]).toEqual([true, true]);
+    });
+
+    it("without the exit delay the dip at runs 628 and 629 ends the Meta; the re-entry guard still keeps the New Meta to one event", async () => {
+      const noDelay = await replay({ ...cfg, metaExitMinutes: 0 });
+      expect(noDelay.episodes.map((rows) => rows.length)).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]); // out from 628, Watching at 6 to 8 graduations, a Meta again at 637 (10)
+      expect(noDelay.events).toEqual([{ run: 627, key: "xmas" }]);
     });
 
     it("the leader leaving the subject does not end the Meta: Snowball leads Christmas at 627 and is its own subject from 630, and the Meta goes on", async () => {

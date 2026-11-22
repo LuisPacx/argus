@@ -338,7 +338,7 @@ function gapWarningText(gap: CurrentMetaPayload["gap"]): string | null {
   return `Argus was not recording from ${from} to ${to !== "" ? to : "now"}; counts cover ${Math.round(gap.covered)} of ${Math.round(gap.of)} h`;
 }
 
-const COOLING_WHY = "Cooling: fewer tokens graduated than it takes to become a Meta, but enough to stay one.";
+const COOLING_WHY = "Cooling: below the usual bar to stay a Meta, kept for a short while before it drops.";
 const NEWEST_SHOWN = 3;
 
 /** "10% of all graduations"; "under 1%" for a share that rounds to nothing; null when there is none to show. */

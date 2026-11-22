@@ -108,7 +108,7 @@ it("a holding Meta carries the cooling pill and says why; a stale leader cap say
   const cooling = await draw(response([GTA], []));
   expect(cooling).toContain('data-test="current-cooling"');
   expect(cooling).toContain(">cooling<");
-  expect(cooling).toContain("Cooling: fewer tokens graduated than it takes to become a Meta, but enough to stay one.");
+  expect(cooling).toContain("Cooling: below the usual bar to stay a Meta, kept for a short while before it drops.");
   const old = await draw(response([subject("Old", "OLD", 3_000_000, { leader: { mint: "M", name: "Old", symbol: "OLD", marketCapUsd: 3_000_000, stale: true } })], []));
   expect(old).toContain("(cap as of the last answer)");
   const plain = await draw(response([JENSEN], [W3]));

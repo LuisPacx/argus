@@ -1,7 +1,7 @@
 /**
  * The Christmas flicker of 2026-11-22 (War Room live runs 626 to 637), read from the live database once, read-only: the AI grouping answer of
  * each run (`meta_groupings`) cut down to the three Christmas themes, and the size of each theme in the last run (`meta_rows`). A fixture, not
- * a link to any database: `christmas-replay.test.ts` rebuilds the store from these figures.
+ * a link to any database: the replay in `compute.test.ts` rebuilds the store from these figures.
  *
  * What the live runs did: 627 was a Meta (themes snowball, xmas, grinch; leader $snowball); the answer of 628 left snowball out and listed
  * Christmas {xmas} and Grinch {grinch}, so the subject lost its key to Grinch (the stabiliser tie, ticket 07) and the Meta ended; the answers
