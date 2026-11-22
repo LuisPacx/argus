@@ -62,16 +62,17 @@ describe("the Narrative page Signals list", () => {
   const signal = (id: number, url: string) => ({ id, sourceLabel: "Feed", title: `Story ${id}`, url, publishedAt: "2026-11-20T10:00:00.000Z" });
   const n = (urls: string[]) => ({ id: 1, title: "T", summary: "", signalCount: urls.length, createdAt: "2026-11-20T10:00:00.000Z", lastSignalAt: "2026-11-20T10:00:00.000Z", changedMateriallyAt: "2026-11-20T10:00:00.000Z", verdicts: [], proposals: [], scores: [], runs: [], signals: urls.map((u, i) => signal(i, u)) });
   const page = narrativePage;
+  const ctx = { nowMs: 0, pct: () => 0, proposalView: { shown: [], hiddenCount: 0 }, showClosed: false, closedToggleTo: "/narratives/1?closed=1" };
 
   it("links a normal URL and keeps rel noopener noreferrer", async () => {
-    const html = await draw(page, { n: n([GOOD]), nowMs: 0, pct: () => 0 });
+    const html = await draw(page, { ...ctx, n: n([GOOD]) });
     expect(html).toContain(`href="${GOOD}"`);
     expect(html).toContain("noopener noreferrer");
     expect(html).toContain("Story 0");
   });
 
   it.each(BAD)("does not link %s but still shows the title", async (bad) => {
-    expectNoLink(await draw(page, { n: n([bad]), nowMs: 0, pct: () => 0 }), "Story 0");
+    expectNoLink(await draw(page, { ...ctx, n: n([bad]) }), "Story 0");
   });
 });
 
