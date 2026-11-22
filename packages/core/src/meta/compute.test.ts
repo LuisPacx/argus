@@ -1199,4 +1199,52 @@ describe("recomputeMetas: graduation Metas (graduation Meta ticket 01)", () => {
     expect(counts).toMatchObject({ grads: { "24h": 10, "6h": 10, creators24h: 10 }, "24h": { tokens: 10 } });
     expect(rule).toMatchObject({ metaMinGrads: 10, metaStayGrads: 5, metaMinCreators: 6, metaLiveGrads6h: 3, watchMinGrads: 5, watchGrads6h: 3 });
   });
+
+  // Christmas fix ticket 03: the stabiliser (ticket 02) keeps a subject's identity between ticks.
+  /** A group step that puts every theme whose key is in `keys` under one subject called `name`, and records the theme keys it was shown. */
+  const groupOf = (name: string, keys: string[], shown: string[][] = []) => async (input: GroupInput): Promise<GroupAnswer> => {
+    shown.push(input.items.flatMap((i) => (i.kind === "theme" ? [i.key] : [])));
+    return { subjects: [{ name, items: input.items.filter((i) => i.kind === "theme" && keys.includes(i.key)).map((i) => i.id) }], inputHash: input.inputHash, computedAt: input.now.toISOString(), reused: false, costUsd: 0, brainRunId: null };
+  };
+
+  it("a subject whose top theme changes between ticks keeps its key and its enteredAt", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 12, (i) => 30 + i);
+    wave(store, "Xmas", 12, (i) => 30 + i);
+    await recompute(store, 0, { group: groupOf("Christmas", ["santa", "xmas"]) });
+    expect(metas(store).map((m) => m.key)).toEqual(["santa"]);
+    wave(store, "Noel", 14, (i) => 30 + i); // a theme with more creators joins and would take the top place
+    await recompute(store, 10, { group: groupOf("Santa season", ["santa", "xmas", "noel"]) });
+    expect(metas(store)).toHaveLength(1);
+    expect(metas(store)[0]).toMatchObject({ key: "santa", label: "Santa season", enteredAt: T(0).toISOString() });
+    expect(watching(store)).toEqual([]);
+  });
+
+  it("a previous subject the answer no longer matches stays in Watching with its own enteredAt, and drops once its last refresh is older than the state window", async () => {
+    const store = Datastore.open(":memory:");
+    const anyTime = { ...cfg, metaLiveGrads6h: 0, watchGrads6h: 0 };
+    launchMany(store, 12, (i) => ({ name: "Santa", creator: `s${i}`, createdMin: 1439, graduatedMin: 1400 + i })); // graduations at the far end of the 24 h window
+    await recompute(store, 0, { config: anyTime, group: groupOf("Christmas", ["santa"]) });
+    expect(metas(store).map((m) => m.key)).toEqual(["santa"]);
+    wave(store, "Easter", 12, (i) => 30 + i);
+    await recompute(store, 60, { config: anyTime, group: groupOf("Easter", ["easter"]) }); // Santa's graduations have left the window: nothing matches it
+    expect(metas(store).map((m) => m.key)).toEqual(["easter"]);
+    expect(watching(store).map((w) => w.key)).toEqual(["santa"]);
+    expect(watching(store)[0]!.enteredAt).toBe(T(0).toISOString());
+    await recompute(store, 110, { config: anyTime, group: groupOf("Easter", ["easter"]) });
+    expect(watching(store).map((w) => w.key)).toEqual(["santa"]); // 110 min after its last refresh: inside the window
+    await recompute(store, 125, { config: anyTime, group: groupOf("Easter", ["easter"]) });
+    expect(watching(store)).toEqual([]); // 125 min: being kept is not a refresh, so it ends
+  });
+
+  it("a previous theme that falls below the 30-theme cut is still shown to the grouping step", async () => {
+    const store = Datastore.open(":memory:");
+    wave(store, "Santa", 12, (i) => 30 + i);
+    await recompute(store, 0, { group: groupOf("Christmas", ["santa"]) });
+    for (let n = 0; n < 35; n++) wave(store, `Theme${String.fromCharCode(97 + (n % 26))}${String.fromCharCode(97 + Math.floor(n / 26))}x`, 20, (i) => 40 + i);
+    const shown: string[][] = [];
+    await recompute(store, 10, { group: groupOf("Christmas", ["santa"], shown) });
+    expect(shown[0]!.length).toBeGreaterThan(30);
+    expect(shown[0]).toContain("santa");
+  });
 });

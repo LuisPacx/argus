@@ -5,9 +5,10 @@ import { META_RULE, META_WINDOWS, META_WINDOW_HOURS, type MetaConfig, type MetaW
 import { isThin, metaCoverage } from "./coverage.ts";
 import { cleanLabel, groupTokens, isGenericKey, type TokenGroup } from "./group.ts";
 import { subjectKey } from "./key.ts";
-import { applyGrouping, buildGroupItems, GROUP_MAX_THEMES, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type ThemeInput, type TrendingInput } from "./grouping.ts";
+import { applyGrouping, buildGroupItems, itemsHash, storeAnswer, type GroupAnswer, type GroupInput, type GroupItem, type ThemeInput, type TrendingInput } from "./grouping.ts";
 import { carriedState, currentMetas, type LeaderSubject, type LeaderToken, type PreviousMetas } from "./leaders.ts";
 import type { MetaCounts, MetaTopToken, NewMetaCandidate, NewMetaCurrent, NewMetaGrouping, NewMetaRow, NewMetaRun } from "./store.ts";
+import { previousThemeKeys, stabiliseSubjects } from "./stabilise.ts";
 import { mergeThemes } from "./theme.ts";
 import { assignGraduates } from "./graduates.ts";
 import { windowGap } from "./gap.ts";
@@ -401,10 +402,13 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   // 4c. The AI grouping step (ticket 06, ADR 0015 decision 4): the trending tokens that passed the filter at the entry cap and the top launch
   // themes go to it as ids; its checked answer says which belong together and what to call them. Awaited before the write transaction, bounded,
   // and never fatal: with no answer the subjects below are the launch themes as the creator vote named them.
-  const items = buildGroupItems(trendingInputs(topDown, fresh, lookedUp.verdicts), themeInputs(stats), config.enterMcapUsd);
+  // Subject identity between ticks (Christmas fix, ticket 03): the previous run's themes reach the AI even below the theme cut, and a subject
+  // that overlaps a previous one takes its key. A previous subject nothing matched is kept (below).
+  const items = buildGroupItems(trendingInputs(topDown, fresh, lookedUp.verdicts), themeInputs(stats), config.enterMcapUsd, previousThemeKeys(previous, now, config.stateMaxMinutes));
   const answer = await askGroupStep(opts, items, now);
   const statOf = new Map(stats.map((s) => [s.group.key, s]));
-  const applied = answer ? applyGrouping(items, answer.subjects, (key) => statOf.get(key), mergeStats) : undefined;
+  const stable = answer ? stabiliseSubjects(answer.subjects, items, previous, now, config.stateMaxMinutes) : undefined;
+  const applied = answer && stable ? applyGrouping(items, stable.subjects, (key) => statOf.get(key), mergeStats) : undefined;
   // The stored counts of a Meta include bonk launches; the launch-theme rows below keep the pump counts.
   const subjectStats: Array<{ stat: GroupStat; extra: Pick<LeaderSubject, "namedBy" | "memberKeys" | "memberMints" | "themes"> }> = [
     ...(applied?.subjects ?? []).map((a) => ({ stat: a.stat, extra: { namedBy: "ai" as const, memberKeys: a.themeKeys, memberMints: a.mints, themes: a.themes } })),
@@ -450,6 +454,20 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
   });
   const shownTokens = applied ? new Set(items.flatMap((i) => (i.kind === "token" ? [i.mint] : []))) : undefined;
   const current = currentMetas({ subjects, tokens: fresh, previous: carried, ...(shownTokens ? { grouped: shownTokens } : {}), now, config });
+  if (stable) {
+    // Previous subjects no subject of this run took up stay in Watching, keeping their own `enteredAt` and `leader.freshAt`. Being kept is not a
+    // refresh: a row expires once its last real refresh is `stateMaxMinutes` old. A row whose member themes another subject now holds (a merge
+    // loser) is dropped, not shown twice.
+    const claimed = new Set(subjects.flatMap((s) => [s.key, ...(s.memberKeys ?? [])]));
+    const shown = new Set([...current.metas, ...current.watching].map((m) => m.key));
+    for (const row of stable.kept) {
+      if (current.watching.length >= config.watching) break;
+      const age = now.getTime() - Date.parse(row.leader.freshAt ?? row.enteredAt);
+      const members = [row.key, ...(row.themes ?? []).map((t) => t.key)];
+      if (!(age <= config.stateMaxMinutes * 60_000) || shown.has(row.key) || members.every((k) => claimed.has(k))) continue;
+      current.watching.push(row);
+    }
+  }
 
   // 5. Rank each window and shape the rows.
   const rows = {} as NewMetaRun["rows"];
@@ -515,7 +533,6 @@ function themeInputs(stats: readonly GroupStat[]): ThemeInput[] {
   return stats
     .filter((s) => !s.group.key.startsWith("unkeyed:"))
     .sort((a, b) => b.copies["24h"].creators - a.copies["24h"].creators || cmpStr(a.group.key, b.group.key))
-    .slice(0, GROUP_MAX_THEMES)
     .map((s) => {
       const used = new Map<string, number>();
       for (const t of s.group.tokens) {
