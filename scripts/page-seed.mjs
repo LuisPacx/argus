@@ -69,9 +69,15 @@ export async function seedDatastore(store, now) {
   const theme = (key, label, tokens, creators) => ({ key, label, tokens, creators });
   const chairThemes = [theme('chair', 'SEED Empty Chair', 40, 14), theme('chair-long', `SEED${'Z'.repeat(116)}`, 12, 6), theme('chair-markup', `<b>SEED</b> <img src=x onerror=alert(1)> chair`, 5, 3)];
   const lobsterThemes = ['Lobster Hat', 'Lobster Cap', 'Hat Lobster', 'Red Claw Hat', 'Claw Hat', 'Shell Hat', 'Crab Hat'].map((l, i) => theme(`lobster-${i}`, `SEED ${l}`, 30 - i * 3, 12 - i));
-  const chair = aMeta('seed-chair', { label: 'SEED Empty Chair', leaderName: 'SEED Chair coin', leaderSymbol: 'SEEDCHAIR', cap: 2_400_000, creators: 14, enteredAt: at(180), namedBy: 'ai', themes: chairThemes });
-  const lobster = aMeta('seed-lobster', { label: 'SEED Lobster Hat', leaderName: 'SEED Lobster coin', leaderSymbol: 'SEEDLOB', cap: 1_100_000, creators: 9, holding: true, enteredAt: at(20 * 60), namedBy: 'ai', themes: lobsterThemes });
-  const cloud = aMeta('seed-cloud', { label: 'SEED Cloud Cat', leaderName: 'SEED Cloud coin', leaderSymbol: 'SEEDCLD', cap: 380_000, creators: 6, enteredAt: at(120) });
+  // Graduations (graduation Meta ticket 02): the chair is a full window with one unpriced newest graduate; the lobster is cooling on a thin window
+  // with an unpriced leader (cap 0, a dash); the cloud is rising (3 in 6 h); the moon has no graduations stored (a row from before ticket 01).
+  const newest = (name, symbol, cap) => ({ mint: `SEED${symbol}`.padEnd(40, 'N') + 'pump', name, symbol, ...(cap ? { marketCapUsd: cap } : {}) });
+  const chairGrads = { '24h': 12, '6h': 4, creators24h: 11, share: 0.12, newest: [newest('SEED Chair Two', 'CHAIR2', 18_000), newest('SEED Chair Three', 'CHAIR3'), newest(`SEED<b>Hostile</b> ${'Q'.repeat(60)}`, 'HOSTILE', 4_200)] };
+  const lobsterGrads = { '24h': 6, '6h': 1, creators24h: 6, share: 0.06, coverage: { covered: 5, of: 24 }, newest: [newest('SEED Lobster Two', 'LOB2')] };
+  const cloudGrads = { '24h': 4, '6h': 3, creators24h: 4, share: 0.04, newest: [newest('SEED Cloud Two', 'CLD2', 9_000)] };
+  const chair = aMeta('seed-chair', { label: 'SEED Empty Chair', leaderName: 'SEED Chair coin', leaderSymbol: 'SEEDCHAIR', cap: 2_400_000, creators: 14, enteredAt: at(180), namedBy: 'ai', themes: chairThemes, grads: chairGrads });
+  const lobster = aMeta('seed-lobster', { label: 'SEED Lobster Hat', leaderName: 'SEED Lobster coin', leaderSymbol: 'SEEDLOB', cap: 0, creators: 9, holding: true, enteredAt: at(20 * 60), namedBy: 'ai', themes: lobsterThemes, grads: lobsterGrads });
+  const cloud = aMeta('seed-cloud', { label: 'SEED Cloud Cat', leaderName: 'SEED Cloud coin', leaderSymbol: 'SEEDCLD', cap: 380_000, creators: 6, enteredAt: at(120), grads: cloudGrads });
   const moon = aMeta('seed-moon', { label: 'SEED Moon Dog', leaderName: 'SEED Moon coin', leaderSymbol: 'SEEDMOON', cap: 240_000, creators: 4, enteredAt: at(90) });
   const computedAt = at(5);
   const runId = saveCurrentRun(store, computedAt, { metas: [chair, lobster], watching: [cloud, moon] });

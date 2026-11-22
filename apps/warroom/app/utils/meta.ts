@@ -250,9 +250,27 @@ export interface CurrentMetaPayloadRow {
   ideas?: MetaIdeaPayload[];
   /** The launch themes merged under the name (meta redesign ticket 07); absent from an older payload. */
   themes?: { label: string; tokens: number; creators: number }[];
+  /** The subject's graduations (graduation Meta ticket 02); absent from an older payload. */
+  grads?: {
+    "24h": number;
+    "6h": number;
+    creators24h: number;
+    share: number;
+    coverage?: { covered: number; of: number };
+    newest?: MetaPayloadToken[];
+    rising?: boolean;
+  };
 }
 
 export interface CurrentMetaRowView {
+  /** "10 graduated in 24h (3 in the last 6h), 10 creators, 10% of all graduations"; null for a row without graduations (an older payload). */
+  gradLine: string | null;
+  /** "covered 5 of 24 h" when the 24 h window is thin; null otherwise. Ticket 04 adds the gap warning beside it. */
+  gradCoverage: string | null;
+  /** The newest graduates (at most 3) as "Name ($TICK) $12K", with "-" where no price is known. */
+  newest: MetaTokenView[];
+  /** "rising: 3 in 6h" for a Watching subject that qualifies by the 6 h rule; null otherwise. */
+  rising: string | null;
   /** The subject's key, for the angle form (ticket 11): sent back to the server, which checks it against the newest run; never shown as text. Absent from an older payload. */
   key: string | null;
   /** The status of the Operator's newest angle request for this subject; null when it has none. */
@@ -266,13 +284,13 @@ export interface CurrentMetaRowView {
   grouped: boolean;
   /** The leader as text: "Jensen Huang ($JENSEN)". */
   leader: string;
-  /** "$2.4M", with "cap as of the last answer" in `capNote` when the figure was not read this run. */
+  /** "$2.4M", or "-" when the leader has no price; "cap as of the last answer" in `capNote` when the figure was not read this run. */
   cap: string;
   capNote: string | null;
   /** A DexScreener link, only where `safeHttpUrl` accepted it. */
   leaderHref: string | null;
-  /** "190 creators copying in 24 h"; "no copies launched in 24 h" when there are none. */
-  copies: string;
+  /** "190 creators copying in 24 h"; "no copies launched in 24 h" when there are none. Null on a row that has graduations (the graduation line says it). */
+  copies: string | null;
   /** "Meta since 3 hours ago" / "Watching since 3 hours ago"; null when the time is unreadable. */
   since: string | null;
   summary: string | null;
@@ -300,7 +318,38 @@ export interface CurrentMetaView {
   coverageNote: string | null;
 }
 
-const COOLING_WHY = "Cooling: its leading token is below the market cap that makes a Meta, but still above the one that keeps it.";
+const COOLING_WHY = "Cooling: fewer tokens graduated than it takes to become a Meta, but enough to stay one.";
+const NEWEST_SHOWN = 3;
+
+/** "10% of all graduations"; "under 1%" for a share that rounds to nothing; null when there is none to show. */
+function shareText(share: unknown): string | null {
+  if (!finite(share) || share <= 0) return null;
+  const pct = Math.round(share * 100);
+  return pct < 1 ? "under 1% of all graduations" : `${Math.min(pct, 100)}% of all graduations`;
+}
+
+function gradViews(g: CurrentMetaPayloadRow["grads"]): Pick<CurrentMetaRowView, "gradLine" | "gradCoverage" | "newest" | "rising"> {
+  const n24 = g?.["24h"];
+  const n6 = g?.["6h"];
+  if (!g || !finite(n24) || !finite(n6)) return { gradLine: null, gradCoverage: null, newest: [], rising: null };
+  const creators = finite(g.creators24h) ? plural(Math.max(0, Math.round(g.creators24h)), "creator") : null;
+  const share = shareText(g.share);
+  const cov = g.coverage;
+  const covered = finite(cov?.covered) && finite(cov?.of) && cov.of > 0 ? `covered ${Math.round(cov.covered)} of ${Math.round(cov.of)} h` : null;
+  const newest = (Array.isArray(g.newest) ? g.newest : []).slice(0, NEWEST_SHOWN).flatMap((t): MetaTokenView[] => {
+    const name = clampText(t?.name, TOKEN_NAME_CHARS);
+    const symbol = clampText(t?.symbol, TICKER_CHARS);
+    const head = name !== "" ? (symbol !== "" ? `${name} ($${symbol})` : name) : symbol !== "" ? `$${symbol}` : "";
+    if (head === "") return [];
+    return [{ text: `${head} ${finite(t.marketCapUsd) && t.marketCapUsd > 0 ? fmtUsd(t.marketCapUsd) : "-"}`, href: safeHttpUrl(t.url) }];
+  });
+  return {
+    gradLine: [`${n24} graduated in 24h (${n6} in the last 6h)`, creators, share].filter((s) => s !== null).join(", "),
+    gradCoverage: covered,
+    newest,
+    rising: g.rising === true && n6 > 0 ? `rising: ${n6} in 6h` : null,
+  };
+}
 const SHOWN = 3;
 const THEMES_SHOWN = 5;
 const THEME_LABEL_CHARS = 60;
@@ -333,17 +382,19 @@ function currentRowView(m: CurrentMetaPayloadRow, nowMs: number, isMeta: boolean
   const cooling = isMeta && m?.holding === true;
   const label = clampText(m?.label, LABEL_CHARS);
   const key = typeof m?.key === "string" && m.key !== "" ? m.key : null;
+  const grads = gradViews(m?.grads);
   return {
     ...(ideas.length > 0 ? { ideas } : {}),
     key,
     angle: angleStatusFor(angles, key ?? undefined, nowMs),
     label,
     ...themeViews(m?.themes, label),
+    ...grads,
     leader,
-    cap: finite(m?.leader?.marketCapUsd) ? fmtUsd(m.leader.marketCapUsd) : "",
-    capNote: m?.leader?.stale === true ? "cap as of the last answer" : null,
+    cap: finite(m?.leader?.marketCapUsd) && m.leader.marketCapUsd > 0 ? fmtUsd(m.leader.marketCapUsd) : "-",
+    capNote: m?.leader?.stale === true && finite(m?.leader?.marketCapUsd) && m.leader.marketCapUsd > 0 ? "cap as of the last answer" : null,
     leaderHref: safeHttpUrl(m?.leader?.url),
-    copies: finite(creators) && creators > 0 ? `${plural(creators, "creator")} copying in 24 h` : "no copies launched in 24 h",
+    copies: grads.gradLine !== null ? null : finite(creators) && creators > 0 ? `${plural(creators, "creator")} copying in 24 h` : "no copies launched in 24 h",
     since: age !== null ? `${isMeta ? "Meta" : "Watching"} since ${age}` : null,
     summary: summary !== "" ? summary : null,
     // the leader is already shown above; list only the other top tokens

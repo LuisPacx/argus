@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The Current Meta (meta redesign ticket 02, ADR 0014): at most 3 Metas, each led by a token at millions of market cap, then "Watching"
-// (subjects that are up but are not a Meta). With no Meta the note "No Meta right now" stays and Watching still shows. Used on the home
+// The Current Meta (graduation Meta ticket 02, ADR 0018): at most 3 Metas, each several tokens graduating on one narrative (its graduation
+// line, newest graduates and theme chips), then "Watching" (subjects that are up but are not a Meta; "rising" at 3 graduations in 6 h). With no Meta the note "No Meta right now" stays and Watching still shows. Used on the home
 // page (`home`: links to /meta) and on /meta. Everything in `view` is untrusted text (token names by token creators, summaries and ideas by
 // a model): interpolated as text only (no raw-HTML directive), clamped by `currentMetaView`, and a link exists only where it produced an
 // http(s) href, drawn by UrlLink; the only other links are internal ones, drawn by NuxtLink. On /meta each Meta and each Watching subject carries
@@ -38,17 +38,28 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
           <span class="tabular-nums"> {{ m.cap }}</span>
           <span v-if="m.capNote" class="faint" data-test="current-cap-note"> ({{ m.capNote }})</span>
         </p>
-        <div v-if="m.grouped" class="grid min-w-0 gap-0.5 text-xs" data-test="current-themes-block">
+        <p v-if="m.gradLine" class="min-w-0 break-words font-medium" data-test="current-grads">{{ m.label }}: {{ m.gradLine }}</p>
+        <p v-if="m.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ m.gradCoverage }}</p>
+        <div v-if="m.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
+          <p class="faint font-medium">Newest graduates</p>
+          <ul class="grid min-w-0 gap-0.5" data-test="current-newest">
+            <li v-for="(t, i) in m.newest" :key="i" class="min-w-0 break-words">
+              <UrlLink v-if="t.href" :href="t.href" :label="t.text" />
+              <span v-else>{{ t.text }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-if="m.grouped" class="grid min-w-0 gap-1 text-xs" data-test="current-themes-block">
           <p class="faint font-medium" data-test="current-themes-title">Includes</p>
-          <ul class="muted grid min-w-0 gap-0.5" data-test="current-themes">
-            <li v-for="(t, i) in m.themes" :key="i" class="min-w-0 break-words" data-test="current-theme">{{ t.text }}</li>
-            <li v-if="m.moreThemes > 0" class="faint" data-test="current-themes-more">+{{ m.moreThemes }} more</li>
+          <ul class="muted flex min-w-0 flex-wrap gap-1.5" data-test="current-themes">
+            <li v-for="(t, i) in m.themes" :key="i" class="pill pill-outline min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]" data-test="current-theme">{{ t.text }}</li>
+            <li v-if="m.moreThemes > 0" class="faint self-center" data-test="current-themes-more">+{{ m.moreThemes }} more</li>
           </ul>
         </div>
         <p v-if="m.cooling" class="faint text-xs" data-test="current-cooling-why">{{ m.coolingWhy }}</p>
         <p v-if="m.summary" class="muted min-w-0 break-words leading-relaxed" data-test="current-summary">{{ m.summary }}</p>
         <p class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="current-copies">
-          <span>{{ m.copies }}</span>
+          <span v-if="m.copies">{{ m.copies }}</span>
           <span v-if="m.since">{{ m.since }}</span>
         </p>
         <ul v-if="m.tokens.length > 0" class="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs" data-test="current-tokens">
@@ -81,12 +92,13 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
 
     <div v-if="view.watching.length > 0" class="grid gap-2" data-test="watching">
       <h4 class="text-sm font-semibold">Watching <span class="faint text-xs font-medium">not a Meta</span></h4>
-      <p class="faint text-xs" data-test="watching-note">Not a Meta: a token is up but has not reached the entry market cap.</p>
+      <p class="faint text-xs" data-test="watching-note">Not a Meta: not enough tokens have graduated on this narrative yet.</p>
       <ul class="grid gap-2 md:grid-cols-3">
         <li v-for="(w, n) in view.watching" :key="n" class="surface grid min-w-0 content-start gap-1.5 text-sm" :data-test="`watching-${n + 1}`">
           <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <span class="pill pill-outline shrink-0" data-test="watching-pill">Watching, not a Meta</span>
             <span class="min-w-0 break-words font-semibold" data-test="current-label">{{ w.label }}</span>
+            <span v-if="w.rising" class="pill pill-accent shrink-0" data-test="current-rising">{{ w.rising }}</span>
           </div>
           <p class="min-w-0 break-words text-xs" data-test="current-leader">
             <UrlLink v-if="w.leaderHref" :href="w.leaderHref" :label="w.leader" />
@@ -94,16 +106,27 @@ defineProps<{ view: CurrentMetaView; home?: boolean }>();
             <span class="tabular-nums"> {{ w.cap }}</span>
             <span v-if="w.capNote" class="faint" data-test="current-cap-note"> ({{ w.capNote }})</span>
           </p>
-          <div v-if="w.grouped" class="grid min-w-0 gap-0.5 text-xs" data-test="current-themes-block">
+          <p v-if="w.gradLine" class="min-w-0 break-words text-xs font-medium" data-test="current-grads">{{ w.label }}: {{ w.gradLine }}</p>
+          <p v-if="w.gradCoverage" class="faint text-xs" data-test="current-grads-coverage">{{ w.gradCoverage }}</p>
+          <div v-if="w.newest.length > 0" class="grid min-w-0 gap-0.5 text-xs" data-test="current-newest-block">
+            <p class="faint font-medium">Newest graduates</p>
+            <ul class="grid min-w-0 gap-0.5" data-test="current-newest">
+              <li v-for="(t, i) in w.newest" :key="i" class="min-w-0 break-words">
+                <UrlLink v-if="t.href" :href="t.href" :label="t.text" />
+                <span v-else>{{ t.text }}</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="w.grouped" class="grid min-w-0 gap-1 text-xs" data-test="current-themes-block">
             <p class="faint font-medium" data-test="current-themes-title">Includes</p>
-            <ul class="muted grid min-w-0 gap-0.5" data-test="current-themes">
-              <li v-for="(t, i) in w.themes" :key="i" class="min-w-0 break-words" data-test="current-theme">{{ t.text }}</li>
-              <li v-if="w.moreThemes > 0" class="faint" data-test="current-themes-more">+{{ w.moreThemes }} more</li>
+            <ul class="muted flex min-w-0 flex-wrap gap-1.5" data-test="current-themes">
+              <li v-for="(t, i) in w.themes" :key="i" class="pill pill-outline min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]" data-test="current-theme">{{ t.text }}</li>
+              <li v-if="w.moreThemes > 0" class="faint self-center" data-test="current-themes-more">+{{ w.moreThemes }} more</li>
             </ul>
           </div>
           <p v-if="w.summary" class="muted min-w-0 break-words text-xs leading-relaxed" data-test="current-summary">{{ w.summary }}</p>
           <p class="faint flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums" data-test="current-copies">
-            <span>{{ w.copies }}</span>
+            <span v-if="w.copies">{{ w.copies }}</span>
             <span v-if="w.since">{{ w.since }}</span>
           </p>
           <AngleForm v-if="!home && w.key" :meta-key="w.key" :status="w.angle" />

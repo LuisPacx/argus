@@ -83,6 +83,16 @@ export interface CurrentGrads {
   share: number;
   /** Present only when the 24 h window is thin (a stream gap or a restart left few hours of data): the covered hours of the window. The subject still qualifies. */
   coverage?: { covered: number; of: number };
+  /** The subject's newest graduates (at most 3, newest first), with the market cap where a token was priced this run; absent on a row stored before ticket 02. Untrusted text. */
+  newest?: CurrentNewest[];
+}
+
+/** One of a subject's newest graduates: no `marketCapUsd` means no price is known (a dash on the page). */
+export interface CurrentNewest {
+  mint: string;
+  name: string;
+  symbol: string;
+  marketCapUsd?: number;
 }
 
 /** A subject that is a Meta or Watching (graduation Meta ticket 01; ADR 0014 for the older market-led shape). `key` is the launch-theme group key. */
@@ -467,7 +477,11 @@ function parseGrads(text: string): CurrentGrads | undefined {
   if (!isRecord(g)) return undefined;
   const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
   const cov = g.coverage;
+  const newest = Array.isArray(g.newest)
+    ? g.newest.flatMap((t): CurrentNewest[] => (isRecord(t) && typeof t.mint === "string" ? [{ mint: t.mint, name: typeof t.name === "string" ? t.name : "", symbol: typeof t.symbol === "string" ? t.symbol : "", ...(typeof t.marketCapUsd === "number" && t.marketCapUsd > 0 ? { marketCapUsd: t.marketCapUsd } : {}) }] : []))
+    : undefined;
   return {
+    ...(newest && newest.length > 0 ? { newest } : {}),
     "24h": n(g["24h"]),
     "6h": n(g["6h"]),
     creators24h: n(g.creators24h),

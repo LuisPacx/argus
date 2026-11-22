@@ -66,7 +66,7 @@ it("2 Metas and 3 Watching: each Meta shows its leader, cap, copies, since, summ
   expect(html).not.toContain('data-test="meta-empty"');
   expect(html.match(/data-test="watching-\d"/g)).toHaveLength(3);
   expect(html.match(/Watching, not a Meta/g)).toHaveLength(3);
-  expect(html).toContain("Not a Meta: a token is up but has not reached the entry market cap.");
+  expect(html).toContain("Not a Meta: not enough tokens have graduated on this narrative yet.");
   expect(html).toContain("Watching since 3 hours ago");
   expect(html).toContain("no copies launched in 24 h"); // W2
   expect(html.slice(html.indexOf('data-test="watching"'))).not.toContain("Meme ideas");
@@ -108,7 +108,7 @@ it("a holding Meta carries the cooling pill and says why; a stale leader cap say
   const cooling = await draw(response([GTA], []));
   expect(cooling).toContain('data-test="current-cooling"');
   expect(cooling).toContain(">cooling<");
-  expect(cooling).toContain("Cooling: its leading token is below the market cap that makes a Meta, but still above the one that keeps it.");
+  expect(cooling).toContain("Cooling: fewer tokens graduated than it takes to become a Meta, but enough to stay one.");
   const old = await draw(response([subject("Old", "OLD", 3_000_000, { leader: { mint: "M", name: "Old", symbol: "OLD", marketCapUsd: 3_000_000, stale: true } })], []));
   expect(old).toContain("(cap as of the last answer)");
   const plain = await draw(response([JENSEN], [W3]));
@@ -182,6 +182,80 @@ it("a theme label with markup is shown escaped, a very long one is cut, and no t
   expect(html).toContain("javascript:alert(1) - 2 tokens, 2 creators");
   const block = html.slice(html.indexOf('data-test="current-themes-block"'), html.indexOf('data-test="current-copies"'));
   expect(block).not.toMatch(/<a[\s>]|href=/);
+});
+
+// ---- graduations (graduation Meta ticket 02) ----
+
+const th = (label: string, tokens = 1, creators = 1) => ({ label, tokens, creators });
+const CHRISTMAS_THEMES = ["santa", "snowball", "xmas", "grinch", "goonmas", "christmas", "bullmas", "holdmas", "pepemas", "catemas", "fomomas"].map((l) => th(l));
+const tok = (name: string, symbol: string, marketCapUsd?: number) => ({ mint: `${symbol}Mint`, name, symbol, ...(marketCapUsd !== undefined ? { marketCapUsd } : {}) });
+const grads = (over: Partial<NonNullable<CurrentMetaApiRow["grads"]>> = {}): NonNullable<CurrentMetaApiRow["grads"]> => ({
+  "24h": 10,
+  "6h": 3,
+  creators24h: 10,
+  share: 0.1,
+  newest: [tok("Bullmas", "BULL", 12_000), tok("Santa Inu", "SANTA"), tok("CATEMAS", "CAT", 3_400)],
+  ...over,
+});
+const CHRISTMAS = subject("Christmas", "BULL", 12_000, { namedBy: "ai", themes: CHRISTMAS_THEMES, grads: grads(), summary: "Christmas tokens are graduating" });
+
+it("a Meta on the Christmas fixture reads the graduation sentence, the 3 newest graduates (a dash for an unpriced one) and the theme chips", async () => {
+  const html = await draw(response([CHRISTMAS], []));
+  expect(html).toContain("Christmas: 10 graduated in 24h (3 in the last 6h), 10 creators, 10% of all graduations");
+  const newest = html.slice(html.indexOf('data-test="current-newest"'), html.indexOf('data-test="current-themes-block"'));
+  expect(newest.match(/<li/g)).toHaveLength(3);
+  expect(newest).toContain("Bullmas ($BULL) $12K");
+  expect(newest).toContain("Santa Inu ($SANTA) -"); // unpriced: a dash, never $0
+  expect(newest).toContain("CATEMAS ($CAT) $3.4K");
+  expect(html.match(/data-test="current-theme"/g)).toHaveLength(5);
+  expect(html).toContain("+6 more");
+  expect(html).toContain("santa - 1 token, 1 creator");
+  expect(html).not.toContain("copying in 24 h"); // the graduation line replaces the copies line
+  expect(html).not.toMatch(/\$0\b|undefined|NaN|null/);
+});
+
+it("a leader with no price shows a dash, not $0, and no stale note", async () => {
+  const dash = subject("Christmas", "SANTA", 0, { grads: grads(), leader: { mint: "M1", name: "Santa Inu", symbol: "SANTA", marketCapUsd: 0, stale: false } });
+  const html = await draw(response([dash], [{ ...dash, leader: { ...dash.leader, mint: "M2" } }]));
+  expect(html).toContain("Santa Inu ($SANTA)");
+  expect(html.match(/tabular-nums">\s*-\s*<\/span>/g)).toHaveLength(2); // the Meta's leader and the Watching one
+  expect(html).not.toContain("$0");
+  expect(html).not.toContain("cap as of the last answer");
+});
+
+it("a thin window shows the coverage flag; a full window and an old row show none", async () => {
+  const thin = await draw(response([subject("Christmas", "BULL", 12_000, { grads: grads({ coverage: { covered: 5, of: 24 } }) })], []));
+  expect(thin).toContain('data-test="current-grads-coverage">covered 5 of 24 h<');
+  expect(thin).toContain("10 graduated in 24h (3 in the last 6h)");
+  expect(await draw(response([CHRISTMAS], []))).not.toContain("current-grads-coverage");
+  const old = await draw(response([JENSEN], []));
+  expect(old).not.toContain("current-grads");
+  expect(old).toContain("45 creators copying in 24 h"); // an old row keeps its old line
+});
+
+it("a Watching subject with 3 in 6 h shows 'rising: 3 in 6h'; a Meta and a quieter subject do not", async () => {
+  const rising = subject("Rising", "RIS", 0, { grads: grads({ "24h": 4, "6h": 3, creators24h: 4, share: 0.04, rising: true }) });
+  const quiet = subject("Quiet", "QUI", 0, { grads: grads({ "24h": 5, "6h": 1, creators24h: 5, share: 0.05 }) });
+  const html = await draw(response([CHRISTMAS], [rising, quiet]));
+  expect(html.match(/data-test="current-rising">rising: 3 in 6h</g)).toHaveLength(1);
+  expect(html.slice(0, html.indexOf('data-test="watching"'))).not.toContain("rising");
+});
+
+it("graduation text is shown as text: hostile names are escaped and cut, an unsafe URL gives no link, a tiny share reads 'under 1%'", async () => {
+  const evil = `<img src=x onerror=alert(1)> ${"Z".repeat(500)}`;
+  const g = grads({ share: 0.002, newest: [{ mint: "e", name: evil, symbol: evil, marketCapUsd: 5, url: "javascript:alert(1)" }] });
+  const html = await draw(response([subject("Evil", "EV", 1_000, { grads: g })], []));
+  expect(html).not.toContain("<img");
+  expect(html).not.toMatch(/href="javascript:/);
+  expect(html).not.toContain("Z".repeat(100));
+  expect(html).toContain("under 1% of all graduations");
+});
+
+it("the /meta page carries the new intro: several tokens graduating on one narrative, not one big coin", () => {
+  const src = readFileSync(new URL("../../app/pages/meta.vue", import.meta.url), "utf8");
+  expect(src).toContain("A Meta is several tokens graduating on one narrative, not one big coin.");
+  expect(src).not.toContain("market cap in the millions");
+  expect(src).not.toContain("v-html");
 });
 
 it("the template has no raw HTML directive and no raw anchor; every external link is UrlLink", () => {

@@ -55,9 +55,10 @@ const windows = computed(() => [
 <template>
   <div class="grid gap-6">
     <h2 class="page-title">Meta</h2>
-    <p class="note muted">
-      A Meta is a current trend with a token really high: its leading token has a market cap in the millions. Watching is not a Meta: a token is up, but has not
-      reached that market cap yet. The list at the bottom is launch counts, not Metas.
+    <p class="note muted" data-test="meta-intro">
+      A Meta is several tokens graduating on one narrative, not one big coin. A narrative is a Meta when many tokens on it graduate to the open market in a day,
+      from several creators, and some of them in the last few hours. The market cap of its leading token is shown for context only. Watching is not a Meta:
+      tokens on it are graduating, but not yet enough. The list at the bottom is launch counts, not Metas.
     </p>
     <NewMeta :view="newMetaSection" />
     <CurrentMeta :view="currentSection" />

@@ -140,6 +140,13 @@ function publicLeader(t: LeaderToken): CurrentLeader {
 const betterLeader = (a: LeaderToken, b: LeaderToken): boolean =>
   a.marketCapUsd !== b.marketCapUsd ? a.marketCapUsd > b.marketCapUsd : a.stale !== b.stale ? !a.stale : a.mint < b.mint;
 
+/** The subject's grads with its 3 newest graduates (newest first, ties by the smaller mint) and the market cap of each that was priced this run. */
+function withNewest(grads: CurrentGrads, list: readonly LeaderGraduate[] | undefined, priced: ReadonlyMap<string, LeaderToken>): CurrentGrads {
+  const sorted = [...(list ?? [])].sort((a, b) => (a.migratedAt === b.migratedAt ? (a.mint < b.mint ? -1 : 1) : a.migratedAt < b.migratedAt ? 1 : -1)).slice(0, 3);
+  if (sorted.length === 0) return grads;
+  return { ...grads, newest: sorted.map((g) => { const cap = priced.get(g.mint)?.marketCapUsd; return { mint: g.mint, name: g.name, symbol: g.symbol, ...(cap !== undefined && cap > 0 ? { marketCapUsd: cap } : {}) }; }) };
+}
+
 /** The latest graduate (by graduation time, then the smaller mint), as a leader with no market cap: a dash on every page. */
 function latestGraduate(list: readonly LeaderGraduate[] | undefined, nowIso: string): CurrentLeader | undefined {
   let best: LeaderGraduate | undefined;
@@ -301,7 +308,7 @@ export function currentMetas(input: CurrentMetasInput): CurrentMetasResult {
       holding: kind === "meta" && !enters(i),
       enteredAt: sameKind?.enteredAt ?? nowIso,
       counts: subject.counts,
-      grads: subject.grads,
+      grads: withNewest(subject.grads, subject.graduates, tokens),
       topTokens: subject.topTokens,
     };
   };

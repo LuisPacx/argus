@@ -149,6 +149,18 @@ it("12 stored themes return 12, a hand-written row with 20 returns at most 12, a
   expect(currentMeta().metas[0]).toMatchObject({ themes: [], namedBy: "rules" });
 });
 
+it("graduations round-trip through the store: the counts, the 3 newest graduates (price only where known), coverage when thin, and 'rising' only for Watching at 3 in 6 h; an old row has none", () => {
+  const newest = [{ mint: "M1", name: "Bullmas", symbol: "BULL", marketCapUsd: 12_000 }, { mint: "M2", name: "Santa Inu", symbol: "SANTA" }];
+  const grads = { "24h": 10, "6h": 3, creators24h: 10, share: 0.1, coverage: { covered: 5, of: 24 }, newest };
+  save([subject("a", 0, { grads }), subject("old", 3_000_000)], [subject("w", 0, { grads: { ...grads, "24h": 4, share: 0.04 } }), subject("q", 0, { grads: { "24h": 5, "6h": 2, creators24h: 5, share: 0.05 } })]);
+  const r = currentMeta();
+  expect(r.metas[0]!.grads).toEqual({ "24h": 10, "6h": 3, creators24h: 10, share: 0.1, coverage: { covered: 5, of: 24 }, newest }); // test mints are not plain addresses, so no link
+  expect(r.metas[0]!.grads).not.toHaveProperty("rising"); // a Meta is not "rising"
+  expect(r.metas[1]!.grads).toBeUndefined();
+  expect(r.watching[0]!.grads).toMatchObject({ rising: true });
+  expect(r.watching[1]!.grads).toEqual({ "24h": 5, "6h": 2, creators24h: 5, share: 0.05, newest: [] });
+});
+
 it("is read-only: the route takes no query and writes nothing", () => {
   save([subject("a", 3_000_000)], []);
   const before = store.currentMetas();

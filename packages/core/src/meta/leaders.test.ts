@@ -160,6 +160,16 @@ describe("currentMetas: who is a Meta and who is Watching (graduations, not mark
     expect(none.metas[0]!.leader).toMatchObject({ mint: mintOf("late"), marketCapUsd: 0 });
   });
 
+  it("the row keeps the 3 newest graduates, newest first, with a price only for those priced this run", () => {
+    const s = subject("santa", 12, ["Santa"], { graduates: [graduate("a", "Oldest", "OLD", 300), graduate("b", "Newest", "NEW", 5), graduate("c", "Middle", "MID", 60), graduate("d", "Second", "SEC", 20)] });
+    const r = run({ subjects: [s], tokens: [token("c", "Middle", "MID", 40_000, { source: "theme", groupKey: "santa" })] });
+    expect(r.metas[0]!.grads!.newest).toEqual([
+      { mint: mintOf("b"), name: "Newest", symbol: "NEW" },
+      { mint: mintOf("d"), name: "Second", symbol: "SEC" },
+      { mint: mintOf("c"), name: "Middle", symbol: "MID", marketCapUsd: 40_000 },
+    ]);
+  });
+
   it("a trending token never makes a Meta: it leads only a subject that has the graduations", () => {
     const trending = token("t", "Jensen Huang", "JENSEN", 90_000_000);
     expect(run({ subjects: [jensen(grads(3, 1, 3))], tokens: [trending] })).toEqual({ metas: [], watching: [] });

@@ -133,6 +133,21 @@ export interface CurrentThemeApi {
 /** At most this many merged themes are sent per subject. */
 export const CURRENT_THEMES_SHOWN = 12;
 
+/** A subject's graduations as the page shows them (graduation Meta ticket 02). Absent on a row stored before graduation Metas. */
+export interface CurrentGradsApi {
+  "24h": number;
+  "6h": number;
+  creators24h: number;
+  /** 0 to 1, display only. */
+  share: number;
+  /** Present when the 24 h window is thin: the covered hours. */
+  coverage?: { covered: number; of: number };
+  /** The 3 newest graduates, newest first; `marketCapUsd` only when the token was priced (else a dash). Untrusted text. */
+  newest: MetaApiToken[];
+  /** True for a Watching subject with at least the 6 h count that makes it "rising". */
+  rising?: true;
+}
+
 /** One Meta or Watching subject (ADR 0014) in the shape the War Room renders. */
 export interface CurrentMetaApiRow {
   /** The launch-theme group key: what its summary and meme ideas are stored under. */
@@ -147,6 +162,8 @@ export interface CurrentMetaApiRow {
   holding: boolean;
   enteredAt: string;
   counts: Record<MetaWindow, MetaCounts>;
+  /** The subject's graduations; absent on an old row. */
+  grads?: CurrentGradsApi;
   topTokens: MetaApiToken[];
   /** The stored LLM line while it is fresh, else the templated numbers line. Untrusted text. */
   summary: string;
@@ -173,7 +190,7 @@ export const CURRENT_META_SHOWN = 3;
  * One Meta or Watching subject as the War Room renders it. The line is the stored model line while it is under a day old (a Meta can outlive
  * its launch wave, so its counts are no test of it), else the numbers line led by the leader; `newMeta` and `ideas` only for a Meta.
  */
-export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummaryRecord | undefined, nowMs: number, newMeta?: NewMetaMark, ideas?: readonly MemeIdeaRef[]): CurrentMetaApiRow {
+export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummaryRecord | undefined, nowMs: number, newMeta?: NewMetaMark, ideas?: readonly MemeIdeaRef[], rising6h: number = META_RULE.watchGrads6h): CurrentMetaApiRow {
   const line = currentMetaLine(m, saved, nowMs);
   const l = m.leader;
   return {
@@ -185,6 +202,19 @@ export function currentApiRow(m: CurrentMeta, isMeta: boolean, saved: MetaSummar
     holding: m.holding,
     enteredAt: m.enteredAt,
     counts: m.counts,
+    ...(m.grads
+      ? {
+          grads: {
+            "24h": m.grads["24h"],
+            "6h": m.grads["6h"],
+            creators24h: m.grads.creators24h,
+            share: m.grads.share,
+            ...(m.grads.coverage ? { coverage: m.grads.coverage } : {}),
+            newest: (m.grads.newest ?? []).slice(0, 3).map(apiToken),
+            ...(!isMeta && m.grads["6h"] >= rising6h ? { rising: true as const } : {}),
+          },
+        }
+      : {}),
     topTokens: m.topTokens.map(apiToken),
     summary: line.summary,
     summarySource: line.summarySource,
@@ -201,10 +231,11 @@ export function currentMetaResponse(
   newMeta: ReadonlyMap<string, NewMetaMark> = new Map(),
   ideas: ReadonlyMap<string, readonly MemeIdeaRef[]> = new Map(),
   noteBelow: number = META_RULE.coverageNoteBelow,
+  rising6h: number = META_RULE.watchGrads6h,
 ): CurrentMetaResponse {
   if (!current) return { computedAt: null, coverageNote: null, metas: [], watching: [] };
   const nowMs = Date.parse(current.computedAt);
-  const row = (m: CurrentMeta, isMeta: boolean) => currentApiRow(m, isMeta, summaries.get(m.key), nowMs, newMeta.get(m.key), ideas.get(m.key));
+  const row = (m: CurrentMeta, isMeta: boolean) => currentApiRow(m, isMeta, summaries.get(m.key), nowMs, newMeta.get(m.key), ideas.get(m.key), rising6h);
   return {
     computedAt: current.computedAt,
     coverageNote: coverageNote(coverage, "24h", noteBelow),
