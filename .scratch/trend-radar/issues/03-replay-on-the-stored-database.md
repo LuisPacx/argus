@@ -3,7 +3,7 @@
 
 **What to build:** a command that runs the radar's own key, phrase-count and score rules over the stored `signals` (13 days of Google Trends and RSS items, plus every PumpPortal create) and prints, for each known subject, when the radar's rules would first have flagged it, when the first source carried it, and when the first matching create appeared. Useful alone, and before the live radar is trusted: it says whether the free sources give any lead for the subjects the Operator knows (Clawd, the Hulk, Anthropic IPO, Genny, the GTA clips), which is the research's own "before writing any code, replay it for free" step.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 **Blocked by:** 02
 It needs ticket 02's phrase counter and score.

@@ -5,7 +5,7 @@
 
 **Blocked by:** None
 
-**Status:** done
+Status: done
 
 - [x] A new ADR (0017, or the next free number) states the principle "Claude runs only when the Operator triggers it", lists the exceptions kept automatic, and amends ADR 0011 and ADR 0013 with a dated pointer in each.
 - [x] With the switches at their defaults, the worker starts no judge, propose or Meta meme-ideas run and no moment scan, and writes one line at start saying so (tested with fake clocks and a fake Brain: no Brain call in a full simulated day).

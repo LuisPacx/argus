@@ -11,7 +11,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] Each source in a brief shows its host as plain text beside the link; a hostile source value (odd scheme, a host written to look like another, very long text) is shown escaped and cut, and a non-web link is not made clickable (render tests).
 - [x] Source links open with no opener and no referrer, and no wording or badge anywhere says a source is verified (render test).

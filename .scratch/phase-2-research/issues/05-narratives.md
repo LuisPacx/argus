@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] Embedding and clustering ported from helios; ingestion makes no Brain calls, and if embedding needs a model, the choice is recorded in an ADR (ADR 0006: no model, a local hashing embedder behind an `Embedder` seam)
 - [x] Each Signal belongs to at most one Narrative; a Narrative records when it last changed materially (the input for the judge delta)

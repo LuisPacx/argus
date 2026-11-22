@@ -3,7 +3,7 @@
 
 **What this is:** the one thing stage B waits for. Every stage B ticket (10 to 14) is blocked until this is done. It is also a decision point: he reads stage A's scorecard first and only then pays.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 05
 Ticket 05 (the scorecard) must be built and stage A must have run its 14 days. Spec: section 8. ADR 0016, "Is paying for the X API a good choice?".

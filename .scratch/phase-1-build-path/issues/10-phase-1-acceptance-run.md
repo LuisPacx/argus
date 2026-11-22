@@ -7,7 +7,7 @@ Operator prerequisites: image built (`pnpm image:build`), network created (same 
 
 **Blocked by:** 08, 09, 15
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] A live run reaches `built` with a private repo, a responding preview and cost on the card; repo URL, preview URL and cost recorded under Comments
 - [ ] Forced failure: one retry, then `build-failed` with a session_id that resumes in tmux

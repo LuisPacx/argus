@@ -3,7 +3,7 @@
 
 **What to build:** today a news Narrative with no buildable Tech goes nowhere: the buildability gate drops it (`narrativesToPropose`, `datastore.ts:1625`), and the Nvidia CEO story of 2026-11-12 was lost that way (ADR 0013, first paragraph). The user approved Q9 (b) on 2026-11-15: a news Narrative that **fails the buildability gate** can become a **`meme` Proposal**, written by the meme prompt (`meme-ideas`, `meme/ideas.ts`) with **the news story as the subject** instead of a Meta. The Operator then Shortlists or Dismisses it like any meme idea (no Spec, no Build, no Score of its own). This **amends ADR 0013**, which says a meme comes only from a Meta, and the proposal-routing ticket 01 amendment, which says memecoin ideas come only from Metas.
 
-**Status:** done
+Status: done
 
 Origin: `.scratch/cos.md`, "Q9 asked ... news failing buildability -> meme Proposal" and "USER: ... Q9 (c) staged" (2026-11-15), the user's approval of Q9 (b), then the grilling ("GRILL 04 R1 asked", "GRILL 04 R2 asked", "GRILL 04 USER"); `.scratch/proposal-routing/issues/01-tech-proposals-from-news-only.md` (Comments, Q9). Follows proposal-routing/01 (done) and meta-redesign/03 (done): only `kind = 'news'` Narratives are judged or proposed, and the meme pass runs on Metas.
 

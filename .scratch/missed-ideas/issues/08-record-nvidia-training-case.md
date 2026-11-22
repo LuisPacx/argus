@@ -3,7 +3,7 @@
 
 **What to build:** missed-ideas/01 asks that this case be recorded as a training case. In this project training means a real case plus lessons written into the prompts later (no fine-tuning). Add the NVIDIA CEO case to Phase 3 tickets 07 (cases and cohorts), 08 (lesson aggregation) and 09 (playbook into the prompts) as a named, sourced case with its lesson candidates, so those tickets pick it up when they run.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** none. Can run any time in the agreed order (warroom-redesign/10 slice c, then 03, 04, 05, 06, 07; viral-sources/01 in parallel; this ticket is independent and cheap).
 

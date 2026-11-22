@@ -15,7 +15,7 @@ meta-group changes only its definition wording: its grouping instructions, outpu
 
 **Blocked by:** 05
 
-**Status:** done
+Status: done
 
 - [x] Every prompt and skill that defines a Meta says graduations on one narrative, with market cap as context only, and passes grads counts where a Meta is listed.
 - [x] No "n/a" and no "at -" for an unpriced leader in any generated text.

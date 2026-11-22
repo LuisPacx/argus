@@ -3,7 +3,7 @@
 
 **What to build:** two switches, both off by default. `ARGUS_MOMENT_AUTO_IDEAS=1`: a Moment that first qualifies, is judged `moment` or `reaction`, is coin-side `open`, has no `nsfw`, `political` or `older origin` flag and has not been asked for, gets one automatic trio, under a cap of its own. `ARGUS_MOMENT_NUDGE=1`: a short Telegram message when such a Moment first qualifies. Useful alone: ideas wait in the War Room when the Operator comes back, and he hears about the rare big one.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 06, 07, 08
 Also an Operator go, which is not a ticket: do not start until the Operator has read the Scorecard (ticket 07) after at least 14 days of live scanning and written "go" in Comments with the cap he wants (4 a day was named). When it is written, change Status to ready-for-agent. If the scorecard shows precision under the spec's 40 percent or more than 10 false flags a day, report that instead of building.

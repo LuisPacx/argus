@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] Allowed CONNECT is tunnelled to a local fake upstream; every case in section 9's proxy list is refused and logged
 - [x] No wildcard or suffix matching in v1; hostnames compared case-insensitively and without trailing dot tricks

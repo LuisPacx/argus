@@ -3,7 +3,8 @@
 
 **What to build:** on `/meta` (and the strip on `/`), the Operator types an angle for a current Meta, for example `GTA 6 iguana: official screenshot https://www.rockstargames.com/VI/only-in-leonida shows an iguana walking in front of a mobility scooter in the Leonida Keys`, and presses one button. The worker runs the same `meme-ideas` path with the angle in the prompt and files the ideas as normal `meme` Proposals (new, shortlist or dismiss like any other). Each Proposal shows the angle and its source URL. Requested by the Operator on 2026-11-17.
 
-**Status:** done (the live-read box stays open until the Operator files the GTA 6 iguana angle after the worker restart)
+Status: done
+Status note: done (the live-read box stays open until the Operator files the GTA 6 iguana angle after the worker restart)
 
 **Blocked by:** none. (Ticket 10, expiry, is on another branch and touches the `meme` lifetime; the two do not share files except possibly `pass.ts` and the docs. Rebase over 10 if it lands first.)
 

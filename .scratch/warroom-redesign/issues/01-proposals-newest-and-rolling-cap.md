@@ -1,4 +1,4 @@
-Status: resolved
+Status: done
 
 # War Room: Proposals newest first, cap labelled as a rolling 24 h count
 

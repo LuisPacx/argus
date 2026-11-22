@@ -1,7 +1,7 @@
 # 09: Fix the flaky "dismissed during the run keeps its spend" Build Runner test
 **Model:** sonnet / effort: high — one test-only fix, but the root cause needed the dismissal path read end to end.
 
-**Status:** done
+Status: done
 
 **Symptom:** `packages/core/src/build-runner-verify.test.ts`, "Build Runner: spend is recorded on every path > a Proposal dismissed during the run keeps its dismissal; the spend is still recorded", failed twice on 2026-11-17 in full `pnpm check` runs under load (about 2 of 6) with `totalCostUsd` expected 0.0123, received 0. It passes alone.
 

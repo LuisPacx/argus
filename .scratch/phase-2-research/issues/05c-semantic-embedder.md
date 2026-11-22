@@ -5,7 +5,7 @@
 
 **Blocked by:** 05b
 
-**Status:** done
+Status: done
 
 **Outcome:** It wins. `Xenova/gte-small` (8-bit ONNX, 384 dims) at `JOIN_THRESHOLD` 0.90 merges no two labelled different stories and joins 53 of 112 same-story pairs, against 7 of 112 for the lexical embedder at its best (0.60). ADR 0007 has the table, the models compared, and the trade-offs. The worker loads the model on the first clustering pass; a missing model that cannot be fetched logs and skips clustering for that tick, never falling back to lexical. `pnpm models:fetch` pre-fetches and checksums it.
 

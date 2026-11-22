@@ -3,7 +3,7 @@
 
 **What to build:** (1) A Meta must have at least 3 distinct creators and at least 5 tokens in a window to be ranked, stored or shown anywhere. (2) When the 24 h (or 6 h) window has gaps, the War Room's Current Meta says so ("Only 1 h of data in the last 24 h"), from the real coverage of the window, not from the clock.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. The browser box needs `warroom-redesign/11` (headless page check) to exist.
 

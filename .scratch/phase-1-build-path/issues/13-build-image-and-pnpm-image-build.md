@@ -5,7 +5,7 @@
 
 **Blocked by:** 12, 14
 
-**Status:** done
+Status: done
 
 - [x] Image builds on this host; `claude --version`, `pnpm --version`, `node --version` print the pinned versions
 - [x] Tag derives from the pinned versions and a content hash; no `latest`

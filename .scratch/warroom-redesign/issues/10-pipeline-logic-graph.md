@@ -3,7 +3,7 @@
 
 **What to build:** the Operator wants "a graphic way of seeing how the logic works ... so I can see what I can improve, change, remove ... updated anytime the logic changes. High level, not fully detailed." Today the only picture is three hand-drawn mermaid blocks in `docs/architecture.md` (system overview `:13`, Proposal lifecycle `:70`, Build Runner `:135`); the Operator reads the War Room, not that file, and nothing makes them follow the code. This ticket adds a War Room page `/pipeline`, nav label "How it works", that draws the pipeline from ONE typed graph definition in code, shows live last-24 h numbers on it, and opens a panel per node. The same definition generates the `docs/architecture.md` diagrams, and a test fails when the code gains a Source, stage, cap or gate the graph lacks.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. Slices are mergeable on their own, in order a, b, c (b and c need a's graph). See Interplay.
 

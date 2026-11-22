@@ -5,7 +5,7 @@
 
 **Blocked by:** 03
 
-**Status:** done
+Status: done
 
 - [x] A topic submit writes one request row and nothing else; the War Room writes no brief (test); empty, oversized, wrong-typed or extra-key bodies are 400 with nothing stored.
 - [x] The worker claims the row and runs the researcher skill with the topic in one fenced block under a fresh random boundary, flattened and cut, named untrusted; a hostile topic, a forged boundary line and 100,000 characters of text cannot end the block or add an instruction (tests with a fake Brain).

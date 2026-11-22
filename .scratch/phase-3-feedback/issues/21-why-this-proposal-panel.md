@@ -11,7 +11,8 @@
 
 **Blocked by:** 17 (branch `proposal-tech-value`: adds `reason` and `interaction`)
 
-**Status:** deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
+Status: done
+Status note: deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
 
 - [ ] `GET /api/proposals/:id` returns `signals` (max 5, newest first, with title, sourceLabel, url, publishedAt), `[]` for a Proposal with no Narrative (tested)
 - [ ] The panel shows reason, interaction, Signals, per-dimension scores with rationale and Rubric version, and evidence; absent `reason`/`interaction` ("") show a "not recorded" note, not a blank (tested)

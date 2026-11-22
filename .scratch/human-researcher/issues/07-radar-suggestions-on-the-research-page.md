@@ -5,7 +5,7 @@
 
 **Blocked by:** 05
 
-**Status:** done
+Status: done
 
 - [x] The page lists the live named Trends, newest first, with their score and sources, and says "no Trends right now" when there are none (render test).
 - [x] Clicking a suggestion sets the topic box to the Trend's plain subject and starts nothing: no request row is written until submit (test).

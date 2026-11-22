@@ -3,7 +3,7 @@
 
 **What to build:** the leaders of the Meta rule are found from what is trending now, not from the launch themes and not from DexScreener's paid boosts. Each Meta tick reads Jupiter's `toptrending/1h` and GeckoTerminal's Solana `trending_pools`, merges them per token, drops fakes and tokenized stocks, and hands the survivors to the existing leader lookup, where DexScreener verifies the current cap. A subject's copiers (10 or more distinct creators in 24 h) now count bonk launches as well as pump.fun ones. After this ticket the GTA VI case works end to end under its old name ("Lucia From GTA 6"); ticket 06 fixes the name and the grouping. Decided by the user on 2026-11-16 (`.scratch/cos.md`: "GTA DIAGNOSIS", "GTA USER" Q2, Q3; "RESEARCH top-down"; "USER: all as recommended" Q6, Q7, Q8; the design and its reasons are `docs/adr/0015-metas-are-found-top-down.md`, decisions 1 to 3). The raw facts (endpoints, fields, limits, ranks) are in `.scratch/meta-redesign/research-top-down-sources.md`.
 
-**Status:** done
+Status: done
 
 **Blocked by:** 04 (it reuses `retryingFetchText` for both new clients; a client that did not retry would fail the first transient error all over again). The Operator decided open question 1 on 2026-11-16 (Q12 a), so the Jupiter client is in scope.
 

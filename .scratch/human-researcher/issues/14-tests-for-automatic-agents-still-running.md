@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] With the switches at their defaults, a scheduled tick runs Meta ranking and ingest, each shown by its effect on a test database (tests with fake sources); radar counting runs when ARGUS_RADAR=1 (its default stays off), shown by its readings in the test database.
 - [x] With the defaults, a scheduled tick runs Meta grouping and Meta summary, each shown by a call to a fake Brain and by its stored result (tests, no live model call). Radar naming (radar-name) is not built yet (trend-radar ticket 04) and is tested there.

@@ -1,7 +1,7 @@
 # 17: page-check seed: refusals write nothing (tested), unique temp dir
 **Model:** sonnet / effort: medium. Two small follow-ups to ticket 14 in `scripts/page-check-server.mjs` and its tests; no schema, ADR or dependency change.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. (Follow-up of `14-page-check-seed-option.md`, review note of 2026-11-16.)
 

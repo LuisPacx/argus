@@ -1,7 +1,7 @@
 # 11: The daily budget gates the start of a Build
 **Model:** sonnet / effort: medium — one gate in `runNextBuild`, one new refusal code and one store query; the War Room reuses the existing "Build blocked" marker and notice.
 
-**Status:** done
+Status: done
 
 ## Problem
 

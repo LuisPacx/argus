@@ -3,7 +3,7 @@
 
 **What to build:** when the Build Runner's preflight refuses to start a Build, the Operator sees it in the War Room, on the approved Proposal, instead of finding it in `worker.log`. Today the Proposal stays `approved` with no hint.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. Ticket 04 (on branch `meta-strip` when this was written) edits other War Room files; see Interplay.
 

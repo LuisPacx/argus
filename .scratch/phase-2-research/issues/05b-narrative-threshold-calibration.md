@@ -5,7 +5,7 @@
 
 **Blocked by:** 05
 
-**Status:** done
+Status: done
 
 **Decision:** the Operator chose a semantic embedder run in the worker process (not Ollama, not staying lexical); built and measured in ticket 05c (ADR 0007).
 

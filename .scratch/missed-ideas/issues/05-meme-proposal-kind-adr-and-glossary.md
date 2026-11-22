@@ -3,7 +3,7 @@
 
 **What to build:** write the decision that a Proposal has a **kind**, and that the second kind is `meme`: an idea for a token that rides a live Meta, generated from the Meta (ticket 06), not from a Narrative. It **replaces** the `beta` kind that viral-sources/04 slices 3 and 4 planned. The ADR and the GLOSSARY come first, so tickets 06 and 07 build against a written contract.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none technically. Agreed order: warroom-redesign/10 slice c, then 03, 04, **05**, 06, 07. 05 is needed by 06.
 

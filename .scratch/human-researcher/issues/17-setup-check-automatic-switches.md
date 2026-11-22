@@ -5,7 +5,7 @@
 
 **Blocked by:** 16
 
-**Status:** done
+Status: done
 
 - [x] Every automatic switch that is on is a WARN with the message above; off or unset is PASS; an invalid value is a FAIL that does not hide the other switches.
 - [x] The switch list comes from `automatic-agents.ts` (a test fails if a switch there is not covered).

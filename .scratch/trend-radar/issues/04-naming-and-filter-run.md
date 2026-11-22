@@ -3,7 +3,7 @@
 
 **What to build:** one cheap model run, in batches, that looks at the candidates plain code has already counted and answers, per candidate: is it a concrete, nameable thing; the plain subject people would say; up to 4 search phrases; flags (`real person`, `nsfw`, `political`, `trademark`, `unverified`) and an `upcomingDate` if the thing is scheduled. The page shows the subject instead of the raw term, hides non-things ("weather", "scores", a bare date) in a folded "not a trend" list with the reason, merges rows that got the same subject, and the untokenized check searches with the model's phrases. Useful alone: the list reads as a list of things, and the coin-side check stops missing "GTA 6" because Google said "gta vi trailer 3".
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 **Blocked by:** 01
 Spec: sections 3, 5.2 (the `upcomingDate` +10), 5.3, 7. ADR 0016 decision 5. Pattern to copy: `.claude/skills/meta-group/SKILL.md`, `packages/core/src/meta/group.ts` (`parseMetaGroups`), `meta/group-pass.ts`, and `BrainTask` and `DEFAULT_ROUTING` in `packages/core/src/brain.ts`.

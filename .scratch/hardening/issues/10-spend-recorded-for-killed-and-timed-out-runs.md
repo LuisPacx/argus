@@ -1,7 +1,7 @@
 # 10: Spend recorded for killed and timed-out runs
 **Model:** sonnet / effort: high — the recording change is small, but it touches every brain path, the budget SQL and the War Room card, and needs a real stream and transcript read to fix the parsing.
 
-**Status:** done
+Status: done
 
 ## Problem
 

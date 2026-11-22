@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] Expiry follows architecture §3 and goes through the lifecycle with the system actor and a recorded reason
 - [x] A Proposal with a Brain run in flight is never expired mid-run; tested

@@ -1,7 +1,7 @@
 # 16: fmtWhen shows the viewer's time zone after mount, fixed UTC before it
 **Model:** sonnet / effort: medium. One formatter in `apps/warroom/app/utils/format.ts`, a clock argument threaded through `why.ts` and two pages, one test file; no schema, ADR or dependency change.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. (Follow-up of 15, open question 3, decided 2026-11-16 as a separate ticket.)
 

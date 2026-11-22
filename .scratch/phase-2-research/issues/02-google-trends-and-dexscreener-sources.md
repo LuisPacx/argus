@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] Google Trends RSS Source following the helios `trends-feeds` pattern
 - [x] DexScreener trending Source; its client is reusable for the collision checks in ticket 09

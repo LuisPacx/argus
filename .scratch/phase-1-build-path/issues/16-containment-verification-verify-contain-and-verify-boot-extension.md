@@ -5,7 +5,7 @@
 
 **Blocked by:** 15
 
-**Status:** done
+Status: done
 
 - [x] `pnpm verify:contain` passes on this host with the image built; every HIGH2 and MED4 bullet in the reviewer's list has a corresponding check
 - [x] Skips cleanly (exit 0, prints SKIP) without podman; never pulls or builds (SKIP path checked by verifier on 363919e)

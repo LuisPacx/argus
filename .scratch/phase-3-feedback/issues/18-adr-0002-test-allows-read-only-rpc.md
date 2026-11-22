@@ -4,7 +4,7 @@
 **What to build:** `packages/core/src/adr-0002.test.ts` banned every RPC host and read method in all source, which contradicts the ADR 0002 Amendment (Phase 3 spec, 2026-11-07: argus reads chain read-only through public RPC; no wallet, no keys, no transaction) and blocked ticket 03 (chain labeller), and with it 04, 07, 08 and 09. The Operator approved changing the test on 2026-11-11 (not the ADR).
 Source: `.scratch/phase-3-feedback/research/proposal-quality-2026-11-11.md` finding 4. First consumer: `03-chain-labeller.md`.
 
-**Status:** done
+Status: done
 
 **Decision (the ADR names no module; narrowest rule proposed):** the Amendment says "public RPC" and the spec says Helius (section 7), but neither says where the code may live. The test now allows read-only RPC in exactly one file, `packages/core/src/study/helius.ts` (the one Helius client; tickets 03, 04 and 10 call chain through it). In that file only:
 - the host `mainnet.helius-rpc.com`, `https:`, path `/`, no port, no userinfo;

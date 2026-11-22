@@ -5,7 +5,7 @@
 
 **Blocked by:** 04
 
-**Status:** done
+Status: done
 
 Note: closely related to ticket 05 (Spec editor and approve); may be merged into it if done together.
 

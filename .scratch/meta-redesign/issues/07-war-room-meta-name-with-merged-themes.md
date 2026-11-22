@@ -3,7 +3,7 @@
 
 **What to build:** a Meta card on `/` and `/meta` shows the subject's name as its title (for example `GTA 6`) and, under it, the launch themes that were merged into it (for example `Lucia From GTA 6 - 270 tokens, 156 creators`, `GTA VI`, `Vice City`), so the reader sees why one Meta stands for several spellings and can spot a bad merge. Watching rows show the same. Decided by the user on 2026-11-16 (`.scratch/cos.md`: "USER: all as recommended" Q11, "MR ... 07 War Room name+merged themes"; the stored shape and the reasons are in `docs/adr/0015-metas-are-found-top-down.md`, decision 4, "a bad merge is visible", and in ticket 06).
 
-**Status:** done
+Status: done
 
 **Blocked by:** 06 (it stores `themes` and `named_by` on each `meta_current` row and returns them from `Datastore.currentMetas()`). Do not start before 06 is merged: the field does not exist before then.
 

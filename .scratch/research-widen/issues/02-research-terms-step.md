@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] With a fake brain returning 12 terms and a fake DexScreener that returns CATEMAS only for "catemas", CATEMAS is a candidate.
 - [x] Terms are validated in code (2 to 20 plain characters, de-duplicated, at most 15); invalid output counts as a failure.

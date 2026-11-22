@@ -5,7 +5,7 @@
 
 **Blocked by:** 04
 
-**Status:** done
+Status: done
 
 - [x] Textarea loads and saves `spec.md`; the stored hash updates on save; saving over a version changed underneath is refused with a message
 - [x] Revise is sent as a command; the worker resumes the Spec session through the Brain; the new `spec.md` and the run's cost are recorded; revise uses the same caps and dry-run as ticket 04

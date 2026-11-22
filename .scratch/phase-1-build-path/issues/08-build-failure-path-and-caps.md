@@ -7,7 +7,7 @@ Timed-out or shutdown-killed Brain runs record $0 because claude prints no resul
 
 **Blocked by:** 07, 15
 
-**Status:** done
+Status: done
 
 - [x] Exactly one automatic retry; its prompt includes the last log lines and the error
 - [x] The wall clock (config, default 4 h) kills the child and counts as a failure; tested with a short timeout and the fake `claude`

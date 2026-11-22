@@ -13,7 +13,7 @@ Known raw sites (line numbers as of `main` bea79ca; re-grep `apps/warroom` for `
 
 **Blocked by:** Phase 3 ticket 21 (Why this Proposal panel) merging to `main`; `safe-link.ts` does not exist on `main` yet.
 
-**Status:** done
+Status: done
 
 **Lint rule:** extend the existing local plugin `config/oxlint/argus-plugin.js` (rule `argus/no-dynamic-regexp`, commits 9106faa and 8bff602) with a second rule, e.g. `argus/no-raw-href`, registered in `.oxlintrc.json` at `error`. Check first that oxlint lints `.vue` templates, not just `<script>`: if it does not, the rule must be a small repo script or test that scans `apps/warroom/**/*.vue` templates, wired into `pnpm lint` or `pnpm check`; say which in Comments. The rule flags a bound `:href` / `v-bind:href` (also `:src`-style link attributes if cheap) unless the bound expression is a call to `safeHttpUrl` or a value derived from it in the same component, or the file is the one safe component. Static `href="https://..."` is fine. Tests are exempt as for the existing rule. Reviewers reject any disable of the rule that lacks a one-line reason.
 

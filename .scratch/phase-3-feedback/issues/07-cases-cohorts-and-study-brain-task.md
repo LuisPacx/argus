@@ -6,7 +6,7 @@ Spec: sections 5, 8, 9, 15 (slice 8).
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] A Case exists only after the 7d label (tested); Cohort is the calendar week and own launches are excluded from Cohorts
 - [ ] Controls are drawn at random within the Cohort, not matched on outcome; each Case stores its sampling weight

@@ -3,7 +3,7 @@
 
 **What to build:** `pnpm page:check --seed <path>...` starts a private War Room on a throwaway DB filled with sample rows, checks the page(s) at 390 and 1240 px exactly as today, then stops the server and deletes the DB. A worker can then check a page whose cards are empty on live data without hand-seeding a `.backup` copy. Approved by the user 2026-11-16 (`.scratch/cos.md`, "yes page:check seed ticket").
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. (Builds on 11, 12, 13; reads proposal-routing/04 and meta-redesign/02, 03 code, all merged.)
 

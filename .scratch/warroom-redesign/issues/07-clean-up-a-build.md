@@ -3,7 +3,8 @@
 
 **What to build:** a Build leaves three artifacts outside argus: a Cloudflare Worker named by the slug (deployed with `wranglerEnv`, `packages/core/src/build-runner.ts:523`, `:832`), a private GitHub repo `<owner>/<slug>` (`gh repo create`, `:660`) and a checkout `~/code/<slug>` (`:644`, `:656`). Today removing a dead Build is manual: the Proposal page only tells the Operator to remove them before Re-queue (`apps/warroom/app/pages/proposals/[id].vue:184`), and Re-queue is refused while the directory or repo exists (`build-runner.ts:644`). Test Proposal 148 (2026-11-12) needed a worker doing a Cloudflare API DELETE, `gh repo delete` (failed: the gh token lacked the `delete_repo` scope), an `rm`, and a hand SQL delete. This ticket adds one War Room action that does the three deletions safely and records them.
 
-**Status:** done; browser check deferred to the next real Build that is dismissed (user, 2026-11-12)
+Status: done
+Status note: done browser check deferred to the next real Build that is dismissed (user, 2026-11-12)
 
 **Blocked by:** none. See Interplay with 05 and hardening/06.
 

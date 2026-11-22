@@ -5,7 +5,7 @@
 
 **Blocked by:** none (can run with 01)
 
-**Status:** done
+Status: done
 
 - [x] ADR 0018 exists, quotes the Operator's definition and records the rule, stay, Watching and display-only cap.
 - [x] ADR 0014 and ADR 0015 are marked "Superseded in part by 0018", with what stays valid named.

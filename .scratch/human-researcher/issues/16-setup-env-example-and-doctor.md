@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] `.env.example` lists `ARGUS_CLAUDE_BIN`, `ARGUS_CHROME_BIN`, `ARGUS_CHROME_DIR` (with their defaults), `ARGUS_DB`, and `ARGUS_RESEARCH_TICK` ("old automatic judge+propose loop every 30 min; leave off; Operator research does not need it").
 - [x] `pnpm setup-check` prints one PASS/WARN/FAIL line per check with a fix hint and exits 1 on any FAIL, 0 otherwise.

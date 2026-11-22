@@ -7,7 +7,8 @@
 3. **Summaries** (the `meta-summary` task) are written only for the Metas and the Watching subjects (at most 6); "All launch themes" shows counts only.
 4. **The judge and propose prompt Meta block** lists the Metas and the Watching subjects (at most 6), each with its leader token and cap, instead of the top 5 launch themes.
 
-**Status:** done (committed on branch worktree-agent-a6d9889b62314394a, not merged; deploy notes in Comments)
+Status: done
+Status note: done (committed on branch worktree-agent-a6d9889b62314394a, not merged; deploy notes in Comments)
 
 **Blocked by:** 01 (Metas, Watching, `meta_current`, `Datastore.currentMetas()`). Land after 02: both edit `index.vue` and `meta.vue`, 02 first. Ticket proposal-routing/04 is blocked by this one.
 

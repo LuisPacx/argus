@@ -3,7 +3,7 @@
 
 **What to build:** Re-skin the War Room (`apps/warroom`, Nuxt) to the Operator-approved "Soft Rows" design on every page. Design source of truth: `.scratch/warroom-redesign/stitch-soft-rows/` (README + screens 01 to 08) and `.scratch/warroom-redesign/figma/soft-rows-list.png`, with the Soft Cards tokens from `.scratch/warroom-redesign/figma/README.md`. Plus Jakarta Sans (self-hosted, no CDN), light grey page background, white rounded surfaces with a soft shadow, indigo accent, soft pills, a single column, a pill nav, a header band of summary surfaces, full-width rounded rows. Details are separate pages (`/proposals/:id`, `/narratives/:id`), never a modal; list rows link to their detail page.
 
-**Status:** done
+Status: done
 
 ## Scope
 

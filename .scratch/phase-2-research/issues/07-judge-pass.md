@@ -5,7 +5,7 @@
 
 **Blocked by:** 05, 05b, 05c, 06
 
-**Status:** done
+Status: done
 
 - [x] A `judge` skill in argus's skills reads the Rubric at call time and returns per-dimension scores in a validated schema; invalid output fails the run
 - [x] The same Brain guarantees as Spec drafting: no tools, isolation flags, budget, timeout, in-flight run row, usage recorded, dry-run

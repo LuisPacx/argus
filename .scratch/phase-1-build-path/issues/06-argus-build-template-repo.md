@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] From a fresh clone: install, lint, typecheck and tests pass, and `wrangler deploy --dry-run` succeeds (TypeScript conventions as in argus)
 - [x] Every page renders the disclosure footer stating the project was created by argus and the creator may sell; a script fails if the footer is missing, and the Build Runner can call that script

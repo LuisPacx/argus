@@ -3,7 +3,7 @@
 
 **What to build:** at 390 px the home page `/` still scrolls sideways: `pnpm page:check /` prints `WARN 390px: horizontal overflow (scrollWidth 404 > viewport 390)`. Ticket 12 fixed the header nav and left this as content under it. Make `/` fit 390 px with every control still usable, and fix the nav pill's clipped shadow, a cosmetic leftover from ticket 12. Leave 1240 px as it is. Seen 2026-11-15, main 665ba50, live :3100.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none.
 

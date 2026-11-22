@@ -5,7 +5,7 @@
 
 **Blocked by:** Phase 1 ticket 07 (Build Runner happy path)
 
-**Status:** done
+Status: done
 
 - [x] The bot token and chat id come from the git-ignored `.env` and are never logged; missing config disables notifications with one warning
 - [x] Messages for new Proposal, build start, build done (with the preview link) and build failed

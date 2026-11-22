@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] Withdrawing an Operator Pick within 10 minutes records a withdrawal; the Pick row is unchanged, and an update or delete of a Pick or of a withdrawal is still refused by the database (tests).
 - [x] After 10 minutes the server refuses with a 409 and records nothing; withdrawing the same Pick twice is refused too; an unknown Pick id is refused (tests with a controlled clock).

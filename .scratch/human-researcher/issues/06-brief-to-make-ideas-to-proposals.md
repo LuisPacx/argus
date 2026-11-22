@@ -5,7 +5,7 @@
 
 **Blocked by:** 02, 05
 
-**Status:** done
+Status: done
 
 - [x] The button writes one request row for the brief; the worker files three `meme` Proposals keyed to the topic with a source marker readers can branch on; older Proposals still read (tests with a fake Brain).
 - [x] The brief and topic go in as a fenced untrusted block under a fresh boundary; names to avoid include the brief's existing coins; a copied live-coin name is refused once with the names listed (tests).

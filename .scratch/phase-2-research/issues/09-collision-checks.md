@@ -5,7 +5,7 @@
 
 **Blocked by:** 02, 08
 
-**Status:** done
+Status: done
 
 - [x] DexScreener check by name and ticker, and GitHub check by repo name; results are stored and shown on the card
 - [x] `propose` receives the collision results and retries a colliding name once; a name that still collides is flagged, not hidden

@@ -3,7 +3,7 @@
 
 **What to build:** on an approved Proposal, put a short "Build blocked" marker at the top of the page, next to the `approved` status badge, so the Operator sees the refusal without scrolling. The full notice stays where it is.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. Interplay: ticket 07 (Clean up build) edits the same Proposal page on another branch, so start 08 only after 07 is merged.
 

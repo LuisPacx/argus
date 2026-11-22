@@ -5,7 +5,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+Status: done
 
 - [x] The brief's coin shape has an optional code-set `via`; a stored brief without it still parses.
 - [x] The Research page shows "found via <term>" beside the bonded pill, and lists bonded coins before the others.

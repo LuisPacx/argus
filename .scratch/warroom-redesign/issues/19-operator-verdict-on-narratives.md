@@ -1,7 +1,7 @@
 # 19: The Operator records a verdict on a Narrative in the War Room
 **Model:** sonnet / effort: medium. One additive table, one POST, one GET export, a form and a pill on two pages, a link block; the pattern is the Proposal command route and `meme-angle`. No judge, prompt or Rubric change.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none.
 

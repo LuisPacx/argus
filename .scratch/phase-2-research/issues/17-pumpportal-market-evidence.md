@@ -5,7 +5,7 @@
 
 **Blocked by:** 14 (ship after the acceptance run). The migration rewrites the live `.data/argus.db` and needs a worker restart, so nothing here is deployed while the 48 h run is live; develop against copies.
 
-**Status:** superseded
+Status: wontfix
 
 ## Design
 

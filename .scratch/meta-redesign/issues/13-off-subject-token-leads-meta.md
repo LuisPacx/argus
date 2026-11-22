@@ -3,7 +3,7 @@
 
 **What to build:** the "GTA 6" Meta was led by Fartcoin ($87.09M, meta run 446, 2026-11-19T06:10Z), a token with nothing to do with GTA, and had been since run 330 (2026-11-18T01:24Z). No token that the subject's names do not carry, and that the AI grouping step left out of it, may lead that subject, and a wrong leader must not hold a Meta by having led it last run.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. Runs beside ticket 14 (unpriced DexScreener pairs); this ticket does not touch `topdown.ts` or `dexscreener.ts`.
 

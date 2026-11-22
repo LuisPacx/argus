@@ -1,7 +1,7 @@
 # 18: one shared Nuxt dev-server boot/stop for verify-boot and page:check --seed
 **Model:** sonnet / effort: medium. A behaviour-preserving refactor of two scripts into one small module; no schema, ADR or dependency change.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. (Follow-up of `14-page-check-seed-option.md` and `17-page-seed-refusals-and-unique-dir.md`, review note of 2026-11-17: "same pattern as verify-boot step 4; verify-boot is left as it is".)
 

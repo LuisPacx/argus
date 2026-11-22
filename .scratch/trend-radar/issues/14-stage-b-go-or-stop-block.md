@@ -3,7 +3,7 @@
 
 **What to build:** the day-14 verdict for stage B, read off the page. The scorecard of ticket 05 gains a stage B block that computes what the X API added and what it cost: which source was first for each good Trend, how many only X had, the dollars against the cap per day, the automatic topics and what they found, and the spec's keep-or-drop line. Useful alone: the Operator decides "keep B, drop to A, or open C" from numbers, not memory.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 05, 12
 Spec: section 8, last bullet.

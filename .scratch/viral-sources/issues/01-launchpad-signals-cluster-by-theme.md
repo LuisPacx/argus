@@ -3,7 +3,8 @@
 
 **What to build:** pump.fun create and migrate events (Source `pumpportal:events`, PumpPortal stream) become Signals, and today almost all of them land in two giant Narratives, so a token like Misu never gets a Narrative of its own, never reaches the judge as itself and never becomes a Proposal. Make a launchpad Signal join the thematic Narrative it belongs to (or start its own), and keep any one Narrative from absorbing the stream.
 
-**Status:** done on branch worktree-agent-a991d57fe22047dd3 (2865ebb, 5c40b63), not merged; deploy plan and judge-load recommendation in the last Comment
+Status: done
+Status note: done on branch worktree-agent-a991d57fe22047dd3 (2865ebb, 5c40b63), not merged; deploy plan and judge-load recommendation in the last Comment
 
 **Blocked by:** 03, slice 1 only (the token subject key and clone-cluster grouping, `.scratch/viral-sources/issues/03-meta-ranking-from-launchpad-data.md`). **This ticket depends on 03; it does not feed it.** Why: both need one definition of "the same token name" (same-name copycats here; clone clusters there), and a Meta is defined over tokens, so ticket 03 owns the normaliser and the grouping and this ticket imports them rather than building a second one that could disagree. Ticket 03's ranking needs nothing from the Narrative clusterer (it reads `study_tokens` and launchpad Signals directly), so the dependency runs one way. What this ticket adds to the pair is the Narrative: a Proposal pairs a Narrative with a Tech (GLOSSARY), so a live Meta can only be ridden once a thematic launchpad Narrative exists for it, and 03's judge and propose block reports that match. Also start only after the Phase 3 deploy stack (17, 19, 21, 22) is on `main` and the live DB migrated by it, see Interplay. Independent of ticket 02 (TikTok spike); 02's Source would feed this ticket's cross-source rule once it exists.
 

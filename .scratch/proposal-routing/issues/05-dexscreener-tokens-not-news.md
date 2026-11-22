@@ -3,7 +3,7 @@
 
 **What to build:** `dexscreener:trending` token Signals (`Name ($TICKER)`) are embedded and clustered like headlines (`narratives.ts:208-219`), so a news Narrative can be made of token names alone: legacy rows 3881 and 4059 are exactly that. The user approved on 2026-11-15 that DexScreener tokens stop being embedded into news Narratives and are routed the way launchpad Signals are (grouped by name and ticker, or kept out of Narratives). A news Narrative must not form from token names alone. This amends ADR 0007 (clustering) and ADR 0011 (what a market Signal does).
 
-**Status:** done
+Status: done
 **Blocked by:** 04
 
 Origin: `.scratch/cos.md`, entry "LEGACY ROWS CHECK" (11-15), then "USER: ... write dexscreener-routing follow-up ticket (build after 04)". Follows `.scratch/proposal-routing/issues/04-news-meme-proposals.md`, whose acceptance criterion "a qualifying Narrative has at least one news Signal" is the read-side half of this rule; this ticket is the write side.

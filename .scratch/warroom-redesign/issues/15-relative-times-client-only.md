@@ -3,7 +3,7 @@
 
 **What to build:** every relative time on the War Room ("40 minutes ago", "Expires in 12 min", "closes in 3 h", "last checked 12 s ago") is computed from a shared clock that is `0` on the server and on the first client render, and set to the real time on mount. Until then the text is an absolute UTC time, the same on both sides. Approved by the user 2026-11-16 (`.scratch/cos.md`, "yes relative-time ticket").
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. (Follows 14, whose seeded runs exposed it.)
 

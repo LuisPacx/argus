@@ -8,7 +8,7 @@ Spec: sections 5, 7, 9, 13, 15 (slice 5).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The five raw metrics are stored per migrator: creation-slot supply share, clustered supply, top-10 holder share, creator holding and selling, buyer count with round-trip volume share
 - [ ] Wallet analysis never runs for non-migrators or for tokens outside the population (tested)

@@ -1,7 +1,7 @@
 # 12: Worktree dependencies installed when a worker starts
 **Model:** sonnet / effort: low — one small script, one settings entry, one docs line.
 
-**Status:** done
+Status: done
 
 **User decision:** do NOT replace Claude Code's own worktree creation (no `WorktreeCreate` hook): we keep its lock, its cleanup sweep and `.worktreeinclude`. Install dependencies when a worker starts in a copy that has no `node_modules`. The `tsc` cache is out of scope.
 

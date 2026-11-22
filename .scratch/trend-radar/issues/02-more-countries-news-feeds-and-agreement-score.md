@@ -3,7 +3,7 @@
 
 **What to build:** the radar stops being one feed and becomes a counter of agreement. Google Trends is polled for about 8 countries; about 30 news feeds in a radar-only list are polled; headline phrases that three or more distinct feeds carry within 3 hours become candidates; and the **score** (spec 5.2) decides what the page shows. Useful alone: the Operator sees a subject because several independent places carry it, which is the cheapest lead the research found (Anthropic IPO on 13 feeds, about 9 hours before the first matching coin), and the Google noise of one country no longer fills the page.
 
-**Status:** done
+Status: done
 
 **Blocked by:** 01
 Spec: sections 4.1, 5.1 to 5.3.

@@ -3,7 +3,8 @@
 
 **What to build:** show a Meta's LLM summary only while its row is still close to the counts the summary was written from; otherwise show the plain numbers line and queue a rewrite within the existing caps. Never present numbers in prose that disagree with the row.
 
-**Status:** done (full check stamped on the commit)
+Status: done
+Status note: done (full check stamped on the commit)
 
 **Blocked by:** `missed-ideas/03` (adds matching news to the summary prompt, in progress in parallel; this ticket edits the same prompt and pass, so it builds on that change).
 

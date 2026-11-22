@@ -1,7 +1,7 @@
 # 20: Hide closed and dismissed Proposals by default
 **Model:** sonnet / effort: medium. A pure filter util, one toggle link component, small edits on the home list and the Narrative page's Proposal block, seed rows.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none.
 

@@ -3,7 +3,7 @@
 
 **What to build:** at 390 px the header nav pill on every War Room page shows "Proposals, Narratives, Meta, Ac..." inside an oversized white rounded box under the title and the New Proposal button. Activity, How it works, Study and Rubric cannot be reached. Home also reports horizontal overflow (`scrollWidth` 404 > 390). Seen 2026-11-15 with `pnpm page:check` at 390 px against the live :3100, main 02b936d. Ticket 10 slice a added the "How it works" item (seventh), which made it worse. Make every nav item reachable at 390 px by touch and keyboard, with the active page visible, and leave 1240 px as it is.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none.
 

@@ -3,7 +3,8 @@
 
 **What to build:** a Proposal card and its detail page show the Score that was current when the propose pass created it, not only the Narrative's latest. When the latest Score differs, add a "now: X" line so the reader sees both. Today a Proposal can look like it broke the buildability gate: Proposal 155 was created from Score 930 (buildability 5, gate 5.0) at 11:07:21, then the Narrative was judged again, Score 931 (buildability 4) at 12:07, and the card shows 931, so buildability 4 sits next to a Proposal that "should not exist". It was not a bug (the pass re-checks the gate at creation, `packages/core/src/propose.ts:519-522`); the card hid the Score that decided it. Decided by the user (GRILL R1 USER, Q3 (a), 2026-11-15, `.scratch/cos.md`). Buildability is noisy: 1, 5, 4 across three judgements in 90 minutes.
 
-**Status:** done (see Comments)
+Status: done
+Status note: done (see Comments)
 
 **Blocked by:** none.
 

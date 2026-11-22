@@ -3,7 +3,8 @@
 
 **What to build:** Make far fewer propose runs end `invalid-output`, without loosening the validator. Today a propose answer that misses the schema is refused and costs a run; the Narrative is then excluded from propose until it is scored again (datastore.ts 1060-1125).
 
-**Status:** done (3869dfe on main)
+Status: done
+Status note: done (3869dfe on main)
 
 **Needs a worker restart** (prompt and pass code are loaded at start). Do not merge under a live run: merge between runs, then restart the worker.
 

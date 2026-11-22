@@ -5,7 +5,7 @@
 
 **Blocked by:** 08, Phase 1 ticket 07 (Build Runner happy path)
 
-**Status:** done
+Status: done
 
 - [x] ApiBrain sits behind the Brain interface with the same inputs and validated output schema as ClaudeCodeBrain; its cost is computed from token usage
 - [x] `ANTHROPIC_API_KEY` is read only by ApiBrain from the git-ignored `.env`; it is never passed to any `claude` child (the existing scrub test still passes) and never logged

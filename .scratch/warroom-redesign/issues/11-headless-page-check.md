@@ -3,7 +3,7 @@
 
 **What to build:** `pnpm page:check <path> [--port N] [--out DIR]` opens one local War Room page in a headless browser with a fresh throwaway profile, at desktop (1240 px) and phone (390 px) widths, and writes a full-page screenshot per width, the console errors and the HTTP status. Cos and workers use it to close "browser check" boxes without a human browser. Why now: on 2026-11-14 the phone-width check of ticket 10 failed because resizing the user's real Chrome window did not shrink the viewport, and the user ruled that his Chrome profile must never be used again for these checks.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none.
 

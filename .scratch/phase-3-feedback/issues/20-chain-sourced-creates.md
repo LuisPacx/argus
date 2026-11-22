@@ -11,7 +11,7 @@ Two jobs, one module:
 
 **Blocked by:** 18 ADR 0002 test allows read-only RPC (branch `adr0002-test`; the Helius client is the single module `packages/core/src/study/helius.ts`)
 
-**Status:** done
+Status: done
 
 **Chain access rule (ticket 18):** every chain call goes through `packages/core/src/study/helius.ts`, per-method wrappers only (`getSignaturesForAddress`, `getTransaction`, and, if used, `getTransactionsForAddress`), against the pinned URL `https://mainnet.helius-rpc.com/`. No new file may name the host or an RPC method, and no generic `rpc(method, params)` is exported. This ticket adds wrappers to that module and puts the sampling and parsing logic elsewhere under `packages/core/src/study/`, calling the wrappers. Widening the allowed methods needs the Operator's say-so.
 

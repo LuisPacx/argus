@@ -3,7 +3,7 @@
 
 **What to build:** a gap analysis of the missed NVIDIA CEO idea, written in this ticket. It names the pipeline stage that failed and lists ranked fixes, each with its cost and risk. The user chooses the fixes in a grilling session run by cos. Then each chosen fix becomes its own tagged ticket. Nothing is implemented in this ticket.
 
-**Status:** done
+Status: done
 
 **Blocked by:** the two reports below, which are in progress (2026-11-12):
 - `.scratch/missed-ideas/2026-11-12-nvidia-ceo/external.md`

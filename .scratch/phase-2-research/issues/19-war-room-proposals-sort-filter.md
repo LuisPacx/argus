@@ -3,7 +3,7 @@
 
 **What to build:** Give the Proposals list (`/`) the same sort and filter bar ticket 18 gave the Narratives list. Default order is Score high to low (the Operator's explicit ask), Proposals without a Score last.
 
-**Status:** done
+Status: done
 
 ## Scope
 

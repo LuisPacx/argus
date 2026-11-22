@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] pnpm workspace with the worker, War Room and core packages per §9
 - [x] `typescript` 7.x pinned to an exact version; typecheck script is `tsc --noEmit --checkers 1`

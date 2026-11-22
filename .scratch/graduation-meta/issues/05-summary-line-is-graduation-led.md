@@ -7,7 +7,7 @@ Make the line graduation-led. With `grads` present the numbers line leads with t
 
 **Blocked by:** 01, 02
 
-**Status:** done
+Status: done
 
 - [x] The templated numbers line leads with graduations (24h, 6h, creators) when `grads` is present, and falls back to the old form only for old rows without `grads`.
 - [x] An unpriced leader shows a dash (-), never "n/a" or "$0".

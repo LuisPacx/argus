@@ -5,7 +5,7 @@
 
 **Blocked by:** 12, 13, 14, and the concurrent 07 fixes (process-group kill, run row, HIGH3 git handling)
 
-**Status:** done
+Status: done
 
 - [x] The `claude` argv, budget and timeout are byte-identical to today's (tested by comparing `buildArgs` output)
 - [x] Policy tests from section 9 (argv builder) pass; adding a mount or env var without updating the allowlist fails a test

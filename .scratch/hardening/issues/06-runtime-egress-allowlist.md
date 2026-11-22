@@ -3,7 +3,7 @@
 
 **What to build:** ADR 0002 ("never trade, sign or hold keys; talk only to known hosts") is enforced today only by a source-text scan, `packages/core/src/adr-0002.test.ts`. Four review rounds (ticket 18 on main; ticket 23 on branch `adr-residual`, tip ee51077) kept finding new spellings of a banned host that a regex cannot see: built at run time, decoded, read from a file or the network, a lookup table. Each round makes the test longer and the list of "Residual, not closed" items in ticket 23 is still open. A text scan can never be complete here. The Operator approved moving the real control to run time: the argus processes (the worker, the War Room server) should be unable to reach a host they are not allowed to, and the scan becomes a tripwire that stops growing.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 **Blocked by:** nothing. Coordinate with 19 (IPFS gateways, unmerged), 20 (Helius client) and 23 (`adr-residual`), see Interplay.
 

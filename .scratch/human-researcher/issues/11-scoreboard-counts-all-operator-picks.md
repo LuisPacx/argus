@@ -7,7 +7,7 @@ Topic matching, defined: a Pick belongs to a topic when the topic typed on the P
 
 **Blocked by:** 10
 
-**Status:** done
+Status: done
 
 - [x] An Operator Pick whose coin was in no brief's coin list is counted on its topic, in the Operator's rate and n (test with such a Pick).
 - [x] A withdrawn Operator Pick is not counted (test).

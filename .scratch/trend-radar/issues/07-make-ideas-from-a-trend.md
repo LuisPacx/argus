@@ -3,7 +3,7 @@
 
 **What to build:** on each named Trend of `/radar`, a **Make ideas** button. It writes one request row. The worker runs the existing `meme-ideas` path with the Trend (plain subject, phrases, sources and numbers, flags, coin-side state) in place of a Meta block, and files three ordinary `meme` Proposals with a trend source. Each Proposal shows where it came from. Useful alone: the Operator goes from a subject found before any coin to three named ideas in one press, with the names already checked against the clones the check found.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 04
 It needs the model's plain subject, phrases and flags. Spec: section 6.3. ADR 0016 decision 2 and the ADR 0013 amendment of this feature. Moment scanner ticket 06 (not built) is independent; whichever lands first, snapshot version 4 is the Moment's and version 5 is the Trend's.

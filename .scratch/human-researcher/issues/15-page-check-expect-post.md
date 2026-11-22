@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] A non-GET request matching an `--expect-post` path is never sent to the server, is reported as `expected POST seen: <method> <path>` and does not fail the run (browser test with a counting server).
 - [x] A run with `--expect-post` where the request never happens exits 1 and says which path was not seen (tests).

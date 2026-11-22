@@ -5,7 +5,7 @@
 
 **Blocked by:** 15
 
-**Status:** done
+Status: done
 
 - [x] ADR records the Operator's answers to questions 1 to 9
 - [x] Architecture §4 and §10 match the implemented behaviour

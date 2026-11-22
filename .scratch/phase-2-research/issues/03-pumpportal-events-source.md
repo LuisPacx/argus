@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] PumpPortal adapter ported from helios behind the `Source` interface
 - [x] The websocket reconnects with backoff; a dropped connection never crashes the worker; shutdown closes it cleanly and `pnpm verify:boot` still passes

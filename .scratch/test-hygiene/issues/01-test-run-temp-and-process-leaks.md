@@ -2,7 +2,7 @@
 
 **Model:** sonnet / medium
 
-**Status:** done
+Status: done
 
 **What to build:** `/var/tmp` held 30 `argus-test-run-*` dirs (~121 MB) from runs since 11-05, and a `fake-claude.mjs -p /implement-spec` process stayed alive (ppid = init, ignoring SIGTERM) 20 minutes after a `pnpm check`. Root causes found in `packages/core/src/testing/no-leaked-fakes.ts` (vitest globalSetup, which creates the `argus-test-run-*` root and removes it in teardown):
 

@@ -11,7 +11,7 @@ Fairness, defined:
 
 **Blocked by:** 04, 05
 
-**Status:** done
+Status: done
 
 - [x] A research run files its Shadow picks from the brief's coin list only; a coin outside the list is rejected and the run ends with a repair retry (tests with a fake Brain).
 - [x] The prompt and its inputs contain no raw Operator Pick, reason or Pick count (test inspects the rendered prompt with Picks present in the database). The only Operator-derived input is the Playbook version allowed by the leak guard: a test with a Pick settled after the request start and a Playbook built from it shows that version is not used, and a test shows an eligible version is used and its id stored on the Shadow pick.

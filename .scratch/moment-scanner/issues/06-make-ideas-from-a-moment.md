@@ -3,7 +3,7 @@
 
 **What to build:** on each Moment of the Moments page (judged, not in the folded list), a "Make ideas" button. It writes one request row. The worker runs the `meme-ideas` path with the Moment's post, counts, phrases and traced clones in place of a Meta block, and files three ordinary `meme` Proposals. Each Proposal shows where it came from (the Moment, its best post link, its numbers, its coin-side state). Useful alone: the Operator goes from a flagged Moment to three named ideas in one press, with the names already checked against the clones the trace found.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 03, 04
 

@@ -3,7 +3,7 @@
 
 **What to build:** the smallest slice that is useful alone. The worker polls Google Trends' realtime RSS for the US every 15 minutes, keeps each term with its traffic, drops anything that is a current Meta or Watching subject, runs the **untokenized check** on every new term (DexScreener search through the existing client, the ticket 16 live-token test imported from `meme/live-token.ts`, and the local pump.fun creates), and a new War Room page `/radar` lists the terms with their coin-side state. No model, no X, no second country, no buttons. Useful alone: the Operator opens one page and sees what is rising on Google right now that has no live coin, instead of reading Google Trends and DexScreener by hand.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none
 Spec: `.scratch/trend-radar/spec.md` (sections 3, 4.1, 5.1, 5.4, 5.5), ADR 0016. The moment scanner's tickets are not needed for this one.

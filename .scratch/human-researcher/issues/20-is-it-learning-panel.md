@@ -5,7 +5,7 @@
 
 **Blocked by:** War Room 21 (most useful after 19)
 
-**Status:** done
+Status: done
 
 - [x] Counts equal a hand-built fixture (including unrated and the no-Playbook row).
 - [x] No verdict/trend sentence below 10 rated per version.

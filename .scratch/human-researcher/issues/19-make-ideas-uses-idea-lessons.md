@@ -5,7 +5,7 @@
 
 **Blocked by:** 18
 
-**Status:** done
+Status: done
 
 - [x] With no `ideasText` the prompts are byte-identical to today.
 - [x] With `ideasText`, the block has its own fence and stays within the caps.

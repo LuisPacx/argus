@@ -3,7 +3,8 @@
 
 **What to build:** the propose prompt tells the model which Techs recent Proposals already used and requires a different one. Today four Proposals in a row (154 to 157) got the same Tech, "spot-the-original copycat game", because each propose run sees one Narrative and nothing else (`proposePromptFor`, `packages/core/src/propose.ts:175`) while the skill requires a Tech (`.claude/skills/propose/SKILL.md:18`). Decided by the user (GRILL R1 USER, Q2 (a), 2026-11-15, `.scratch/cos.md`): list the recent Techs in the prompt, the model must differ, and add no code-side similarity check unless repeats persist.
 
-**Status:** done (2026-11-15)
+Status: done
+Status note: done (2026-11-15)
 
 **Blocked by:** 01 (proposal routing, not yet written). Ticket 01 changes which Narratives reach propose; this ticket builds on the same prompt and pass, so it starts after 01 lands.
 

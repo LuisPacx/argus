@@ -3,7 +3,7 @@
 
 **What to build:** for each fresh candidate that passed the score floor (named, `untokenized`, `contested` or `not traced`, first 24 hours, not ignored), one Counts request for its cleaned phrases, hourly buckets over the last 24 hours. Plain code reads the curve: did the last 3 hours at least double the 3 before, with at least 200 posts in the last hour. A rise adds 20 points and shows a small count curve on the row. A second command, `pnpm radar:audit`, takes a list of past subjects and times and reports whether X's counts rose before each one's coin, for a few cents: the Operator's check, in the first week, of whether stage B is worth paying for. Useful alone: the radar can say "this phrase passed 1,000 posts an hour ago and doubled since" for half a cent, with no page load.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 04, 11
 Spec: sections 4.2, 5.2, 7 and 8. ADR 0016 decision 3.

@@ -5,7 +5,7 @@
 
 **Blocked by:** the War Room SSR fix for `apps/warroom/app/pages/index.vue` (a `setInterval` created at setup crashes SSR). Do not start before it is on main; this page must not repeat the bug.
 
-**Status:** done
+Status: done
 
 ## What exists today (mapped)
 

@@ -8,7 +8,8 @@
 
 Each case is stored in a form that Phase 3 tickets 07, 08 and 09 can use as a training case.
 
-**Status:** open
+Status: ready-for-agent
+Status note: open
 
 **Blocked by:** ticket 01's reports, `.scratch/missed-ideas/2026-11-12-nvidia-ceo/external.md` and `internal-trace.md`. They are the template for the output.
 

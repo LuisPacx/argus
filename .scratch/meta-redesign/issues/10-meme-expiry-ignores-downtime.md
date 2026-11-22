@@ -1,7 +1,7 @@
 # 10: A meme Proposal's 12 h life does not run while the worker is stopped
 **Model:** sonnet / effort: medium. One new stored fact (when the worker was last alive), one change to a pure function and its caller, tests on a fake clock. Medium because the expiry date is also shown on cards and the clock-skew and boundary cases need care.
 
-**Status:** done
+Status: done
 
 ## Problem
 

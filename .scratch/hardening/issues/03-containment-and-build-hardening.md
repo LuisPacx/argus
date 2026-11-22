@@ -16,7 +16,7 @@
 
 **Blocked by:** none. No file overlap with tickets 01, 02 or 04 except `docs/architecture.md` (different paragraphs, with 02).
 
-**Status:** done
+Status: done
 
 - [x] Teardown has a timeout and falls through to the group kill; a test with a hung fake podman
 - [x] An abort during a logs poll or during start is seen promptly; tests for both

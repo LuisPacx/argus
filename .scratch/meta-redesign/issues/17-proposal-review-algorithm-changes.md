@@ -3,7 +3,7 @@
 
 **What to build:** apply proposed changes 1, 2, 3 and 5 of `.scratch/research/proposal-review/2026-11-19.md` (untracked in the main checkout), as the Operator approved them on 2026-11-19. Measurement (change 4) and pausing Tech Proposals (change 6) are not part of this ticket.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none (follows tickets 15 and 16).
 

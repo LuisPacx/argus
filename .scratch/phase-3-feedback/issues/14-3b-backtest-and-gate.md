@@ -6,7 +6,7 @@ Spec: sections 8, 12, 14, 15 (slice 13).
 
 **Blocked by:** 13 3a acceptance run (14 days)
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The score is rules derived from approved lessons only, computed from the frozen Snapshot, with no Claude run and no label access (tested)
 - [ ] Only Cohorts later than the ones the lessons came from are scored

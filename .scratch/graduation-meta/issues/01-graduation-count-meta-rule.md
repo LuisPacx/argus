@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] `graduatedBetween` is read-only, uses the `migrated_at` index and writes nothing.
 - [x] A fixture subject with 10 or more graduations, 6 or more creators and 3 or more in 6 h and no priced leader is a Meta with the cap shown as a dash.

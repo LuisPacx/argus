@@ -3,7 +3,8 @@
 
 **What to build:** The 48h acceptance re-run check-ins read `.data/run/worker.log` and had to assume the caps and feed state. Operator decision 2026-11-09: the worker proves its own configuration and feed state in the log. Volume stays small: no per-message logging, no secret values.
 
-**Status:** done (23f57da, 8153791 on main)
+Status: done
+Status note: done (23f57da, 8153791 on main)
 
 ## Where it lives
 

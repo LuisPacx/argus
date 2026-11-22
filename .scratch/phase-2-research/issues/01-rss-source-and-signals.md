@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] `Source` interface (`id`, `label`, `poll()` returning normalized Signals) ported from helios, with the RSS adapter and its time-bounded fetch; the feed list is data, not code (`config/rss-feeds.json`)
 - [x] Signals are stored with an additive, idempotent migration; a Signal seen again is not stored twice; tested

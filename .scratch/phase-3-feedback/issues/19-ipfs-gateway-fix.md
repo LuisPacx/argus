@@ -1,7 +1,8 @@
 # 19: Fix Study metadata capture on the ipfs.io gateway
 **Model:** sonnet / medium — small, well-bounded change in the capture job; the tests pin the behaviour.
 
-**Status:** done, deployed 2026-11-11 (main 1270357)
+Status: done
+Status note: done deployed 2026-11-11 (main 1270357)
 
 **What to build:** Study metadata capture fails for most tokens because nearly every PumpPortal `uri` is `https://ipfs.io/ipfs/<cid>` and ipfs.io throttles us.
 Evidence: `.scratch/phase-3-feedback/research/new-phase-gap-2026-11-11.md` (coverage section): only 130 of 1,614 seen migrations have a Snapshot; 402 failed with `metadata: HTTP 429`; ipfs.io fails for 9,877 of 13,020 ipfs.io uris (76%) while other gateways fail 0%; retries burn the capture cap, which causes most `capped` rows.

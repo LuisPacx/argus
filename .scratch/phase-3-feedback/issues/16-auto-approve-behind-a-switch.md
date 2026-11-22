@@ -6,7 +6,7 @@ Spec: sections 12, 15, 16 (slice 13).
 
 **Blocked by:** 14 3b backtest and the Q20 gate (the gate must have passed)
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The switch is off by default in config and in a fresh database; with it off, no auto approval can happen (tested)
 - [ ] Approval goes through the existing approve path with actor system and reason "Score threshold"; no second path to a Build exists (tested)

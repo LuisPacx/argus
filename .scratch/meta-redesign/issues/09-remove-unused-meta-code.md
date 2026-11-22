@@ -3,7 +3,7 @@
 
 **What to build:** delete what ticket 05 (top-down leader sources) left with no reader: the module `packages/core/src/meta/candidates.ts` (`trendingCandidate`, `trendingCandidates`, `TRENDING_SOURCE_ID`, `TrendingSignalRow`), the read method `store.meta.trendingSignals` (`packages/core/src/meta/store.ts`) and `marketCapFromSummary` with its private constants (`packages/core/src/sources/dexscreener.ts`).
 
-**Status:** done
+Status: done
 
 ## Why each is unused (grep over the whole repo, 2026-11-17)
 

@@ -3,7 +3,7 @@
 
 **What to build:** the smallest slice that is useful alone. For one topic given by configuration, the worker scans X for rising video clips every 30 minutes, stores each post with its counts at each reading, and a new War Room page `/moments` lists the clips that are rising fast (views an hour), newest reading first. The Operator opens the page and sees what is moving in the topic without running a manual scan. Nothing else yet: no grouping, no model, no coin side (tickets 02 to 04).
 
-**Status:** done
+Status: done
 
 **Blocked by:** none
 ADR 0009 is amended in the same change set as this ticket's spec; the Operator's go-ahead of 2026-11-19 covers it. The Study's X capture, Phase 3 ticket 06, is not built; this ticket moves the Chrome-directory lock and the stop state into shared modules so that job can use them later (ticket 08 adds the wrapper).

@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] A read-only query returns tokens migrated in the last 7 days (with a limit) and writes nothing.
 - [x] With a fake store holding CATEMAS, BOSSMAS and Santa Inu as migrated and terms "xmas", "santa", "mas", all three become candidates, each with the term it matched as `via`.

@@ -6,7 +6,8 @@ Source: `.scratch/phase-3-feedback/research/proposal-quality-2026-11-11.md` (fin
 
 **Blocked by:** none
 
-**Status:** deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
+Status: done
+Status note: deployed 2026-11-11 (main 1270357); boxes without recorded evidence stay open (see Comments)
 
 - [ ] `propose` SKILL.md and the propose prompt state the Tech-value rule and the required `reason` key (tested: the prompt contains both; the SKILL.md example still parses)
 - [ ] `parseProposeOutput` requires `reason` (one line, at most 300 characters) and refuses a missing, empty, over-long or control-character `reason` (tested)

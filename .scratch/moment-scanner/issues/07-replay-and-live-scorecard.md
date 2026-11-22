@@ -3,7 +3,7 @@
 
 **What to build:** (a) a replay command that runs the scanner's own qualify rules over the readings the manual scans wrote down on 2026-11-18 and 19 and prints, per Moment, when the rules first flag it, when the manual scans first recorded it, and when the first coin was created; (b) a "Scorecard" block on the Moments page that computes the spec's measures from the live tables, so the two-week verdict is read off the page and not argued from memory. Useful alone: it says whether the thresholds are any good before and after the scanner runs live, and it is the gate for ticket 11.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 04
 It needs the tiers, the trace and the first-$50K-clone time.

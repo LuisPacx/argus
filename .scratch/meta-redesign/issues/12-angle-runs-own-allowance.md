@@ -3,7 +3,7 @@
 
 **What to build:** an Operator angle run no longer shares the regular meme cap (8 runs a day). It counts against its own allowance, so an angle is not blocked when the automatic runs used up the 8, and automatic runs cannot spend the angle allowance. Requested by the Operator on 2026-11-17.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none (follows ticket 11).
 

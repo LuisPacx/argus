@@ -3,7 +3,7 @@
 
 **What to build:** four small things on `/radar` and one block. **Ignore** (hide a Trend), **Keep** ("worth it", for the scorecard) and **Seen** (record that the Operator looked and when) as mark rows; a **Missed** form to record a good subject the radar did not have (the term, where he found it: X clip, X post, news, other, and a time if he knows it); a find box that searches the stored Trends and readings by text, read-only; and the **Scorecard** block that computes the spec's 14-day measures from the live tables. Useful alone: after 14 days the verdict on stage A is read off the page, not argued from memory, and it is the gate for stage B (ticket 09).
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 **Blocked by:** 01, 02
 It needs the score and first-source data of ticket 02. Spec: sections 6.1 and 8.

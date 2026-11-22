@@ -5,7 +5,7 @@
 
 **Blocked by:** 01 (same code: the automatic Meta trio is what 01 switches off)
 
-**Status:** done
+Status: done
 
 - [x] The button on `/meta` writes one request row with no angle text; the worker files three meme Proposals marked as pressed by the Operator (tested with a fake Brain).
 - [x] A Meta that is no longer current is refused with the reason before any model call; a second press while one waits is refused (tests).

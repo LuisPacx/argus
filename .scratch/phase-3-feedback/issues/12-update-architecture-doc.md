@@ -6,7 +6,8 @@ Spec: sections 12, 16.
 
 **Blocked by:** The arch-doc branch merged into main
 
-**Status:** done (8d4bfdf, c8df3ef)
+Status: done
+Status note: done (8d4bfdf, c8df3ef)
 
 - [x] Starts from the merged main version of the document, not the older one
 - [x] Every item in spec section 16 is applied or deliberately skipped with a reason in the commit message

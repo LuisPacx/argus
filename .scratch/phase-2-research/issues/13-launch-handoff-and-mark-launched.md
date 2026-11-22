@@ -5,7 +5,7 @@
 
 **Blocked by:** Phase 1 ticket 07 (Build Runner happy path)
 
-**Status:** done
+Status: done
 
 ## Prefill mechanism findings (newpairspam, read-only check)
 

@@ -5,7 +5,7 @@
 
 **Blocked by:** 03
 
-**Status:** done
+Status: done
 
 - [x] Brain interface per §5 with ClaudeCodeBrain; routing (task -> backend, model) is config, not code branching
 - [x] Child environment is scrubbed: `ANTHROPIC_API_KEY` removed and only the needed variables passed; a test asserts it

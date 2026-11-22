@@ -5,7 +5,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+Status: done
 
 - [x] The Rubric is stored in the datastore and seeded with the five v1 dimensions at equal weights, with buildability as the hard gate
 - [x] The War Room editor saves descriptions, weights and the gate; invalid input is refused with a message; endpoint-level tests with the exact UI payload

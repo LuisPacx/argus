@@ -7,7 +7,7 @@
 
 **Blocked by:** 03
 
-**Status:** done
+Status: done
 
 - [x] After 24 hours a Pick has a bonded yes or no, and the peak market caps at +1h, +6h and +24h; before that its outcome reads "pending" (tested with fake clocks and a fake DexScreener).
 - [x] A coin that was already bonded at Pick time (`bonded_at_pick`) is excluded from "bonded within 24h" and reported separately with its own count, so it cannot inflate the rate (tested).

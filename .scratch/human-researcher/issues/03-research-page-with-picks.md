@@ -5,7 +5,7 @@
 
 **Blocked by:** None
 
-**Status:** done
+Status: done
 
 - [x] The page `/research` exists and is linked from the War Room navigation; pasting two valid CAs records two Picks with their snapshots (tested with a fake DexScreener).
 - [x] A malformed CA, an unknown CA, a CA with no pair and a DexScreener failure each give a plain message on that line and record nothing for it (tests); a failure does not lose the other lines.

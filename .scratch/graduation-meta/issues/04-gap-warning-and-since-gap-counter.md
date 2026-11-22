@@ -5,7 +5,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+Status: done
 
 - [x] A render test with a gap fixture shows the warning with both times and "covers N of 24 h", and the since-the-last-gap counter.
 - [x] With no gap, no warning and no counter are rendered.

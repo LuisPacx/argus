@@ -6,7 +6,7 @@ Spec: sections 12, 15 (slice 13).
 
 **Blocked by:** 14 3b backtest and the Q20 gate (the gate must have passed)
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The switch is off by default in config and in a fresh database (tested)
 - [ ] With the switch on, a draft Spec is created only for Proposals in the top score band set in config, and only once per Proposal (tested)

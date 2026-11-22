@@ -3,7 +3,8 @@
 
 **What to build:** only a Narrative of kind `news` can get a Score and a Tech Proposal. Launchpad Narratives (one token's creates, from the pump.fun stream) stop being judged and stop being proposed from; they stay clustered, listed, and used as context. Memecoin ideas come from Metas (ADR 0013), never from a Narrative. Decided by the user on 2026-11-15 (`.scratch/cos.md`: GRILL R1 USER Q1 (a), GRILL R2 USER Q4 and Q5, the FACT CORRECTION and Q9 entries). Four launchpad Narratives (4570, 4879, 5506, 5605) became Proposals 154 to 157, all with the same "spot-the-original copycat game" Tech; a Tech is a web app, and a single token's creates give it nothing to ride.
 
-**Status:** done (2026-11-15)
+Status: done
+Status note: done (2026-11-15)
 
 **Blocked by:** none. Tickets 02 and 03 in this directory build on this routing; 02 lists this as its blocker.
 

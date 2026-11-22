@@ -3,7 +3,7 @@
 
 **What to build:** `docs/architecture.md` and `packages/core/src/pipeline-graph.ts` describe the moment scanner the way they describe the other worker jobs: where it runs, what it reads and writes, its caps and its switches. Read the merged code of tickets 01 to 06 and write what is true, not what the spec planned.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 06
 Tickets 05 and 08 may or may not be merged by then; describe only what exists.

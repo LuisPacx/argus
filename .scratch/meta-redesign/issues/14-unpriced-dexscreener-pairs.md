@@ -3,7 +3,7 @@
 
 **What to build:** a live, heavily traded token must not be rejected as unverifiable because DexScreener cannot price its pair. GTAVI (`ERiM8NiCanarGEnWMnURAoxTuTvUXZbtJsPTirnHpump`) migrated to pumpswap on 2026-11-17 19:13Z. Its only pair from `GET /tokens/v1/solana/<mint>` is quoted in another token (GTA6, not SOL), so DexScreener answers `volume: {}` and no liquidity, marketCap or fdv. `DexScreenerClient.pairs()` turned those into 0 / undefined and `verifyAgainstDex` (`meta/topdown.ts`) rejected it with "liquidity missing; market cap missing; 24 h volume missing", logged every tick (about 138 lines since 2026-11-17 19:27Z; CSI has the same signature). GeckoTerminal shows the pool at about $56.6K liquidity, $1.1M 24 h volume and $260K FDV. Diagnosis: `.scratch/cos.md`, "11-19 GTAVI diagnosis"; go-ahead: "11-19 USER yes ticket+build both".
 
-**Status:** done
+Status: done
 
 **Blocked by:** none. Ticket 13 (wrong leader of the GTA 6 Meta) edits `packages/core/src/meta/` too: merge 13 first, rebase this one if needed.
 

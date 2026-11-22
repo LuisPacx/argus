@@ -6,7 +6,7 @@ Spec: sections 10, 15 (slice 10).
 
 **Blocked by:** 08 Lesson aggregation, the Playbook and the weekly review page
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] Each lesson names its tasks, and only matching lessons render into each prompt (tested)
 - [ ] At most 10 active lessons per prompt, ordered by evidence strength; this ticket sets and documents the character cap, and over-long lessons are truncated or refused (tested)

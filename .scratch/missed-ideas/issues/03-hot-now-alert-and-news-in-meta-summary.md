@@ -3,7 +3,8 @@
 
 **What to build:** on 2026-11-12 the Meta `jensen` ranked 2nd (256 tokens, 141 creators in 24 h) and nothing told the Operator, and its summary ("a viral concert-jumbotron clip") missed the CEO story because the summary prompt sees only token names and counts. Two changes. (1) A **Hot now** alert: when a Meta enters the top 5 of the Meta ranking, or its distinct creators double within 1 hour, the War Room shows it on the home page with the summary, the matching news (context), the top tokens and the migrations. (2) The Meta summary prompt gets the **matching news** as untrusted context, so a summary can say why the Meta is moving.
 
-**Status:** done (commit 982fb51)
+Status: done
+Status note: done (commit 982fb51)
 
 **Blocked by:** warroom-redesign/10 slice c (the War Room edit queue; it is first in the agreed order). Agreed order: warroom-redesign/10 slice c, then **03**, 04, 05, 06, 07. Needs the stored Meta ranking and summaries on `main` (viral-sources/03, done).
 

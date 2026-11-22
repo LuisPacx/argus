@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] Cause confirmed by one live fetch of the Verge feed URL; a trimmed real sample is kept as a fixture
 - [x] `<entry>` is parsed like `<item>`: title, link, summary (falling back to content), published (falling back to updated), id

@@ -3,7 +3,7 @@
 
 **What to build:** The Operator shortlisted a Proposal by accident, which starts a paid Spec brain run (one Sonnet run). Add (1) a confirmation modal before Shortlist and (2) an "Undo shortlist" action that takes the Proposal back to `new`.
 
-**Status:** done
+Status: done
 
 Based on ticket 19's branch (same page, the Proposals list).
 

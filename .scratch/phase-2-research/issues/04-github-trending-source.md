@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] An ADR records the chosen access method, its rate limits and how it can break
 - [x] GitHub trending Source behind the `Source` interface, polled on the ingest tick, deduplicated and labelled

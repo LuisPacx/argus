@@ -11,7 +11,7 @@
 
 **Blocked by:** War Room 21
 
-**Status:** done
+Status: done
 
 - [x] Ideas-only and picks-only builds both work; a section below its minimum is omitted with a reason shown.
 - [x] Injection tests: a fake END line in a note or an idea cannot close the fence.

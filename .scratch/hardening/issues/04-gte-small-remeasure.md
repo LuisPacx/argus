@@ -7,7 +7,7 @@
 
 **Blocked by:** none. No file overlap with tickets 01 to 03 unless `JOIN_THRESHOLD` changes (`narratives.ts`; ticket 01 edits `clusterNewSignals` in the same file).
 
-**Status:** done
+Status: done
 
 - [x] A fresh holdout sample is collected and labelled, separate from the 320-headline tuning sample
 - [x] Precision, recall and the best threshold on the holdout are recorded in ADR 0007

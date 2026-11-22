@@ -6,7 +6,7 @@ Spec: sections 12, 15 (slice 12).
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label; 06 X capture job; 07 Cases, Cohorts and the blind study Brain task; 08 Lesson aggregation, the Playbook and the weekly review page; 09 Playbook into the prompts; 10 Own-launch tracking (06 drops out if ticket 05 rules X out of 3a)
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The run covers 14 days with no operator action beyond known setup; any intervention is logged with its reason
 - [ ] Evidence for daily Snapshots and for chain labels written at 24h and 7d on those days

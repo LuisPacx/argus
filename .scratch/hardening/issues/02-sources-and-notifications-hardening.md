@@ -14,7 +14,7 @@
 
 **Blocked by:** none. Shares `apps/worker/src/main.ts` and `datastore.ts` with ticket 01 (different regions).
 
-**Status:** done
+Status: done
 
 **Notes:** no-guid dedup done (identity is guid, else title, else link); guid-less items are re-ingested once after the upgrade (bounded by the 100-item cap), accepted because no research has run on real data yet. Item 5: a Spec save only happens in `spec-drafted`, which never expires, so the test simulates the later write with a raw `updated_at` update. Item 6: `main.ts` reads an optional `ARGUS_ENV_FILE` (default the repo-root `.env`) so the spawn test can point the worker at a temp `.env` holding a token instead of writing into the repo root.
 

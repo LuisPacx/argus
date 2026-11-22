@@ -3,7 +3,8 @@
 
 **What to build:** replace "a Meta is a launch theme that ranks high on creator counts" with "a Meta is a current trend with **a token really high** (millions of market cap), lasting minutes to days". Plain code, no new model call. The Meta tick finds each **leader** token (any age) by its market cap, matches it to the launch theme that copies it, and stores at most 3 **Metas** and up to 3 **Watching** subjects. The old launch-theme ranking keeps running unchanged as context ("All launch themes", ticket 02). Decided by the user on 2026-11-15 (`.scratch/cos.md`: USER COMPLAINT, META FACTS, DEX FACTS, LIVE CAPS, then "USER (all rec) Q11", "META R USER" Q13, Q16 to Q18, Q20, and Q25 (a)).
 
-**Status:** done 2026-11-15 (full `pnpm check` run once on the committed tree; see Comments)
+Status: done
+Status note: done 2026-11-15 (full `pnpm check` run once on the committed tree; see Comments)
 
 **Blocked by:** none. Tickets 02 and 03 in this directory read what this one stores.
 

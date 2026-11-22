@@ -3,7 +3,8 @@
 
 **What to build:** `/meta` and the home page show what the user asked for: at most **3 Metas** (each led by a token at millions of market cap), **"No Meta right now"** when there is none, and under it **Watching** (up to 3 subjects, labelled **not a Meta**). The old ranked list of launch themes (about 50 rows, counts only) moves into a **collapsed "All launch themes"** section on `/meta`. Decided by the user on 2026-11-15 (`.scratch/cos.md`: USER COMPLAINT, "USER (all rec) Q11 (a), Q12 (b), Q15 (b)", "META R USER", Q23 (a) "All launch themes counts only").
 
-**Status:** done (2026-11-15)
+Status: done
+Status note: done (2026-11-15)
 
 **Blocked by:** 01 (the `meta_current` table, `Datastore.currentMetas()` and the rule). Ticket 03 changes the "Hot now" panel on the same pages; the two touch `index.vue` and `meta.vue` in different places, so land 02 first.
 

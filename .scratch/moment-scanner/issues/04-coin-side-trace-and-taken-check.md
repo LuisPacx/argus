@@ -3,7 +3,7 @@
 
 **What to build:** for each judged Moment, on every scan while it is live, search DexScreener for its phrases, class every matching Solana pair as a real clone or a lookalike, and give the Moment a coin-side state: `open`, `contested` or `taken`. The page shows the state, the biggest real clone, the lookalikes with their reasons, and when the state last changed. Useful alone: the Operator no longer checks DexScreener by hand, and the Boomazoom mistake (a drained $131K curve read as taken) cannot repeat.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 03
 The judge's search phrases (ticket 03) are what the trace searches with.

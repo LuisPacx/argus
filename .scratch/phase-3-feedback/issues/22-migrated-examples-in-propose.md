@@ -13,7 +13,8 @@
 
 **Blocked by:** 17 Proposal Tech value and reason (branch `proposal-tech-value`)
 
-**Status:** done (b402cb5, ee3e2d2, bad3c1b; deployed 1270357)
+Status: done
+Status note: done (b402cb5, ee3e2d2, bad3c1b; deployed 1270357)
 
 **Open for the Operator:** whether to accept receipt-time, unfiltered migrations as hints until ticket 04 exists (the research note asks for this decision). Needs a worker restart; merge between runs.
 

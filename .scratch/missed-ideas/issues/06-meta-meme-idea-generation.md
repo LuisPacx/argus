@@ -3,7 +3,7 @@
 
 **What to build:** when a Meta is **Hot now** (ticket 03), one sonnet run reads the Meta and its context and returns 3 meme ideas, stored as Proposals of kind `meme` (ticket 05). The Operator sees them under the Meta on `/meta` and in the Proposals list, and can Shortlist, Dismiss with a reason, or read Why. This is the fix that would have produced an idea on 2026-11-12: the `jensen` Meta (256 tokens, 141 creators in 24 h, rank 2) was the market's answer and nothing turned it into a suggestion.
 
-**Status:** done
+Status: done
 
 **Blocked by:** 03 (the Hot now event is the trigger) and 05 (the ADR and GLOSSARY define the kind). Also follows 04 (Rubric v3 legitimacy text). Agreed order: warroom-redesign/10 slice c, then 03, 04, 05, **06**, 07.
 

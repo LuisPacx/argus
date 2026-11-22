@@ -5,7 +5,7 @@
 
 **Blocked by:** 07
 
-**Status:** done
+Status: done
 
 - [x] A `propose` skill returns validated Proposal fields; evidence links pass the existing link validation
 - [x] Only Narratives above the gate are proposed, and each Narrative at most once

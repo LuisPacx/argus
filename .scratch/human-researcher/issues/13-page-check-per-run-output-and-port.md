@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] Two runs started at the same time write to two different output folders and neither overwrites the other's screenshots (test or scripted check).
 - [x] The output folder is printed at the end of a run, including a run that fails.

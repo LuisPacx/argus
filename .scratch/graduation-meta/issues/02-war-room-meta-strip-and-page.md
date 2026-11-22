@@ -5,7 +5,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+Status: done
 
 - [x] A render test on the Christmas fixture shows the sentence above, the 3 newest graduate names and the theme chips.
 - [x] An unpriced leader shows a dash.

@@ -8,7 +8,7 @@ Spec: sections 7, 13, 14, 15 (slice 4).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] Labels come from chain through Helius, batched at 100 accounts per call, with the pinned Pump IDL version noted; times are chain event times, never receipt times
 - [ ] Both moments (curve complete, pool created) are stored; the label uses the one ticket 01 chose

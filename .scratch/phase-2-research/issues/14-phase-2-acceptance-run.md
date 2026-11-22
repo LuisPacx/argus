@@ -5,7 +5,7 @@
 
 **Blocked by:** 01 to 13, Phase 1 ticket 10 (Phase 1 acceptance run)
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] Over 48 hours unattended, argus produces at most 30 Proposals per day from live Sources
 - [ ] Every card shows all the fields listed in architecture §8

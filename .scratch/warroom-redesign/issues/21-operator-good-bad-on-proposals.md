@@ -11,7 +11,7 @@
 
 **Blocked by:** none
 
-**Status:** done
+Status: done
 
 - [x] History is kept; the newest row per Proposal is current.
 - [x] playbook_version and kind come from the store; a body `playbookVersion` is ignored.

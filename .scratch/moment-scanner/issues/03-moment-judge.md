@@ -3,7 +3,7 @@
 
 **What to build:** each time a Moment is new or materially changed (new qualifying group, a tier rise, a merge), the worker asks a model one question and stores the answer: is this one concrete thing in the topic, what kind of post is it, what do people call it, and what should the Operator weigh. The page shows the kind and plain subject, hides news, opinion and brand posts in a folded "not a moment" list with the reason (the Operator can override), and shows the flags. Useful alone: the shortlist now carries the manual scans' judgement ("a studio congratulation, not gameplay", "NSFW, taken", "streamer reaction").
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 02
 

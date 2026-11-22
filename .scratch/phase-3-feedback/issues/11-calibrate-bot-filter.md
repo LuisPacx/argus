@@ -6,7 +6,7 @@ Spec: sections 7, 13, 14.
 
 **Blocked by:** 04 Bot-filter raw metrics and the Organic migration label, plus at least one week of labelled migrators
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] The crash measure (a price drop in the first 20 minutes after migration) is defined, implemented and its data source and gaps are stated
 - [ ] A report compares crash rates for the organic and bot-driven groups under the starting thresholds, with counts

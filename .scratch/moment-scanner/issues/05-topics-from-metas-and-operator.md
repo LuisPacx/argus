@@ -3,7 +3,7 @@
 
 **What to build:** replace ticket 01's single `ARGUS_MOMENT_TOPIC` with a table of Watched topics. Every current Meta becomes a topic automatically; the Operator adds his own on the Moments page. The scanner takes turns across active topics. This is what makes the scanner general (any topic) and what lets it watch a subject that has no Meta yet. Useful alone: the Operator can point the scanner at a new subject in one form, without a deploy.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 02, 08
 The turn-taking below relies on ticket 08's hourly cap, ramp and session wrapper, so topics are never scanned faster than the account's caps allow. Decided by the Operator (2026-11-19): at most 4 active topics, Watching subjects off, a Meta topic starts at the Meta's entry minus 24 hours, a manual topic takes a start time the Operator sets.

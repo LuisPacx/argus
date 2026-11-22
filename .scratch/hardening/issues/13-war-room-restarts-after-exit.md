@@ -1,7 +1,8 @@
 # 13: War Room restarts itself after an exit, and logs why it exited
 **Model:** sonnet / effort: medium — one small supervisor script, a wiring change in `dev-server.mjs`, one test file.
 
-**Status:** done (see Comments)
+Status: done
+Status note: done (see Comments)
 
 ## Problem
 

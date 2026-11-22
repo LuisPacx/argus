@@ -14,7 +14,7 @@
 
 **Blocked by:** none. Shares `apps/worker/src/main.ts` and `datastore.ts` with ticket 02 (different regions); merge one after the other.
 
-**Status:** done
+Status: done
 
 - [x] A Narrative with N consecutive judge timeouts is skipped until it changes materially; a test proves the pass moves on to the next Narrative
 - [x] A `failed` run with a `session_id` and no cost is charged at the route cap in `spendSince`; one without a session stays $0; tests for both

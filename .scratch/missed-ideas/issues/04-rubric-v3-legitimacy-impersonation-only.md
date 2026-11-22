@@ -3,7 +3,7 @@
 
 **What to build:** the Rubric's legitimacy dimension scored both Nvidia-related Narratives down because the idea rests on "unverified allegations about a named real person" (Scores 401, 466, 476, 528, 593, 895 in `internal-trace.md`), and Narrative 662 got legitimacy 1 for a "meme token impersonating a real person". The Operator's rule (Q4, Q7): memes and satire about public figures are normal comedy and are surfaced; what lowers legitimacy is **impersonation** (a token or account that pretends to be the person, uses their name as an endorsement, or claims to be official), **fraud** (a false claim meant to take money) and **hate or harassment** (Operator decision 2026-11-15: these stay penalties, as in v2). Ship that as Rubric v3, used by the judge and by meme ideas (ticket 06).
 
-**Status:** done
+Status: done
 
 **Blocked by:** none technically. Agreed order: warroom-redesign/10 slice c, then 03, **04**, 05, 06, 07; start it after 03 so the two do not edit the judge prompt at once.
 

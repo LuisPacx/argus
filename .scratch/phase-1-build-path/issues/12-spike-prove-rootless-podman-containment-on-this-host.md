@@ -5,7 +5,7 @@
 
 **Blocked by:** None
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] Each unverified claim in sections 4 to 7 is marked confirmed, refuted or adjusted, with the command and output
 - [ ] The final `claude` hostnames the sidecar saw are listed, and the allowlist decision recorded

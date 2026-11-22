@@ -6,7 +6,7 @@ Spec: sections 5, 6, 13, 14.
 
 **Blocked by:** 02 Snapshot metadata and website at the fixed age, end to end; 05 X capture spike
 
-**Status:** superseded
+Status: wontfix
 
 - [ ] Selection rule uses only signals known at capture time (initial dev buy, links present); the rule version and each token's reason are stored (tested)
 - [ ] The daily cap is counted in code from config and cannot be exceeded; supports --dry-run, which opens no browser and writes no Snapshot

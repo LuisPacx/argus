@@ -2,7 +2,7 @@
 
 **Model:** sonnet / medium — small, security-adjacent changes to one module with tests.
 
-**Status:** done
+Status: done
 
 **What to build:** Close the LOW findings from the ticket 14 review (`.scratch/cos.md`, entry "Reviewer 14 f6d5df8") in `packages/core/src/egress-proxy.ts`. The test seam `testOverrides` (fake resolver, allow-private addresses, upstream port) is a fail-open switch inside the production module: make it unreachable in production (move it behind a test-only export, or make `startEgressProxy` throw when it is set outside vitest). Also: count connections refused over the cap so a flood cannot exhaust file descriptors; add a `server.on("error")` handler after listen; give each fallback address its own dial deadline; decide `allowHalfOpen` deliberately.
 

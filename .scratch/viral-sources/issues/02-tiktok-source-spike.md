@@ -3,7 +3,7 @@
 
 **What to build:** a spike, not a Source. Decide whether viral TikTok videos (fast-rising views and likes, especially animals and characters) can become Signals from **public data without the Operator's logged-in Chrome**, and measure how much lead time a viral video gives over the first token carrying its name. Deliverable: one findings file, `.scratch/viral-sources/research/tiktok-feasibility-<date>.md`, with feasibility, rate limits and terms notes, the lead-time measurement and a go or no-go with the follow-up ticket outline. Chrome capture (ADR 0009 pattern) is the fallback only and out of scope here.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 **Blocked by:** nothing. Independent of tickets 01, 03, 04 and `warroom-redesign/03`. **Order (Operator priority, 2026-11-11): last** — viral-sources 03 Part A, 04 (Beta finder), warroom-redesign/03, 01, then this.
 

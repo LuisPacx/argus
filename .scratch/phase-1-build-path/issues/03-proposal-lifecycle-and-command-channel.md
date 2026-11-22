@@ -5,7 +5,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+Status: done
 
 - [x] Lifecycle module has a transition table covering every transition in §3; tests assert each legal transition and reject illegal ones (e.g. new -> approved, anything out of closed)
 - [x] Every status change is recorded with time, actor (operator, system or build) and reason

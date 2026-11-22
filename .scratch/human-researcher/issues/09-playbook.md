@@ -5,7 +5,7 @@
 
 **Blocked by:** 04, 06
 
-**Status:** done
+Status: done
 
 - [x] The button writes one request row; the worker runs one summarising Brain call over Picks, reasons and finished outcomes and stores a new Playbook version with its time and the Picks it was built from (tests with a fake Brain).
 - [x] With fewer than 10 finished Picks the rebuild is refused with the reason before any model call (test).

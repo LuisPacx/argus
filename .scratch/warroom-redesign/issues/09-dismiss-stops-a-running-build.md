@@ -3,7 +3,8 @@
 
 **What to build:** dismissing a `building` Proposal aborts its Build at the next safe point. No deploy and no GitHub repo creation may run after the dismissal. The run closes as aborted or interrupted, and the page says so. Also, a re-queue and a clean-up for the same Proposal can never run at the same time.
 
-**Status:** done; browser check deferred to the next real Build that is dismissed while building (user, 2026-11-12)
+Status: done
+Status note: done browser check deferred to the next real Build that is dismissed while building (user, 2026-11-12)
 
 **Blocked by:** none. Interplay: this ticket touches `build-runner.ts`, `lifecycle.ts` and `cleanup-build.ts`. Run it after the `pnpm check` speed-up branch (test files only) is merged, or in a worktree.
 

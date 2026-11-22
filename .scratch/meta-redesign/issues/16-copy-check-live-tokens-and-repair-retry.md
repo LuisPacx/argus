@@ -3,7 +3,7 @@
 
 **What to build:** the Operator-angle meme path (and the automatic meme-ideas path with it) filed 0 Proposals for 4 angles on 2026-11-19. Three things refused or wasted them. Fix all three.
 
-**Status:** done
+Status: done
 
 **Blocked by:** none (follows tickets 11, 12 and 15).
 

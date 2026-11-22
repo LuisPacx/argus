@@ -3,7 +3,7 @@
 
 **What to build:** "Lucia From GTA 6", "GTA VI" and "Vice City" are one story, and today the page calls it Lucia. Every Meta tick, after the leaders are known (ticket 05), a Brain task groups the trending tokens that passed the filter at $1,000,000 or more and the top 30 launch themes into named subjects, and plain code turns that answer into the Meta subjects. When the Brain is unavailable, over its cap or answers badly, the tick groups by rules instead (a subject is named by what the most distinct creators used, and spelling aliases merge strictly) and says so. Decided by the user on 2026-11-16 (`.scratch/cos.md`: "GTA DIAGNOSIS" naming A and B; "GTA USER" Q1 (c) and the semantic-grouping wish; "USER: all as recommended" Q9 and Q11; reasons and limits in `docs/adr/0015-metas-are-found-top-down.md`, decision 4).
 
-**Status:** done
+Status: done
 
 **Blocked by:** 05 (the trending candidates that passed the filter, bonk-inclusive copier counts and `meta_candidates` are its input). Ticket 07 reads what this one stores.
 

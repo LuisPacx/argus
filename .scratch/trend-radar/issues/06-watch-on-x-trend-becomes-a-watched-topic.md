@@ -3,7 +3,7 @@
 
 **What to build:** on each Trend of `/radar`, a **Watch on X** button. It writes one request row; the worker turns the Trend into a Watched topic of the moment scanner (its topics table, label and spellings from the Trend's subject and phrases, cleaned by the scanner's cleaner, start time the Trend's first flag minus 12 hours, expiry 7 days like an Operator topic). The Trend then shows a "Watched" badge and a link to `/moments`; Moments found under it appear there with their own coin-side trace. Useful alone: the Operator goes from a subject the radar found to the scanner looking for its clips in one press, with no form to fill.
 
-**Status:** superseded
+Status: wontfix
 
 **Blocked by:** 01
 Radar tickets only on the line above; the two moment-scanner tickets are the external block. Spec: section 6.2 (stage A). ADR 0016 decision 4.

@@ -8,7 +8,7 @@ Spec: sections 10, 11, 15 (slice 11).
 
 **Fixtures:** tests run offline against the PumpPortal and Helius fixtures ticket 01 records in `packages/core/src/fixtures/` (`pumpportal-*.json`, `helius-*.json`).
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] Marking launched schedules reads at 1h, 24h and 7d after the launch time; each read stores whether the curve completed, the migration, and DexScreener price and liquidity
 - [ ] All reads are read-only; no wallet, key or transaction code is added (tested by the absence of any signing path)
