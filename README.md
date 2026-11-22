@@ -26,10 +26,10 @@ Create the Phase 1 tickets with `/to-tickets` from [`docs/architecture.md`](docs
 
 1. `pnpm install`
 2. `pnpm models:fetch` (the embedding model, once; safe to rerun)
-2b. `pnpm run doctor` (preflight: Claude login, the X-logged-in Chrome profile, database, War Room and worker; one PASS/WARN/FAIL line each with a fix hint, exit 1 on a FAIL; no model call, no browser start. Use `pnpm run doctor`: a bare `pnpm doctor` is pnpm's own command)
-3. `pnpm dev:start` (starts the worker and the War Room)
-4. Open the War Room at http://localhost:3100/ (logs: `.data/run/warroom-dev.log` and `.data/run/worker.log`)
-5. `pnpm dev:status` / `pnpm dev:stop`
+3. `pnpm run doctor` (preflight: Claude login, the X-logged-in Chrome profile, database, War Room and worker; one PASS/WARN/FAIL line each with a fix hint, exit 1 on a FAIL; no model call, no browser start. Use `pnpm run doctor`: a bare `pnpm doctor` is pnpm's own command)
+4. `pnpm dev:start` (starts the worker and the War Room)
+5. Open the War Room at http://localhost:3100/ (logs: `.data/run/warroom-dev.log` and `.data/run/worker.log`)
+6. `pnpm dev:status` / `pnpm dev:stop`
 
 While argus runs, each process holds a `systemd-inhibit --what=handle-lid-switch:sleep --who=argus` lock, so closing the lid no longer suspends the machine. The lock is released when `pnpm dev:stop` runs or the process dies, and `pnpm dev:status` shows whether it is held. Without `systemd-inhibit` on PATH, argus still starts and prints a warning that sleep is not blocked.
 

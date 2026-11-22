@@ -9,7 +9,8 @@ export function cookieState(dir) {
   for (const file of files) {
     let db;
     try {
-      db = new DatabaseSync(file, { readOnly: true });
+      // immutable=1: SQLite takes no locks and creates no -shm/-wal/-journal beside Chrome's file.
+      db = new DatabaseSync(`file:${file}?immutable=1`, { readOnly: true });
       const row = db.prepare("SELECT 1 AS found FROM cookies WHERE name = 'auth_token' AND host_key IN ('.x.com', 'x.com', '.twitter.com') LIMIT 1").get();
       return row !== undefined;
     } catch {

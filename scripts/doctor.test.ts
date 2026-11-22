@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
@@ -77,6 +77,13 @@ describe("doctor checks", () => {
     expect(on.status).toBe("WARN");
     expect(on.detail).toContain("automatic");
     expect(byName(await run({ env: { ARGUS_RESEARCH_TICK: "0" } }), "ARGUS_RESEARCH_TICK").status).toBe("PASS");
+    expect(byName(await run({ env: { ARGUS_RESEARCH_TICK: "" } }), "ARGUS_RESEARCH_TICK").status).toBe("PASS");
+  });
+
+  it("ARGUS_RESEARCH_TICK with any other value FAILs (the worker refuses to start)", async () => {
+    const cs = await run({ env: { ARGUS_RESEARCH_TICK: "yes" } });
+    expect(byName(cs, "ARGUS_RESEARCH_TICK")).toMatchObject({ status: "FAIL", fix: "use 1, 0 or leave empty" });
+    expect(exitCodeOf(cs)).toBe(1);
   });
 });
 
@@ -96,5 +103,20 @@ describe("cookieState", () => {
     expect(cookieState(profile([[".x.com", "auth_token"]]))).toBe(true);
     expect(cookieState(profile([[".x.com", "guest_id"], [".example.com", "auth_token"]]))).toBe(false);
     expect(cookieState(tempDir("doctor-empty-"))).toBeNull();
+  });
+
+  it("creates no file beside Chrome's cookie store", () => {
+    const dir = profile([[".x.com", "auth_token"]]);
+    const before = readdirSync(join(dir, "Default")).sort();
+    cookieState(dir);
+    expect(readdirSync(join(dir, "Default")).sort()).toEqual(before);
+    expect(readdirSync(dir).sort()).toEqual(["Default"]);
+  });
+
+  it("an unreadable cookie store is cannot-tell (null), not a throw", () => {
+    const dir = tempDir("doctor-bad-");
+    mkdirSync(join(dir, "Default"));
+    writeFileSync(join(dir, "Default", "Cookies"), "this is not a sqlite file at all, just text padding".repeat(20));
+    expect(cookieState(dir)).toBeNull();
   });
 });

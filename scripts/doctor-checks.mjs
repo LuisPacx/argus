@@ -72,8 +72,10 @@ export async function checkRunning(deps) {
 }
 
 export function checkResearchTick(deps) {
-  const on = (deps.env.ARGUS_RESEARCH_TICK ?? '').trim() === '1';
-  if (on) return result('WARN', 'ARGUS_RESEARCH_TICK', 'on: this starts the old automatic judge and propose loop every 30 minutes, which spends Claude quota', 'remove ARGUS_RESEARCH_TICK from .env; Operator research does not need it');
+  // Same rule as researchTickEnabled in packages/core/src/automatic-agents.ts: 1 on, unset/empty/0 off, anything else makes the worker refuse to start.
+  const raw = (deps.env.ARGUS_RESEARCH_TICK ?? '').trim();
+  if (raw !== '' && raw !== '0' && raw !== '1') return result('FAIL', 'ARGUS_RESEARCH_TICK', 'invalid: the worker will refuse to start', 'use 1, 0 or leave empty');
+  if (raw === '1') return result('WARN', 'ARGUS_RESEARCH_TICK', 'on: this starts the old automatic judge and propose loop every 30 minutes, which spends Claude quota', 'remove ARGUS_RESEARCH_TICK from .env; Operator research does not need it');
   return result('PASS', 'ARGUS_RESEARCH_TICK', 'off (Operator research does not need it)');
 }
 
