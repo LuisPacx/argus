@@ -423,11 +423,21 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     for (const t of stat.group.tokens) mintSubject.set(t.mint, j);
   });
   const hasGraduate = new Set(graduated.flatMap((g) => (mintSubject.has(g.mint) ? [mintSubject.get(g.mint) as number] : [])));
+  // Subjects that were a Meta on the previous tick (by key or merged key, else through the leader's mint, as `currentMetas` maps them): hysteresis may keep
+  // one below the bar, and the blend pass treats it as strong all the same.
+  const wasMetaKeys = new Set((carried?.metas ?? []).map((p) => p.key));
+  const wasMetaMints = new Set((carried?.metas ?? []).map((p) => p.leader.mint));
+  const wasMeta = new Set(
+    subjectStats.flatMap(({ stat, extra }, j) =>
+      wasMetaKeys.has(stat.group.key) || (extra.memberKeys ?? []).some((k) => wasMetaKeys.has(k)) || stat.group.tokens.some((t) => wasMetaMints.has(t.mint)) ? [j] : [],
+    ),
+  );
   const assigned = assignGraduates({
     subjects: subjectStats.map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, tokens: stat.group.tokens, ...(extra.memberKeys ? { memberKeys: extra.memberKeys } : {}) })),
     graduates: graduated,
     mintSubject,
     bar: { minGrads: config.metaMinGrads, minCreators: config.metaMinCreators, live6h: config.metaLiveGrads6h },
+    wasMeta: (j) => wasMeta.has(j),
     nameable: (j) => hasGraduate.has(j) || (subjectStats[j] as (typeof subjectStats)[number]).stat.counts["24h"].creators >= config.metaMinCreators,
     nowMs,
     minKeyChars: config.newsMinKeyChars,

@@ -98,6 +98,14 @@ describe("assignGraduates blend pass (christmas-fix ticket 04)", () => {
     expect(r.grads[0]).toMatchObject({ "24h": 10, "6h": 3, creators24h: 10 });
   });
 
+  it("a subject the previous tick had as a Meta is strong even below the bar (kept by hysteresis), so it gains nothing from the blend", () => {
+    const graduates = [...exact(8, 3), grad("b2", "CATEMAS", "CATEMAS", "b2", 20)];
+    expect(run({ graduates }).grads[0]!["24h"]).toBe(9); // control: weak, the blend joins it
+    const r = run({ graduates, wasMeta: () => true });
+    expect(r.grads[0]).toMatchObject({ "24h": 8, "6h": 3, creators24h: 8 });
+    expect(r.graduates[0]!.map((g) => g.mint)).not.toContain("b2");
+  });
+
   it("Thomas does not join a subject through the stem mas; CATEMAS does", () => {
     const r = run({ graduates: [grad("t", "Thomas", "THOMAS", "t", 10), grad("c", "CATEMAS", "CATEMAS", "c", 10)] });
     expect(r.graduates[0]!.map((g) => g.mint)).toEqual(["c"]);

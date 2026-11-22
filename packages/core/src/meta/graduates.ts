@@ -32,6 +32,8 @@ export interface AssignInput {
    * and only a subject still below this bar after the earlier passes may receive it.
    */
   bar?: { minGrads: number; minCreators: number; live6h: number };
+  /** Subjects that were a Meta on the previous tick: kept by hysteresis (`metaStayGrads`) they may sit below `bar`, yet they are strong and gain no blends. */
+  wasMeta?: (subjectIndex: number) => boolean;
   /** The subject that holds each token created in the read (by mint). */
   mintSubject: ReadonlyMap<string, number>;
   /** Subjects a graduate without a create in the read may be matched to by name (the rest only hold their own tokens' graduations). */
@@ -47,12 +49,13 @@ const HOUR_MS = 3_600_000;
  * The blend pass (christmas-fix ticket 04, ADR 0012/0018): names like `Bullmas`, `CATEMAS` or `pepesanta` carry no form that names a subject exactly, but
  * they carry a word the subject is built from (`blend.ts`). A loose graduate joins a subject only when exactly one nameable subject's terms match it
  * (two or more is ambiguous: it joins none), and only when that subject is still below the Meta bar on what the exact passes gave it: a subject that
- * is already a Meta gains nothing, so the pass can lift a weak subject over the bar but never pad a strong one. Graduates placed by an earlier pass,
+ * is already a Meta (over the bar, or one the previous tick had and hysteresis keeps) gains nothing, so the pass can lift a weak subject over the bar but never pad a strong one. Graduates placed by an earlier pass,
  * or ambiguous in it, are not in `loose` and are never moved.
  */
 function blend(input: AssignInput, loose: readonly GraduatedToken[], owned: GraduatedToken[][], from6: number): void {
   const bar = input.bar as NonNullable<AssignInput["bar"]>;
-  const weak = owned.map((list) => {
+  const weak = owned.map((list, i) => {
+    if (input.wasMeta?.(i)) return false;
     const creators = new Set(list.filter((g) => g.creator !== "").map((g) => g.creator));
     const live = list.filter((g) => Date.parse(g.migratedAt) >= from6).length;
     return !(list.length >= bar.minGrads && creators.size >= bar.minCreators && live >= bar.live6h);

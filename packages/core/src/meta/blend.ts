@@ -37,6 +37,8 @@ const FIELD_BREAK = "\u0000";
 export function blendTerms(subjects: readonly BlendSubject[], include: (subjectIndex: number) => boolean, probes: readonly Field[]): string[][] {
   const out: string[][] = subjects.map(() => []);
   let corpus: Array<{ hay: string; subject: number; creator: string }> | undefined;
+  /** Per stem, measured once however many subjects share it as a candidate: the tokens that carry it, and each subject's own share of them. */
+  const measures = new Map<string, { total: number; perSubject: Map<number, { own: number; creators: Set<string> }> }>();
   subjects.forEach((s, i) => {
     if (s.key.startsWith("unkeyed:") || !include(i)) return;
     const terms = new Set<string>();
@@ -51,17 +53,21 @@ export function blendTerms(subjects: readonly BlendSubject[], include: (subjectI
     for (const stem of candidates) {
       if (!probes.some((p) => matchesField(stem, p))) continue;
       corpus ??= subjects.flatMap((o, j) => o.tokens.map((t) => ({ hay: `${norm(t.name)}${FIELD_BREAK}${norm(t.symbol)}`, subject: j, creator: t.creator ?? "" })));
-      let total = 0;
-      let own = 0;
-      const creators = new Set<string>();
-      for (const c of corpus) {
-        if (!c.hay.includes(stem)) continue;
-        total++;
-        if (c.subject !== i) continue;
-        own++;
-        if (c.creator !== "") creators.add(c.creator);
+      let measured = measures.get(stem);
+      if (!measured) {
+        measured = { total: 0, perSubject: new Map() };
+        for (const c of corpus) {
+          if (!c.hay.includes(stem)) continue;
+          measured.total++;
+          let share = measured.perSubject.get(c.subject);
+          if (!share) measured.perSubject.set(c.subject, (share = { own: 0, creators: new Set() }));
+          share.own++;
+          if (c.creator !== "") share.creators.add(c.creator);
+        }
+        measures.set(stem, measured);
       }
-      if (creators.size >= BLEND_STEM_CREATORS && own * 100 >= total * BLEND_STEM_SHARE_PCT) terms.add(stem);
+      const mine = measured.perSubject.get(i);
+      if (mine && mine.creators.size >= BLEND_STEM_CREATORS && mine.own * 100 >= measured.total * BLEND_STEM_SHARE_PCT) terms.add(stem);
     }
     out[i] = [...terms];
   });
