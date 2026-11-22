@@ -265,7 +265,7 @@ const hasNotes = (p: (typeof proposals.value)[number]) =>
 
     <section>
       <p v-if="!proposals.length && filtered" class="surface muted text-sm">No Proposals match these filters.</p>
-      <p v-else-if="!proposals.length" class="surface muted text-sm">No Proposals yet.</p>
+      <p v-else-if="!proposals.length" class="surface muted text-sm">{{ emptyProposalsMessage(visibility.hiddenCount) }}</p>
       <TransitionGroup v-else tag="div" name="row" :appear="animate" class="relative grid gap-4">
         <article v-for="(p, i) in proposals" :key="p.id" class="row" :style="{ '--i': i }" :data-test="`proposal-${p.id}`">
           <div class="grid items-center gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1.4fr)_250px_150px_150px_auto]">

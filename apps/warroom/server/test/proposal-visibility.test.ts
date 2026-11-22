@@ -3,7 +3,7 @@ import { createSSRApp, h } from "vue";
 import { compileTemplate, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
-import { HIDDEN_STATUSES, proposalVisibility, showHiddenFromQuery } from "../../app/utils/proposal-visibility.ts";
+import { emptyProposalsMessage, HIDDEN_STATUSES, proposalVisibility, showHiddenFromQuery } from "../../app/utils/proposal-visibility.ts";
 import { PROPOSAL_STATUSES } from "@argus/core";
 
 /** War Room ticket 20: closed and dismissed Proposals are hidden by default, with a toggle. */
@@ -39,6 +39,12 @@ describe("proposalVisibility", () => {
 
   it("the hidden statuses are real statuses", () => {
     for (const s of HIDDEN_STATUSES) expect(PROPOSAL_STATUSES).toContain(s);
+  });
+
+  it("says every Proposal is hidden when some are, and no Proposals yet when there are none", () => {
+    expect(emptyProposalsMessage(0)).toBe("No Proposals yet.");
+    expect(emptyProposalsMessage(1)).toBe("All 1 Proposal is closed or dismissed.");
+    expect(emptyProposalsMessage(3)).toBe("All 3 Proposals are closed or dismissed.");
   });
 
   it("reads the closed query", () => {
