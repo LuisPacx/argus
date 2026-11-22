@@ -14,4 +14,5 @@
 
 ## Notes
 - Pattern: `playbookPromptLines`, `ideas.ts:196-219`; test pattern `playbook.test.ts:299`.
+- Versions: Make ideas reads the newest non-empty Pick lessons and the newest non-empty idea lessons (`Datastore.playbookLessons`), possibly from different versions. `proposals.playbook_version` = the Pick lessons' version (the ideas version when no Pick lessons were shown); new column `proposals.ideas_playbook_version` = the version whose idea lessons were shown. The Shadow pick is untouched and never reads `ideas_text`.
 - Idea text and notes are untrusted; reuse the existing flatten/fence helpers.

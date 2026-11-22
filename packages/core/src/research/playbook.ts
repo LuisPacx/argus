@@ -206,6 +206,16 @@ export function loadPlaybookVersions(db: DatabaseSync, limit = 1000): PlaybookVe
   return rows.map((r) => ({ id: String(r.id), text: r.text as string, pickIds: json<unknown[]>(r.pick_ids, []).filter((x): x is number => Number.isSafeInteger(x)), settleCutoff: r.settle_cutoff as string }));
 }
 
+/**
+ * What Make ideas reads (human researcher ticket 19): the newest NON-EMPTY Pick lessons and the newest NON-EMPTY idea lessons, each with the id of the
+ * version it came from (they can differ: an ideas-only rebuild has empty text, a picks-only one has null ideas_text). A part with none is absent. READ ONLY.
+ */
+export function latestPlaybookLessons(db: DatabaseSync): { picks?: { id: string; text: string }; ideas?: { id: string; text: string } } {
+  const p = db.prepare("SELECT id, text FROM playbook_versions WHERE trim(text) <> '' ORDER BY id DESC LIMIT 1").get() as Row | undefined;
+  const i = db.prepare("SELECT id, ideas_text FROM playbook_versions WHERE ideas_text IS NOT NULL AND trim(ideas_text) <> '' ORDER BY id DESC LIMIT 1").get() as Row | undefined;
+  return { ...(p ? { picks: { id: String(p.id), text: p.text as string } } : {}), ...(i ? { ideas: { id: String(i.id), text: i.ideas_text as string } } : {}) };
+}
+
 /** The newest version, or null. `ideasText` is its idea lessons ("" when none). READ ONLY. */
 export function latestPlaybook(db: DatabaseSync): { id: string; text: string; ideasText: string } | null {
   const r = db.prepare("SELECT id, text, ideas_text FROM playbook_versions ORDER BY id DESC LIMIT 1").get() as Row | undefined;

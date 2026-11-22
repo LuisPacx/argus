@@ -372,7 +372,22 @@ interface Retry {
 }
 
 /** The prompt inputs of a retry. */
-const retryFields = (retry: Retry | undefined): { retryCopies?: readonly string[]; retryProblem?: string } => ({
+/**
+ * The lessons a Make ideas try shows (human researcher tickets 09 and 19), read once: the newest non-empty Pick lessons and the newest idea lessons, which
+ * may come from different versions. `playbookVersions` is what each new Proposal records: `playbookVersion` is the Pick lessons' version (the ideas
+ * version when no Pick lessons were shown) and `ideasPlaybookVersion` the version whose idea lessons were shown.
+ */
+function readLessons(store: Datastore): { playbook?: { id: string; text: string }; ideaLessons?: { id: string; text: string }; playbookVersions: { playbookVersion?: string; ideasPlaybookVersion?: string } } {
+  const { picks, ideas } = store.playbookLessons();
+  const first = picks ?? ideas;
+  return {
+    ...(picks ? { playbook: picks } : {}),
+    ...(ideas ? { ideaLessons: ideas } : {}),
+    playbookVersions: { ...(first ? { playbookVersion: first.id } : {}), ...(ideas ? { ideasPlaybookVersion: ideas.id } : {}) },
+  };
+}
+
+const retryFields =(retry: Retry | undefined): { retryCopies?: readonly string[]; retryProblem?: string } => ({
   ...(retry?.copies ? { retryCopies: retry.copies } : {}),
   ...(retry?.problem ? { retryProblem: retry.problem } : {}),
 });
@@ -616,10 +631,10 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const { tokens, existing, news, roomLeft, legitimacy, facts } = subjectContext(meta, run, now);
         const trigger = { kind: "operator-angle" as const, reason: facts, at: req.createdAt };
         // The latest Playbook version (human researcher ticket 09), read once for the try: the prompt carries it and each Proposal records its id.
-        const playbook = store.latestPlaybook() ?? undefined;
+        const { playbook, ideaLessons, playbookVersions } = readLessons(store);
         return {
           existing,
-          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(req.angle !== "" ? { angle: req.angle } : {}), ...(playbook ? { playbook } : {}), ...retryFields(retry) }),
+          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(req.angle !== "" ? { angle: req.angle } : {}), ...(playbook ? { playbook } : {}), ...(ideaLessons ? { ideaLessons } : {}), ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             const stored = store.meta.summaries([meta.key]).get(meta.key);
             const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -633,7 +648,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
                 evidenceLinks: evidenceFor([meta.leader, ...meta.topTokens], news),
                 ideas,
                 operatorAngle: { requestId: req.id, angle: req.angle !== "" ? req.angle : MAKE_IDEAS_ANGLE_TEXT, sourceUrl: req.sourceUrl, urlDropped: req.urlDropped },
-                ...(playbook ? { playbookVersion: playbook.id } : {}),
+                ...playbookVersions,
               },
               { now: at, attachRunId: runIds },
             );
@@ -665,10 +680,10 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const existing: ExistingToken[] = brief.coins.map((c) => ({ name: c.name, symbol: c.symbol }));
         const legitimacy = store.getRubric().dimensions.find((d) => d.key === "legitimacy")?.description ?? "";
         const reason = `Topic "${cleanLine(topic, 60)}": ${brief.coins.length} coins, ${brief.freeNames.length} free names in the Research brief`;
-        const playbook = store.latestPlaybook() ?? undefined; // human researcher ticket 09: read once for the try
+        const { playbook, ideaLessons, playbookVersions } = readLessons(store); // human researcher tickets 09 and 19: read once for the try
         return {
           existing,
-          promptFor: (retry) => topicMemePromptFor({ topic, story: brief.story, coins: brief.coins, freeNames: brief.freeNames, avoid: avoidLabels(existing), legitimacy, ...(playbook ? { playbook } : {}), ...retryFields(retry) }),
+          promptFor: (retry) => topicMemePromptFor({ topic, story: brief.story, coins: brief.coins, freeNames: brief.freeNames, avoid: avoidLabels(existing), legitimacy, ...(playbook ? { playbook } : {}), ...(ideaLessons ? { ideaLessons } : {}), ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             const snapshot: TopicSnapshotV4 = {
               version: 4,
@@ -696,7 +711,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
                 ),
                 ideas,
                 operatorAngle: { requestId: req.id, angle: topic, sourceUrl: null, urlDropped: false, source: "topic", researchRequestId },
-                ...(playbook ? { playbookVersion: playbook.id } : {}),
+                ...playbookVersions,
               },
               { now: at, attachRunId: runIds },
             );

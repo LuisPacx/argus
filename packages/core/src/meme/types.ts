@@ -210,4 +210,6 @@ export interface NewMemeTrio {
   operatorAngle?: OperatorAngle;
   /** The Playbook version (human researcher ticket 09) the prompt of the run carried, stored on each Proposal so a change in behaviour can be traced. */
   playbookVersion?: string;
+  /** The Playbook version whose idea lessons the prompt carried (ticket 19), stored on each Proposal; can differ from `playbookVersion`. */
+  ideasPlaybookVersion?: string;
 }

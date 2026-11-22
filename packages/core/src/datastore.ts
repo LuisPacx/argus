@@ -23,7 +23,7 @@ import type { PickSnapshot } from "./research/picks.ts";
 import { loadOpenPicks, loadOutcomeView, migratePickOutcomes, saveProgress, type OpenPick, type OutcomeSample, type OutcomeState, type PickOutcomeView } from "./research/pick-outcomes.ts";
 import { loadShadowPicks, migrateShadow, pickSettledAt, type PlaybookSource, type ShadowPick, type ShadowPickInput } from "./research/shadow.ts";
 import { loadScoreboard, type Scoreboard } from "./research/scoreboard.ts";
-import { countFinishedPicks, insertPlaybookRequest, latestPlaybook, loadPlaybookIdeas, loadPlaybookPicks, loadPlaybookState, loadPlaybookVersions, migratePlaybook, toPlaybookRequest, type PlaybookPick, type PlaybookRequest, type PlaybookState, type PlaybookStatus } from "./research/playbook.ts";
+import { countFinishedPicks, insertPlaybookRequest, latestPlaybook, latestPlaybookLessons,loadPlaybookIdeas, loadPlaybookPicks, loadPlaybookState, loadPlaybookVersions, migratePlaybook, toPlaybookRequest, type PlaybookPick, type PlaybookRequest, type PlaybookState, type PlaybookStatus } from "./research/playbook.ts";
 import { insertResearchRequest,listResearchRequests, migrateResearch, toResearchBrief, toResearchRequest, type ResearchBrief, type ResearchRequest, type ResearchRequestView, type ResearchStatus } from "./research/brief.ts";
 import { MEME_TRIO_SIZE, MEME_WINDOW_MS, NEWS_MEME_KEY_PREFIX, type MemeFields, type MetaSnapshot, type NewMemeTrio, type NewsMemeFloors } from "./meme/types.ts";
 import type { MetaWindow } from "./meta/config.ts";
@@ -76,6 +76,8 @@ export interface Proposal {
   operatorAngle: OperatorAngle | null;
   /** The Playbook version (ticket 09) the prompt that made this idea carried, or null (none existed, or a run that does not read it). */
   playbookVersion: string | null;
+  /** The version whose idea lessons (ticket 19) the prompt carried, or null; it can differ from `playbookVersion` (the Pick lessons' version, or the ideas version when no Pick lessons were shown). */
+  ideasPlaybookVersion: string | null;
   status: ProposalStatus;
   narrativeSummary: string;
   techOneLiner: string;
@@ -622,6 +624,7 @@ export function migrate(db: DatabaseSync): void {
   ensureColumn(db, "research_briefs", "playbook_version", "TEXT");
   ensureColumn(db, "research_briefs", "terms_note", "TEXT");
   ensureColumn(db, "proposals", "playbook_version", "TEXT");
+  ensureColumn(db, "proposals", "ideas_playbook_version", "TEXT"); // ticket 19: the version whose idea lessons the prompt carried
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
   migrateVerdicts(db);
@@ -656,6 +659,7 @@ interface Row {
   meme_copy_note: string;
   operator_angle: string | null;
   playbook_version?: string | null;
+  ideas_playbook_version?: string | null;
   status: ProposalStatus;
   narrative_summary: string;
   tech_one_liner: string;
@@ -741,6 +745,7 @@ function toProposal(r: Row, gaps: readonly WorkerGap[] = []): Proposal {
     meme: r.kind === "meme" ? { difference: r.meme_difference, hook: r.meme_hook, imageIdea: r.meme_image_idea, riskLabels: parseRiskLabels(r.meme_risk_labels), ...(r.meme_copy_note ? { copyNote: r.meme_copy_note } : {}) } : null,
     operatorAngle: parseOperatorAngle(r.operator_angle),
     playbookVersion: r.playbook_version ?? null,
+    ideasPlaybookVersion: r.ideas_playbook_version ?? null,
     status: r.status,
     narrativeSummary: r.narrative_summary,
     techOneLiner: r.tech_one_liner,
@@ -1242,8 +1247,8 @@ export class Datastore {
             .prepare(
               `INSERT INTO proposals (slug, status, kind, narrative_summary, tech_one_liner, why_now, name, ticker, description, evidence_links,
                  narrative_id, score_id, collision_checks, reason, interaction, meta_key, meta_label, meta_snapshot, meme_window, meme_slot,
-                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle, meme_copy_note, playbook_version)
-               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 meme_difference, meme_hook, meme_image_idea, meme_risk_labels, created_at, updated_at, operator_angle, meme_copy_note, playbook_version, ideas_playbook_version)
+               VALUES (?, 'new', 'meme', ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               slug,
@@ -1271,6 +1276,7 @@ export class Datastore {
               operatorAngle,
               idea.copyNote ?? "",
               input.playbookVersion ?? null,
+              input.ideasPlaybookVersion ?? null,
             );
         } catch (e) {
           if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) throw new MemeTrioExistsError(input.metaKey);
@@ -1577,6 +1583,11 @@ export class Datastore {
   /** The newest Playbook version, or null: what Make ideas carries (ticket 09), with its idea lessons (`ideasText`, "" when none; ticket 18). READ ONLY. */
   latestPlaybook(): { id: string; text: string; ideasText: string } | null {
     return latestPlaybook(this.db);
+  }
+
+  /** The newest non-empty Pick lessons and newest idea lessons, each with its own version id (ticket 19). READ ONLY. */
+  playbookLessons(): { picks?: { id: string; text: string }; ideas?: { id: string; text: string } } {
+    return latestPlaybookLessons(this.db);
   }
 
   /** The Idea verdicts a rebuild reads (ticket 18): the newest 60 current meme verdicts, newest first. READ ONLY. */
