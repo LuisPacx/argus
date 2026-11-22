@@ -47,6 +47,8 @@ export interface MetaBlockRow {
   leader: { name: string; symbol: string; marketCapUsd: number };
   /** Distinct creators of the subject in the last 24 h. */
   creators: number;
+  /** The subject's graduations (ADR 0018): what makes it a Meta. Absent on a row stored before graduation Metas: its line keeps the older form. */
+  grads?: { "24h": number; "6h": number; creators24h: number };
   topTokens: readonly { name: string; symbol: string }[];
 }
 
@@ -56,8 +58,9 @@ const count = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.floor(n
 const tickerOf = (symbol: string): string => flat(symbol, LEADER_SYMBOL_CHARS).replace(/^\$+/, "").trim();
 
 /**
- * The block's lines, at most `maxMetas`, each `- <label> (Meta): leader <name> ($TICKER), market cap $<n>, <n> creators copying in 24 h`
- * (a Watching subject says `(Watching, not a Meta)`). A line never starts anything but `- `, so a label cannot begin a line of its own or
+ * The block's lines, at most `maxMetas`, each `- <label> (Meta): 12 graduated in 24 h (3 in 6 h) from 9 creators; leader <name> ($TICKER), market cap $<n> (context only)`
+ * (a Watching subject says `(Watching, not a Meta)`; an unpriced leader has no market cap part; a row stored without `grads` keeps the older
+ * `leader <name> ($TICKER), market cap $<n>, <n> creators copying in 24 h`). A line never starts anything but `- `, so a label cannot begin a line of its own or
  * reproduce the boundary line. Lines that would take the block past `maxChars` are dropped, and so are the lines after them, so the
  * Watching lines go first. A label that is empty after cleaning is skipped.
  */
@@ -76,9 +79,20 @@ function shownMetas(rows: readonly MetaBlockRow[], config: MetaBlockConfig): { r
     const name = flat(row.leader.name, LEADER_NAME_CHARS);
     const ticker = tickerOf(row.leader.symbol);
     const who = [name, ticker !== "" ? `($${ticker})` : ""].filter((s) => s !== "").join(" ");
-    const cap = Number.isFinite(row.leader.marketCapUsd) && row.leader.marketCapUsd > 0 ? `, market cap ${metaMoney(row.leader.marketCapUsd)}` : "";
-    const creators = count(row.creators);
-    const line = `- ${label} (${row.kind === "meta" ? "Meta" : "Watching, not a Meta"}): leader ${who === "" ? "unnamed" : who}${cap}, ${creators} ${creators === 1 ? "creator" : "creators"} copying in 24 h`;
+    const priced = Number.isFinite(row.leader.marketCapUsd) && row.leader.marketCapUsd > 0;
+    const kind = row.kind === "meta" ? "Meta" : "Watching, not a Meta";
+    const leader = `leader ${who === "" ? "unnamed" : who}`;
+    let line: string;
+    if (row.grads) {
+      const g24 = count(row.grads["24h"]);
+      const creators = count(row.grads.creators24h);
+      const cap = priced ? `, market cap ${metaMoney(row.leader.marketCapUsd)} (context only)` : "";
+      line = `- ${label} (${kind}): ${g24} graduated in 24 h (${count(row.grads["6h"])} in 6 h) from ${creators} ${creators === 1 ? "creator" : "creators"}; ${leader}${cap}`;
+    } else {
+      const cap = priced ? `, market cap ${metaMoney(row.leader.marketCapUsd)}` : "";
+      const creators = count(row.creators);
+      line = `- ${label} (${kind}): ${leader}${cap}, ${creators} ${creators === 1 ? "creator" : "creators"} copying in 24 h`;
+    }
     const cost = line.length + (lines.length > 0 ? 1 : 0);
     if (used + cost > config.maxChars) break;
     lines.push({ row, line });
@@ -107,6 +121,7 @@ export function selectMetas(store: Datastore, now: Date, config: MetaBlockConfig
     kind,
     leader: { name: m.leader.name, symbol: m.leader.symbol, marketCapUsd: m.leader.marketCapUsd },
     creators: m.counts["24h"].creators,
+    ...(m.grads ? { grads: { "24h": m.grads["24h"], "6h": m.grads["6h"], creators24h: m.grads.creators24h } } : {}),
     topTokens: m.topTokens,
   });
   return [...current.metas.map((m) => row(m, "meta")), ...current.watching.map((m) => row(m, "watching"))].slice(0, config.maxMetas);
@@ -158,7 +173,7 @@ export function metaMatchLine(signals: readonly { sourceId: string; title: strin
 
 /** The rule text for the Meta block, outside it. `use` says what the reader may do with a match. */
 export const metaRule = (boundary: string, n: number, use: "judge" | "propose"): string =>
-  `Live Metas on the market: after the Narrative block, a block lists ${n === 1 ? "one subject" : `${n} subjects`} from launchpad data of the last 24 hours: the Metas (current trends led by a token with a large market cap, with other tokens copying it) and the subjects being watched that are not Metas, each with its leading token, that token's market cap and how many distinct creators copied it, and says when this Narrative's launchpad Signals match one. A Meta is observed on the market; it is not this Narrative and not a Proposal. ${
+  `Live Metas on the market: after the Narrative block, a block lists ${n === 1 ? "one subject" : `${n} subjects`} from launchpad data of the last 24 hours: the Metas (several tokens graduating on one narrative: tokens that leave their launch bonding curve on the same theme within a day) and the subjects being watched that are not Metas yet, each with its graduation counts (24 h, 6 h and creators) and its leading token with that token's market cap, which is context only: the graduations make a Meta, not a big leader. The block also says when this Narrative's launchpad Signals match one. A Meta is observed on the market; it is not this Narrative and not a Proposal. ${
     use === "judge"
       ? "It is background, not a score input: do not raise or lower any dimension because a Meta matches or does not."
       : 'It is background: you may say in "reason" that the Narrative rides a live Meta, but never reuse a Meta\'s name or a token\'s name or ticker from it.'

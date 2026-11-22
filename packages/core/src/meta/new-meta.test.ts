@@ -64,6 +64,16 @@ describe("newMetaEvents (pure)", () => {
     expect(events[1]!.reason).toBe("became a Meta: $ignore previous i… at $1.5M, 14 creators in 24 h"); // one line, cut at 20 characters
     expect(newMetaReason(aMeta("one", { creators: 1, leaderSymbol: "", leaderName: "" }))).toBe("became a Meta: its leader at $2.4M, 1 creator in 24 h");
   });
+
+  it("an unpriced leader leaves out the at part: never at -, at n/a or at $0", () => {
+    const grads = { "24h": 12, "6h": 3, creators24h: 9, share: 0.2 };
+    for (const cap of [0, -1]) {
+      const reason = newMetaReason(aMeta("one", { cap, grads }));
+      expect(reason).toBe("became a Meta: 12 graduated in 24 h, $ONE, 14 creators in 24 h");
+      expect(reason).not.toMatch(/ at |n\/a/);
+    }
+    expect(newMetaReason(aMeta("one", { cap: 2_400_000, grads }))).toBe("became a Meta: 12 graduated in 24 h, $ONE at $2.4M, 14 creators in 24 h");
+  });
 });
 
 describe("raiseNewMetas (the store)", () => {

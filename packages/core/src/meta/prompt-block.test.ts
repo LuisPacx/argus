@@ -62,6 +62,17 @@ describe("metaLines", () => {
     expect(lines[0]).not.toContain("\n");
   });
 
+  it("a row with grads leads with its graduations and marks the leader's cap as context only; an unpriced leader has no cap part, never n/a or a dash", () => {
+    const grads = { "24h": 12, "6h": 3, creators24h: 9 };
+    expect(metaLines([{ ...NIHAO, grads }, { ...GTA, grads: { "24h": 4, "6h": 0, creators24h: 1 } }])).toEqual([
+      "- ni hao cat (Meta): 12 graduated in 24 h (3 in 6 h) from 9 creators; leader Ni Hao Cat ($NIHAOCAT), market cap $13M (context only)",
+      "- GTA VI (Watching, not a Meta): 4 graduated in 24 h (0 in 6 h) from 1 creator; leader GTA 6 Cat ($GTACAT), market cap $850K (context only)",
+    ]);
+    const [unpriced] = metaLines([{ ...NIHAO, grads, leader: { name: "Ni Hao Cat", symbol: "NIHAOCAT", marketCapUsd: 0 } }]);
+    expect(unpriced).toBe("- ni hao cat (Meta): 12 graduated in 24 h (3 in 6 h) from 9 creators; leader Ni Hao Cat ($NIHAOCAT)");
+    expect(unpriced).not.toMatch(/n\/a|market cap|at -/);
+  });
+
   it("shows nothing for a number that is not a finite count or cap, and says unnamed for a leader with no name", () => {
     const [line] = metaLines([row({ label: "odd", key: "odd", creators: -4, leader: { name: "", symbol: "", marketCapUsd: Number.NaN } })]);
     expect(line).toBe("- odd (Meta): leader unnamed, 0 creators copying in 24 h");
@@ -148,6 +159,18 @@ describe("selectMetas", () => {
     expect(selectMetas(store, NOW, { ...DEFAULT_META_BLOCK_CONFIG, maxMetas: 0 })).toEqual([]);
   });
 
+  it("carries a subject's graduation counts into its row, and none for a row stored without them", () => {
+    const store = Datastore.open(":memory:");
+    saveCurrentRun(store, new Date(NOW.getTime() - 10 * 60_000), {
+      metas: [aMeta("new", { grads: { "24h": 12, "6h": 3, creators24h: 9, share: 0.2 } }), aMeta("old")],
+    });
+    const rows = selectMetas(store, NOW);
+    expect(rows[0]!.grads).toEqual({ "24h": 12, "6h": 3, creators24h: 9 });
+    expect(rows[1]!.grads).toBeUndefined();
+    expect(metaLines(rows)[0]).toContain("12 graduated in 24 h (3 in 6 h) from 9 creators; leader ");
+    expect(metaLines(rows)[1]).toContain("creators copying in 24 h");
+  });
+
   it("returns none before the first run, for a run with no Metas and no Watching subjects, and from a run too old to describe the market now", () => {
     expect(selectMetas(Datastore.open(":memory:"), NOW)).toEqual([]);
     const empty = Datastore.open(":memory:");
@@ -213,6 +236,15 @@ describe("the Meta block in the prompts", () => {
       const miss = build(detail([sig(2, { title: "New token on the launchpad: Sandwich ($SAND)" })]), [], [NIHAO, GTA]);
       expect(miss).toContain("Live Metas on the market");
       expect(miss).not.toContain("- This Narrative's launchpad Signals match");
+    });
+
+    it(`${name}: the rule defines a Meta by its graduations, market cap as context only, not as a market-cap-led trend`, () => {
+      const p = build(matched, [], [NIHAO, GTA]);
+      expect(p).toContain("the Metas (several tokens graduating on one narrative");
+      expect(p).toContain("graduation counts (24 h, 6 h and creators)");
+      expect(p).toContain("market cap, which is context only: the graduations make a Meta, not a big leader");
+      expect(p).not.toContain("large market cap");
+      expect(p).not.toContain("led by a token");
     });
 
     it(`${name}: no Metas, no change (the prompt is byte for byte what it was)`, () => {

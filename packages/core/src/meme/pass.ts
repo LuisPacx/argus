@@ -9,7 +9,7 @@ import { groupTokens } from "../meta/group.ts";
 import { headlineNamesKey, newsForKeys } from "../meta/news.ts";
 import { leaderTag } from "../meta/new-meta.ts";
 import type { CurrentMeta, MetaNewEvent, MetaRun } from "../meta/store.ts";
-import { currentSummaryFresh, leaderMoney } from "../meta/summary.ts";
+import { currentSummaryFresh, leaderAt } from "../meta/summary.ts";
 import { mergeThemes } from "../meta/theme.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
@@ -302,7 +302,7 @@ export function dueMetas(metas: readonly CurrentMeta[], events: ReadonlyMap<stri
 /** "$JENSEN at $2.4M, 14 creators in 24 h": a Meta's leader, cap and copies as the stored reason and the prompt state them. Creator text is cleaned and cut. */
 export function metaFacts(m: Pick<CurrentMeta, "leader" | "counts">): string {
   const copies = m.counts["24h"].creators;
-  return `${leaderTag(m.leader)} at ${leaderMoney(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
+  return `${leaderTag(m.leader)}${leaderAt(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
 }
 
 /** A news story the pass has decided to try. */
@@ -535,7 +535,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
       const trigger = { kind: due.kind, reason: facts, at: due.eventAt };
       return {
         existing,
-        promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...retryFields(retry) }),
+        promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, ...(meta.grads ? { grads: meta.grads } : {}), enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...retryFields(retry) }),
         create: (ideas, at, runIds) => {
           const stored = store.meta.summaries([meta.key]).get(meta.key);
           const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -634,7 +634,7 @@ export async function generateMemeIdeas(store: Datastore, brain: Brain, opts: Me
         const { playbook, ideaLessons, playbookVersions } = readLessons(store);
         return {
           existing,
-          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(req.angle !== "" ? { angle: req.angle } : {}), ...(playbook ? { playbook } : {}), ...(ideaLessons ? { ideaLessons } : {}), ...retryFields(retry) }),
+          promptFor: (retry) => memeIdeasPromptFor({ label: meta.label, counts: meta.counts, ...(meta.grads ? { grads: meta.grads } : {}), enteredAt: meta.enteredAt, leader: meta.leader, trigger, tokens, avoid: avoidLabels(existing), news, roomLeft: roomLeft.text, legitimacy, ...(req.angle !== "" ? { angle: req.angle } : {}), ...(playbook ? { playbook } : {}), ...(ideaLessons ? { ideaLessons } : {}), ...retryFields(retry) }),
           create: (ideas, at, runIds) => {
             const stored = store.meta.summaries([meta.key]).get(meta.key);
             const snapshot = buildSnapshot({ now: at, meta, run: { id: run.runId, computedAt: run.computedAt }, trigger, ...(currentSummaryFresh(stored, at.getTime()) && stored?.summary ? { summary: stored.summary } : {}), roomLeft, tokens, news });
@@ -892,7 +892,7 @@ export function runMemeAngles(store: Datastore, brain: Brain, opts: MemeOptions 
 
 /** The list line of an idea: the Meta, its leader and cap, and what triggered the run, written by code from the stored Meta (text still creator-derived: cleaned and cut). */
 export function summaryLine(meta: Pick<CurrentMeta, "label" | "leader" | "counts">, kind: MemeTriggerKind): string {
-  return `Meta ${cleanLine(meta.label, 60)}: led by ${cleanLine(leaderTag(meta.leader), 40)} at ${leaderMoney(meta.leader.marketCapUsd)}, ${meta.counts["24h"].creators} creators in 24 h. ${kind === "new-meta" ? "New Meta" : "Refresh after 12 h"}.`;
+  return `Meta ${cleanLine(meta.label, 60)}: led by ${cleanLine(leaderTag(meta.leader), 40)}${leaderAt(meta.leader.marketCapUsd)}, ${meta.counts["24h"].creators} creators in 24 h. ${kind === "new-meta" ? "New Meta" : "Refresh after 12 h"}.`;
 }
 
 /** An answer that passed the schema and the Meta's tokens, with one note per idea (undefined when none) for a dead token that uses its name or ticker. */

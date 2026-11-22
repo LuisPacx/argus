@@ -249,6 +249,8 @@ export interface MemePromptToken extends SnapshotToken {
 export interface MemePromptInput {
   label: string;
   counts: { "6h": { tokens: number; creators: number; migrations: number }; "24h": { tokens: number; creators: number; migrations: number } };
+  /** The subject's graduations (ADR 0018): what makes it a Meta. Absent on a row stored before graduation Metas. */
+  grads?: { "24h": number; "6h": number; creators24h: number };
   /** When the subject became a Meta. */
   enteredAt: string;
   /** The token that leads the Meta (creator-written name and ticker) and its market cap. */
@@ -332,6 +334,7 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
     const c = input.counts[w];
     return `last ${w === "6h" ? 6 : 24} h: ${c.tokens} tokens, ${c.creators} creators, ${c.migrations} migrations (unfiltered)`;
   });
+  const g = input.grads;
   const tokens = input.tokens.slice(0, MEME_PROMPT_TOKENS).map((t) => {
     const cap = t.marketCapUsd !== undefined ? `, market cap ${money(t.marketCapUsd)}` : "";
     const desc = t.description !== undefined && t.description.trim() !== "" ? ` | description: ${line(t.description, DESCRIPTION_CHARS)}` : "";
@@ -342,8 +345,8 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
   const newsLines = input.news.slice(0, MEME_PROMPT_NEWS).flatMap((n) => newsLine(n) ?? []);
   return [
     fromAngle
-      ? `Write ${MEME_TRIO_SIZE} meme token ideas on the Operator's angle (described below), set in the market subject below, for the Operator of a launchpad dashboard. The subject is a Meta (a current trend led by a token with a large market cap, with other tokens copying it) or a subject being watched that is not a Meta yet. The Operator decides; argus launches nothing and makes no image.`
-      : `Write ${MEME_TRIO_SIZE} meme token ideas that ride the Meta below, for the Operator of a launchpad dashboard. A Meta is a current trend led by a token with a large market cap, with other tokens copying it, and this one is ${input.trigger.kind === "new-meta" ? "new: it has just become a Meta" : "still a Meta, and its ideas are being refreshed after 12 hours"}. The Operator decides; argus launches nothing and makes no image.`,
+      ? `Write ${MEME_TRIO_SIZE} meme token ideas on the Operator's angle (described below), set in the market subject below, for the Operator of a launchpad dashboard. The subject is a Meta (several tokens graduating on one narrative; the leading token's market cap is context only) or a subject being watched that is not a Meta yet. The Operator decides; argus launches nothing and makes no image.`
+      : `Write ${MEME_TRIO_SIZE} meme token ideas that ride the Meta below, for the Operator of a launchpad dashboard. A Meta is several tokens graduating on one narrative: tokens that leave their launch bonding curve on the same theme within a day. The number of graduations and creators makes a Meta; the leading token's market cap is context only. This one is ${input.trigger.kind === "new-meta" ? "new: it has just become a Meta" : "still a Meta, and its ideas are being refreshed after 12 hours"}. The Operator decides; argus launches nothing and makes no image.`,
     "",
     outputContract("Meta", "the Meta's leading tokens"),
     "",
@@ -372,7 +375,8 @@ export function memeIdeasPromptFor(input: MemePromptInput): string {
     "",
     `${b} START meta (untrusted)`,
     `Label: ${line(input.label, LABEL_CHARS)}`,
-    `Leader: ${line(input.leader.name, TOKEN_NAME_CHARS)} (${line(input.leader.symbol, TOKEN_SYMBOL_CHARS)}), market cap ${input.leader.marketCapUsd > 0 ? money(input.leader.marketCapUsd) : "n/a"}`,
+    ...(g ? [`Graduations: last 24 h: ${g["24h"]}, last 6 h: ${g["6h"]}, creators of the 24 h graduations: ${g.creators24h}`] : []),
+    `Leader: ${line(input.leader.name, TOKEN_NAME_CHARS)} (${line(input.leader.symbol, TOKEN_SYMBOL_CHARS)}), market cap ${input.leader.marketCapUsd > 0 ? money(input.leader.marketCapUsd) : "-"} (context only)`,
     `Trigger: ${fromAngle ? "the Operator asked for ideas on an angle" : input.trigger.kind === "new-meta" ? "became a Meta" : "refresh after 12 h while it stays a Meta"}: ${line(input.trigger.reason, 120)}`,
     ...counts,
     `Became a Meta ${line(input.enteredAt, 40)}`,

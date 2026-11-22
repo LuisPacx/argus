@@ -2,7 +2,7 @@ import { flat } from "../context-block.ts";
 import type { Datastore } from "../datastore.ts";
 import { META_RULE, type MetaConfig } from "./config.ts";
 import type { CurrentMeta, MetaCurrent, NewMetaNewEvent } from "./store.ts";
-import { leaderMoney } from "./summary.ts";
+import { leaderAt } from "./summary.ts";
 
 /**
  * New Meta (meta redesign ticket 03, replaces Hot now): the moment a subject becomes a Meta. Plain code over two stored runs of the
@@ -27,11 +27,11 @@ export function leaderTag(leader: { name: string; symbol: string }): string {
   return name === "" ? "its leader" : name;
 }
 
-/** `became a Meta: 12 graduated in 24 h, $JENSEN at $2.4M, 14 creators in 24 h` (no graduation part on a row stored before graduation Metas; `at -` for a leader with no price): written by code from the stored numbers; the leader's tag is creator text, cleaned and cut. */
+/** `became a Meta: 12 graduated in 24 h, $JENSEN at $2.4M, 14 creators in 24 h` (no graduation part on a row stored before graduation Metas; no `at ...` part for a leader with no price): written by code from the stored numbers; the leader's tag is creator text, cleaned and cut. */
 export function newMetaReason(m: CurrentMeta): string {
   const copies = m.counts["24h"].creators;
   const grads = m.grads ? `${m.grads["24h"]} graduated in 24 h, ` : "";
-  return `became a Meta: ${grads}${leaderTag(m.leader)} at ${leaderMoney(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
+  return `became a Meta: ${grads}${leaderTag(m.leader)}${leaderAt(m.leader.marketCapUsd)}, ${copies} ${copies === 1 ? "creator" : "creators"} in 24 h`;
 }
 
 /** The events of `current` against `previous`, in Meta order (highest leader market cap first). Pure: no clock, no store. */

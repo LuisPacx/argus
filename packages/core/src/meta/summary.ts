@@ -25,6 +25,9 @@ const NAME_CHARS = 30;
 /** A leader's market cap for a line of text: `metaMoney`, or a dash for a figure of 0 or less (a Meta whose leader has no price, like a graduate shown with a dash). Never "n/a" or "$0". */
 export const leaderMoney = (usd: number): string => (usd > 0 ? metaMoney(usd) : "-");
 
+/** The " at $2.4M" that follows a leader's tag in a sentence, or nothing for an unpriced leader (a figure of 0 or less): never "at -" or "at n/a". */
+export const leaderAt = (usd: number): string => (usd > 0 ? ` at ${metaMoney(usd)}` : "");
+
 /** "$13M", "$2.1M", "$850K", "$123": a market cap for a line of text. */
 export function metaMoney(usd: number): string {
   const units: Array<[number, string]> = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];

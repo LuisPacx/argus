@@ -5,13 +5,13 @@ import { BrainError, DEFAULT_ROUTING, type Brain, type BrainInput, type BrainRun
 import type { CollisionChecker } from "../collision.ts";
 import { Datastore, MAX_NEW_PROPOSALS_PER_DAY } from "../datastore.ts";
 import { recomputeMetas } from "../meta/compute.ts";
-import type { CurrentMeta } from "../meta/store.ts";
+import type { CurrentGrads, CurrentMeta } from "../meta/store.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchUsage } from "../research-budget.ts";
 import type { DexPair } from "../sources/dexscreener.ts";
 import { aMeta, saveCurrentRun } from "../testing/meta-current.ts";
 import { tempDir } from "../testing/temp.ts";
 import { ANGLE_ATTEMPT_CAP_FACTOR, angleAttemptCap, parseAngle } from "./angle.ts";
-import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, MEME_LIVE_MIN_CREATES, memeConfigFromEnv, runMemeAngles, type MemeDexClient, type MemeOptions } from "./pass.ts";
+import { buildSnapshot, DEFAULT_ANGLE_DAILY_MEME_RUNS, DEFAULT_MEME_CONFIG, dailyMemeRunLimit, dueMetas, generateMemeIdeas, MAX_ANGLE_DAILY_MEME_RUNS, MAX_MEME_RUNS_PER_DAY, MEME_LIVE_MIN_CREATES, memeConfigFromEnv, metaFacts, runMemeAngles, summaryLine, type MemeDexClient, type MemeOptions } from "./pass.ts";
 import { MEME_REFRESH_MS } from "./types.ts";
 
 const NOW = Date.parse("2026-11-12T20:00:00.000Z");
@@ -54,12 +54,12 @@ const metaOf = (row: { key: string; label: string; counts: CurrentMeta["counts"]
  * The 2026-11-12 case: the `jensen` Meta (a group of clone tokens by distinct creators), now a Meta led by a $2.4M token with a live New Meta
  * event for it, and the matching news (the resignation headline and the congress story), which are context-class Signals.
  */
-async function seedJensen(opts: { names?: string[]; symbol?: string; event?: boolean; news?: boolean } = {}) {
+async function seedJensen(opts: { names?: string[]; symbol?: string; event?: boolean; news?: boolean; grads?: CurrentGrads } = {}) {
   const store = Datastore.open(":memory:");
   (opts.names ?? JENSEN_NAMES).forEach((n, i) => launch(store, n, `j${i}`, { migrated: i < 2, symbol: opts.symbol }));
   await recomputeMetas(store, { now: new Date(NOW) });
   const row = store.latestMetas("24h", 20)!.rows[0]!;
-  const meta = metaOf(row);
+  const meta = metaOf(row, opts.grads ? { grads: opts.grads } : {});
   const runId = saveCurrentRun(store, at(0), { metas: [meta] });
   if (opts.event !== false) store.meta.saveNewMeta({ key: meta.key, label: meta.label, raisedAt: at(0).toISOString(), reason: "became a Meta: $JENSEN at $2.4M", rank: 1, leader: meta.leader, copies: meta.counts["24h"].creators, runId });
   if (opts.news !== false) {
@@ -137,6 +137,20 @@ const clearChecker = (): CollisionChecker => ({
 });
 /** The label of each prompt, in the order the pass asked for them. */
 const labelsOf = (prompts: string[]) => prompts.map((p) => /\nLabel: (.*)\n/.exec(p)![1]);
+
+describe("the facts and list line of a Meta: an unpriced leader has no at part", () => {
+  it("a priced leader reads $X at $cap, an unpriced one only $X, never at - or n/a", () => {
+    const priced = aMeta("jensen", { cap: 2_400_000, leaderSymbol: "JENSEN", creators: 8 });
+    expect(metaFacts(priced)).toBe("$JENSEN at $2.4M, 8 creators in 24 h");
+    expect(summaryLine(priced, "new-meta")).toBe("Meta jensen: led by $JENSEN at $2.4M, 8 creators in 24 h. New Meta.");
+    for (const cap of [0, -1]) {
+      const unpriced = aMeta("jensen", { cap, leaderSymbol: "JENSEN", creators: 8 });
+      expect(metaFacts(unpriced)).toBe("$JENSEN, 8 creators in 24 h");
+      expect(summaryLine(unpriced, "refresh")).toBe("Meta jensen: led by $JENSEN, 8 creators in 24 h. Refresh after 12 h.");
+      expect(metaFacts(unpriced) + summaryLine(unpriced, "refresh")).not.toMatch(/ at |n\/a/);
+    }
+  });
+});
 
 describe("the switch", () => {
   it("with ARGUS_MEME_IDEAS off (the default) nothing is read, called or stored, even with a live New Meta event", async () => {
@@ -279,6 +293,18 @@ describe("the 2026-11-12 case: the jensen Meta, its news and a New Meta event gi
     expect(prompts[0]).toContain("Trigger: became a Meta: $JENSEN at $2.4M, 8 creators in 24 h");
     expect(prompts[0]).not.toMatch(/hot now/i);
     expect(prompts[0]).toContain(store.getRubric().dimensions.find((d) => d.key === "legitimacy")!.description.slice(0, 40));
+  });
+
+  it("the prompt carries the Meta's graduation counts when the stored Meta has them, and none for a row stored without", async () => {
+    const withGrads = await seedJensen({ grads: { "24h": 12, "6h": 3, creators24h: 9, share: 0.2 } });
+    const a = fakeBrain([JENSEN_ANSWER]);
+    await pass(withGrads.store, a.brain, { collisions: clearChecker() });
+    expect(a.prompts[0]).toContain("Graduations: last 24 h: 12, last 6 h: 3, creators of the 24 h graduations: 9");
+    expect(a.prompts[0]).toContain("A Meta is several tokens graduating on one narrative");
+    const without = await seedJensen();
+    const b = fakeBrain([JENSEN_ANSWER]);
+    await pass(without.store, b.brain, { collisions: clearChecker() });
+    expect(b.prompts[0]).not.toContain("Graduations:");
   });
 
   it("the leader's own name is among the names to avoid, even when it is not one of the group's tokens", async () => {
