@@ -5,7 +5,7 @@
 
 **Blocked by:** none
 
-Status: ready-for-agent
+Status: done
 - [ ] Rename case: previous subject keyed "christmas" with members including "christmas"; this run the AI names it from a leading theme "santa" with the same members. The output subject keeps the key "christmas", the same member themes and the carried state; it is not a new subject.
 - [ ] A subject with no overlap with any previous subject gets its own key as today.
 - [ ] Themes in the previous run's subjects are always in the set sent to the AI, even when they rank below the 30-theme cut; the cut for other themes is unchanged.
@@ -15,3 +15,4 @@ Status: ready-for-agent
 - [ ] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-22 17:36 [d37fa1ed] Merged 26367c0 to main. Verifier PASS (stabilise 14/14, pnpm check 4208/4208); reviewer MERGE, boxes 1-6 met by reading.

@@ -5,7 +5,7 @@
 
 **Blocked by:** 02
 
-Status: ready-for-agent
+Status: in-progress
 - [ ] A tick whose AI answer renames the leading theme of a live subject (christmas -> santa) produces the same subject key as the tick before, and no New Meta event is raised.
 - [ ] The previous run's themes appear in the grouping input even when they are outside the top-30 cut.
 - [ ] With the AI step off, the rules fallback also keeps keys through the stabiliser.
@@ -15,3 +15,6 @@ Status: ready-for-agent
 - [ ] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-22 17:27 [d37fa1ed] 02 review risk 1: compute.ts ~518 themeInputs slices to GROUP_MAX_THEMES before buildGroupItems, so keep restores nothing; drop that slice or apply the cut inside buildGroupItems.
+- 2026-11-22 17:27 [d37fa1ed] 02 review risk 2: stabilise kept includes a previous subject that lost the greedy match (merge case); it would show in Watching duplicating the winner's themes. Decide whether to filter.
+- 2026-11-22 17:27 [d37fa1ed] 02 review risk 3: 120-min TTL runs from previous.computedAt; kept stored in Watching under the new computedAt never expires (CurrentMeta has no per-row time). Carry the original age.
