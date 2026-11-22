@@ -45,3 +45,61 @@ describe("assignGraduates", () => {
     expect(r.graduates[0]!.map((g) => g.mint)).toEqual(["b"]);
   });
 });
+
+describe("assignGraduates blend pass (christmas-fix ticket 04)", () => {
+  const bar = { minGrads: 10, minCreators: 6, live6h: 3 };
+  const santaTokens = ["s1", "s2", "s3"].map((creator) => ({ name: "Santa Claus", symbol: "SANTA", creator }));
+  /** Christmas: its theme key `christmas`, the short stem `mas` as a merged key, and three creators who launched Santa tokens. */
+  const christmas = { key: "christmas", label: "Christmas", memberKeys: ["mas"], tokens: santaTokens };
+  const bull = { key: "bull", label: "Bull", tokens: [{ name: "Bull Run", symbol: "BULL", creator: "u1" }] };
+  /** `n` exact-name graduates of Christmas, the first `recent` of them inside the last 6 h. */
+  const exact = (n: number, recent: number) => Array.from({ length: n }, (_, i) => grad(`e${i}`, "Christmas Cat", "CCAT", `c${i}`, i < recent ? 10 * (i + 1) : 400 + i));
+  const blends = [grad("b1", "Bullmas", "BULLMAS", "b1", 10), grad("b2", "CATEMAS", "CATEMAS", "b2", 20), grad("b3", "pepesanta", "PEPESANTA", "b3", 30)];
+  const run = (over: Partial<Parameters<typeof assignGraduates>[0]> & { graduates: readonly GraduatedToken[] }) => assignGraduates({ ...base, subjects: [christmas], bar, ...over });
+
+  it("the exact passes leave Bullmas, CATEMAS and pepesanta unassigned; the blend pass gives them to Christmas, which reaches 10 graduations, 10 creators and 3 in 6 h", () => {
+    const withoutBar = run({ graduates: [...exact(7, 0), ...blends], bar: undefined });
+    expect(withoutBar.grads[0]).toMatchObject({ "24h": 7, "6h": 0, creators24h: 7 });
+    const r = run({ graduates: [...exact(7, 0), ...blends] });
+    expect(r.grads[0]).toMatchObject({ "24h": 10, "6h": 3, creators24h: 10 });
+    expect(r.graduates[0]!.map((g) => g.mint)).toEqual(expect.arrayContaining(["b1", "b2", "b3"]));
+  });
+
+  it("a stem used by 2 distinct creators is not learned; one used by 3 is", () => {
+    const winter = (creators: string[]) => ({ key: "winter", label: "Winter", tokens: creators.map((creator) => ({ name: "Frosty", symbol: "FROSTY", creator })) });
+    const g = [grad("f", "Frostyking", "FK", "z", 10)];
+    expect(run({ subjects: [winter(["a", "b", "a", "b"])], graduates: g }).grads[0]!["24h"]).toBe(0);
+    expect(run({ subjects: [winter(["a", "b", "c", "a"])], graduates: g }).grads[0]!["24h"]).toBe(1);
+  });
+
+  it("a stem with 69 % self-consistency is not learned; 70 % is", () => {
+    const frosty = (n: number, key: string) => ({ key, label: key, tokens: Array.from({ length: n }, (_, i) => ({ name: "Frosty", symbol: "FROSTY", creator: `${key}${i % 5}` })) });
+    const g = [grad("f", "Frostyking", "FK", "z", 10)];
+    expect(run({ subjects: [frosty(69, "winter"), frosty(31, "other")], graduates: g }).grads.map((c) => c["24h"])).toEqual([0, 0]);
+    expect(run({ subjects: [frosty(70, "winter"), frosty(30, "other")], graduates: g }).grads.map((c) => c["24h"])).toEqual([1, 0]);
+  });
+
+  it("a graduate that matches two subjects is ambiguous and joins none", () => {
+    const r = run({ subjects: [christmas, bull], graduates: [grad("b1", "Bullmas", "BULLMAS", "b1", 10)] });
+    expect(r.grads.map((c) => c["24h"])).toEqual([0, 0]);
+  });
+
+  it("a graduate already assigned (by its create, or by its name) is never moved by the blend", () => {
+    const r = run({
+      subjects: [christmas, bull],
+      graduates: [grad("m", "CATEMAS", "CATEMAS", "a", 10), grad("n", "Bull Catemas", "BC", "b", 10)],
+      mintSubject: new Map([["m", 1]]),
+    });
+    expect(r.grads.map((c) => c["24h"])).toEqual([0, 2]);
+  });
+
+  it("a subject that is already a Meta gains nothing from the blend pass", () => {
+    const r = run({ graduates: [...exact(10, 3), grad("b2", "CATEMAS", "CATEMAS", "b2", 20)] });
+    expect(r.grads[0]).toMatchObject({ "24h": 10, "6h": 3, creators24h: 10 });
+  });
+
+  it("Thomas does not join a subject through the stem mas; CATEMAS does", () => {
+    const r = run({ graduates: [grad("t", "Thomas", "THOMAS", "t", 10), grad("c", "CATEMAS", "CATEMAS", "c", 10)] });
+    expect(r.graduates[0]!.map((g) => g.mint)).toEqual(["c"]);
+  });
+});

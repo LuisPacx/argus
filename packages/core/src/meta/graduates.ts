@@ -1,4 +1,6 @@
 import type { GraduatedToken } from "../study/store.ts";
+import type { Field } from "../term-match.ts";
+import { blendMatches, blendTerms, graduateFields, type BlendSubject } from "./blend.ts";
 import { META_WINDOW_HOURS } from "./config.ts";
 import { formIndex, tokenForms, type IndexedSubject } from "./leaders.ts";
 import type { CurrentGrads } from "./store.ts";
@@ -23,8 +25,13 @@ export interface GraduateAssignment {
 }
 
 export interface AssignInput {
-  subjects: readonly IndexedSubject[];
+  subjects: readonly (IndexedSubject & BlendSubject)[];
   graduates: readonly GraduatedToken[];
+  /**
+   * The Meta bar. When given, the blend pass runs: a graduate that no earlier pass placed may join the one subject whose terms it carries (`blend.ts`),
+   * and only a subject still below this bar after the earlier passes may receive it.
+   */
+  bar?: { minGrads: number; minCreators: number; live6h: number };
   /** The subject that holds each token created in the read (by mint). */
   mintSubject: ReadonlyMap<string, number>;
   /** Subjects a graduate without a create in the read may be matched to by name (the rest only hold their own tokens' graduations). */
@@ -36,6 +43,31 @@ export interface AssignInput {
 
 const HOUR_MS = 3_600_000;
 
+/**
+ * The blend pass (christmas-fix ticket 04, ADR 0012/0018): names like `Bullmas`, `CATEMAS` or `pepesanta` carry no form that names a subject exactly, but
+ * they carry a word the subject is built from (`blend.ts`). A loose graduate joins a subject only when exactly one nameable subject's terms match it
+ * (two or more is ambiguous: it joins none), and only when that subject is still below the Meta bar on what the exact passes gave it: a subject that
+ * is already a Meta gains nothing, so the pass can lift a weak subject over the bar but never pad a strong one. Graduates placed by an earlier pass,
+ * or ambiguous in it, are not in `loose` and are never moved.
+ */
+function blend(input: AssignInput, loose: readonly GraduatedToken[], owned: GraduatedToken[][], from6: number): void {
+  const bar = input.bar as NonNullable<AssignInput["bar"]>;
+  const weak = owned.map((list) => {
+    const creators = new Set(list.filter((g) => g.creator !== "").map((g) => g.creator));
+    const live = list.filter((g) => Date.parse(g.migratedAt) >= from6).length;
+    return !(list.length >= bar.minGrads && creators.size >= bar.minCreators && live >= bar.live6h);
+  });
+  const fields = loose.map(graduateFields);
+  const terms = blendTerms(input.subjects, input.nameable, fields.flat());
+  loose.forEach((g, n) => {
+    const matched: number[] = [];
+    terms.forEach((t, i) => {
+      if (blendMatches(t, fields[n] as Field[])) matched.push(i);
+    });
+    if (matched.length === 1 && weak[matched[0] as number]) (owned[matched[0] as number] as GraduatedToken[]).push(g);
+  });
+}
+
 export function assignGraduates(input: AssignInput): GraduateAssignment {
   const { subjects, graduates, nowMs, minKeyChars } = input;
   const from24 = nowMs - META_WINDOW_HOURS["24h"] * HOUR_MS;
@@ -44,6 +76,8 @@ export function assignGraduates(input: AssignInput): GraduateAssignment {
   const themeConfig = { ...DEFAULT_THEME_CONFIG, minKeyChars };
   const seen = new Set<string>();
   const owned: GraduatedToken[][] = subjects.map(() => []);
+  /** In the window, with no create held by a subject and no form naming one: the only graduates the blend pass looks at. */
+  const loose: GraduatedToken[] = [];
   let total = 0;
   for (const g of graduates) {
     if (seen.has(g.mint)) continue;
@@ -56,9 +90,11 @@ export function assignGraduates(input: AssignInput): GraduateAssignment {
       const hits = new Set<number>();
       for (const f of new Set([...tokenForms(g, minKeyChars), ...tokenSubjectForms(g, themeConfig)])) for (const i of index.get(f) ?? []) hits.add(i);
       if (hits.size === 1) subject = [...hits][0];
+      else if (hits.size === 0) loose.push(g);
     }
     if (subject !== undefined) (owned[subject] as GraduatedToken[]).push(g);
   }
+  if (input.bar && loose.length > 0) blend(input, loose, owned, from6);
   const grads = owned.map((list): CurrentGrads => {
     const creators = new Set<string>();
     let last6 = 0;

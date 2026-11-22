@@ -427,6 +427,7 @@ export async function recomputeMetas(store: Datastore, opts: RecomputeOptions = 
     subjects: subjectStats.map(({ stat, extra }) => ({ key: stat.group.key, label: stat.group.label, tokens: stat.group.tokens, ...(extra.memberKeys ? { memberKeys: extra.memberKeys } : {}) })),
     graduates: graduated,
     mintSubject,
+    bar: { minGrads: config.metaMinGrads, minCreators: config.metaMinCreators, live6h: config.metaLiveGrads6h },
     nameable: (j) => hasGraduate.has(j) || (subjectStats[j] as (typeof subjectStats)[number]).stat.counts["24h"].creators >= config.metaMinCreators,
     nowMs,
     minKeyChars: config.newsMinKeyChars,
