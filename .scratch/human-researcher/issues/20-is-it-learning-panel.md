@@ -10,8 +10,8 @@
 - [x] Counts equal a hand-built fixture (including unrated and the no-Playbook row).
 - [x] No verdict/trend sentence below 10 rated per version.
 - [x] Render is escaped (`renderToString` test).
-- [ ] `page:check /research` exits 0.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] `page:check /research` exits 0.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Operator approved 2026-11-22. Only explicit Good/Bad counts; dismissals are not a signal.
