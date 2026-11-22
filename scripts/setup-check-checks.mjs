@@ -1,7 +1,9 @@
 // The checks behind `pnpm setup-check` (human researcher ticket 16). Pure logic over injected dependencies, so tests use fakes.
 // A check is { status: 'PASS' | 'WARN' | 'FAIL', name, detail, fix? }. Details carry paths and booleans only, never a value from the
 // environment, a cookie or the Claude login (the login status is read only for its `loggedIn` boolean).
+import fs from 'node:fs';
 import path from 'node:path';
+import { automaticAgents } from '../packages/core/src/automatic-agents.ts';
 
 export const DEFAULT_CHROME_BIN = '/usr/bin/google-chrome';
 export const PORT = 3100;
@@ -12,6 +14,19 @@ export const chromeBinOf = (env) => env.ARGUS_CHROME_BIN || DEFAULT_CHROME_BIN;
 export const claudeBinOf = (env) => env.ARGUS_CLAUDE_BIN || 'claude';
 // The worker's own default, relative to apps/worker; resolved against the repo root here.
 export const dbPathOf = (env, root) => path.resolve(root, 'apps', 'worker', env.ARGUS_DB ?? '../../.data/argus.db');
+
+// The live War Room and worker belong to the main checkout (`pnpm dev:start` runs there), so from a git worktree the pid files and .env are
+// the main checkout's, not the worktree's empty .data/run. A worktree has a `.git` FILE: `gitdir: <main>/.git/worktrees/<name>`.
+export function mainCheckoutRoot(root) {
+  try {
+    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(path.join(root, '.git'), 'utf8'));
+    const marker = `${path.sep}.git${path.sep}worktrees${path.sep}`;
+    const i = m ? m[1].trim().indexOf(marker) : -1;
+    return i >= 0 ? m[1].trim().slice(0, i) : root;
+  } catch {
+    return root; // a plain checkout (.git is a directory) or no git
+  }
+}
 
 const result = (status, name, detail, fix) => ({ status, name, detail, ...(fix ? { fix } : {}) });
 
@@ -71,12 +86,19 @@ export async function checkRunning(deps) {
   ];
 }
 
-export function checkResearchTick(deps) {
-  // Same rule as researchTickEnabled in packages/core/src/automatic-agents.ts: 1 on, unset/empty/0 off, anything else makes the worker refuse to start.
-  const raw = (deps.env.ARGUS_RESEARCH_TICK ?? '').trim();
-  if (raw !== '' && raw !== '0' && raw !== '1') return result('FAIL', 'ARGUS_RESEARCH_TICK', 'invalid: the worker will refuse to start', 'use 1, 0 or leave empty');
-  if (raw === '1') return result('WARN', 'ARGUS_RESEARCH_TICK', 'on: this starts the old automatic judge and propose loop every 30 minutes, which spends Claude quota', 'remove ARGUS_RESEARCH_TICK from .env; Operator research does not need it');
-  return result('PASS', 'ARGUS_RESEARCH_TICK', 'off (Operator research does not need it)');
+// One check per automatic agent (ADR 0017), from the worker's own list and parsing, so a switch added there is covered here. Each switch is
+// parsed alone, so one invalid value does not hide the others.
+export function checkAutomaticSwitches(deps) {
+  return automaticAgents({}).map((a) => {
+    let on;
+    try {
+      on = automaticAgents({ [a.switch]: deps.env[a.switch] }).find((x) => x.id === a.id).on;
+    } catch {
+      return result('FAIL', a.switch, 'invalid: the worker will refuse to start', 'use 1, 0 or leave empty');
+    }
+    if (on) return result('WARN', a.switch, `${a.label} is ON: Claude runs by itself (Operator rule: only when you trigger it). Remove ${a.switch} from .env`);
+    return result('PASS', a.switch, `${a.label} is off`);
+  });
 }
 
 export async function runChecks(deps) {
@@ -87,7 +109,7 @@ export async function runChecks(deps) {
     checkXLogin(deps),
     checkDatabase(deps),
     ...(await checkRunning(deps)),
-    checkResearchTick(deps),
+    ...checkAutomaticSwitches(deps),
   ];
 }
 

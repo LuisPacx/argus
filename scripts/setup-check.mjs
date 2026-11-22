@@ -9,11 +9,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withDotenvArgus } from './dev-env.mjs';
 import { cookieState } from './setup-check-cookies.mjs';
-import { exitCodeOf, formatLine, runChecks } from './setup-check-checks.mjs';
+import { exitCodeOf, formatLine, mainCheckoutRoot, runChecks } from './setup-check-checks.mjs';
 
 const argv = process.argv.slice(2);
 const rootFlag = argv.indexOf('--root');
-const ROOT = rootFlag >= 0 ? path.resolve(argv[rootFlag + 1]) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = rootFlag >= 0 ? path.resolve(argv[rootFlag + 1]) : mainCheckoutRoot(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const RUN_DIR = path.join(ROOT, '.data', 'run');
 
 // Same env the worker gets from `pnpm dev:start`: ARGUS_* from the repo-root .env, the shell wins.

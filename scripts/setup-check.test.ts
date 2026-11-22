@@ -6,7 +6,8 @@ import { tempDir } from "../packages/core/src/testing/temp.ts";
 // @ts-expect-error plain .mjs script, no types
 import { cookieState } from "./setup-check-cookies.mjs";
 // @ts-expect-error plain .mjs script, no types
-import { exitCodeOf, formatLine, runChecks } from "./setup-check-checks.mjs";
+import { exitCodeOf, formatLine, mainCheckoutRoot, runChecks } from "./setup-check-checks.mjs";
+import { automaticAgents } from "../packages/core/src/automatic-agents.ts";
 
 interface Check {
   status: string;
@@ -72,18 +73,45 @@ describe("setup-check checks", () => {
     expect(byName(await run({ exists: (p: string) => !p.includes("/.data") }), "Database").status).toBe("FAIL");
   });
 
-  it("ARGUS_RESEARCH_TICK=1 WARNs about the old loop; 0 and unset PASS", async () => {
-    const on = byName(await run({ env: { ARGUS_RESEARCH_TICK: "1" } }), "ARGUS_RESEARCH_TICK");
-    expect(on.status).toBe("WARN");
-    expect(on.detail).toContain("automatic");
-    expect(byName(await run({ env: { ARGUS_RESEARCH_TICK: "0" } }), "ARGUS_RESEARCH_TICK").status).toBe("PASS");
-    expect(byName(await run({ env: { ARGUS_RESEARCH_TICK: "" } }), "ARGUS_RESEARCH_TICK").status).toBe("PASS");
+  it("every automatic switch that is on WARNs with the Operator-rule message; off and unset PASS", async () => {
+    const cs = await run({ env: { ARGUS_RESEARCH_TICK: "1", ARGUS_MEME_IDEAS: "1", ARGUS_MOMENTS: "1" } });
+    expect(byName(cs, "ARGUS_MEME_IDEAS")).toMatchObject({
+      status: "WARN",
+      detail: "Meta meme ideas is ON: Claude runs by itself (Operator rule: only when you trigger it). Remove ARGUS_MEME_IDEAS from .env",
+    });
+    expect(byName(cs, "ARGUS_RESEARCH_TICK").status).toBe("WARN");
+    expect(byName(cs, "ARGUS_MOMENTS").status).toBe("WARN");
+    expect(exitCodeOf(cs)).toBe(0);
+    for (const env of [{ ARGUS_RESEARCH_TICK: "0", ARGUS_MEME_IDEAS: "", ARGUS_MOMENTS: "0" }, {}]) {
+      const off = await run({ env });
+      for (const n of ["ARGUS_RESEARCH_TICK", "ARGUS_MEME_IDEAS", "ARGUS_MOMENTS"]) expect(byName(off, n).status).toBe("PASS");
+    }
   });
 
-  it("ARGUS_RESEARCH_TICK with any other value FAILs (the worker refuses to start)", async () => {
-    const cs = await run({ env: { ARGUS_RESEARCH_TICK: "yes" } });
+  it("an invalid switch value FAILs with the worker's rule, without hiding the other switches", async () => {
+    const cs = await run({ env: { ARGUS_RESEARCH_TICK: "yes", ARGUS_MEME_IDEAS: "1" } });
     expect(byName(cs, "ARGUS_RESEARCH_TICK")).toMatchObject({ status: "FAIL", fix: "use 1, 0 or leave empty" });
+    expect(byName(cs, "ARGUS_MEME_IDEAS").status).toBe("WARN");
+    expect(formatLine(byName(cs, "ARGUS_RESEARCH_TICK"))).not.toContain("yes");
     expect(exitCodeOf(cs)).toBe(1);
+  });
+
+  it("covers every switch in automatic-agents.ts, so a new one cannot be missed", async () => {
+    const env = Object.fromEntries(automaticAgents({}).map((a) => [a.switch, "1"]));
+    const cs = await run({ env });
+    for (const a of automaticAgents({})) expect(byName(cs, a.switch)).toMatchObject({ status: "WARN", detail: expect.stringContaining(a.label) });
+  });
+});
+
+describe("mainCheckoutRoot", () => {
+  it("a git worktree reads the main checkout's root (its .data/run holds the live pid files); a plain checkout stays", () => {
+    const wt = tempDir("setup-check-wt-");
+    writeFileSync(join(wt, ".git"), "gitdir: /home/u/code/argus/.git/worktrees/agent-x\n");
+    expect(mainCheckoutRoot(wt)).toBe("/home/u/code/argus");
+    const plain = tempDir("setup-check-plain-");
+    mkdirSync(join(plain, ".git"));
+    expect(mainCheckoutRoot(plain)).toBe(plain);
+    expect(mainCheckoutRoot(tempDir("setup-check-nogit-"))).toBeTruthy();
   });
 });
 
