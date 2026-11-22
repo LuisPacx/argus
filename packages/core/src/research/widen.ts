@@ -65,8 +65,9 @@ export function matchLocal(terms: readonly string[], tokens: readonly MigratedTo
   const out: LocalMatch[] = [];
   for (const token of tokens) {
     const names = [prepare(token.name, anyShort), prepare(token.symbol, anyShort)];
-    const description = prepare(token.description, false);
-    const hit = clean.find((c) => (c.t.length < SHORT_TERM_CHARS ? names : [...names, description]).some((f) => matchesField(c.t, f)));
+    // The field lists are built once per token, not once per term: with up to 15 terms over a week of migrations the per-term cost is one `includes` or word scan.
+    const withDescription = [...names, prepare(token.description, false)];
+    const hit = clean.find((c) => (c.t.length < SHORT_TERM_CHARS ? names : withDescription).some((f) => matchesField(c.t, f)));
     if (hit !== undefined) out.push({ token, via: hit.via });
   }
   return out;

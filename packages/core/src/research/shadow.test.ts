@@ -32,7 +32,9 @@ function fakeBrain(answers: string[]) {
   const prompts: string[] = [];
   const brain: Brain = {
     routeFor: (task: BrainTask) => ({ backend: DEFAULT_ROUTING[task].backend, model: DEFAULT_ROUTING[task].model, maxBudgetUsd: DEFAULT_ROUTING[task].maxBudgetUsd }),
-    async run<T>(_task: BrainTask, input: BrainInput, _opts?: BrainRunOptions): Promise<BrainRun<T>> {
+    async run<T>(task: BrainTask, input: BrainInput, _opts?: BrainRunOptions): Promise<BrainRun<T>> {
+      // The terms step (research widen ticket 02) runs first and sees the topic only; `prompts` are the researcher's.
+      if (task === "research-terms") return { output: JSON.stringify({ terms: ["lizardterm"] }) as T, totalCostUsd: 0.01, backend: "claude-code", model: "haiku" };
       prompts.push(input.prompt);
       return { output: answers[Math.min(prompts.length - 1, answers.length - 1)] as T, totalCostUsd: 0.1, sessionId: "b0000000-0000-4000-8000-000000000001", backend: "claude-code", model: "sonnet" };
     },

@@ -8,7 +8,7 @@ import { isClosed, killGroup, markClosed } from "./process-group.ts";
 import { streamSpendOf, type CostSource, type StreamSpendTotal } from "./run-cost.ts";
 import type { SandboxRun } from "./sandbox.ts";
 
-export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher" | "playbook";
+export type BrainTask = "judge" | "propose" | "spec" | "build" | "meta-summary" | "meta-group" | "meme-ideas" | "researcher" | "research-terms" | "playbook";
 export type BrainBackend = "claude-code" | "api";
 
 /** What a task needs to run: free-form text handed to the skill. */
@@ -163,6 +163,10 @@ export const DEFAULT_ROUTING: Routing = {
   // reached by the model: argus supplies them. A run may spend at most $0.75 (research/brief.ts holds the same cap and passes it down, so a routing
   // override cannot raise it), runs at most 6 times a day, and waits out a rate limit (no API fallback).
   researcher: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.75, timeoutMs: 10 * MINUTE, tools: ["WebSearch", "WebFetch"] },
+  // The terms step of a research request (research widen ticket 02): the topic in, up to 15 related terms and blends out as one short JSON object. A haiku run
+  // with no tools (its input is the Operator-typed topic), no API fallback (it waits out a rate limit), at most $0.05 (research/terms.ts passes the same cap). It
+  // runs only inside an Operator request, after the cap check, and counts in the research spend and the shared research budget.
+  "research-terms": { backend: "claude-code", model: "haiku", maxBudgetUsd: 0.05, timeoutMs: 2 * MINUTE, tools: [] },
   // The Playbook rebuild (human researcher ticket 09): one short JSON object of lessons from the Operator's finished Picks, sonnet, no tools (its input is
   // Operator-typed reasons and creator-written coin names), no API fallback. Pressed by the Operator only; research/playbook.ts holds the same $0.25 cap.
   playbook: { backend: "claude-code", model: "sonnet", maxBudgetUsd: 0.25, timeoutMs: 5 * MINUTE, tools: [] },

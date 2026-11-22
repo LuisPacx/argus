@@ -246,7 +246,7 @@ const cleanPollError = (message: string): string =>
 export type NewBrainRun = Omit<BrainRunRecord, "id" | "createdAt" | "heartbeatAt" | "narrativeId" | "costSource"> & { costSource?: CostSource };
 
 /** Tasks whose runs that end with no reported cost are charged at their route's per-run cap (`spendSince`). */
-const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "spec", "spec-revise"] as const;
+const CAP_CHARGED_TASKS = ["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "research-terms", "playbook", "spec", "spec-revise"] as const;
 
 /** A run with no recorded cost that `spendSince` charges at its route's cap: it ended abnormally (or is still open), so it may have spent up to the cap. Mirrors the SQL there. */
 function chargedAtCap(r: { exit_status: string; session_id: string | null }): boolean {
@@ -2559,7 +2559,7 @@ export class Datastore {
 
   /** What research (judge, propose, the Meta summary line, the Meta grouping, the meme ideas and the Operator's topic research) has spent since `since` (ISO): the figure the shared research budget is held to (`chargedUsd`). */
   researchSpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "research-terms", "playbook"], since, caps);
   }
 
   /** What the Playbook rebuild (human researcher ticket 09) has spent since `since` (ISO), as for `judgeSpendSince`: the figure its own daily cap is held to. */
@@ -2574,13 +2574,13 @@ export class Datastore {
    * still running shows what it has streamed so far.
    */
   dailySpendSince(since: string, caps?: RunCaps): Spend {
-    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "spec", "spec-revise", "build"], since, caps);
+    return this.spendSince(["judge", "propose", "meta-summary", "meta-group", "meme-ideas", "researcher", "research-terms", "playbook", "spec", "spec-revise", "build"], since, caps);
   }
 
   /** The start times (ISO, oldest first) of the runs `dailySpendSince` counts, so the moment the rolling window frees up can be found. */
   dailyRunStartsSince(since: string): string[] {
     const rows = this.db
-      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'researcher', 'playbook', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
+      .prepare("SELECT created_at FROM brain_runs WHERE task IN ('judge', 'propose', 'meta-summary', 'meta-group', 'meme-ideas', 'researcher', 'research-terms', 'playbook', 'spec', 'spec-revise', 'build') AND created_at >= ? ORDER BY created_at")
       .all(since) as { created_at: string }[];
     return rows.map((r) => r.created_at);
   }

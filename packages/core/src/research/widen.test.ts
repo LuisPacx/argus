@@ -78,6 +78,16 @@ describe("matchLocal", () => {
     expect(matchLocal(["", "  "], set)).toEqual([]);
     expect(matchLocal(["cate", "mas", "catemas"], [token(1, "CATEMAS")])).toHaveLength(1);
   });
+
+  it("stays quick with 15 terms over a week of migrations (20,000 tokens with a long description each)", () => {
+    const terms = ["xmas", "santa", "mas", "noel", "elf", "reindeer", "yule", "tinsel", "grinch", "snowman", "mistletoe", "santa claus", "ho ho", "carol", "sleigh"];
+    const big = Array.from({ length: 20_000 }, (_v, i) => token(i, `Coin ${i} the ${i % 7 === 0 ? "Elf" : "Dog"}`, { description: `A coin about a very ordinary thing number ${i}. `.repeat(20) }));
+    const started = performance.now();
+    const found = matchLocal(terms, big);
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(found).toHaveLength(Math.ceil(20_000 / 7));
+    expect(new Set(found.map((m) => m.via))).toEqual(new Set(["elf"]));
+  });
 });
 
 describe("mergeCandidates", () => {

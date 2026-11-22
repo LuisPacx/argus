@@ -5,6 +5,8 @@ import type { MomentRunner, PageResult, RunnerResult } from "../moments/scan-run
 import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 // @ts-expect-error plain .mjs module, no types
 import { isAllowedXUrl } from "../x-capture/urls.mjs";
+import { researchRunCaps } from "../research-budget.ts";
+import { RESEARCH_TERMS_RUN_MAX_USD } from "./terms.ts";
 import { RESEARCH_MAX_DAILY_USD, RESEARCH_MAX_RUNS_PER_DAY, RESEARCH_RUN_MAX_USD, RESEARCH_X_LOADS_PER_DAY, RESEARCH_X_LOADS_PER_RUN, RESEARCH_SCAN_PREFIX } from "./brief.ts";
 import { pickCandidates, runResearchRequests, type ResearchDex, type ResearchOptions } from "./researcher.ts";
 import { topicTargets } from "./x-read.ts";
@@ -28,13 +30,30 @@ const good = (over: Record<string, unknown> = {}) =>
 
 type Answer = string | BrainError | "dry";
 
-/** A Brain that answers from `answers` in order (the last repeats), records every prompt and the options of every run, and charges `cost` a call. */
-function fakeBrain(answers: Answer[], cost = 0.1234) {
+/** What the `research-terms` task answers by default: one term the fake DexScreener knows nothing about. */
+const termsJson = (terms: string[]) => JSON.stringify({ terms });
+
+/**
+ * A Brain that answers the `researcher` task from `answers` in order (the last repeats), records every prompt and the options of every run, and charges
+ * `cost` a call; the `research-terms` task answers `terms` (charging `termsCost`) and is recorded apart (`termsPrompts`, `termsOptions`, `order`).
+ */
+function fakeBrain(answers: Answer[], cost = 0.1234, terms: Answer = termsJson(["iguana"]), termsCost = 0) {
   const prompts: string[] = [];
   const options: (BrainRunOptions | undefined)[] = [];
+  const termsPrompts: string[] = [];
+  const termsOptions: (BrainRunOptions | undefined)[] = [];
+  const order: string[] = [];
   const brain: Brain = {
     routeFor: (task: BrainTask) => ({ backend: DEFAULT_ROUTING[task].backend, model: DEFAULT_ROUTING[task].model, maxBudgetUsd: DEFAULT_ROUTING[task].maxBudgetUsd }),
     async run<T>(task: BrainTask, input: BrainInput, opts?: BrainRunOptions): Promise<BrainRun<T>> {
+      order.push(task);
+      if (task === "research-terms") {
+        termsPrompts.push(input.prompt);
+        termsOptions.push(opts);
+        if (terms instanceof BrainError) throw terms;
+        if (terms === "dry") return { output: "" as T, totalCostUsd: 0, dryRun: true, backend: "claude-code", model: "haiku" };
+        return { output: terms as T, totalCostUsd: termsCost, sessionId: "b0000000-0000-4000-8000-000000000002", backend: "claude-code", model: "haiku" };
+      }
       expect(task).toBe("researcher");
       prompts.push(input.prompt);
       options.push(opts);
@@ -44,7 +63,7 @@ function fakeBrain(answers: Answer[], cost = 0.1234) {
       return { output: a as T, totalCostUsd: cost, sessionId: "b0000000-0000-4000-8000-000000000001", backend: "claude-code", model: "sonnet" };
     },
   };
-  return { brain, prompts, options };
+  return { brain, prompts, options, termsPrompts, termsOptions, order };
 }
 const brainError = (kind: ConstructorParameters<typeof BrainError>[0], cost = 0) => new BrainError(kind, kind, { totalCostUsd: cost, backend: "claude-code", model: "sonnet", ran: cost > 0 });
 
@@ -86,9 +105,9 @@ function fakeRunner(result: RunnerResult | (() => RunnerResult)) {
 
 const TOPIC_PAIRS = { GTA: [pair(1), pair(2), pair(3, { name: "Iguana Scooter" })] };
 
-function setup(over: { answers?: Answer[]; cost?: number; search?: Record<string, DexPair[] | Error>; complete?: Record<string, DexPair[] | Error>; runner?: RunnerResult | (() => RunnerResult); topic?: string } = {}) {
+function setup(over: { answers?: Answer[]; cost?: number; terms?: Answer; termsCost?: number; search?: Record<string, DexPair[] | Error>; complete?: Record<string, DexPair[] | Error>; runner?: RunnerResult | (() => RunnerResult); topic?: string } = {}) {
   const store = Datastore.open(":memory:");
-  const b = fakeBrain(over.answers ?? [good()], over.cost);
+  const b = fakeBrain(over.answers ?? [good()], over.cost, over.terms, over.termsCost);
   const d = fakeDex(over.search ?? TOPIC_PAIRS, over.complete ?? { [CA(3)]: [pair(3, { name: "Iguana Scooter", dexId: "pumpswap", liquidityUsd: 50_000 })], [CA(2)]: [pair(2)] });
   const r = fakeRunner(over.runner ?? ran([page("top", [post("1700000000000000001", "iguana clip is everywhere")])]));
   const request = store.requestResearch(over.topic ?? "GTA", { now: at(-1) });
@@ -102,7 +121,7 @@ describe("a request becomes a Research brief", () => {
     const result = await t.run();
     expect(result).toMatchObject({ called: 1, done: 1, failed: 0, capped: 0 });
     const [row] = t.store.researchRequests();
-    expect(row).toMatchObject({ id: t.request.id, status: "done", runs: 1, costEstimated: false });
+    expect(row).toMatchObject({ id: t.request.id, status: "done", runs: 2, costEstimated: false }); // the terms run (free here) and the researcher run
     expect(row!.costUsd).toBeCloseTo(0.1234, 6);
     const brief = row!.brief!;
     expect(brief.story).toBe("A trailer clip of an iguana is spreading.");
@@ -163,7 +182,7 @@ describe("a malformed answer", () => {
     expect(r).toMatchObject({ called: 2, done: 1 });
     expect(t.brain.prompts[1]).toContain("Your earlier answer was refused for this reason: output is not a single JSON object");
     const row = t.store.researchRequests()[0]!;
-    expect(row).toMatchObject({ status: "done", runs: 2 });
+    expect(row).toMatchObject({ status: "done", runs: 3 }); // the terms run and the two researcher runs
     expect(t.store.brainRunsFor(0).filter((x) => x.task === "researcher").map((x) => x.exitStatus)).toEqual(["invalid-output", "success"]);
     expect(row.costUsd).toBeCloseTo(0.2468, 6);
   });
@@ -173,7 +192,7 @@ describe("a malformed answer", () => {
     const r = await t.run();
     expect(r).toMatchObject({ called: 2, done: 0, failed: 1 });
     const row = t.store.researchRequests()[0]!;
-    expect(row).toMatchObject({ status: "failed", brief: null, runs: 2 });
+    expect(row).toMatchObject({ status: "failed", brief: null, runs: 3 });
     expect(row.detail).toBe("the answer was refused twice: the answer has unexpected key(s): extra");
     expect(t.store.hasOpenResearchRequests()).toBe(false);
   });
@@ -198,7 +217,7 @@ describe("a rate limit, a shutdown and a dry run leave the request waiting", () 
     const t = setup({ answers: [brainError(kind, 0.05)] });
     const r = await t.run();
     expect(r.stoppedBy).toBe(stoppedBy);
-    expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", brief: null, runs: 1 });
+    expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", brief: null, runs: 2 });
     expect(t.store.brainRunsFor(0).filter((x) => x.task === "researcher").map((x) => x.exitStatus)).toEqual([kind]);
     expect(t.store.pendingResearchRequests()).toHaveLength(1);
   });
@@ -215,7 +234,7 @@ describe("a rate limit, a shutdown and a dry run leave the request waiting", () 
   it("a dry run spawns nothing, leaves no run row and the request waiting", async () => {
     const t = setup({ answers: ["dry"] });
     expect(await t.run()).toMatchObject({ called: 0, stoppedBy: "dry-run" });
-    expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", runs: 0 });
+    expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", runs: 1 }); // the terms run that finished; the dry researcher run left no row
     expect(t.store.brainRunsFor(0).filter((x) => x.task === "researcher")).toEqual([]);
   });
 
@@ -282,7 +301,7 @@ describe("the caps are in code, end the request capped with the reason, and make
     seedRuns(t.store, 1, 1.6);
     await t.run();
     const row = t.store.researchRequests()[0]!;
-    expect(row).toMatchObject({ status: "capped", runs: 1 });
+    expect(row).toMatchObject({ status: "capped", runs: 2 });
     expect(row.detail).toContain("the answer was refused (output is not a single JSON object) and daily research spend cap");
     expect(t.brain.prompts).toHaveLength(1);
   });
@@ -476,7 +495,7 @@ describe("the local bonded set (research widen ticket 01)", () => {
     expect(t.brain.prompts[0]).not.toContain(LCA(2));
     expect(t.brain.prompts[0]).not.toContain(CA(1));
     // Only the two matches were looked up (Thomas and the 8-day-old coin never were), then the two chosen coins' pairs (one cached).
-    expect(t.dex.calls).toEqual(["search:mas", "pairs:2", "pairs:1"]);
+    expect(t.dex.calls).toEqual(["search:mas", "search:iguana", "pairs:2", "pairs:1"]); // `iguana` is the fake terms step's one term
     const brief = t.store.researchRequests()[0]!.brief!;
     expect(brief.coins.map((c) => [c.ca, c.bonded])).toEqual([[CA(1), "no"], [LCA(2), "yes"]]);
   });
@@ -509,7 +528,7 @@ describe("the local bonded set (research widen ticket 01)", () => {
     expect(lines.slice(22).map((l) => l.split(":")[1]!.trim().split(" (")[0])).toEqual(["Coin 1", "Coin 2", "Coin 3"]);
     expect(lines[24]).toMatch(/^c25: Coin 3 .*not bonded/);
     expect(lines.slice(0, 22).every((l) => l.includes(", bonded, via \"mas\""))).toBe(true);
-    expect(t.store.researchRequests()[0]).toMatchObject({ status: "done", runs: 1 });
+    expect(t.store.researchRequests()[0]).toMatchObject({ status: "done", runs: 2 });
     // c26 is not an id the model was offered.
     const t2 = setup({ topic: "mas", search: { mas: lits }, complete, answers: [nice({ coins: [{ id: "c26", note: "invented" }] }), nice({ coins: [{ id: "c25", note: "ok" }] })] });
     local.forEach((i) => seedMigrated(t2.store, LCA(i), `Mas Coin ${i}`, 60 + i));
@@ -526,7 +545,7 @@ describe("the local bonded set (research widen ticket 01)", () => {
   it("with an empty local set the lookups are exactly what they were: one search, then the chosen coins", async () => {
     const t = setup({ answers: [nice()] });
     await t.run();
-    expect(t.dex.calls).toEqual(["search:GTA", "pairs:2"]);
+    expect(t.dex.calls).toEqual(["search:GTA", "search:iguana", "pairs:2"]); // `iguana` is the fake terms step's one term
   });
 });
 
@@ -535,9 +554,9 @@ describe("what the Operator sees of the cost", () => {
     const t = setup({ answers: ["junk", "junk again"], cost: 0.31 });
     await t.run();
     const row = t.store.researchRequests()[0]!;
-    expect(row).toMatchObject({ status: "failed", runs: 2 });
+    expect(row).toMatchObject({ status: "failed", runs: 3 });
     expect(row.costUsd).toBeCloseTo(0.62, 6);
-    expect(row.runIds).toHaveLength(2);
+    expect(row.runIds).toHaveLength(3);
   });
 
   it("a run still in flight, or one that reported no cost, is shown as an estimate", async () => {
@@ -545,5 +564,222 @@ describe("what the Operator sees of the cost", () => {
     const id = t.store.startBrainRun({ proposalId: 0, task: "researcher", backend: "claude-code", model: "sonnet" }, at(-5));
     t.store.attachResearchRun(t.request.id, id);
     expect(t.store.researchRequests()[0]).toMatchObject({ runs: 1, costEstimated: true });
+  });
+});
+
+describe("the terms step (research widen ticket 02)", () => {
+  const TOPIC = "christmas";
+  const twelve = ["xmas", "santa", "catemas", "bossmas", "noel", "elf", "reindeer", "yule", "tinsel", "grinch", "snowman", "mistletoe"];
+  const graduatedPair = (n: number, name: string, over: Partial<DexPair> = {}): DexPair => pair(n, { name, symbol: name.toUpperCase().slice(0, 8), dexId: "pumpswap", liquidityUsd: 30_000, marketCapUsd: 60_000 + n, ...over });
+  const lines = (prompt: string) => prompt.split("\n").filter((l) => /^c\d+: /.test(l));
+  const nice = (over: Record<string, unknown> = {}) => good({ freeNames: [], ...over });
+  const DAY = 24 * 60;
+
+  it("with a fake brain that returns 12 terms and a DexScreener that answers only for 'catemas', CATEMAS is a candidate, bonded, via 'catemas'", async () => {
+    const t = setup({
+      topic: TOPIC,
+      terms: termsJson(twelve),
+      search: { [TOPIC]: [pair(1, { name: "Christmas Literal" })], catemas: [graduatedPair(5, "CATEMAS")] },
+      complete: { [CA(5)]: [graduatedPair(5, "CATEMAS")], [CA(1)]: [pair(1)] },
+      answers: [nice({ coins: [{ id: "c1", note: "cat christmas" }] })],
+    });
+    expect(await t.run()).toMatchObject({ called: 1, done: 1 });
+    const cands = lines(t.brain.prompts[0]!);
+    expect(cands).toHaveLength(2);
+    expect(cands[0]).toMatch(/^c1: CATEMAS \(\$CATEMAS\), .*, bonded, via "catemas"$/);
+    expect(cands[1]).toMatch(/^c2: Christmas Literal .*, not bonded, via "christmas"$/);
+    expect(t.brain.prompts[0]).not.toContain(CA(5));
+    expect(t.store.researchRequests()[0]!.brief!.coins.map((c) => [c.ca, c.bonded])).toEqual([[CA(5), "yes"]]);
+  });
+
+  it("a term hit that is not bonded, not Solana, unpriced or not a pump mint is never a candidate", async () => {
+    const t = setup({
+      topic: TOPIC,
+      terms: termsJson(["xmas", "santa", "noel", "elf"]),
+      search: {
+        xmas: [pair(2, { name: "Curve Xmas", dexId: "pumpfun" })],
+        santa: [graduatedPair(3, "Santa Eth", { chainId: "ethereum" }), graduatedPair(4, "Santa Unpriced", { unpriced: true })],
+        noel: [{ ...graduatedPair(6, "Noel Plain"), tokenAddress: "6".repeat(40) }],
+        elf: [graduatedPair(7, "Elf Real")],
+      },
+      complete: { [CA(7)]: [graduatedPair(7, "Elf Real")] },
+      answers: [nice({ coins: [] })],
+    });
+    await t.run();
+    expect(lines(t.brain.prompts[0]!).map((l) => l.split(":")[1]!.trim().split(" (")[0])).toEqual(["Elf Real"]);
+  });
+
+  it("the terms feed the local match too: a migrated CATEMAS is found by the term 'mas'", async () => {
+    const B = (i: number) => `${"123456789ABCDEFGH"[i]}${"k".repeat(35)}pump`;
+    const t = setup({
+      topic: TOPIC,
+      terms: termsJson(["mas"]),
+      search: { [TOPIC]: [pair(1, { name: "Christmas Literal" })] },
+      complete: { [B(1)]: [graduatedPair(1, "CATEMAS", { tokenAddress: B(1) })], [CA(1)]: [pair(1)] },
+      answers: [nice({ coins: [] })],
+    });
+    const base = { signature: "", creator: "Creator".padEnd(44, "1"), uri: "https://ipfs.io/ipfs/meta", pool: "pump" };
+    t.store.study.recordTokenEvent({ ...base, kind: "create", mint: B(1), receivedAt: at(-90).toISOString(), name: "CATEMAS", symbol: "CATEMAS" });
+    t.store.study.recordTokenEvent({ ...base, kind: "migrate", mint: B(1), receivedAt: at(-60).toISOString(), name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
+    await t.run();
+    expect(lines(t.brain.prompts[0]!)[0]).toMatch(/^c1: CATEMAS .*, bonded, via "mas"$/);
+  });
+
+  it("searches at most 8 of the terms, one after another, after the literal search", async () => {
+    const t = setup({ topic: TOPIC, terms: termsJson(twelve), answers: [nice({ coins: [] })] });
+    await t.run();
+    expect(t.dex.calls.filter((c) => c.startsWith("search:"))).toEqual([`search:${TOPIC}`, ...twelve.slice(0, 8).map((x) => `search:${x}`)]);
+  });
+
+  it("a rate limit or an error part-way keeps the hits so far, ends the term searches and does not fail the request", async () => {
+    const t = setup({
+      topic: TOPIC,
+      terms: termsJson(twelve),
+      search: { xmas: [graduatedPair(2, "Xmas Doge")], santa: [graduatedPair(3, "Santa Inu")], catemas: new Error("429 too many requests"), bossmas: [graduatedPair(4, "BOSSMAS")] },
+      complete: { [CA(2)]: [graduatedPair(2, "Xmas Doge")], [CA(3)]: [graduatedPair(3, "Santa Inu")] },
+      answers: [nice({ coins: [{ id: "c1", note: "n" }] })],
+    });
+    expect(await t.run()).toMatchObject({ done: 1, failed: 0 });
+    expect(t.dex.calls.filter((c) => c.startsWith("search:"))).toEqual([`search:${TOPIC}`, "search:xmas", "search:santa", "search:catemas"]);
+    expect(lines(t.brain.prompts[0]!).map((l) => /via "(\w+)"$/.exec(l)![1])).toEqual(["santa", "xmas"]); // biggest cap first: Santa Inu $60,003, Xmas Doge $60,002
+    expect(t.store.researchRequests()[0]!.status).toBe("done");
+  });
+
+  describe("a terms step that fails still gives a brief, with a note that the topic alone was used", () => {
+    it.each([
+      ["16 terms", termsJson(Array.from({ length: 16 }, (_v, i) => `term${String.fromCharCode(97 + i)}`))],
+      ["a one-letter term", termsJson(["xmas", "x"])],
+      ["text that is not JSON", "Here are some terms: xmas, santa"],
+      ["an empty list", termsJson([])],
+      ["only the topic", termsJson(["Christmas"])],
+      ["a failed run", brainError("failed")],
+      ["a timed-out run", brainError("timed-out", 0.03)],
+      ["a run over its budget", brainError("budget-exceeded", 0.06)],
+    ] as const)("%s", async (_why, terms) => {
+      const t = setup({ topic: TOPIC, terms, search: { [TOPIC]: [pair(1, { name: "Christmas Literal" })], xmas: [graduatedPair(2, "Xmas Doge")] }, answers: [nice({ coins: [{ id: "c1", note: "n" }] })] });
+      expect(await t.run()).toMatchObject({ called: 1, done: 1, failed: 0 });
+      const brief = t.store.researchRequests()[0]!.brief!;
+      expect(brief.xNote).toMatch(/the topic alone/);
+      expect(brief.xNote).toContain("X was read");
+      expect(lines(t.brain.prompts[0]!)).toHaveLength(1);
+      expect(t.dex.calls.filter((c) => c.startsWith("search:"))).toEqual([`search:${TOPIC}`]);
+    });
+
+    it("a refused answer says why in the log, and a good one adds no such note", async () => {
+      const logs: string[] = [];
+      const bad = setup({ topic: TOPIC, terms: termsJson(["xmas", "x"]), answers: [nice({ coins: [] })] });
+      await bad.run({ log: (l) => logs.push(l) });
+      expect(logs.join("\n")).toMatch(/research-terms.*refused/s);
+      const ok = setup({ topic: TOPIC, answers: [nice({ coins: [] })] });
+      await ok.run();
+      expect(ok.store.researchRequests()[0]!.brief!.xNote).not.toMatch(/the topic alone/);
+    });
+  });
+
+  it("a rate limit or a shutdown on the terms run leaves the request waiting and starts no researcher run", async () => {
+    for (const kind of ["rate-limited", "interrupted"] as const) {
+      const t = setup({ topic: TOPIC, terms: brainError(kind, 0.01) });
+      const r = await t.run();
+      expect(r).toMatchObject({ called: 0, stoppedBy: kind });
+      expect(t.brain.prompts).toEqual([]);
+      expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", brief: null });
+      expect(t.store.brainRunsFor(0).map((x) => [x.task, x.exitStatus])).toEqual([["research-terms", kind]]);
+    }
+  });
+
+  it("a dry run makes no terms call that spawns or records anything, searches no term and leaves the request waiting", async () => {
+    const t = setup({ topic: TOPIC, terms: "dry" });
+    expect(await t.run()).toMatchObject({ called: 0, stoppedBy: "dry-run" });
+    expect(t.brain.prompts).toEqual([]);
+    expect(t.store.brainRunsFor(0)).toEqual([]);
+    expect(t.store.researchRequests()[0]).toMatchObject({ status: "pending", runs: 0 });
+    expect(t.dex.calls.filter((c) => c.startsWith("search:"))).toEqual([`search:${TOPIC}`]);
+    // A real dry-run Brain never spawns: the argv it would have used is the terms task's, with no tools.
+    const argv = new ClaudeCodeBrain({ dryRun: true }).buildArgs("research-terms", { prompt: "p" });
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("");
+  });
+
+  it("happens after the cap check and before the researcher run, and sees the topic only", async () => {
+    const t = setup({ topic: TOPIC, answers: [nice({ coins: [] })] });
+    await t.run();
+    expect(t.brain.order).toEqual(["research-terms", "researcher"]);
+    expect(t.brain.termsOptions[0]?.maxBudgetUsd).toBe(RESEARCH_TERMS_RUN_MAX_USD);
+    const prompt = t.brain.termsPrompts[0]!;
+    expect(prompt.split("\n").filter((l) => l.startsWith("Topic: "))).toEqual([`Topic: ${TOPIC}`]);
+    expect(prompt).not.toMatch(/somebody|iguana clip|Coin \d|c1:/);
+    // A capped request makes no terms call (and no Brain call at all).
+    const capped = setup({ topic: TOPIC });
+    for (let i = 0; i < RESEARCH_MAX_RUNS_PER_DAY; i++) {
+      const id = capped.store.startBrainRun({ proposalId: 0, task: "researcher", backend: "claude-code", model: "sonnet" }, at(-30 - i));
+      capped.store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.01, exitStatus: "success" });
+    }
+    await capped.run();
+    expect(capped.brain.order).toEqual([]);
+    expect(capped.dex.calls).toEqual([]);
+  });
+
+  it("is logged under research-terms, tied to the request, and counts in the research spend and the shared budget: at most $0.80 for one request", async () => {
+    // Every run reports its cap, the most it may report: terms $0.05, researcher $0.75.
+    const t = setup({ topic: TOPIC, cost: RESEARCH_RUN_MAX_USD, termsCost: RESEARCH_TERMS_RUN_MAX_USD, answers: [nice({ coins: [] })] });
+    const brain = new ClaudeCodeBrain();
+    const caps = researchRunCaps(brain);
+    await t.run();
+    expect(t.store.brainRunsFor(0).map((x) => [x.task, x.exitStatus, x.totalCostUsd, x.backend, x.model])).toEqual([
+      ["research-terms", "success", 0.05, "claude-code", "haiku"],
+      ["researcher", "success", 0.75, "claude-code", "sonnet"],
+    ]);
+    const since = at(-60).toISOString();
+    expect(t.store.researchSpendSince(since, caps)).toMatchObject({ runs: 2 });
+    expect(t.store.researchSpendSince(since, caps).chargedUsd).toBeCloseTo(0.8, 9);
+    expect(t.store.dailySpendSince(since, caps).chargedUsd).toBeCloseTo(0.8, 9);
+    const row = t.store.researchRequests()[0]!;
+    expect(row).toMatchObject({ status: "done", runs: 2 });
+    expect(row.costUsd).toBeCloseTo(0.8, 9);
+    expect(row.costUsd).toBeLessThanOrEqual(0.8 + 1e-9);
+    // The caps of the researcher do not move: the terms run is not one of the 6 runs, nor part of the $3 a day.
+    expect(t.store.researcherSpendSince(since, caps)).toMatchObject({ runs: 1 });
+    expect(t.store.researcherSpendSince(since, caps).chargedUsd).toBeCloseTo(0.75, 9);
+    expect(caps["research-terms"]).toBe(0.05);
+    expect(RESEARCH_MAX_RUNS_PER_DAY).toBe(6);
+    expect(RESEARCH_MAX_DAILY_USD).toBe(3);
+  });
+
+  it("a terms run that ended with no cost is charged at its $0.05 cap", () => {
+    const store = Datastore.open(":memory:");
+    const caps = researchRunCaps(new ClaudeCodeBrain());
+    for (const exit of ["timed-out", "interrupted"]) {
+      const id = store.startBrainRun({ proposalId: 0, task: "research-terms", backend: "claude-code", model: "haiku" }, at(-10));
+      store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0, exitStatus: exit });
+    }
+    store.startBrainRun({ proposalId: 0, task: "research-terms", backend: "claude-code", model: "haiku" }, at(-5)); // still in flight
+    const spent = store.researchSpendSince(at(-60).toISOString(), caps);
+    expect(spent.runs).toBe(3);
+    expect(spent.costUsd).toBe(0);
+    expect(spent.chargedUsd).toBeCloseTo(0.15, 9);
+  });
+
+  it("the terms runs count in the shared research budget, and not in the 6-run cap", async () => {
+    const seed = (store: Datastore, n: number, cost: number) => {
+      for (let i = 0; i < n; i++) {
+        const id = store.startBrainRun({ proposalId: 0, task: "research-terms", backend: "claude-code", model: "haiku" }, at(-30 - i));
+        store.finishBrainRun(id, { sessionId: null, totalCostUsd: cost, exitStatus: "success" });
+      }
+    };
+    const runs = setup({ topic: TOPIC, answers: [nice({ coins: [] })] });
+    seed(runs.store, RESEARCH_MAX_RUNS_PER_DAY + 4, 0.01);
+    expect(await runs.run()).toMatchObject({ done: 1, capped: 0 });
+    const budget = setup({ topic: TOPIC });
+    seed(budget.store, 3, 2.1);
+    await budget.run();
+    expect(budget.store.researchRequests()[0]).toMatchObject({ status: "capped" });
+    expect(budget.store.researchRequests()[0]!.detail).toContain("research budget reached");
+    expect(budget.brain.order).toEqual([]);
+  });
+
+  it("a terms run older than 24 hours no longer counts", () => {
+    const store = Datastore.open(":memory:");
+    const id = store.startBrainRun({ proposalId: 0, task: "research-terms", backend: "claude-code", model: "haiku" }, at(-DAY - 5));
+    store.finishBrainRun(id, { sessionId: null, totalCostUsd: 0.05, exitStatus: "success" });
+    expect(store.researchSpendSince(at(-DAY).toISOString()).runs).toBe(0);
   });
 });

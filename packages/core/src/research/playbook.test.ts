@@ -342,14 +342,15 @@ describe("research: the version used is recorded on the brief, and the Shadow pi
     store.requestPlaybook({ now: at(-2000) });
     await rebuild(store, fakeBrain(() => JSON.stringify({ lessons: ["LESSON-GUARD: stories with a clip bond"] })));
     store.requestResearch("GTA", { now: at(requestAt) });
-    const b = fakeBrain(() => briefAnswer);
+    // The terms step (research widen ticket 02) runs first and sees the topic only; the prompt under test is the researcher's.
+    const b = fakeBrain((task) => (task === "research-terms" ? JSON.stringify({ terms: ["lizardterm"] }) : briefAnswer));
     await runResearchRequests(store, b.brain, { dex, now: () => at(requestAt + 5), log: () => {}, playbook: store.playbookSource() });
-    return { store, prompt: b.prompts[0]!, tasks: b.tasks };
+    return { store, prompt: b.prompts[b.tasks.indexOf("researcher")]!, tasks: b.tasks };
   }
 
   it("a version built from Picks that all settled before the request is used: the prompt carries it, the brief and the Shadow pick record its id", async () => {
     const t = await setup(-100, -50);
-    expect(t.tasks).toEqual(["researcher"]);
+    expect(t.tasks).toEqual(["research-terms", "researcher"]);
     expect(t.prompt).toContain("LESSON-GUARD");
     expect(t.prompt).toMatch(/START playbook \(version 1, untrusted\)/);
     expect(t.store.researchRequests()[0]!.brief).toMatchObject({ playbookVersion: "1" });

@@ -35,6 +35,9 @@ const LEFT_OUT: Record<string, string> = {
   researcher: "the researcher task belongs to the Research page, not a pipeline stage (human researcher ticket 05, ADR 0017)",
   "DEFAULT_ROUTING.researcher.maxBudgetUsd": "the researcher's per-run cap is held in research/brief.ts and shown on the Research page's runs, not drawn here (human researcher ticket 05)",
   "DEFAULT_ROUTING.researcher.timeoutMs": "the researcher's wall clock, below this picture (human researcher ticket 05)",
+  "research-terms": "the research-terms task is a step of the Operator's topic research on the Research page, not a pipeline stage (research widen ticket 02, ADR 0017)",
+  "DEFAULT_ROUTING.research-terms.maxBudgetUsd": "the terms run's per-run cap is held in research/terms.ts, below this picture (research widen ticket 02)",
+  "DEFAULT_ROUTING.research-terms.timeoutMs": "the terms run's wall clock, below this picture (research widen ticket 02)",
   playbook: "the playbook task belongs to the Research page's Rebuild playbook button, not a pipeline stage (human researcher ticket 09, ADR 0017)",
   "DEFAULT_ROUTING.playbook.maxBudgetUsd": "the playbook run's per-run cap is held in research/playbook.ts and shown on the Research page's requests, not drawn here (human researcher ticket 09)",
   "DEFAULT_ROUTING.playbook.timeoutMs": "the playbook run's wall clock, below this picture (human researcher ticket 09)",
@@ -153,7 +156,7 @@ describe("the pipeline graph is in sync with the code", () => {
     expect(r.ticks).toEqual(["buildTick", "chainTick", "ingestTick", "judgeTick", "memeAngleTick", "memeIdeasTick", "metaSummaryTick", "metaTick", "momentTick", "pickOutcomeTick", "proposeTick", "radarTick", "researchRequestTick", "studyTick", "tick"]);
     expect(r.sourceClasses).toEqual(expect.arrayContaining(["BackoffSource", "DexScreenerTrendingSource", "GitHubTrendingSource", "GoogleTrendsSource", "PumpPortalSource", "RssSource"]));
     expect(r.workerSources).toEqual(expect.arrayContaining(["PumpPortalSource", "GoogleTrendsSource"]));
-    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "researcher", "playbook", "build"]);
+    expect(r.brainTasks).toEqual(["judge", "propose", "spec", "meta-summary", "meta-group", "meme-ideas", "researcher", "research-terms", "playbook", "build"]);
     expect(Object.keys(r.config).length).toBeGreaterThan(30);
   });
 

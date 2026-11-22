@@ -10,6 +10,7 @@ import type { Notifier } from "../telegram.ts";
 import { BRIEF_LIMITS, parseBriefOutput, RESEARCH_MAX_DAILY_USD, RESEARCH_MAX_RUNS_PER_DAY, RESEARCH_RUN_MAX_USD, researchPromptFor, type BriefCoin, type FreeName, type PromptCandidate, type ResearchBrief, type ResearchRequest } from "./brief.ts";
 import { cleanTopic, decideBonded, snapshotFromPairs } from "./picks.ts";
 import { eligiblePlaybook, type PlaybookSource, type ShadowPickInput } from "./shadow.ts";
+import { parseTermsOutput, researchTermsPromptFor, RESEARCH_TERMS_RUN_MAX_USD, searchTerms } from "./terms.ts";
 import { matchLocal, mergeCandidates, topLiteral, type LocalMatch } from "./widen.ts";
 import { readXForTopic } from "./x-read.ts";
 
@@ -19,6 +20,9 @@ import { readXForTopic } from "./x-read.ts";
  *  1. the caps are checked first (6 runs a day, $3 a day, the shared research budget): a capped request ends `capped` with the reason and is never left waiting;
  *  2. DexScreener is searched for the topic (the declared client; a failure ends the request `failed` before any money is spent). The tokens Argus saw
  *     migrate in the last 7 days are matched against the terms in code and merged in (`widen.ts`, research widen ticket 01): extras only when bonded;
+ *     Between the two sits the terms step (research widen ticket 02): one `research-terms` Brain run (Haiku, no tools, at most $0.05, after the cap check, a dry
+ *     run skips it) turns the topic into up to 15 related terms; they join the local match and up to 8 of them are searched on DexScreener one by one (a failure
+ *     keeps the hits so far). A terms run that fails or gives nothing valid never fails the brief: the topic alone is used and the brief's note says so.
  *  3. X is read through the scanner's child process and its session gate, or not at all (the note says why);
  *  4. one `researcher` run is opened in `brain_runs` before the child starts and its cost recorded the moment it returns;
  *  5. the answer must fit `parseBriefOutput`; a miss goes back once with the exact error, a second miss ends the request `failed` with the reason;
@@ -82,9 +86,9 @@ export function pickCandidates(pairs: readonly DexPair[]): { id: string; pair: D
   return topLiteral(pairs).map((pair, i) => ({ id: `c${i + 1}`, pair }));
 }
 
-/** The terms the local set is matched against. Research widen ticket 01: the topic itself (ticket 02 adds the model's terms). */
-function termsFor(topic: string): string[] {
-  return [topic];
+/** The terms the local set is matched against: the topic itself, then the terms the model gave (research widen ticket 02; `parseTermsOutput` has dropped repeats of the topic). */
+function termsFor(topic: string, extra: readonly string[] = []): string[] {
+  return [topic, ...extra];
 }
 
 /**
@@ -190,6 +194,47 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
     return { kind: "ok", runId, output: result.output, costUsd: result.totalCostUsd, backend: result.backend, model: result.model, sessionId: result.sessionId ?? null };
   };
 
+  type TermsAsked = { kind: "ok"; terms: string[] } | { kind: "none"; why: string } | { kind: "stop"; stoppedBy: NonNullable<ResearchResult["stoppedBy"]> };
+
+  /**
+   * The terms step (research widen ticket 02): one `research-terms` run, opened in `brain_runs` before the child starts (so it counts in the research spend and the
+   * shared budget), tied to the request, its cost recorded the moment it returns. A rate limit, a shutdown or a dry run stop the pass like the researcher's own;
+   * any other miss (a failed, timed-out or over-budget run, an answer `parseTermsOutput` refuses, no term left) is `none`: the request goes on with the topic alone.
+   */
+  const askTerms = async (req: ResearchRequest): Promise<TermsAsked> => {
+    const runId = store.startBrainRun({ proposalId: 0, task: "research-terms", ...brain.routeFor("research-terms") }, clock());
+    store.attachResearchRun(req.id, runId);
+    let result;
+    try {
+      // The per-run cap is the constant here: the Brain takes the lower of it and the route's, so a routing override cannot raise it.
+      result = await brain.run<string>("research-terms", { prompt: researchTermsPromptFor(req.topic) }, { signal: opts.signal, maxBudgetUsd: RESEARCH_TERMS_RUN_MAX_USD, onBackend: (r) => store.setBrainRunBackend(runId, r.backend, r.model) });
+    } catch (e) {
+      const brainError = e instanceof BrainError ? e : undefined;
+      const kind = brainError?.kind ?? "failed";
+      store.finishBrainRun(runId, { sessionId: brainError?.sessionId ?? null, totalCostUsd: brainError?.totalCostUsd ?? 0, exitStatus: kind, backend: brainError?.backend, model: brainError?.model });
+      if (kind === "interrupted") return { kind: "stop", stoppedBy: "interrupted" };
+      if (kind === "rate-limited") {
+        log("[worker] research: rate-limited at the terms step; the request stays queued");
+        return { kind: "stop", stoppedBy: "rate-limited" };
+      }
+      log(`[worker] research: request ${req.id}: the terms run ${kind}; the topic alone is searched`);
+      return { kind: "none", why: kind === "budget-exceeded" ? `the terms run went over its budget of ${usd(RESEARCH_TERMS_RUN_MAX_USD)}` : kind === "timed-out" ? "the terms run timed out" : "the terms run failed" };
+    }
+    if (result.dryRun) {
+      store.discardBrainRun(runId);
+      log("[worker] research: dry-run, no terms run spawned; the request stays queued");
+      return { kind: "stop", stoppedBy: "dry-run" };
+    }
+    const parsed = parseTermsOutput(result.output, req.topic);
+    store.finishBrainRun(runId, { sessionId: result.sessionId ?? null, totalCostUsd: result.totalCostUsd, exitStatus: parsed.ok ? "success" : "invalid-output", backend: result.backend, model: result.model });
+    if (!parsed.ok) {
+      log(`[worker] research: request ${req.id}: the research-terms answer was refused (${parsed.problem}); the topic alone is searched`);
+      return { kind: "none", why: "the terms answer was refused" };
+    }
+    if (parsed.terms.length === 0) return { kind: "none", why: "the terms step gave no usable term" };
+    return { kind: "ok", terms: parsed.terms };
+  };
+
   let served = 0;
   for (const req of store.pendingResearchRequests()) {
     if (opts.signal?.aborted) return { ...out, stoppedBy: "interrupted" };
@@ -218,8 +263,17 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       fail("DexScreener could not be reached, so nothing was researched and nothing was spent; ask again");
       continue;
     }
-    const local = await localExtras(store, opts.dex, termsFor(req.topic), now, log);
-    const candidates = mergeCandidates({ topic: req.topic, literal: listed, extras: local.extras, migratedAt: (ca) => store.migrationOf(ca) });
+    // The terms step, after the caps and the literal search and before the researcher run; a miss goes on with the topic alone and says so in the brief's note.
+    const asked = await askTerms(req);
+    if (asked.kind === "stop") {
+      store.releaseResearchRequest(req.id);
+      return { ...out, stoppedBy: asked.stoppedBy };
+    }
+    const terms = asked.kind === "ok" ? asked.terms : [];
+    const termsNote = asked.kind === "none" ? `${asked.why}, so the topic alone was used` : "";
+    const searched = await searchTerms(opts.dex, terms, log);
+    const local = await localExtras(store, opts.dex, termsFor(req.topic, terms), now, log);
+    const candidates = mergeCandidates({ topic: req.topic, literal: listed, extras: [...local.extras, ...searched.extras], migratedAt: (ca) => store.migrationOf(ca) });
     const x = await readXForTopic(req.topic, { store, runner: opts.xRunner, notifier: opts.notifier, loadsPerDay: opts.xLoadsPerDay ?? MOMENT_CONFIG.loadsPerDayDefault, now: clock, signal: opts.signal, log });
     if (opts.signal?.aborted) {
       store.releaseResearchRequest(req.id);
@@ -316,7 +370,7 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       }
       shadow.push({ snapshot: snap.snapshot, reason: cleanLine(k.reason, BRIEF_LIMITS.pickReason), topic: cleanTopic(req.topic), playbookVersion: playbook?.id ?? null });
     }
-    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, createdAt: madeAt.toISOString(), playbookVersion: playbook?.id ?? null };
+    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: termsNote === "" ? x.note : `${x.note}; ${termsNote}`, createdAt: madeAt.toISOString(), playbookVersion: playbook?.id ?? null };
     if (store.saveResearchBrief(req.id, brief, madeAt, shadow)) {
       out.done++;
       log(`[worker] research: request ${req.id} done, ${coins.length} coins, ${brief.sources.length} sources, ${freeNames.length} free names, ${shadow.length} shadow pick(s); ${x.note}`);
