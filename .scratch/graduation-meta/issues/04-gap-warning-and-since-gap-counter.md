@@ -5,11 +5,11 @@
 
 **Blocked by:** 02
 
-**Status:** open
+**Status:** done
 
-- [ ] A render test with a gap fixture shows the warning with both times and "covers N of 24 h", and the since-the-last-gap counter.
-- [ ] With no gap, no warning and no counter are rendered.
-- [ ] Plain text only: no `v-html`, no raw bound `:href`.
+- [x] A render test with a gap fixture shows the warning with both times and "covers N of 24 h", and the since-the-last-gap counter.
+- [x] With no gap, no warning and no counter are rendered.
+- [x] Plain text only: no `v-html`, no raw bound `:href`.
 - [ ] `pnpm page:check` exit 0 at both widths, screenshots cited.
 - [ ] Type-check, `pnpm lint` and `pnpm check` are green.
 

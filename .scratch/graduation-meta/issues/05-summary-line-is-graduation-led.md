@@ -7,14 +7,14 @@ Make the line graduation-led. With `grads` present the numbers line leads with t
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The templated numbers line leads with graduations (24h, 6h, creators) when `grads` is present, and falls back to the old form only for old rows without `grads`.
-- [ ] An unpriced leader shows a dash (-), never "n/a" or "$0".
-- [ ] The line does not duplicate the ticket-02 graduation line on the card (merged into one line, or the redundant one dropped, whichever keeps the card clean).
+- [x] The templated numbers line leads with graduations (24h, 6h, creators) when `grads` is present, and falls back to the old form only for old rows without `grads`.
+- [x] An unpriced leader shows a dash (-), never "n/a" or "$0".
+- [x] The line does not duplicate the ticket-02 graduation line on the card (merged into one line, or the redundant one dropped, whichever keeps the card clean).
 - [ ] The meta-summary prompt and `SKILL.md` describe a Meta by graduations, with market cap as context only, and the prompt passes the grads counts.
-- [ ] Tests cover the new line, the dash and the prompt content.
-- [ ] `pnpm check` and `pnpm page:check --seed /meta /` pass.
+- [x] Tests cover the new line, the dash and the prompt content.
+- [x] `pnpm check` and `pnpm page:check --seed /meta /` pass.
 
 ## Notes
 - Builds on the `grads` counts of ticket 01 and the card of ticket 02. Ticket 04 (gap warning) edits `CurrentMeta.vue` at the same time: keep this ticket's template change minimal and leave the `current-grads-coverage` line alone.
