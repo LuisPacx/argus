@@ -91,6 +91,12 @@ function termsFor(topic: string, extra: readonly string[] = []): string[] {
   return [topic, ...extra];
 }
 
+/** The brief's own note (research widen ticket 03): the terms the coins were found by, why only the topic was used when the terms step gave none, and the local set's window. Code-written. */
+function termsLine(topic: string, terms: readonly string[], missNote: string): string {
+  const used = termsFor(cleanLine(topic, 80), terms.map((t) => cleanLine(t, 40))).join(", ");
+  return `terms used: ${used}${missNote === "" ? "" : ` (${missNote})`}; local set: last ${LOCAL_DAYS} days seen by Argus`;
+}
+
 /**
  * The local bonded set (research widen ticket 01): the tokens Argus itself saw migrate in the last 7 days, matched against `terms` in plain code, then looked up
  * on DexScreener (the newest `LOCAL_LOOKUP_MAX` matches) for their market cap and liquidity. A match DexScreener cannot answer for is left out. Never throws:
@@ -132,14 +138,14 @@ async function completePairs(dex: ResearchDex, cas: string[]): Promise<Map<strin
 }
 
 /** A coin of the brief: name, cap and liquidity from DexScreener, bonded state by `decideBonded` over the complete pairs (`unknown` when they could not be had). */
-function coinOf(ca: string, listed: DexPair, complete: DexPair[] | undefined, migratedAt: string | null, note: string): BriefCoin {
+function coinOf(ca: string, listed: DexPair, complete: DexPair[] | undefined, migratedAt: string | null, note: string, via: string): BriefCoin {
   const usable = (complete ?? []).filter((p) => p.unpriced !== true);
   const deepest = usable.length > 0 ? usable.reduce((a, b) => (b.liquidityUsd > a.liquidityUsd ? b : a)) : listed;
   const cap = deepest.marketCapUsd !== undefined && deepest.marketCapUsd > 0 ? deepest.marketCapUsd : null;
   let bonded: BriefCoin["bonded"] = "unknown";
   if (complete !== undefined) bonded = decideBonded(ca, usable, migratedAt).bonded ? "yes" : "no";
   else if (migratedAt !== null) bonded = "yes";
-  return { ca, name: cleanLine(deepest.name, 60), symbol: cleanLine(deepest.symbol, 20), marketCapUsd: cap, liquidityUsd: deepest.liquidityUsd, bonded, note };
+  return { ca, name: cleanLine(deepest.name, 60), symbol: cleanLine(deepest.symbol, 20), marketCapUsd: cap, liquidityUsd: deepest.liquidityUsd, bonded, note, via: cleanLine(via, 40) };
 }
 
 export async function runResearchRequests(store: Datastore, brain: Brain, opts: ResearchOptions): Promise<ResearchResult> {
@@ -341,7 +347,7 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
     const toLookUp = chosen.map((c) => c.cand.pair.tokenAddress).filter((ca) => !complete.has(ca));
     if (toLookUp.length > 0) for (const [ca, pairs] of await completePairs(opts.dex, toLookUp)) complete.set(ca, pairs);
     const coins = chosen
-      .map(({ cand, note }) => coinOf(cand.pair.tokenAddress, cand.pair, complete.get(cand.pair.tokenAddress), store.migrationOf(cand.pair.tokenAddress), note))
+      .map(({ cand, note }) => coinOf(cand.pair.tokenAddress, cand.pair, complete.get(cand.pair.tokenAddress), store.migrationOf(cand.pair.tokenAddress), note, cand.via))
       .sort((a, b) => (b.marketCapUsd ?? -1) - (a.marketCapUsd ?? -1))
       .slice(0, BRIEF_LIMITS.coins);
     const freeNames: FreeName[] = [];
@@ -370,7 +376,7 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       }
       shadow.push({ snapshot: snap.snapshot, reason: cleanLine(k.reason, BRIEF_LIMITS.pickReason), topic: cleanTopic(req.topic), playbookVersion: playbook?.id ?? null });
     }
-    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: termsNote === "" ? x.note : `${x.note}; ${termsNote}`, createdAt: madeAt.toISOString(), playbookVersion: playbook?.id ?? null };
+    const brief: ResearchBrief = { story: parsed.brief.story, sources: parsed.brief.sources, coins, freeNames, xNote: x.note, termsNote: termsLine(req.topic, terms, termsNote), createdAt: madeAt.toISOString(), playbookVersion: playbook?.id ?? null };
     if (store.saveResearchBrief(req.id, brief, madeAt, shadow)) {
       out.done++;
       log(`[worker] research: request ${req.id} done, ${coins.length} coins, ${brief.sources.length} sources, ${freeNames.length} free names, ${shadow.length} shadow pick(s); ${x.note}`);

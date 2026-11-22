@@ -362,9 +362,10 @@ export async function seedDatastore(store, now) {
   store.saveResearchBrief(done.id, {
     story: 'SEED sample: a trailer showed an iguana walking past a scooter and the clip is spreading. Confirmed by the studio; the price talk is rumour.',
     sources: [{ title: 'SEED sample: studio trailer page', url: 'https://example.com/trailer' }, { title: 'SEED sample: a source with no usable link', url: null }],
-    coins: [researchCoin(5, 'SEED Iguana Scooter', 'SEEDIGUA', 'no', 'SEED sample: named after the clip'), researchCoin(6, 'SEED Bonded Chair', 'SEEDCHR', 'yes', 'SEED sample: the chair from the trailer', { marketCapUsd: 1_200_000, liquidityUsd: 90_000 }), researchCoin(7, 'SEED Unknown State', 'SEEDUNK', 'unknown', '', { marketCapUsd: null })],
+    coins: [researchCoin(5, 'SEED Iguana Scooter', 'SEEDIGUA', 'no', 'SEED sample: named after the clip', { via: 'SEED GTA' }), researchCoin(6, 'SEED Bonded Chair', 'SEEDCHR', 'yes', 'SEED sample: the chair from the trailer', { marketCapUsd: 1_200_000, liquidityUsd: 90_000, via: 'chair' }), researchCoin(7, 'SEED Unknown State', 'SEEDUNK', 'unknown', '', { marketCapUsd: null, via: 'iguana' })],
     freeNames: [{ name: 'SEED Leonida Lizard', ticker: 'SEEDLIZ', why: 'SEED sample: the plain name of the animal', note: '' }],
     xNote: 'X was read: 2 pages, 17 posts found, the 15 most viewed shown',
+    termsNote: 'terms used: SEED GTA, chair, iguana; local set: last 7 days seen by Argus',
     createdAt: researchAt(196).toISOString(),
   }, researchAt(196), [{ snapshot: snap(5, 'SEED Iguana Scooter', 'SEEDIGUA'), reason: 'SEED sample: the clip names it and it is still on the curve', topic: 'SEED GTA', playbookVersion: null }]);
   const failed = store.requestResearch('SEED failed topic', { now: researchAt(150) });

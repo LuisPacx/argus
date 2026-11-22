@@ -616,6 +616,7 @@ export function migrate(db: DatabaseSync): void {
   // The Playbook (ticket 09): its request and version tables, and the version in use recorded on each brief and each Proposal made with it.
   migratePlaybook(db);
   ensureColumn(db, "research_briefs", "playbook_version", "TEXT");
+  ensureColumn(db, "research_briefs", "terms_note", "TEXT");
   ensureColumn(db, "proposals", "playbook_version", "TEXT");
   ensureColumn(db, "proposals", "operator_angle", "TEXT");
   // The Operator's Verdict on a Narrative (War Room ticket 19): one additive table, append-only.
@@ -1509,8 +1510,8 @@ export class Datastore {
       const open = this.db.prepare("SELECT 1 FROM research_requests WHERE id = ? AND status IN ('pending', 'running')").get(id);
       if (!open) return false;
       this.db
-        .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at, playbook_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt, brief.playbookVersion ?? null);
+        .prepare("INSERT INTO research_briefs (request_id, story, sources, coins, free_names, x_note, created_at, playbook_version, terms_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, brief.story, JSON.stringify(brief.sources), JSON.stringify(brief.coins), JSON.stringify(brief.freeNames), brief.xNote, brief.createdAt, brief.playbookVersion ?? null, brief.termsNote ?? "");
       this.db.prepare("UPDATE research_requests SET status = 'done', detail = ?, done_at = ? WHERE id = ?").run(`${brief.coins.length} coins, ${brief.sources.length} sources, ${brief.freeNames.length} free names`, now.toISOString(), id);
       for (const s of shadow) {
         try {

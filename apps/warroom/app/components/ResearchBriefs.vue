@@ -47,6 +47,7 @@ const emit = defineEmits<{ make: [researchRequestId: number] }>();
                 <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span class="min-w-0 break-words text-sm font-medium" data-test="brief-coin-title">{{ c.title }}</span>
                   <span class="pill" :class="c.bondedClass" data-test="brief-coin-bonded">{{ c.bonded }}</span>
+                  <span v-if="c.via" class="faint text-xs" data-test="brief-coin-via">{{ c.via }}</span>
                   <span class="muted text-xs" data-test="brief-coin-facts">{{ c.facts }}</span>
                 </div>
                 <p v-if="c.note" class="muted min-w-0 break-words text-xs" data-test="brief-coin-note">{{ c.note }}</p>
@@ -67,6 +68,7 @@ const emit = defineEmits<{ make: [researchRequestId: number] }>();
             </ul>
             <p v-else class="faint text-xs" data-test="brief-no-free-names">{{ r.brief.noFreeNames }}</p>
           </div>
+          <p v-if="r.brief.termsNote" class="faint min-w-0 break-words text-xs" data-test="brief-terms-note">{{ r.brief.termsNote }}</p>
           <p class="faint min-w-0 break-words text-xs" data-test="brief-x-note">{{ r.brief.xNote }}</p>
         </div>
         <div v-if="r.ideas" class="grid min-w-0 gap-1.5 border-t border-[var(--wr-line)] pt-2" data-test="brief-ideas">

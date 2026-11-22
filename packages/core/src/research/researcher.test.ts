@@ -659,7 +659,8 @@ describe("the terms step (research widen ticket 02)", () => {
       const t = setup({ topic: TOPIC, terms, search: { [TOPIC]: [pair(1, { name: "Christmas Literal" })], xmas: [graduatedPair(2, "Xmas Doge")] }, answers: [nice({ coins: [{ id: "c1", note: "n" }] })] });
       expect(await t.run()).toMatchObject({ called: 1, done: 1, failed: 0 });
       const brief = t.store.researchRequests()[0]!.brief!;
-      expect(brief.xNote).toMatch(/the topic alone/);
+      expect(brief.termsNote).toMatch(/^terms used: christmas \(.*the topic alone was used\); local set: last 7 days seen by Argus$/);
+      expect(brief.xNote).not.toMatch(/the topic alone/);
       expect(brief.xNote).toContain("X was read");
       expect(lines(t.brain.prompts[0]!)).toHaveLength(1);
       expect(t.dex.calls.filter((c) => c.startsWith("search:"))).toEqual([`search:${TOPIC}`]);
@@ -673,7 +674,23 @@ describe("the terms step (research widen ticket 02)", () => {
       const ok = setup({ topic: TOPIC, answers: [nice({ coins: [] })] });
       await ok.run();
       expect(ok.store.researchRequests()[0]!.brief!.xNote).not.toMatch(/the topic alone/);
+      expect(ok.store.researchRequests()[0]!.brief!.termsNote).not.toMatch(/the topic alone/);
     });
+  });
+
+  it("the brief records each coin's via (set by code) and a note of the terms used and the local set's window", async () => {
+    const t = setup({
+      topic: TOPIC,
+      terms: termsJson(["xmas", "catemas"]),
+      search: { [TOPIC]: [pair(1, { name: "Christmas Literal" })], catemas: [graduatedPair(5, "CATEMAS")] },
+      complete: { [CA(5)]: [graduatedPair(5, "CATEMAS")], [CA(1)]: [pair(1)] },
+      answers: [nice({ coins: [{ id: "c1", note: "a" }, { id: "c2", note: "b" }] })],
+    });
+    await t.run();
+    const brief = t.store.researchRequests()[0]!.brief!;
+    expect(brief.coins.map((c) => [c.ca, c.via])).toEqual([[CA(1), "christmas"], [CA(5), "catemas"]]);
+    expect(brief.termsNote).toBe("terms used: christmas, xmas, catemas; local set: last 7 days seen by Argus");
+    expect(brief.xNote).not.toContain("terms used");
   });
 
   it("a rate limit or a shutdown on the terms run leaves the request waiting and starts no researcher run", async () => {

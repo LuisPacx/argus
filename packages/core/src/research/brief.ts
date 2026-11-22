@@ -89,6 +89,8 @@ export interface BriefCoin {
   /** `unknown` when the lookup that decides it failed or was cut: never guessed. */
   bonded: BondedState;
   note: string;
+  /** The term that found the coin, set by code and never by the model (research widen ticket 03). Absent on a brief stored before it. */
+  via?: string;
 }
 
 export interface FreeName {
@@ -106,6 +108,8 @@ export interface ResearchBrief {
   freeNames: FreeName[];
   /** What X gave: "read 2 pages, 17 posts" or why it was not read. Code-written. */
   xNote: string;
+  /** Code-written: the terms the coins were searched by and the local set's window ("terms used: ...; local set: last 7 days seen by Argus"). Empty on a brief stored before it. */
+  termsNote?: string;
   createdAt: string;
   /** The Playbook version (ticket 09) the research prompt carried, or null when none was used; recorded so a change in behaviour can be traced. */
   playbookVersion?: string | null;
@@ -423,6 +427,7 @@ export function toResearchBrief(r: Row): ResearchBrief {
     coins: json<BriefCoin[]>(r.coins, []),
     freeNames: json<FreeName[]>(r.free_names, []),
     xNote: r.x_note as string,
+    termsNote: (r.terms_note as string | null | undefined) ?? "",
     createdAt: r.created_at as string,
     playbookVersion: (r.playbook_version as string | null | undefined) ?? null,
   };

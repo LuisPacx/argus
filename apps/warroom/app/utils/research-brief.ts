@@ -14,6 +14,8 @@ const NOTE_CLAMP = 200;
 const NAME_CLAMP = 60;
 const SYMBOL_CLAMP = 20;
 const DETAIL_CLAMP = 300;
+const VIA_CLAMP = 40;
+const TERMS_NOTE_CLAMP = 400;
 const CA_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
@@ -21,9 +23,11 @@ const finite = (n: unknown): n is number => typeof n === "number" && Number.isFi
 export interface BriefPayload {
   story: string;
   sources: { title: string; url: string | null }[];
-  coins: { ca: string; name: string; symbol: string; marketCapUsd: number | null; liquidityUsd: number; bonded: "yes" | "no" | "unknown"; note: string }[];
+  coins: { ca: string; name: string; symbol: string; marketCapUsd: number | null; liquidityUsd: number; bonded: "yes" | "no" | "unknown"; note: string; via?: string }[];
   freeNames: { name: string; ticker: string; why: string; note: string }[];
   xNote: string;
+  /** Code-written "terms used: ...; local set: ..."; absent or empty on an older brief. */
+  termsNote?: string;
   createdAt: string;
 }
 export interface ResearchRequestPayload {
@@ -47,6 +51,8 @@ export interface BriefCoinView {
   bonded: string;
   bondedClass: string;
   note: string;
+  /** "found via <term>", or "" for a coin of an older brief that has no `via`. */
+  via: string;
 }
 export interface BriefView {
   story: string;
@@ -57,6 +63,8 @@ export interface BriefView {
   freeNames: { label: string; why: string; note: string }[];
   noFreeNames: string;
   xNote: string;
+  /** "" when the brief has none (an older brief). */
+  termsNote: string;
 }
 export interface ResearchRowView {
   id: number;
@@ -131,7 +139,9 @@ function briefView(b: BriefPayload): BriefView {
     const ca = clampText(c.ca, 60);
     const bonded = BONDED[c.bonded] ?? BONDED.unknown!;
     const symbol = clampText(c.symbol, SYMBOL_CLAMP);
+    const via = typeof c.via === "string" ? clampText(c.via, VIA_CLAMP) : "";
     return {
+      via: via === "" ? "" : `found via ${via}`,
       title: `${clampText(c.name, NAME_CLAMP) || "(no name)"}${symbol ? ` ($${symbol})` : ""}`,
       ca,
       href: CA_RE.test(ca) ? `https://dexscreener.com/solana/${ca}` : null,
@@ -141,7 +151,9 @@ function briefView(b: BriefPayload): BriefView {
       note: clampText(c.note, NOTE_CLAMP),
     };
   });
-  const free = (Array.isArray(b.freeNames) ? b.freeNames : []).filter((n) => typeof n === "object" && n !== null);
+  // Bonded coins first (research widen ticket 03); the stored order (biggest cap first) holds within each group.
+  coins.sort((a, b) => Number(b.bonded === BONDED.yes!.label) - Number(a.bonded === BONDED.yes!.label));
+  const free =(Array.isArray(b.freeNames) ? b.freeNames : []).filter((n) => typeof n === "object" && n !== null);
   return {
     story: clampText(b.story, STORY_CLAMP),
     sources: (Array.isArray(b.sources) ? b.sources : []).filter((s) => typeof s === "object" && s !== null).map((s) => {
@@ -153,6 +165,7 @@ function briefView(b: BriefPayload): BriefView {
     freeNames: free.map((n) => ({ label: `${clampText(n.name, NAME_CLAMP)} ($${clampText(n.ticker, SYMBOL_CLAMP)})`, why: clampText(n.why, NOTE_CLAMP), note: clampText(n.note, NOTE_CLAMP) })),
     noFreeNames: free.length === 0 ? "No free name was offered, or every name offered is already used by a live token." : "",
     xNote: clampText(b.xNote, 200),
+    termsNote: typeof b.termsNote === "string" ? clampText(b.termsNote, TERMS_NOTE_CLAMP) : "",
   };
 }
 

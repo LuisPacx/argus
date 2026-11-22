@@ -54,6 +54,46 @@ describe("the Research briefs list", () => {
     expect(html).not.toMatch(/undefined|NaN|null/);
   });
 
+  // Research widen ticket 03: how each coin was found, bonded coins first, and the brief's note of the terms used.
+  const widened = () => {
+    const b = row().brief!;
+    return row({
+      brief: {
+        ...b,
+        coins: [
+          { ca: "3".repeat(40), name: "Curve Coin", symbol: "CRV", marketCapUsd: 90_000, liquidityUsd: 5_000, bonded: "no", note: "", via: "christmas" },
+          { ca: "4".repeat(40), name: "Lookup Failed", symbol: "LKF", marketCapUsd: 80_000, liquidityUsd: 5_000, bonded: "unknown", note: "", via: "<b>xmas</b>" },
+          { ca: CA, name: "Catemas", symbol: "CATEMAS", marketCapUsd: 60_000, liquidityUsd: 21_000, bonded: "yes", note: "", via: "mas" },
+        ],
+        termsNote: "terms used: christmas, xmas, mas; local set: last 7 days seen by Argus",
+      },
+    });
+  };
+  const titlesOf = (html: string) => [...html.matchAll(/data-test="brief-coin-title"[^>]*>([^<]*)</g)].map((m) => m[1]);
+
+  it("shows 'found via <term>' beside the bonded pill and lists bonded coins before the others", async () => {
+    const html = await draw([widened()]);
+    expect(titlesOf(html)).toEqual(["Catemas ($CATEMAS)", "Curve Coin ($CRV)", "Lookup Failed ($LKF)"]);
+    expect(html).toMatch(/data-test="brief-coin-bonded"[^>]*>Bonded<\/span>\s*<span[^>]*data-test="brief-coin-via"[^>]*>found via mas</);
+    expect(html).toContain("found via christmas");
+    expect(html).toContain("Bonded: unknown");
+    expect(html).toContain("&lt;b&gt;xmas&lt;/b&gt;");
+    expect(html).not.toContain("<b>xmas");
+  });
+
+  it("shows the terms used and the local set's window in the brief's own note", async () => {
+    const html = await draw([widened()]);
+    expect(html).toMatch(/data-test="brief-terms-note"[^>]*>terms used: christmas, xmas, mas; local set: last 7 days seen by Argus</);
+  });
+
+  it("a brief stored before `via` and the terms note still renders, with no label and no note", async () => {
+    const html = await draw([row()]);
+    expect(html).not.toContain("brief-coin-via");
+    expect(html).not.toContain("found via");
+    expect(html).not.toContain("brief-terms-note");
+    expect(titlesOf(html)).toEqual(["Iguana Scooter ($IGUA)", "Unknown State ($UNK)"]);
+  });
+
   it("source links open in a new tab with no opener and no referrer", async () => {
     const html = await draw([row()]);
     expect(html).toContain('href="https://example.com/trailer" class="underline" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"');
