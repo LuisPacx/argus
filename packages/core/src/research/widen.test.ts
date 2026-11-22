@@ -62,6 +62,13 @@ describe("matchLocal", () => {
     expect(found.map((m) => m.token.mint)).toEqual([CA(1), CA(2), CA(3)]);
   });
 
+  it("a term under 4 characters is looked for in the name and the ticker only, never the description; a longer term still reads the description", () => {
+    const t = token(1, "Plain", { symbol: "PLN", description: "the master of massive things, a santa hat" });
+    expect(matchLocal(["mas"], [t])).toEqual([]);
+    expect(matchLocal(["mas"], [token(2, "CATEMAS", { description: "" }), token(3, "Plain", { symbol: "BOSSMAS" })]).map((m) => m.token.mint)).toEqual([CA(2), CA(3)]);
+    expect(matchLocal(["santa", "mas"], [t]).map((m) => m.via)).toEqual(["santa"]);
+  });
+
   it("a word is never read across two fields: the end of the name and the start of the ticker do not join", () => {
     expect(matchLocal(["santa"], [token(1, "San", { symbol: "TA" })])).toEqual([]);
   });
@@ -132,6 +139,35 @@ describe("mergeCandidates", () => {
     });
     expect(both).toHaveLength(1);
     expect(both[0]).toMatchObject({ via: "christmas", pair: { liquidityUsd: 900 } });
+  });
+
+  it("reserves slots for the best literal hits: 3 literal hits and 40 bonded extras leave all 3 literal hits in the 25, shown after the bonded coins", () => {
+    const extras = Array.from({ length: 40 }, (_v, i) => ({ pair: pair(100 + i, { marketCapUsd: 1_000_000 + i }), via: "xmas" }));
+    const lits = [pair(1, { marketCapUsd: 5 }), pair(2, { marketCapUsd: 7 }), pair(3, { marketCapUsd: 6 })];
+    const out = mergeCandidates({ topic: "christmas", literal: lits, extras, migratedAt: (ca) => (lits.some((l) => l.tokenAddress === ca) ? null : "2026-11-20T00:00:00.000Z") });
+    expect(out).toHaveLength(25);
+    expect(out.slice(0, 22).every((c) => c.bonded === true && c.via === "xmas")).toBe(true);
+    expect(out.slice(22).map((c) => c.pair.tokenAddress)).toEqual([CA(2), CA(3), CA(1)]);
+  });
+
+  it("reserves at most 5 literal slots, the 5 biggest caps; the rest of the 25 go to the best of everything else", () => {
+    const lits = Array.from({ length: 8 }, (_v, i) => pair(1 + i, { marketCapUsd: 10 * (i + 1) }));
+    const extras = Array.from({ length: 40 }, (_v, i) => ({ pair: pair(100 + i, { marketCapUsd: 1_000_000 + i }), via: "xmas" }));
+    const out = mergeCandidates({ topic: "t", literal: lits, extras, migratedAt: (ca) => (lits.some((l) => l.tokenAddress === ca) ? null : "2026-11-20T00:00:00.000Z") });
+    const literalKept = out.filter((c) => c.via === "t").map((c) => c.pair.tokenAddress);
+    expect(out).toHaveLength(25);
+    expect(literalKept).toEqual([CA(8), CA(7), CA(6), CA(5), CA(4)]);
+    expect(out.filter((c) => c.via === "xmas")).toHaveLength(20);
+  });
+
+  it("says `unknown` (null), not `not bonded`, when there is no basis: not a launchpad mint, or a pair that names no venue", () => {
+    const plain = (n: number, over: Partial<DexPair> = {}) => pair(n, { tokenAddress: `${String(n)}`.repeat(40), ...over });
+    const out = merge([plain(1), plain(2, { dexId: undefined }), pair(3, { dexId: undefined }), pair(4)], []);
+    const state = (ca: string) => out.find((c) => c.pair.tokenAddress === ca)!.bonded;
+    expect(state("1".repeat(40))).toBeNull();
+    expect(state("2".repeat(40))).toBeNull();
+    expect(state(CA(3))).toBeNull();
+    expect(state(CA(4))).toBe(false);
   });
 
   it("only offers Solana coins with a price and a plain address, and caps the literal hits at 15 before the extras join", () => {

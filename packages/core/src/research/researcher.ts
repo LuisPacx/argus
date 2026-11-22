@@ -75,7 +75,8 @@ const usd = (n: number): string => `$${n.toFixed(2)}`;
 
 /**
  * The coins DexScreener listed for the topic that the model may choose from: Solana only, a plain address, priced, one per token (its deepest pair),
- * biggest market cap first (unknown last), at most `RESEARCH_CANDIDATES_MAX`. The model is shown ids (`c1`, `c2`, ...), never addresses.
+ * biggest market cap first (unknown last), at most `RESEARCH_LITERAL_MAX` (15): the literal search's share of the candidates. `mergeCandidates` (`widen.ts`)
+ * builds the list the model sees (up to `RESEARCH_CANDIDATES_MAX`, with the bonded local coins). The model is shown ids (`c1`, `c2`, ...), never addresses.
  */
 export function pickCandidates(pairs: readonly DexPair[]): { id: string; pair: DexPair }[] {
   return topLiteral(pairs).map((pair, i) => ({ id: `c${i + 1}`, pair }));

@@ -505,8 +505,10 @@ describe("the local bonded set (research widen ticket 01)", () => {
     await t.run();
     const lines = candidateLines(t.brain.prompts[0]!);
     expect(lines).toHaveLength(25);
-    expect(lines[24]).toMatch(/^c25: Coin 1 .*not bonded/);
-    expect(lines.slice(0, 24).every((l) => l.includes(", bonded, via \"mas\""))).toBe(true);
+    // The 3 literal hits keep their slots (the reserve), so only 22 of the 24 local coins fit; the literal ones follow, biggest cap first.
+    expect(lines.slice(22).map((l) => l.split(":")[1]!.trim().split(" (")[0])).toEqual(["Coin 1", "Coin 2", "Coin 3"]);
+    expect(lines[24]).toMatch(/^c25: Coin 3 .*not bonded/);
+    expect(lines.slice(0, 22).every((l) => l.includes(", bonded, via \"mas\""))).toBe(true);
     expect(t.store.researchRequests()[0]).toMatchObject({ status: "done", runs: 1 });
     // c26 is not an id the model was offered.
     const t2 = setup({ topic: "mas", search: { mas: lits }, complete, answers: [nice({ coins: [{ id: "c26", note: "invented" }] }), nice({ coins: [{ id: "c25", note: "ok" }] })] });
