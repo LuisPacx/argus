@@ -5,11 +5,12 @@
 
 **Blocked by:** 16
 
-**Status:** open
+**Status:** done
 
-- [ ] Every automatic switch that is on is a WARN with the message above; off or unset is PASS; an invalid value is a FAIL that does not hide the other switches.
-- [ ] The switch list comes from `automatic-agents.ts` (a test fails if a switch there is not covered).
-- [ ] From a git worktree, setup-check reports the War Room and worker of the main checkout as running when `pnpm dev:status` does (a test covers the root resolution).
-- [ ] New tests fail on the parent commit; type-check, `pnpm lint` and `pnpm check` are green.
+- [x] Every automatic switch that is on is a WARN with the message above; off or unset is PASS; an invalid value is a FAIL that does not hide the other switches.
+- [x] The switch list comes from `automatic-agents.ts` (a test fails if a switch there is not covered).
+- [x] From a git worktree, setup-check reports the War Room and worker of the main checkout as running when `pnpm dev:status` does (a test covers the root resolution).
+- [x] New tests fail on the parent commit; type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Comments
+- 2026-11-22 cos: merged 94f8a6c. Reviewer SHIP; verifier PASS (241/3888, 4 new tests fail on parent; live setup-check agrees with dev-server status).

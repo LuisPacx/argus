@@ -1,7 +1,7 @@
 # 20: Hide closed and dismissed Proposals by default
 **Model:** sonnet / effort: medium. A pure filter util, one toggle link component, small edits on the home list and the Narrative page's Proposal block, seed rows.
 
-**Status:** open
+**Status:** done
 
 **Blocked by:** none.
 
@@ -21,13 +21,14 @@ The War Room lists of Proposals show every status. `closed` (expired or finished
 
 ## Acceptance
 
-- [ ] Unit tests of the split (`apps/warroom/server/test/proposal-visibility.test.ts`): default hides closed and dismissed and counts them; `showHidden` shows all; an explicit closed/dismissed status filter shows them and reports 0 hidden; the toggle label and URL for each state; they fail without the change.
-- [ ] Render test of the toggle component: link with the count, `aria` state, the "Hide" text when on, absent when nothing is hidden; the home page and Narrative block use it.
-- [ ] Seed data has a closed and a dismissed Proposal (seed test counts updated).
-- [ ] Browser (`pnpm page:check --seed` on `/`, `/?closed=1`, and a `--keys "focus=[data-test=show-closed],Enter"` run): exit 0, the default screenshot omits the two, the toggled one shows them.
-- [ ] Type-check, lint and one full `pnpm check` pass before the commit.
+- [x] Unit tests of the split (`apps/warroom/server/test/proposal-visibility.test.ts`): default hides closed and dismissed and counts them; `showHidden` shows all; an explicit closed/dismissed status filter shows them and reports 0 hidden; the toggle label and URL for each state; they fail without the change.
+- [x] Render test of the toggle component: link with the count, `aria` state, the "Hide" text when on, absent when nothing is hidden; the home page and Narrative block use it.
+- [x] Seed data has a closed and a dismissed Proposal (seed test counts updated).
+- [x] Browser (`pnpm page:check --seed` on `/`, `/?closed=1`, and a `--keys "focus=[data-test=show-closed],Enter"` run): exit 0, the default screenshot omits the two, the toggled one shows them.
+- [x] Type-check, lint and one full `pnpm check` pass before the commit.
 
 ## Constraints
 
 - Keep edits in `pages/index.vue` and `pages/proposals/[id].vue` minimal (War Room ticket 02 edits both). `proposals/[id].vue` needs none.
 - Follow `docs/agents/worker-rules.md`. Commit subject `War Room ticket 20: hide closed and dismissed Proposals by default`.
+- 2026-11-22 cos: merged d60d865. Reviewer SHIP; verifier PASS 35ac7b2 (242/3895, test fails on parent, page:check / and /?closed=1 exit 0, header count excludes hidden rows).
