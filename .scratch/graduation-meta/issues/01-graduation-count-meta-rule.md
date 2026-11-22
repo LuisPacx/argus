@@ -5,8 +5,7 @@
 
 **Blocked by:** none
 
-Status: done
-
+Status: needs-info
 - [x] `graduatedBetween` is read-only, uses the `migrated_at` index and writes nothing.
 - [x] A fixture subject with 10 or more graduations, 6 or more creators and 3 or more in 6 h and no priced leader is a Meta with the cap shown as a dash.
 - [x] 9 graduations make it Watching, not a Meta.
@@ -25,3 +24,6 @@ Status: done
 - Pointers: `packages/core/src/meta/compute.ts`, `leaders.ts`, `config.ts`, `coverage.ts`, `store.ts`, `topdown.ts`, `group.ts`; `study/store.ts`.
 - Bonk graduations have no receipt and are ignored; ticket 03 notes this in the docs.
 - Spec: `.scratch/graduation-meta/spec.md`.
+
+## Comments
+- 2026-11-22 17:05 [d37fa1ed] Box 'live tick shows Christmas as a Meta' stays open until Christmas-fix ticket 6; blocked on Luis's OK in .scratch/ops/issues/01-christmas-fix-breakdown.md
