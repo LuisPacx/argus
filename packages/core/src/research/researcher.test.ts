@@ -439,6 +439,95 @@ describe("the untrusted text", () => {
   });
 });
 
+describe("the local bonded set (research widen ticket 01)", () => {
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  /** A valid mint for a local token, up to 33 * 33 of them; the first character tells them apart. */
+  const LCA = (i: number) => `${B58[i % 33]}${B58[Math.floor(i / 33)]}${"k".repeat(34)}pump`;
+  const DAY = 24 * 60;
+  /** Records a create and a migrate in the Study, `minutesAgo` before NOW. */
+  function seedMigrated(store: Datastore, mint: string, name: string, minutesAgo: number, symbol = name.slice(0, 5).toUpperCase().replace(/\s/g, "")) {
+    const base = { signature: "", creator: "Creator".padEnd(44, "1"), uri: "https://ipfs.io/ipfs/meta", pool: "pump" };
+    store.study.recordTokenEvent({ ...base, kind: "create", mint, receivedAt: at(-minutesAgo - 30).toISOString(), name, symbol });
+    store.study.recordTokenEvent({ ...base, kind: "migrate", mint, receivedAt: at(-minutesAgo).toISOString(), name: "", symbol: "", creator: "", uri: "", pool: "pump-amm" });
+  }
+  const graduated = (mint: string, name: string, cap: number, over: Partial<DexPair> = {}): DexPair => ({ ...pair(1, { dexId: "pumpswap", liquidityUsd: 30_000, marketCapUsd: cap, name, symbol: name.toUpperCase().slice(0, 6) }), tokenAddress: mint, ...over });
+  const candidateLines = (prompt: string) => prompt.split("\n").filter((l) => /^c\d+: /.test(l));
+  /** An answer with no free names, so the only DexScreener calls are the ones the candidates cause. */
+  const nice = (over: Record<string, unknown> = {}) => good({ freeNames: [], ...over });
+
+  it("adds the migrated coins that match the topic to the candidates, bonded first, each with the term it matched, and never shows an address", async () => {
+    const t = setup({
+      topic: "mas",
+      search: { mas: [pair(1, { name: "Mascot Literal", marketCapUsd: 900_000 })] },
+      complete: { [LCA(1)]: [graduated(LCA(1), "CATEMAS", 40_000)], [LCA(2)]: [graduated(LCA(2), "BOSSMAS", 90_000)], [CA(1)]: [pair(1)] },
+      answers: [nice({ coins: [{ id: "c1", note: "boss" }, { id: "c3", note: "the literal one" }] })],
+    });
+    seedMigrated(t.store, LCA(1), "CATEMAS", 60);
+    seedMigrated(t.store, LCA(2), "BOSSMAS", 120);
+    seedMigrated(t.store, LCA(3), "Thomas", 90);
+    seedMigrated(t.store, LCA(4), "Old Mas", 8 * DAY);
+    await t.run();
+    const lines = candidateLines(t.brain.prompts[0]!);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^c1: BOSSMAS .*market cap \$90K.*, bonded, via "mas"$/);
+    expect(lines[1]).toMatch(/^c2: CATEMAS .*market cap \$40K.*, bonded, via "mas"$/);
+    expect(lines[2]).toMatch(/^c3: Mascot Literal .*, not bonded, via "mas"$/);
+    expect(t.brain.prompts[0]).not.toContain(LCA(1));
+    expect(t.brain.prompts[0]).not.toContain(LCA(2));
+    expect(t.brain.prompts[0]).not.toContain(CA(1));
+    // Only the two matches were looked up (Thomas and the 8-day-old coin never were), then the two chosen coins' pairs (one cached).
+    expect(t.dex.calls).toEqual(["search:mas", "pairs:2", "pairs:1"]);
+    const brief = t.store.researchRequests()[0]!.brief!;
+    expect(brief.coins.map((c) => [c.ca, c.bonded])).toEqual([[CA(1), "no"], [LCA(2), "yes"]]);
+  });
+
+  it("a local match DexScreener does not know, or whose lookup fails, is left out and the brief is still made", async () => {
+    const t = setup({
+      topic: "mas",
+      search: { mas: [pair(1, { name: "Mascot Literal" })] },
+      complete: { [LCA(1)]: new Error("429"), [CA(1)]: [pair(1)] },
+      answers: [nice({ coins: [{ id: "c1", note: "only one" }] })],
+    });
+    seedMigrated(t.store, LCA(1), "CATEMAS", 60);
+    seedMigrated(t.store, LCA(2), "BOSSMAS", 60);
+    expect(await t.run()).toMatchObject({ done: 1, failed: 0 });
+    expect(candidateLines(t.brain.prompts[0]!)).toHaveLength(1);
+    expect(t.store.researchRequests()[0]!.status).toBe("done");
+  });
+
+  it("offers at most 25 candidates and the model may answer with c25 but not c26; its coin and pick limits are unchanged", async () => {
+    const local = Array.from({ length: 24 }, (_v, i) => i + 1);
+    const complete: Record<string, DexPair[]> = {};
+    local.forEach((i) => (complete[LCA(i)] = [graduated(LCA(i), `Mas Coin ${i}`, 1_000 * i)]));
+    const lits = [pair(1, { marketCapUsd: 9_000_000 }), pair(2, { marketCapUsd: 8_000_000 }), pair(3, { marketCapUsd: 7_000_000 })];
+    const t = setup({ topic: "mas", search: { mas: lits }, complete, answers: [nice({ coins: [{ id: "c25", note: "last" }], picks: [] })] });
+    local.forEach((i) => seedMigrated(t.store, LCA(i), `Mas Coin ${i}`, 60 + i));
+    await t.run();
+    const lines = candidateLines(t.brain.prompts[0]!);
+    expect(lines).toHaveLength(25);
+    expect(lines[24]).toMatch(/^c25: Coin 1 .*not bonded/);
+    expect(lines.slice(0, 24).every((l) => l.includes(", bonded, via \"mas\""))).toBe(true);
+    expect(t.store.researchRequests()[0]).toMatchObject({ status: "done", runs: 1 });
+    // c26 is not an id the model was offered.
+    const t2 = setup({ topic: "mas", search: { mas: lits }, complete, answers: [nice({ coins: [{ id: "c26", note: "invented" }] }), nice({ coins: [{ id: "c25", note: "ok" }] })] });
+    local.forEach((i) => seedMigrated(t2.store, LCA(i), `Mas Coin ${i}`, 60 + i));
+    await t2.run();
+    expect(t2.brain.prompts[1]).toContain("`coins[0].id` is not one of the candidate ids listed in the prompt");
+    // The model's own limits are untouched: more than 10 coins is refused.
+    const eleven = Array.from({ length: 11 }, (_v, i) => ({ id: `c${i + 1}`, note: "n" }));
+    const t3 = setup({ topic: "mas", search: { mas: lits }, complete, answers: [nice({ coins: eleven }), nice({ coins: eleven })] });
+    local.forEach((i) => seedMigrated(t3.store, LCA(i), `Mas Coin ${i}`, 60 + i));
+    await t3.run();
+    expect(t3.store.researchRequests()[0]!.status).toBe("failed");
+  });
+
+  it("with an empty local set the lookups are exactly what they were: one search, then the chosen coins", async () => {
+    const t = setup({ answers: [nice()] });
+    await t.run();
+    expect(t.dex.calls).toEqual(["search:GTA", "pairs:2"]);
+  });
+});
+
 describe("what the Operator sees of the cost", () => {
   it("every run, including a failed one, is on the request and its cost comes from brain_runs", async () => {
     const t = setup({ answers: ["junk", "junk again"], cost: 0.31 });

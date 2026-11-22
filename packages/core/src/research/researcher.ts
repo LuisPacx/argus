@@ -7,16 +7,18 @@ import { deadTokenNotes } from "../meme/live-token.ts";
 import { DEFAULT_RESEARCH_BUDGET_CONFIG, researchRunCaps, researchUsage, type ResearchBudgetConfig } from "../research-budget.ts";
 import { DexTruncatedError, type DexPair } from "../sources/dexscreener.ts";
 import type { Notifier } from "../telegram.ts";
-import { BRIEF_LIMITS, parseBriefOutput, RESEARCH_CANDIDATES_MAX, RESEARCH_MAX_DAILY_USD, RESEARCH_MAX_RUNS_PER_DAY, RESEARCH_RUN_MAX_USD, researchPromptFor, type BriefCoin, type FreeName, type PromptCandidate, type ResearchBrief, type ResearchRequest } from "./brief.ts";
-import { cleanTopic, decideBonded, isCa, snapshotFromPairs } from "./picks.ts";
+import { BRIEF_LIMITS, parseBriefOutput, RESEARCH_MAX_DAILY_USD, RESEARCH_MAX_RUNS_PER_DAY, RESEARCH_RUN_MAX_USD, researchPromptFor, type BriefCoin, type FreeName, type PromptCandidate, type ResearchBrief, type ResearchRequest } from "./brief.ts";
+import { cleanTopic, decideBonded, snapshotFromPairs } from "./picks.ts";
 import { eligiblePlaybook, type PlaybookSource, type ShadowPickInput } from "./shadow.ts";
+import { matchLocal, mergeCandidates, topLiteral, type LocalMatch } from "./widen.ts";
 import { readXForTopic } from "./x-read.ts";
 
 /**
  * The worker's research step (human researcher ticket 05, ADR 0017): takes each pending `research_requests` row and makes a Research brief of it.
  * Argus does the lookups by code; the model only reads the open web and writes the brief:
  *  1. the caps are checked first (6 runs a day, $3 a day, the shared research budget): a capped request ends `capped` with the reason and is never left waiting;
- *  2. DexScreener is searched for the topic (the declared client; a failure ends the request `failed` before any money is spent);
+ *  2. DexScreener is searched for the topic (the declared client; a failure ends the request `failed` before any money is spent). The tokens Argus saw
+ *     migrate in the last 7 days are matched against the terms in code and merged in (`widen.ts`, research widen ticket 01): extras only when bonded;
  *  3. X is read through the scanner's child process and its session gate, or not at all (the note says why);
  *  4. one `researcher` run is opened in `brain_runs` before the child starts and its cost recorded the moment it returns;
  *  5. the answer must fit `parseBriefOutput`; a miss goes back once with the exact error, a second miss ends the request `failed` with the reason;
@@ -33,6 +35,11 @@ const DAY_MS = 24 * 3_600_000;
 /** Requests served in one pass; the rest wait for the next tick. */
 const MAX_PER_PASS = 2;
 const LOOKUP_BATCH = 30;
+/** The local set is the tokens that migrated within this many days (the Study keeps about 13 days, with gaps). */
+const LOCAL_DAYS = 7;
+/** Most tokens read from the Study in one request (a week of migrations is a few thousand), and most matches looked up on DexScreener (newest first). */
+const LOCAL_READ_MAX = 20_000;
+const LOCAL_LOOKUP_MAX = 60;
 
 /** The DexScreener methods the step needs; `DexScreenerClient` satisfies it, tests pass a fake. */
 export interface ResearchDex {
@@ -71,17 +78,34 @@ const usd = (n: number): string => `$${n.toFixed(2)}`;
  * biggest market cap first (unknown last), at most `RESEARCH_CANDIDATES_MAX`. The model is shown ids (`c1`, `c2`, ...), never addresses.
  */
 export function pickCandidates(pairs: readonly DexPair[]): { id: string; pair: DexPair }[] {
-  const deepest = new Map<string, DexPair>();
-  for (const p of pairs) {
-    if (p.chainId !== "solana" || p.unpriced === true || !isCa(p.tokenAddress)) continue;
-    const cur = deepest.get(p.tokenAddress);
-    if (!cur || p.liquidityUsd > cur.liquidityUsd) deepest.set(p.tokenAddress, p);
+  return topLiteral(pairs).map((pair, i) => ({ id: `c${i + 1}`, pair }));
+}
+
+/** The terms the local set is matched against. Research widen ticket 01: the topic itself (ticket 02 adds the model's terms). */
+function termsFor(topic: string): string[] {
+  return [topic];
+}
+
+/**
+ * The local bonded set (research widen ticket 01): the tokens Argus itself saw migrate in the last 7 days, matched against `terms` in plain code, then looked up
+ * on DexScreener (the newest `LOCAL_LOOKUP_MAX` matches) for their market cap and liquidity. A match DexScreener cannot answer for is left out. Never throws:
+ * a failed read or lookup only means fewer coins. Returns the extra pairs, each with its term, and the complete answers (the chosen coins reuse them).
+ */
+async function localExtras(store: Datastore, dex: ResearchDex, terms: readonly string[], now: Date, log: (line: string) => void): Promise<{ extras: { pair: DexPair; via: string }[]; complete: Map<string, DexPair[]> }> {
+  const complete = new Map<string, DexPair[]>();
+  const extras: { pair: DexPair; via: string }[] = [];
+  let matches: LocalMatch[];
+  try {
+    matches = matchLocal(terms, store.study.migratedSince(new Date(now.getTime() - LOCAL_DAYS * DAY_MS).toISOString(), LOCAL_READ_MAX)).slice(0, LOCAL_LOOKUP_MAX);
+  } catch (e) {
+    log(`[worker] research: the local migrated set could not be read, so it is left out: ${e instanceof Error ? e.message : String(e)}`);
+    return { extras, complete };
   }
-  const cap = (p: DexPair) => p.marketCapUsd ?? p.fdvUsd ?? -1;
-  return [...deepest.values()]
-    .sort((a, b) => cap(b) - cap(a) || b.liquidityUsd - a.liquidityUsd)
-    .slice(0, RESEARCH_CANDIDATES_MAX)
-    .map((pair, i) => ({ id: `c${i + 1}`, pair }));
+  if (matches.length === 0) return { extras, complete };
+  const answers = await completePairs(dex, matches.map((m) => m.token.mint));
+  for (const [ca, pairs] of answers) complete.set(ca, pairs);
+  for (const m of matches) for (const p of answers.get(m.token.mint) ?? []) extras.push({ pair: p, via: m.via });
+  return { extras, complete };
 }
 
 /** One lookup per batch of coins; a batch the client says may be cut is split in half and asked again, so a cut answer never decides a coin. A failed batch leaves its coins out. */
@@ -193,14 +217,17 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       fail("DexScreener could not be reached, so nothing was researched and nothing was spent; ask again");
       continue;
     }
-    const candidates = pickCandidates(listed);
+    const local = await localExtras(store, opts.dex, termsFor(req.topic), now, log);
+    const candidates = mergeCandidates({ topic: req.topic, literal: listed, extras: local.extras, migratedAt: (ca) => store.migrationOf(ca) });
     const x = await readXForTopic(req.topic, { store, runner: opts.xRunner, notifier: opts.notifier, loadsPerDay: opts.xLoadsPerDay ?? MOMENT_CONFIG.loadsPerDayDefault, now: clock, signal: opts.signal, log });
     if (opts.signal?.aborted) {
       store.releaseResearchRequest(req.id);
       return { ...out, stoppedBy: "interrupted" };
     }
-    const promptCandidates: PromptCandidate[] = candidates.map(({ id, pair }) => ({
+    const promptCandidates: PromptCandidate[] = candidates.map(({ id, pair, bonded, via }) => ({
       id,
+      bonded,
+      via,
       name: pair.name,
       symbol: pair.symbol,
       marketCapUsd: pair.marketCapUsd !== undefined && pair.marketCapUsd > 0 ? pair.marketCapUsd : null,
@@ -254,7 +281,10 @@ export async function runResearchRequests(store: Datastore, brain: Brain, opts: 
       const cand = candidates.find((k) => k.id === c.id);
       return cand ? [{ cand, note: c.note }] : [];
     });
-    const complete = await completePairs(opts.dex, chosen.map((c) => c.cand.pair.tokenAddress));
+    // The coins found locally were looked up already: only the others are asked for.
+    const complete = new Map(local.complete);
+    const toLookUp = chosen.map((c) => c.cand.pair.tokenAddress).filter((ca) => !complete.has(ca));
+    if (toLookUp.length > 0) for (const [ca, pairs] of await completePairs(opts.dex, toLookUp)) complete.set(ca, pairs);
     const coins = chosen
       .map(({ cand, note }) => coinOf(cand.pair.tokenAddress, cand.pair, complete.get(cand.pair.tokenAddress), store.migrationOf(cand.pair.tokenAddress), note))
       .sort((a, b) => (b.marketCapUsd ?? -1) - (a.marketCapUsd ?? -1))

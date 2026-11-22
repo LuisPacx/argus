@@ -77,6 +77,16 @@ export interface MigratedExample {
   siteTitle: string;
 }
 
+/** A token that migrated in a window, as the researcher's local match reads it: creator-written text, empty description when there is no Snapshot. */
+export interface MigratedToken {
+  mint: string;
+  name: string;
+  symbol: string;
+  /** PumpPortal receipt time of the migrate event (ISO). */
+  migratedAt: string;
+  description: string;
+}
+
 /** A pump.fun token as the Meta ranking reads it: untrusted text, a create time, and the migrate time when one was seen. */
 export interface LaunchedToken {
   mint: string;
@@ -447,6 +457,24 @@ export class StudyStore {
       out.push({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "", siteTitle: (r.site_title as string | null) ?? "" });
     }
     return out;
+  }
+
+  /**
+   * READ ONLY. The tokens that migrated at or after `sinceIso`, newest `migrated_at` first, at most `limit`, with the Snapshot's description when one
+   * exists. Unlike `recentMigrated` nothing is de-duplicated and the limit is not clamped to 100, because the researcher matches every one of them
+   * against a term list (research widen ticket 01). A migration whose create was never seen has no name or symbol and is left out (it cannot match).
+   * The text is creator-written. The Study has gaps, so a mint can be missing. Nothing is written.
+   */
+  migratedSince(sinceIso: string, limit: number): MigratedToken[] {
+    const n = Math.floor(limit);
+    if (!(n > 0)) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.mint, t.name, t.symbol, t.migrated_at, s.description FROM study_tokens t LEFT JOIN study_snapshots s ON s.mint = t.mint
+         WHERE t.migrated_at >= ? AND (TRIM(t.name) <> '' OR TRIM(t.symbol) <> '') ORDER BY t.migrated_at DESC, t.mint LIMIT ?`,
+      )
+      .all(sinceIso, n) as Row[];
+    return rows.map((r) => ({ mint: r.mint as string, name: r.name as string, symbol: r.symbol as string, migratedAt: r.migrated_at as string, description: (r.description as string | null) ?? "" }));
   }
 
   /**

@@ -5,7 +5,7 @@ import type { PumpConnectionEvent, PumpTokenEvent } from "../sources/pumpportal.
 import { tempDir } from "../testing/temp.ts";
 import { join } from "node:path";
 import { MAX_CAPTURE_RUNS_PER_DAY, STUDY_CAPTURE_RULE } from "./config.ts";
-import { SnapshotNotAllowedError, snapshotHash, type NewSnapshot } from "./store.ts";
+import { migrateStudy, SnapshotNotAllowedError, snapshotHash, StudyStore, type NewSnapshot } from "./store.ts";
 
 const T0 = Date.parse("2026-11-08T10:00:00.000Z");
 const at = (sec: number) => new Date(T0 + sec * 1000);
@@ -337,6 +337,52 @@ describe("Study stats", () => {
     expect(s.gapSeconds).toBe(60 + 100); // the open gap runs to now
     expect(s.captureRuns24h).toBe(1);
     expect(s.captureRunCap).toBeGreaterThan(0);
+  });
+});
+
+describe("migratedSince (the researcher's local bonded set)", () => {
+  function seededRaw() {
+    const db = new DatabaseSync(":memory:");
+    migrateStudy(db);
+    const study = new StudyStore(db);
+    // Two tokens by the same creator and the same name are both returned: nothing is de-duplicated here.
+    study.recordTokenEvent(create(1, 0, { name: "CATEMAS", symbol: "CATE", creator: "CreatorA" }));
+    study.recordSnapshot(snap(1, { description: "A cat in a santa hat" }), at(60));
+    study.recordTokenEvent(create(2, 0, { name: "Santa Inu", symbol: "SINU", creator: "CreatorA" }));
+    study.recordTokenEvent(create(3, 0, { name: "Santa Inu", symbol: "SINU", creator: "CreatorA" }));
+    study.recordTokenEvent(create(4, 0, { name: "Never Migrated" }));
+    study.recordTokenEvent(create(5, 0, { name: "Too Old" }));
+    study.recordTokenEvent(migrate(5, 10));
+    study.recordTokenEvent(migrate(1, 1_000));
+    study.recordTokenEvent(migrate(2, 2_000));
+    study.recordTokenEvent(migrate(3, 3_000));
+    study.recordTokenEvent(migrate(9, 4_000)); // create never seen: no name, so nothing to match
+    return { db, study };
+  }
+
+  it("returns the tokens migrated since the cutoff, newest first, with the Snapshot's description when there is one, and does not de-duplicate", () => {
+    const { study } = seededRaw();
+    const rows = study.migratedSince(iso(500), 100);
+    expect(rows.map((r) => r.mint)).toEqual([mintOf(3), mintOf(2), mintOf(1)]);
+    expect(rows[2]).toEqual({ mint: mintOf(1), name: "CATEMAS", symbol: "CATE", migratedAt: iso(1_000), description: "A cat in a santa hat" });
+    expect(rows[0]).toMatchObject({ name: "Santa Inu", description: "" });
+    expect(study.migratedSince(iso(5), 100).map((r) => r.name)).toContain("Too Old");
+    expect(study.migratedSince(iso(5_000), 100)).toEqual([]);
+  });
+
+  it("takes at most `limit` of the newest, and a limit of 0 or less returns nothing", () => {
+    const { study } = seededRaw();
+    expect(study.migratedSince(iso(500), 2).map((r) => r.mint)).toEqual([mintOf(3), mintOf(2)]);
+    expect(study.migratedSince(iso(500), 0)).toEqual([]);
+    expect(study.migratedSince(iso(500), -3)).toEqual([]);
+  });
+
+  it("is read only: it changes no row", () => {
+    const { db, study } = seededRaw();
+    const before = (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+    study.migratedSince(iso(0), 100);
+    study.migratedSince(iso(0), 1);
+    expect((db.prepare("SELECT total_changes() AS n").get() as { n: number }).n).toBe(before);
   });
 });
 
