@@ -5,18 +5,19 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A read-only query returns tokens migrated in the last 7 days (with a limit) and writes nothing.
-- [ ] With a fake store holding CATEMAS, BOSSMAS and Santa Inu as migrated and terms "xmas", "santa", "mas", all three become candidates, each with the term it matched as `via`.
-- [ ] An extra candidate that is not bonded is excluded; a literal-search hit that is not bonded is still kept.
-- [ ] "mas" does not match "Thomas"; matching is case-insensitive and covers name, ticker and description.
-- [ ] Candidates are ordered bonded, then market cap, then liquidity, and capped at 25.
-- [ ] The prompt candidates gain `bonded` and `via`; the model still sees only ids, and its coin and pick limits are unchanged.
-- [ ] Existing researcher tests pass unchanged.
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] A read-only query returns tokens migrated in the last 7 days (with a limit) and writes nothing.
+- [x] With a fake store holding CATEMAS, BOSSMAS and Santa Inu as migrated and terms "xmas", "santa", "mas", all three become candidates, each with the term it matched as `via`.
+- [x] An extra candidate that is not bonded is excluded; a literal-search hit that is not bonded is still kept.
+- [x] "mas" does not match "Thomas"; matching is case-insensitive and covers name, ticker and description.
+- [x] Candidates are ordered bonded, then market cap, then liquidity, and capped at 25.
+- [x] The prompt candidates gain `bonded` and `via`; the model still sees only ids, and its coin and pick limits are unchanged.
+- [x] Existing researcher tests pass unchanged.
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Pointers: `pickCandidates` and `RESEARCH_CANDIDATES_MAX` in `packages/core/src/research/researcher.ts`; `decideBonded` in `research/picks.ts`; `migrationOf` in `datastore.ts`; `PromptCandidate` in `research/brief.ts`; `study_tokens` in `study/store.ts` (`recentMigrated` there is the wrong shape: cap 100, de-duplicated, so add a new query).
 - The local set has gaps (`study_gaps`), so a mint can be missing; that is accepted.
 - Spec: `.scratch/research-widen/spec.md`.
+- 2026-11-22 cos: merged 16ab39d+95b4e39. Reviewer (sonnet high) SHIP; verifier PASS 06e83c1 (245/3978, page:check 0) and follow-up 86c5de3 (549 pass; 5 new tests fail on 06e83c1). Literal slots reserved (5), short stems name/ticker only, bonded unknown.

@@ -11,18 +11,19 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] History is kept; the newest row per Proposal is current.
-- [ ] playbook_version and kind come from the store; a body `playbookVersion` is ignored.
-- [ ] 404/400 matrix (unknown Proposal, non-meme kind, bad verdict, unknown tag, 501-char note, extra keys) with nothing stored on any error.
-- [ ] `renderToString` shows the control and an escaped note.
-- [ ] `page:check` exits 0 at 390 and 1240 px with keys.
-- [ ] No `v-html`; no raw `:href` (lint-links passes).
-- [ ] GLOSSARY has "Idea verdict".
-- [ ] Type-check, `pnpm lint` and `pnpm check` are green.
+- [x] History is kept; the newest row per Proposal is current.
+- [x] playbook_version and kind come from the store; a body `playbookVersion` is ignored.
+- [x] 404/400 matrix (unknown Proposal, non-meme kind, bad verdict, unknown tag, 501-char note, extra keys) with nothing stored on any error.
+- [x] `renderToString` shows the control and an escaped note.
+- [x] `page:check` exits 0 at 390 and 1240 px with keys.
+- [x] No `v-html`; no raw `:href` (lint-links passes).
+- [x] GLOSSARY has "Idea verdict".
+- [x] Type-check, `pnpm lint` and `pnpm check` are green.
 
 ## Notes
 - Operator approved 2026-11-22 ("yes as you recommend"): min 10 explicit idea verdicts with ≥3 on the minority side (used by human-researcher 18); meme-kind only; one-click verdict with optional "add why".
 - Patterns: `packages/core/src/datastore.ts` (addNarrativeVerdict ~:2347), `narrative-verdict.ts:73-84`, `apps/warroom/app/utils/verdict.ts`, VerdictForm.
 - Follow-ups: human-researcher 18, 19, 20.
+- 2026-11-22 cos: merged 8044488. Reviewer (sonnet high) SHIP; verifier PASS 9d42664 (247/4014, new tests fail on parent, keys run POST /api/proposals/1/verdict seen); rebased check stamped 9f514a6719.
