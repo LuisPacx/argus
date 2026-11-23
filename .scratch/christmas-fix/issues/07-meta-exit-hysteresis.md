@@ -20,3 +20,5 @@ Live runs 627-637 (see 06-live-check-christmas-meta.md Comments): Christmas was 
 - 2026-11-22 23:30 [0d50a746] christmas-07 dd5521e: pnpm check passed (4254 tests, stamped). Boxes a-e met; replay test fails on the old tie-break. Not merged.
 - 2026-11-22 23:41 [0d50a746] Fix round 368c0f5 on christmas-07: COOLING_WHY reworded, fixture header and architecture.md (re-entry guard) fixed, replay runs 628/629 use live count 4 and prove the 45-min hold. pnpm check passed (255 files, 4255 tests).
 - 2026-11-22 23:50 [0d50a746] Merged 368c0f5 to main: verifier PASS 4255/4255, replay fails on parent, review APPROVE. All boxes ticked.
+- 2026-11-22 23:50 [0d50a746] Live worker (supervisor PID 1890700, started 16:37 -03) predates the fix; needs pnpm dev:stop && pnpm dev:start (also restarts War Room). Asked Luis for OK.
+- 2026-11-23 00:17 [0d50a746] Luis OK'd restart: argus dev stack restarted 00:16Z (worker 2660618, warroom 2660399, :3100 200, first ticks clean). Pushed main a6f7847.
